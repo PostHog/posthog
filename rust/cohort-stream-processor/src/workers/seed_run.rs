@@ -1,0 +1,573 @@
+//! Run boundaries for the batched seed apply: a channel batch's seeds become runs of one kind,
+//! and each run reaches exactly one mark or one hold.
+//!
+//! Applying seeds one at a time costs one awaited produce per seed that flips anything, so a
+//! worker spends its time waiting on Kafka instead of folding. A run amortizes that: one read
+//! pass, one register diff, one stage-1 commit, one recompute, one produce round trip, one
+//! stage-2 commit, one mark. This module owns only the boundaries; the pipeline lives in
+//! [`seed_apply`](super::seed_apply) and the two folds with their seed kinds.
+//!
+//! Pure: no I/O, no clock.
+
+use std::num::NonZeroUsize;
+
+use cohort_core::seed::{PersonSeed, ReconcileTile, SeedTile};
+
+use crate::consumers::seeds::{SeedSkipReason, SeedWork};
+use crate::filters::FilterCatalog;
+
+/// One message's offset on `cohort_stream_seed_events`. A newtype so the seed tracker can never be
+/// handed another topic's offset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct SeedOffset(pub i64);
+
+/// The offsets a run acts on: `first` is what a failure holds, `last` is what a success marks.
+///
+/// `first` is the run's *lowest* offset, not its leading one. The consumer delivers in offset
+/// order, but a hold above the true minimum would pin the commit floor past a seed that was never
+/// applied, so the span is derived from the items rather than assumed from delivery order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct OffsetSpan {
+    pub first: SeedOffset,
+    pub last: SeedOffset,
+}
+
+/// One seed with the offset that must be marked or held for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Admitted<T> {
+    pub work: T,
+    pub offset: SeedOffset,
+}
+
+/// A non-empty run of one seed kind, applied as one unit. Construction is the only place emptiness
+/// is checked, so [`span`](Self::span) can never be asked about a run with no offsets.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SeedRun<T> {
+    items: Vec<Admitted<T>>,
+    span: OffsetSpan,
+}
+
+impl<T> SeedRun<T> {
+    /// `None` for an empty run: a group with no offsets could neither mark nor hold.
+    pub(crate) fn new(items: Vec<Admitted<T>>) -> Option<Self> {
+        let first = items.iter().map(|item| item.offset).min()?;
+        let last = items
+            .iter()
+            .map(|item| item.offset)
+            .max()
+            .expect("a run with a lowest offset has a highest one too");
+        Some(Self {
+            items,
+            span: OffsetSpan { first, last },
+        })
+    }
+
+    pub(crate) fn span(&self) -> OffsetSpan {
+        self.span
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    pub(crate) fn into_items(self) -> Vec<Admitted<T>> {
+        self.items
+    }
+}
+
+/// A channel batch's seeds, split so each group is applied by exactly one handler.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SeedGroup {
+    Tiles(SeedRun<SeedTile>),
+    Persons(SeedRun<PersonSeed>),
+    /// Control tiles stay single: admission defers one offset and orders one queue entry, which a
+    /// run of them could not express.
+    Reconcile(Admitted<ReconcileTile>),
+    /// Consume-side skips stay single: each one commits its own offset and does no work.
+    Skip(Admitted<SeedSkipReason>),
+}
+
+impl SeedGroup {
+    /// The lowest offset this group acts on — the order groups are applied in.
+    fn first_offset(&self) -> SeedOffset {
+        match self {
+            Self::Tiles(run) => run.span().first,
+            Self::Persons(run) => run.span().first,
+            Self::Reconcile(admitted) => admitted.offset,
+            Self::Skip(admitted) => admitted.offset,
+        }
+    }
+}
+
+/// Which apply pipeline a run belongs to; also the `kind` metric label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum SeedKind {
+    Tile,
+    Person,
+}
+
+impl SeedKind {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Tile => "tile",
+            Self::Person => "person",
+        }
+    }
+}
+
+/// Both ceilings on one run. `seeds` bounds messages; `leaves` bounds the overlay exactly, so a
+/// hash resolving to many leaves or a 1,024-hash person seed cannot make a run arbitrarily heavy.
+///
+/// The register read and the recompute set scale with `leaves` but are not bounded by it: both fan
+/// out again by the cohorts each leaf backs, which the catalog owns. Watch
+/// `store_offload_permit_wait_duration_seconds` rather than assuming a hard ceiling there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunBudget {
+    /// Seeds per run. `1` restores the per-seed apply, which is the hatch if batching misbehaves.
+    pub seeds: NonZeroUsize,
+    /// Leaves per run, as [`leaf_weight`] weighs them. A run closes before the seed that would
+    /// exceed it; a seed heavier than the whole budget still runs alone.
+    pub leaves: NonZeroUsize,
+}
+
+impl Default for RunBudget {
+    /// Mirrors the `COHORT_SEED_APPLY_BATCH_MAX*` defaults, for deps built without explicit config.
+    fn default() -> Self {
+        Self {
+            seeds: NonZeroUsize::new(256).expect("256 > 0"),
+            leaves: NonZeroUsize::new(4096).expect("4096 > 0"),
+        }
+    }
+}
+
+/// How many leaves one seed can touch, against the catalog snapshot the run will fold with.
+///
+/// A seed the catalog cannot place weighs one, so a run of them is still bounded by the seed cap
+/// rather than by nothing. Control and skip seeds weigh nothing: they are always their own group.
+pub(crate) fn leaf_weight(catalog: &FilterCatalog, work: &SeedWork) -> usize {
+    let leaves = match work {
+        SeedWork::Tile(tile) => catalog.team(tile.team_id()).map_or(0, |filters| {
+            filters
+                .by_condition_to_lsk
+                .get(&tile.condition_hash().as_bytes())
+                .map_or(0, Vec::len)
+        }),
+        SeedWork::Person(seed) => seed.evaluated().len(),
+        SeedWork::Reconcile(_) | SeedWork::Skip(_) => return 0,
+    };
+    leaves.max(1)
+}
+
+/// Split `seeds` into runs of one kind, in offset order, each within `budget` under `weigh`.
+///
+/// One open run per kind: a tile does not close the open person run and vice versa, so an
+/// interleaved stream still forms full runs. A control seed (reconcile, skip) closes both open
+/// runs first, so it stays behind every data seed that precedes it. A budget closes only the run
+/// it bounds.
+///
+/// Pure and total: every input seed lands in exactly one group, groups are emitted in the order of
+/// their first offset, and offset order is preserved within each kind.
+pub(crate) fn group_seeds(
+    seeds: Vec<Admitted<SeedWork>>,
+    budget: RunBudget,
+    weigh: impl Fn(&SeedWork) -> usize,
+) -> Vec<SeedGroup> {
+    let mut groups = Vec::new();
+    let mut tiles = OpenRun::new(SeedGroup::Tiles);
+    let mut persons = OpenRun::new(SeedGroup::Persons);
+
+    for Admitted { work, offset } in seeds {
+        let weight = weigh(&work);
+        match work {
+            SeedWork::Tile(tile) => {
+                tiles.admit(Admitted { work: tile, offset }, weight, budget, &mut groups);
+            }
+            SeedWork::Person(seed) => {
+                persons.admit(Admitted { work: seed, offset }, weight, budget, &mut groups);
+            }
+            SeedWork::Reconcile(tile) => {
+                tiles.close(&mut groups);
+                persons.close(&mut groups);
+                groups.push(SeedGroup::Reconcile(Admitted { work: tile, offset }));
+            }
+            SeedWork::Skip(reason) => {
+                tiles.close(&mut groups);
+                persons.close(&mut groups);
+                groups.push(SeedGroup::Skip(Admitted {
+                    work: reason,
+                    offset,
+                }));
+            }
+        }
+    }
+
+    tiles.close(&mut groups);
+    persons.close(&mut groups);
+    // Two open runs close at the end in kind order, which is not offset order. Sorting restores the
+    // contract callers read the groups under; it does not make a group's span disjoint from its
+    // neighbours', which is why the mark is buffered rather than published per group.
+    groups.sort_by_key(SeedGroup::first_offset);
+    groups
+}
+
+/// A run of one kind still accepting seeds, with the leaf weight it has admitted so far.
+struct OpenRun<T> {
+    into: fn(SeedRun<T>) -> SeedGroup,
+    items: Vec<Admitted<T>>,
+    leaves: usize,
+}
+
+impl<T> OpenRun<T> {
+    fn new(into: fn(SeedRun<T>) -> SeedGroup) -> Self {
+        Self {
+            into,
+            items: Vec::new(),
+            leaves: 0,
+        }
+    }
+
+    /// Admit one seed, closing the run around it as the budget demands: before, when its weight
+    /// would overflow the leaf budget; after, when it fills the seed count.
+    ///
+    /// An empty run always admits, so a seed heavier than the whole budget still applies alone
+    /// instead of never being marked or held.
+    fn admit(
+        &mut self,
+        item: Admitted<T>,
+        weight: usize,
+        budget: RunBudget,
+        groups: &mut Vec<SeedGroup>,
+    ) {
+        let overflows = self.leaves.saturating_add(weight) > budget.leaves.get();
+        if overflows && !self.items.is_empty() {
+            self.close(groups);
+        }
+        self.items.push(item);
+        self.leaves = self.leaves.saturating_add(weight);
+        if self.items.len() >= budget.seeds.get() {
+            self.close(groups);
+        }
+    }
+
+    /// Close the run, if non-empty, as one group.
+    fn close(&mut self, groups: &mut Vec<SeedGroup>) {
+        let Some(run) = SeedRun::new(std::mem::take(&mut self.items)) else {
+            return;
+        };
+        self.leaves = 0;
+        groups.push((self.into)(run));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroU32;
+
+    use cohort_core::seed::{
+        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileScope, RunId, SChunkMs,
+        ScannedAtMs,
+    };
+    use serde_json::{json, Value};
+    use uuid::Uuid;
+
+    use crate::filters::{CohortId, TeamFiltersBuilder, TeamId};
+
+    use super::*;
+
+    const TEAM: TeamId = TeamId(7);
+    const BEHAVIORAL: &str = "0123456789abcdef";
+    const PERSON: &str = "person0000000001";
+
+    fn hash(value: &str) -> ConditionHash {
+        ConditionHash::parse(value).unwrap()
+    }
+
+    fn tile() -> SeedTile {
+        tile_with(TEAM, BEHAVIORAL)
+    }
+
+    fn tile_with(team: TeamId, condition_hash: &str) -> SeedTile {
+        SeedTile::new(
+            team,
+            Uuid::from_u128(1),
+            hash(condition_hash),
+            NonZeroU32::new(1).unwrap(),
+            20_614,
+            SChunkMs(1),
+            RunId(Uuid::nil()),
+            ClaimEpoch(1),
+        )
+    }
+
+    fn person_seed(evaluated: &[&str]) -> PersonSeed {
+        PersonSeed::new(
+            TEAM,
+            Uuid::from_u128(2),
+            evaluated.iter().copied().map(hash).collect(),
+            vec![],
+            ScannedAtMs(1),
+            RunId(Uuid::nil()),
+            ClaimEpoch(1),
+        )
+        .unwrap()
+    }
+
+    fn reconcile() -> ReconcileTile {
+        ReconcileTile::new(
+            TEAM,
+            CohortId(1),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse(BEHAVIORAL).unwrap()),
+            RunId(Uuid::nil()),
+        )
+    }
+
+    fn admitted(work: SeedWork, offset: i64) -> Admitted<SeedWork> {
+        Admitted {
+            work,
+            offset: SeedOffset(offset),
+        }
+    }
+
+    /// The offsets each group would act on: `(first, last)` per group, in group order.
+    fn spans(groups: &[SeedGroup]) -> Vec<(i64, i64)> {
+        groups
+            .iter()
+            .map(|group| match group {
+                SeedGroup::Tiles(run) => (run.span().first.0, run.span().last.0),
+                SeedGroup::Persons(run) => (run.span().first.0, run.span().last.0),
+                SeedGroup::Reconcile(admitted) => (admitted.offset.0, admitted.offset.0),
+                SeedGroup::Skip(admitted) => (admitted.offset.0, admitted.offset.0),
+            })
+            .collect()
+    }
+
+    fn budget(seeds: usize, leaves: usize) -> RunBudget {
+        RunBudget {
+            seeds: NonZeroUsize::new(seeds).unwrap(),
+            leaves: NonZeroUsize::new(leaves).unwrap(),
+        }
+    }
+
+    /// Group under the seed cap alone: every seed weighs one and the leaf budget is unbounded.
+    fn group_by_count(seeds: Vec<Admitted<SeedWork>>, max_seeds: usize) -> Vec<SeedGroup> {
+        group_seeds(seeds, budget(max_seeds, usize::MAX), |_| 1)
+    }
+
+    fn tiles(offsets: std::ops::Range<i64>) -> Vec<Admitted<SeedWork>> {
+        offsets
+            .map(|offset| admitted(SeedWork::Tile(tile()), offset))
+            .collect()
+    }
+
+    /// A run that leaked across kinds would hand tiles to the person fold; a control seed that did
+    /// not close both runs would let a later batch mark past its own offset.
+    #[test]
+    fn control_seeds_close_both_runs_and_stay_single() {
+        let groups = group_by_count(
+            vec![
+                admitted(SeedWork::Tile(tile()), 0),
+                admitted(SeedWork::Person(person_seed(&[PERSON])), 1),
+                admitted(SeedWork::Reconcile(reconcile()), 2),
+                admitted(SeedWork::Tile(tile()), 3),
+                admitted(SeedWork::Skip(SeedSkipReason::UnknownKind), 4),
+            ],
+            256,
+        );
+
+        assert_eq!(
+            spans(&groups),
+            vec![(0, 0), (1, 1), (2, 2), (3, 3), (4, 4)],
+            "every group holds its own first and marks its own last",
+        );
+        assert!(matches!(groups[0], SeedGroup::Tiles(_)));
+        assert!(matches!(groups[1], SeedGroup::Persons(_)));
+        assert!(matches!(groups[2], SeedGroup::Reconcile(_)));
+        assert!(matches!(groups[3], SeedGroup::Tiles(_)));
+        assert!(matches!(groups[4], SeedGroup::Skip(_)));
+    }
+
+    /// An interleaved tile/person stream degraded to runs of one under #93822's kind-change close,
+    /// which is the whole win lost.
+    #[test]
+    fn an_interleaved_stream_still_forms_one_run_per_kind() {
+        let groups = group_by_count(
+            vec![
+                admitted(SeedWork::Tile(tile()), 0),
+                admitted(SeedWork::Person(person_seed(&[PERSON])), 1),
+                admitted(SeedWork::Tile(tile()), 2),
+                admitted(SeedWork::Person(person_seed(&[PERSON])), 3),
+            ],
+            256,
+        );
+
+        assert_eq!(groups.len(), 2, "one run per kind, not four runs of one");
+        assert!(matches!(groups[0], SeedGroup::Tiles(ref run) if run.len() == 2));
+        assert!(matches!(groups[1], SeedGroup::Persons(ref run) if run.len() == 2));
+        assert_eq!(
+            spans(&groups),
+            vec![(0, 2), (1, 3)],
+            "each kind keeps its own offset order",
+        );
+    }
+
+    #[test]
+    fn a_run_longer_than_the_cap_splits_into_capped_groups() {
+        assert_eq!(
+            spans(&group_by_count(tiles(0..7), 3)),
+            vec![(0, 2), (3, 5), (6, 6)]
+        );
+    }
+
+    /// The zero-cost hatch: `COHORT_SEED_APPLY_BATCH_MAX=1` must reproduce the per-seed apply.
+    #[test]
+    fn a_cap_of_one_yields_one_group_per_seed() {
+        assert_eq!(
+            spans(&group_by_count(tiles(0..3), 1)),
+            vec![(0, 0), (1, 1), (2, 2)]
+        );
+    }
+
+    #[test]
+    fn an_empty_batch_yields_no_groups() {
+        assert!(group_by_count(Vec::new(), 256).is_empty());
+    }
+
+    /// The budget bounds what a run expands to, so it has to be checked before a seed is admitted:
+    /// applied after, every run would overshoot by one seed's whole leaf set.
+    #[test]
+    fn a_run_closes_before_the_seed_that_would_exceed_the_leaf_budget() {
+        let groups = group_seeds(tiles(0..5), budget(256, 10), |_| 4);
+
+        assert_eq!(spans(&groups), vec![(0, 1), (2, 3), (4, 4)]);
+    }
+
+    /// A seed heavier than the whole budget can never fit, so an empty run must still admit it:
+    /// refusing would leave the seed neither marked nor held, and the partition wedged behind it.
+    #[test]
+    fn a_seed_heavier_than_the_whole_budget_still_forms_a_run_of_one() {
+        let groups = group_seeds(tiles(0..3), budget(256, 10), |_| 1000);
+
+        assert_eq!(spans(&groups), vec![(0, 0), (1, 1), (2, 2)]);
+    }
+
+    /// A budget on one kind must not close the other kind's open run: it would undo the
+    /// interleaving win without bounding anything the other run reads.
+    #[test]
+    fn a_budget_closes_only_the_run_it_bounds() {
+        let groups = group_seeds(
+            vec![
+                admitted(SeedWork::Person(person_seed(&[PERSON])), 0),
+                admitted(SeedWork::Tile(tile()), 1),
+                admitted(SeedWork::Tile(tile()), 2),
+                admitted(SeedWork::Person(person_seed(&[PERSON])), 3),
+            ],
+            budget(2, usize::MAX),
+            |_| 1,
+        );
+
+        assert!(matches!(groups[0], SeedGroup::Persons(ref run) if run.len() == 2));
+        assert!(matches!(groups[1], SeedGroup::Tiles(ref run) if run.len() == 2));
+        assert_eq!(
+            spans(&groups),
+            vec![(0, 3), (1, 2)],
+            "groups are emitted in first-offset order even when the budget closes one kind first",
+        );
+    }
+
+    /// Callers apply groups in the order they come out, so the order has to be the offset order the
+    /// consumer delivered in — not the order the two open runs happened to close in.
+    #[test]
+    fn groups_are_emitted_in_first_offset_order() {
+        let groups = group_seeds(
+            vec![
+                admitted(SeedWork::Person(person_seed(&[PERSON])), 0),
+                admitted(SeedWork::Tile(tile()), 1),
+                admitted(SeedWork::Person(person_seed(&[PERSON])), 2),
+                admitted(SeedWork::Reconcile(reconcile()), 3),
+                admitted(SeedWork::Tile(tile()), 4),
+            ],
+            budget(256, usize::MAX),
+            |_| 1,
+        );
+
+        let firsts: Vec<i64> = spans(&groups).into_iter().map(|(first, _)| first).collect();
+        let mut sorted = firsts.clone();
+        sorted.sort_unstable();
+        assert_eq!(
+            firsts, sorted,
+            "groups came out out of offset order: {firsts:?}"
+        );
+    }
+
+    /// The weight is the leaf set a seed folds over. A hash shared by many cohorts still reaches
+    /// one leaf, so counting cohorts here would close runs the overlay could carry.
+    #[test]
+    fn leaf_weight_counts_leaves_and_floors_an_unplaceable_seed_at_one() {
+        let behavioral = |condition_hash: &str, window_days: i64| {
+            json!({
+                "type": "behavioral", "value": "performed_event", "key": "$pageview",
+                "time_value": window_days, "time_interval": "day",
+                "conditionHash": condition_hash,
+                "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
+            })
+        };
+        let person_property = json!({
+            "type": "person", "key": "email", "value": "a@b.com", "operator": "exact",
+            "conditionHash": PERSON,
+            "bytecode": ["_H", 1, 32, "a@b.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
+        });
+        let cohort =
+            |leaves: Vec<Value>| json!({ "properties": { "type": "AND", "values": leaves } });
+        let mut builder = TeamFiltersBuilder::default();
+        // Two windows over one condition hash: two leaves. Three cohorts share them.
+        for id in 1..=3 {
+            builder
+                .add_cohort(CohortId(id), TEAM, &cohort(vec![behavioral(BEHAVIORAL, 7)]))
+                .unwrap();
+        }
+        builder
+            .add_cohort(CohortId(4), TEAM, &cohort(vec![behavioral(BEHAVIORAL, 30)]))
+            .unwrap();
+        builder
+            .add_cohort(CohortId(5), TEAM, &cohort(vec![person_property]))
+            .unwrap();
+        let catalog = FilterCatalog::from_teams([(TEAM, builder.freeze(chrono_tz::UTC))]);
+
+        assert_eq!(
+            leaf_weight(&catalog, &SeedWork::Tile(tile_with(TEAM, BEHAVIORAL))),
+            2,
+            "two windows over one hash are two leaves, however many cohorts share them",
+        );
+        assert_eq!(
+            leaf_weight(
+                &catalog,
+                &SeedWork::Tile(tile_with(TEAM, "no_such_cond0000"))
+            ),
+            1,
+            "a hash the catalog no longer resolves still weighs one",
+        );
+        assert_eq!(
+            leaf_weight(&catalog, &SeedWork::Tile(tile_with(TeamId(99), BEHAVIORAL))),
+            1,
+            "an unknown team still weighs one",
+        );
+        assert_eq!(
+            leaf_weight(
+                &catalog,
+                &SeedWork::Person(person_seed(&[BEHAVIORAL, PERSON])),
+            ),
+            2,
+            "a person seed weighs its evaluated set, one leaf per hash",
+        );
+        assert_eq!(leaf_weight(&catalog, &SeedWork::Reconcile(reconcile())), 0);
+        assert_eq!(
+            leaf_weight(&catalog, &SeedWork::Skip(SeedSkipReason::UnknownKind)),
+            0,
+        );
+    }
+
+    #[test]
+    fn an_empty_run_has_no_span_so_it_cannot_become_a_group() {
+        assert!(SeedRun::<SeedTile>::new(Vec::new()).is_none());
+    }
+}

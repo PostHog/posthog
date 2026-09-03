@@ -281,7 +281,9 @@ pub const STAGE1_PERSON_RECORD_TOTAL: &str = "stage1_person_record_total";
 pub const STAGE1_PERSON_RECORD_SIZE_BYTES: &str = "stage1_person_record_size_bytes";
 /// Behavioral applies staged per event — the write fan-out of the behavioral side (histogram).
 pub const STAGE1_BEHAVIORAL_APPLIES: &str = "stage1_behavioral_applies";
-/// Leaf membership flips emitted, labelled by `kind` (counter).
+/// Leaf membership flips emitted, labelled by `kind` (counter). The seed paths count a run's
+/// *net* flip per leaf, not one per seed: a run that enters then leaves the same leaf counts
+/// nothing, because that is what it tells downstream.
 pub const STAGE1_TRANSITIONS: &str = "stage1_transitions_total";
 /// `cf_behavioral` records written, labelled by `variant` (counter).
 pub const STAGE1_STATE_WRITES: &str = "stage1_state_writes_total";
@@ -292,6 +294,8 @@ pub const STAGE1_REPLAY_SKIPPED: &str = "stage1_replay_skipped_total";
 /// (counter). A defensive guard against a stale catalog.
 pub const STAGE1_UNSUPPORTED_VARIANT_SKIPPED: &str = "stage1_unsupported_variant_skipped_total";
 /// Stored `cf_behavioral` values that failed to decode; the key is skipped, not panicked (counter).
+/// The seed path counts once per corrupt row its run reads, not once per tile that touches it;
+/// `cohort_seed_tiles_dropped_total{reason="corrupt_state"}` is still per tile-leaf.
 pub const STAGE1_STATE_DECODE_ERROR: &str = "stage1_state_decode_error_total";
 /// End-to-end per-event processing latency in the worker (histogram, seconds).
 pub const STAGE1_EVENT_PROCESS_DURATION: &str = "stage1_event_process_duration_seconds";
@@ -503,6 +507,8 @@ pub const PERSON_SEEDS_DROPPED_TOTAL: &str = "cohort_person_seeds_dropped_total"
 /// from an absent baseline, dropping whatever the unreadable row held outside the seed's evaluated
 /// set. **Any non-zero value is a real record-codec failure, not a dormant person** — the event
 /// path's `stage1_person_record_total{result="corrupt"}` is the same signal for live traffic.
+/// Counted once per corrupt row the run's batched read decodes, not once per seed that touches
+/// it, so a rate comparison across the batched-apply roll is not apples to apples.
 pub const PERSON_SEED_PRIOR_CORRUPT_TOTAL: &str = "cohort_person_seed_prior_corrupt_total";
 /// Hashes dropped from a person seed's effective set, labelled by `reason`
 /// (`unknown_hash`|`variant_mismatch`) (counter). **Sustained non-zero means the run's pinned
@@ -526,6 +532,17 @@ pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
 /// edited cohort whose leaf key moved, a transferred fallback row — so read it against the seed
 /// produce-failure counters before concluding produces are failing.**
 pub const SEED_REGISTER_REPAIRS_TOTAL: &str = "cohort_seed_register_repairs_total";
+
+/// Seeds applied as one run, labelled by `kind` (histogram). The p50 is the batching win: `1` means
+/// every seed still pays its own produce round trip.
+pub const SEED_APPLY_RUN_SIZE: &str = "cohort_seed_apply_run_size";
+/// Wall time one run spent in each pipeline step, labelled by `kind` and `stage` (histogram). A
+/// held run records no sample for the step that failed, so the histogram stays a picture of
+/// completed work; [`SEED_APPLY_RUNS_HELD_TOTAL`] carries the failures.
+pub const SEED_APPLY_RUN_DURATION_SECONDS: &str = "cohort_seed_apply_run_duration_seconds";
+/// Runs that held their first offset instead of marking, labelled by `kind` and `stage` (counter).
+/// **Alert on a sustained non-zero rate: the partition is replaying the same run.**
+pub const SEED_APPLY_RUNS_HELD_TOTAL: &str = "cohort_seed_apply_runs_held_total";
 /// The seed commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
 /// **Alert on a sustained non-zero level.**
 pub const SEED_HELD_OFFSET_GAUGE: &str = "seed_held_offset";
@@ -892,6 +909,15 @@ mod tests {
         assert_eq!(
             SEED_REGISTER_REPAIRS_TOTAL,
             "cohort_seed_register_repairs_total"
+        );
+        assert_eq!(SEED_APPLY_RUN_SIZE, "cohort_seed_apply_run_size");
+        assert_eq!(
+            SEED_APPLY_RUN_DURATION_SECONDS,
+            "cohort_seed_apply_run_duration_seconds",
+        );
+        assert_eq!(
+            SEED_APPLY_RUNS_HELD_TOTAL,
+            "cohort_seed_apply_runs_held_total"
         );
         // The held-offset gauge deliberately mirrors merge_held_offset/cascade_held_offset.
         assert_eq!(SEED_HELD_OFFSET_GAUGE, "seed_held_offset");

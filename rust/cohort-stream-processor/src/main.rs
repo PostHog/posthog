@@ -263,6 +263,7 @@ async fn async_main(config: Config) -> Result<()> {
             enabled: config.cohort_seed_person_apply_enabled,
             live_margin_ms: config.cohort_seed_person_live_margin_ms,
         },
+        seed_budget: config.seed_run_budget(),
     });
 
     // Cheap `Arc` clones taken before the originals move into the dispatcher: the checkpoint sweeper

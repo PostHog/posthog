@@ -2438,6 +2438,7 @@ async fn seed_arm_flushes_buffered_event_changes_first_and_marks_both_trackers()
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
     let alice = person(1);
     let bob = person(2);
+    let carol = person(3);
 
     let catalog = catalog_of(filters);
     let sink = CaptureSink::new();
@@ -2466,7 +2467,8 @@ async fn seed_arm_flushes_buffered_event_changes_first_and_marks_both_trackers()
             cse_offset: 0,
             broker_ts_ms: Some(broker_ts),
         },
-        seed_message(bob, utc_today(), 1, 7),
+        seed_message(bob, utc_today(), 1, 6),
+        seed_message(carol, utc_today(), 1, 7),
     ])
     .await
     .unwrap();
@@ -2474,14 +2476,29 @@ async fn seed_arm_flushes_buffered_event_changes_first_and_marks_both_trackers()
     worker.join().await.unwrap();
 
     let changes = sink.changes();
-    assert_eq!(changes.len(), 2, "one live flip, one seeded flip");
+    assert_eq!(changes.len(), 3, "one live flip, two seeded flips");
     assert_eq!(
         (changes[0].person_id.clone(), changes[0].origin),
         (alice.to_string(), None),
-        "the buffered live change flushed before the seed arm ran",
+        "the buffered live change flushed before the seed run ran",
     );
-    assert_eq!(changes[1].person_id, bob.to_string());
-    assert!(changes[1].origin.is_some(), "the seeded change is tagged");
+    assert_eq!(
+        changes[1..]
+            .iter()
+            .map(|change| change.person_id.clone())
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from([bob.to_string(), carol.to_string()]),
+        "both seeds of the collection applied",
+    );
+    assert!(
+        changes[1..].iter().all(|change| change.origin.is_some()),
+        "the seeded changes are tagged",
+    );
+    assert_eq!(
+        sink.produce_calls(),
+        2,
+        "one call for the live flush and one for the whole seed run",
+    );
 
     assert_eq!(
         tracker.committable_offsets().get(&(PARTITION_ID as i32)),
@@ -2499,6 +2516,63 @@ async fn seed_arm_flushes_buffered_event_changes_first_and_marks_both_trackers()
         deps.live_watermarks.get(PARTITION_ID as i32),
         Some(cohort_stream_processor::partitions::WatermarkMs(broker_ts)),
         "the folded batch advanced the live watermark",
+    );
+}
+
+/// The whole point of the batched apply: a channel batch's seeds pay one produce round trip per
+/// run, not one per seed. A regression here shows up as latency, not as a wrong result, so nothing
+/// else would catch it.
+#[tokio::test]
+async fn a_channel_batch_of_seeds_pays_one_produce_round_trip_per_run() {
+    const SEEDS: usize = 300;
+    // `COHORT_SEED_APPLY_BATCH_MAX` defaults to 256, so 300 seeds form two runs.
+    const RUNS: usize = 2;
+
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
+    let catalog = catalog_of(filters);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let deps = MergeWorkerDeps::capture();
+
+    let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        test_handle(&store),
+        catalog,
+        Arc::new(sink.clone()),
+        tracker.clone(),
+        deps.clone(),
+        false,
+    );
+
+    deps.seed_tracker
+        .mark_dispatched(PARTITION_ID as i32, SEEDS as i64);
+    let batch: Vec<ShuffleMessage> = (0..SEEDS)
+        .map(|n| seed_message(person(n as u128 + 1), utc_today(), 1, n as i64))
+        .collect();
+    tx.send(batch).await.unwrap();
+    drop(tx);
+    worker.join().await.unwrap();
+
+    assert_eq!(
+        sink.changes().len(),
+        SEEDS,
+        "every seed still lands its own entry",
+    );
+    assert_eq!(
+        sink.produce_calls(),
+        RUNS,
+        "one produce per run, not one per seed",
+    );
+    assert_eq!(
+        deps.seed_tracker
+            .committable_offsets()
+            .get(&(PARTITION_ID as i32)),
+        Some(&(SEEDS as i64)),
+        "both runs marked their whole spans",
     );
 }
 
