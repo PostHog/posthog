@@ -32,7 +32,7 @@ When a gap closes, new work uses the Go gateway and affected callers should migr
 | Stock SDK proxy               | The caller needs OpenAI Chat Completions or Responses, Anthropic Messages or token counting, streaming, idempotency, or the model catalog.                                        |
 | Gateway-managed routing       | The caller accepts operator-managed provider plans and health-aware selection across OpenAI, Anthropic, Azure OpenAI, Bedrock, or configured Modal, Fireworks, and Baseten hosts. |
 
-Existing Django callers should use `build_openai_client`, `build_async_openai_client`, or `build_async_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py). The builders forward product attribution and caller-selected metadata while keeping a temporary Python fallback during rollout.
+Existing Django callers should use `build_openai_client`, `build_async_openai_client`, `build_anthropic_client`, or `build_async_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py). The builders forward product attribution and caller-selected metadata while keeping a temporary Python fallback during rollout.
 
 ### ⛔ Stay on the Python gateway for now
 
