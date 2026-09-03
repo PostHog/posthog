@@ -22,12 +22,20 @@ If a `query-*` tool fits, use it. Default to `query-*`; SQL is the escape hatch,
 - **HogQL rejects the ClickHouse `SETTINGS` clause outright** — appending `SETTINGS ...` (e.g. to tune `max_execution_time` or `join_algorithm`) always fails with `Unsupported: SelectStmt.settingsClause()`. Don't include it.
 - **`toDate()` takes exactly one argument** — it does not accept ClickHouse's `toDate(value, timezone)` form. Convert timezone first with `toTimeZone()`, then wrap in `toDate()`: `toDate(toTimeZone(timestamp, 'US/Pacific'))`, not `toDate(timestamp, 'US/Pacific')`.
 - **Width-suffixed conversion functions aren't supported** — `toInt64`, `toInt32`, `toFloat64`, `toUInt8`, etc. (and their `OrNull`/`OrZero` variants) always fail. Use the unsuffixed form instead: `toInt()`, `toFloat()`, `toUInt()`, `toIntOrNull()`, `toFloatOrZero()`, and so on.
+- **Aggregations cannot be nested** — an aggregate directly inside another (e.g. `sum(count())`, `max(avg(x))`) fails with `Aggregation 'x' cannot be nested inside another aggregation 'y'`. Compute the inner aggregate in a subquery, then aggregate its result in the outer query.
+- **`ORDER BY` after a set operation is dropped** — it does not sort the combined result, and this applies to every set operator: `UNION ALL`, a plain `UNION` (treated as `UNION DISTINCT`), `INTERSECT`, and `EXCEPT`. To sort the combined result, wrap the set in a subquery and order the outer query: `SELECT * FROM (SELECT ... UNION ALL SELECT ...) ORDER BY ...`.
+- **`has()` needs an array first argument** — `has(array, element)` on a String value fails. Split a delimited string first with `splitByChar(',', coalesce(prop, ''))`, or extract a JSON array with `JSONExtract(coalesce(prop, '[]'), 'Array(String)')` (the `coalesce` guard matters: a bare property is Nullable, and `JSONExtract` of a Nullable into `Array(String)` is a ClickHouse type error). For a plain substring test use `LIKE` or `match`.
+- **Qualify shared column names in joins and CTEs** — when joined tables or CTEs expose the same column name, prefix every reference with its alias. An unqualified name fails with `Ambiguous query. Found multiple sources for field: ...`.
+- **Don't alias a table as `person`** — aliasing a table or subquery as `person` and then reading `person.properties` shadows the built-in person virtual table, so `person.properties` reads from the aliased source instead — if that source is `events`, it silently returns the event's own properties, not person data. Read the person field through events as `person.properties.foo`, which resolves under any alias of `events`, or alias the persons table to another name like `p`.
+- **The `person` virtual table lives on `events`, not on a CTE built from events** — to use a person field in an outer query, select it as a concrete column in the inner SELECT that reads `events` (e.g. `SELECT person.properties.email AS email FROM events ...`), then reference that column by name outside.
 
 ### Format SQL for readability
 
 Write SQL a human can scan: multi-line with indentation, one column/CTE per line, and inline `--` comments for non-obvious logic. This matters most for queries you save via `view-create` / `view-update` — the SQL editor stores and renders the string verbatim, so a minified one-liner stays unreadable for whoever opens the view later.
 
 ### Handling large results
+
+This tool returns at most 500 rows (100 by default). If the user asks for all rows or a full export and the result would exceed 500, say so plainly and point them to the CSV export in the query results view for the complete dataset, or offer to page through it with LIMIT and OFFSET. Do not present the top rows as if they were the whole answer.
 
 Large JSON values in results (notably full `properties` objects) are truncated by default. If you anticipate a large result set, or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), dump the results to a file and process them with bash rather than returning them inline. Alternatively, cherry-pick specific keys (`properties.$browser`) instead of the whole object.
 
@@ -100,22 +108,24 @@ WITH anchor AS (
     ORDER BY duration_nano DESC
     LIMIT 1
 )
-SELECT 'span' AS source, name AS detail, service_name, duration_nano, status_code, NULL AS severity_number, timestamp
-FROM posthog.trace_spans
-WHERE trace_id = (SELECT trace_id FROM anchor)
-  AND timestamp >= now() - INTERVAL 1 HOUR
-UNION ALL
-SELECT 'log', body, service_name, NULL, NULL, severity_number, timestamp
-FROM logs
-WHERE trace_id = (SELECT trace_id FROM anchor)
-  AND timestamp >= now() - INTERVAL 1 HOUR
+SELECT * FROM (
+    SELECT 'span' AS source, name AS detail, service_name, duration_nano, status_code, NULL AS severity_number, timestamp
+    FROM posthog.trace_spans
+    WHERE trace_id = (SELECT trace_id FROM anchor)
+      AND timestamp >= now() - INTERVAL 1 HOUR
+    UNION ALL
+    SELECT 'log', body, service_name, NULL, NULL, severity_number, timestamp
+    FROM logs
+    WHERE trace_id = (SELECT trace_id FROM anchor)
+      AND timestamp >= now() - INTERVAL 1 HOUR
+)
 ORDER BY timestamp
 ```
 
 <reasoning>
 - Anchoring on `posthog.trace_spans` works today because spans always carry a populated `trace_id`. Once `posthog.metrics` exemplars land, the CTE can be swapped for `argMax(trace_id, value) FROM posthog.metrics WHERE … AND trace_id != ''` to drill from a metric spike instead.
 - `trace_id` is stored as base64 in both `logs` and `posthog.trace_spans`, so direct equality works — no decoding needed.
-- `UNION ALL` with a `source` discriminator avoids three separate calls and keeps the timeline interleaved.
+- `UNION ALL` with a `source` discriminator avoids three separate calls and keeps the timeline interleaved. The union is wrapped in a subquery so the `ORDER BY timestamp` sorts the whole combined timeline — a trailing `ORDER BY` on a bare `UNION ALL` is dropped.
 - Note `logs` is root-level while `posthog.trace_spans` and `posthog.metrics` require the namespace prefix.
 - The inner `WHERE` clauses repeat the time window so the optimizer keeps both legs of the UNION efficient.
 </reasoning>

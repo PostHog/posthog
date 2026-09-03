@@ -305,7 +305,7 @@ WHERE g.event = '$ai_generation'
 
 ##### Other constraints
 
-- Your query results are capped at 100 rows by default. You can request up to 500 rows using a LIMIT clause. If you need more data, paginate using LIMIT and OFFSET in subsequent queries.
+- Your query results are capped at 100 rows by default. You can request up to 500 rows using a LIMIT clause. If you need more data, paginate using LIMIT and OFFSET in subsequent queries. If the user asks for all rows or a full export beyond 500 rows, tell them this cap plainly and point them to the CSV export in the query results view, or page through the data with LIMIT and OFFSET. Do not return the top rows as if they were the whole answer.
 - You should cherry-pick `properties` of events, persons, or groups, so we don't get OOMs. **Never select the full `properties` object** (e.g., `SELECT properties FROM events`) and dump it into the conversation output. Instead, select only the specific properties you need (e.g., `properties.$browser`, `properties.$os`). If you must inspect the full properties object, dump the query results to a file and use bash commands to explore it.
 - When query results contain large JSON blobs (e.g., AI trace inputs/outputs, full property objects), always dump them to a file rather than outputting them directly. Use bash commands to process the file.
 
@@ -353,6 +353,12 @@ Find the reference for [Sparkline, SemVer, Session replays, Actions, Translation
 - No semicolons at end of queries
 - `toStartOfWeek(timestamp, 1)` for Monday start (numeric, not string)
 - Always handle nulls before array functions: `splitByChar(',', coalesce(field, ''))`
+- Aggregations cannot be nested: `sum(count())` fails with `Aggregation 'x' cannot be nested inside another aggregation 'y'`. Aggregate the inner value in a subquery, then aggregate its result in the outer query.
+- `ORDER BY` after a set operation is dropped and does not sort the combined result. This applies to every set operator — `UNION ALL`, a plain `UNION` (treated as `UNION DISTINCT`), `INTERSECT`, and `EXCEPT`. Wrap the set in a subquery and order the outer query: `SELECT * FROM (SELECT ... UNION ALL SELECT ...) ORDER BY ...`.
+- `has(array, element)` needs an array first argument; a String value fails. Split a delimited string with `splitByChar(',', coalesce(prop, ''))` or extract a JSON array with `JSONExtract(coalesce(prop, '[]'), 'Array(String)')` first (the `coalesce` guard matters: a bare property is Nullable, and `JSONExtract` of a Nullable into `Array(String)` is a ClickHouse type error), or use `LIKE`/`match` for a substring test.
+- Qualify shared column names: when joined tables or CTEs expose the same column, prefix every reference with its alias, or the query fails with `Ambiguous query. Found multiple sources for field: ...`.
+- Do not alias a table or subquery as `person` and read `person.properties` — the alias shadows the person virtual table, so `person.properties` reads from the aliased source instead (the event's own properties if that source is `events`), not person data. Read the person field through events as `person.properties.foo`, which resolves under any alias of `events`, or alias the persons table to another name like `p`.
+- The `person` virtual table is available on `events`, not on a CTE built from events. Select the person field as a concrete column in the inner SELECT that reads `events` (e.g. `SELECT person.properties.email AS email FROM events ...`), then reference it by name in the outer query.
 - Performance: always filter `events` by timestamp
 - Correctness: count unique users with `uniq(person_id)` on events, never `uniq(distinct_id)` (one person has many distinct_ids, so distinct_id overcounts users)
 - Memory: avoid `GROUP BY` on unbounded high-cardinality expressions (raw URLs, ids, free text) over wide windows: the aggregation holds every distinct value in memory regardless of `LIMIT`; normalize the value (strip ids from paths) or narrow the window

@@ -40,6 +40,12 @@ Important HogQL differences versus other SQL dialects:
 - A WHERE clause must be after all the JOIN clauses.
 - For performance, every SELECT from the `events` table must have a `WHERE` clause narrowing down the timestamp to the relevant period.
 - HogQL queries shouldn't end in semicolons.
+- Aggregations cannot be nested. An aggregate placed directly inside another aggregate (like `sum(count())` or `max(avg(x))`) fails with `Aggregation 'x' cannot be nested inside another aggregation 'y'`. Compute the inner aggregate in a subquery, then aggregate its result in the outer query.
+- `ORDER BY` written after a set operation is dropped and does not sort the combined result. This applies to every set operator — `UNION ALL`, a plain `UNION` (which HogQL treats as `UNION DISTINCT`), `INTERSECT`, and `EXCEPT`. To sort the whole result, wrap the set in a subquery and order the outer query: `SELECT * FROM (SELECT ... UNION ALL SELECT ...) ORDER BY ...`.
+- `has(array, element)` needs an array as its first argument; a String value fails. Split a delimited string into an array first with `splitByChar(',', coalesce(prop, ''))`, or extract a JSON array with `JSONExtract(coalesce(prop, '[]'), 'Array(String)')` (the `coalesce` guard matters: a bare property is Nullable, and `JSONExtract` of a Nullable into `Array(String)` is a ClickHouse type error). For a plain substring test use `LIKE` or `match` instead.
+- When a query joins tables or CTEs that expose the same column name, qualify every reference to that column with its table or CTE alias. An unqualified name fails with `Ambiguous query. Found multiple sources for field: ...`.
+- Do not alias a table or subquery as `person` and then read `person.properties`. The alias shadows the built-in person virtual table, so `person.properties` reads from the aliased source instead — if that source is `events`, it silently returns the event's own properties, not person data, rather than failing. Reach the person field through events as `person.properties.foo`, which resolves under any alias of `events`, or alias the persons table to a different name like `p`.
+- The `person` virtual table is available on the `events` table, not on a CTE or subquery built from events. To use a person field in an outer query, select it as a concrete column in the inner SELECT that reads `events` (for example `SELECT person.properties.email AS email FROM events ...`), then reference that column by name outside.
 
 
 <persons>
