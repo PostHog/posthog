@@ -67160,6 +67160,7 @@ export namespace Schemas {
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
      * * `slack` - Slack
+     * * `email` - Email
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
@@ -67186,6 +67187,7 @@ export namespace Schemas {
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
       Slack: 'slack',
+      Email: 'email',
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
       PosthogAi: 'posthog_ai',
@@ -67250,6 +67252,7 @@ export namespace Schemas {
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
        * * `slack` - Slack
+       * * `email` - Email
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
@@ -83742,6 +83745,7 @@ export namespace Schemas {
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
        * * `slack` - Slack
+       * * `email` - Email
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
@@ -85142,6 +85146,7 @@ export namespace Schemas {
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
        * * `slack` - Slack
+       * * `email` - Email
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
@@ -85287,6 +85292,17 @@ export namespace Schemas {
     }
 
     /**
+     * The project's task inbox address.
+     */
+    export interface TasksEmailInboxResponse {
+      /**
+         * Address that project members can email to start a task; null when disabled.
+         * @nullable
+         */
+      readonly email_inbox_address: string | null;
+    }
+
+    /**
      * * `user` - user
      * * `team` - team
      * * `none` - none
@@ -85334,6 +85350,11 @@ export namespace Schemas {
     export interface TasksTeamConfigResponse {
       /** Project-wide default AI run triple; all fields null when unset. */
       ai_run_preferences: TasksAIRunPreferences;
+      /**
+         * Address that project members can email to start a task; null until enabled. The sender's address must pass SPF or DKIM and belong to an organization member.
+         * @nullable
+         */
+      readonly email_inbox_address: string | null;
     }
 
     /**
@@ -99390,6 +99411,7 @@ export namespace Schemas {
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
      * * `slack` - Slack
+     * * `email` - Email
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
@@ -99525,6 +99547,7 @@ export namespace Schemas {
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
       Slack: 'slack',
+      Email: 'email',
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
       PosthogAi: 'posthog_ai',

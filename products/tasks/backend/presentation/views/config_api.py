@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets
 from rest_framework.authentication import SessionAuthentication
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -16,10 +17,11 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, TeamMemberStrictManagementPermission
 
-from products.tasks.backend.facade import ai_run_defaults
+from products.tasks.backend.facade import ai_run_defaults, email_intake
 from products.tasks.backend.facade.run_config import get_model_access_error
 from products.tasks.backend.presentation.serializers import (
     TasksAIRunPreferencesSerializer,
+    TasksEmailInboxResponseSerializer,
     TasksTeamConfigResponseSerializer,
     TasksUserConfigResponseSerializer,
 )
@@ -66,7 +68,40 @@ class TasksTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         preferences = ai_run_defaults.get_team_ai_run_preferences(self.team_id)
-        return Response(TasksTeamConfigResponseSerializer({"ai_run_preferences": preferences}).data)
+        return Response(self._team_config_payload(preferences))
+
+    def _team_config_payload(self, preferences: dict) -> dict:
+        return TasksTeamConfigResponseSerializer(
+            {
+                "ai_run_preferences": preferences,
+                "email_inbox_address": email_intake.get_inbox_address(self.team),
+            }
+        ).data
+
+    @extend_schema(
+        request=None,
+        responses={200: TasksEmailInboxResponseSerializer},
+        description=(
+            "Enable the project's task inbox address, or rotate it if one already exists. "
+            "Emailing the address starts a task for the sender."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="email_inbox")
+    def email_inbox(self, request: Request, *args, **kwargs) -> Response:
+        if not email_intake.is_inbound_email_configured():
+            raise ValidationError("Inbound email is not configured on this PostHog instance.")
+        address = email_intake.ensure_inbox_address(self.team, rotate=True)
+        return Response(TasksEmailInboxResponseSerializer({"email_inbox_address": address}).data)
+
+    @extend_schema(
+        request=None,
+        responses={200: TasksEmailInboxResponseSerializer},
+        description="Disable the project's task inbox address. Mail sent to it is dropped.",
+    )
+    @email_inbox.mapping.delete
+    def delete_email_inbox(self, request: Request, *args, **kwargs) -> Response:
+        email_intake.clear_inbox_address(self.team)
+        return Response(TasksEmailInboxResponseSerializer({"email_inbox_address": None}).data)
 
     @extend_schema(
         request=TasksAIRunPreferencesSerializer,
@@ -82,7 +117,7 @@ class TasksTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             payload = ai_run_defaults.update_team_ai_run_preferences(self.team_id, **triple)
         except DjangoValidationError as e:
             raise ValidationError(e.messages)
-        return Response(TasksTeamConfigResponseSerializer({"ai_run_preferences": payload}).data)
+        return Response(self._team_config_payload(payload))
 
 
 class TasksUserConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

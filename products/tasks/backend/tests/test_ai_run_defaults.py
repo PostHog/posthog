@@ -328,7 +328,8 @@ class TestTasksConfigAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/tasks/config/")
         assert response.status_code == 200
         assert response.json() == {
-            "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None}
+            "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None},
+            "email_inbox_address": None,
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE)
@@ -363,10 +364,12 @@ class TestTasksConfigAPI(APIBaseTest):
         )
         assert response.status_code == 200
         assert response.json() == {
-            "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None}
+            "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None},
+            "email_inbox_address": None,
         }
         assert self.client.get(f"/api/projects/{self.team.id}/tasks/config/").json() == {
-            "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None}
+            "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None},
+            "email_inbox_address": None,
         }
 
     def test_unauthenticated_requests_are_rejected(self):

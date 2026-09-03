@@ -1056,6 +1056,17 @@ def send_matview_failure_digest() -> None:
     logger.info("Completed materialized view failure digest fan-out")
 
 
+def _task_inbox_address(team: Team) -> str | None:
+    """Reply-To for failure mail, so a reply starts a task in the project.
+
+    Imported lazily because the tasks intake service reaches ``ee.billing.quota_limiting``,
+    which imports ``posthog.tasks`` and closes a cycle through this module.
+    """
+    from products.tasks.backend.facade import email_intake as tasks_email_intake  # noqa: PLC0415
+
+    return tasks_email_intake.get_inbox_address(team)
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], paused_query_ids: list[str]) -> None:
@@ -1131,6 +1142,8 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
             "views": views,
             "site_url": settings.SITE_URL,
         },
+        # Replying to the failure report starts a task in the project's task inbox.
+        reply_to=_task_inbox_address(team),
     )
 
     for membership in memberships_to_email:
@@ -1189,6 +1202,7 @@ def send_matview_failure_immediate_email(team_id: int, saved_query_id: str, job_
             "saved_query_name": saved_query.name,
             "saved_query_id": str(saved_query.id),
         },
+        reply_to=_task_inbox_address(team),
     )
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)

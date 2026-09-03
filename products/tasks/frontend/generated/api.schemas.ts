@@ -1755,6 +1755,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `eval_clusters` - Eval Clusters
  * * `user_created` - User Created
  * * `slack` - Slack
+ * * `email` - Email
  * * `support_queue` - Support Queue
  * * `session_summaries` - Session Summaries
  * * `posthog_ai` - PostHog AI
@@ -1780,6 +1781,7 @@ export const TaskOriginProductEnumApi = {
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
     Slack: 'slack',
+    Email: 'email',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
     PosthogAi: 'posthog_ai',
@@ -1844,6 +1846,7 @@ export interface TaskCreateApi {
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
      * * `slack` - Slack
+     * * `email` - Email
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
@@ -2000,6 +2003,7 @@ export interface TaskWriteApi {
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
      * * `slack` - Slack
+     * * `email` - Email
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
@@ -2139,6 +2143,7 @@ export interface PatchedTaskWriteApi {
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
      * * `slack` - Slack
+     * * `email` - Email
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
@@ -4380,6 +4385,22 @@ export interface WizardCloudRunDTOApi {
 export interface TasksTeamConfigResponseApi {
     /** Project-wide default AI run triple; all fields null when unset. */
     ai_run_preferences: TasksAIRunPreferencesApi
+    /**
+     * Address that project members can email to start a task; null until enabled. The sender's address must pass SPF or DKIM and belong to an organization member.
+     * @nullable
+     */
+    readonly email_inbox_address: string | null
+}
+
+/**
+ * The project's task inbox address.
+ */
+export interface TasksEmailInboxResponseApi {
+    /**
+     * Address that project members can email to start a task; null when disabled.
+     * @nullable
+     */
+    readonly email_inbox_address: string | null
 }
 
 /**
@@ -5039,6 +5060,7 @@ export type TasksListParams = {
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
      * * `slack` - Slack
+     * * `email` - Email
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
@@ -5172,6 +5194,7 @@ export const TasksListExcludeOriginProduct = {
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
     Slack: 'slack',
+    Email: 'email',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
     PosthogAi: 'posthog_ai',

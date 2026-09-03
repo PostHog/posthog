@@ -1,0 +1,17 @@
+{% extends "email/base.html" %}
+{% block heading %}Your task has started{% endblock %}
+{% block section %}
+    <p>
+        PostHog AI is working on <b>{{ task_title }}</b>. You will find the run and its result at the link below.
+    </p>
+    <div class="mb mt text-center">
+        <a class="button" href="{{ task_url }}">View task</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{{ task_url }}">{{ task_url }}</a>
+        </p>
+    </div>
+{% endblock %}

@@ -4388,6 +4388,24 @@ class TasksTeamConfigResponseSerializer(serializers.Serializer):
     ai_run_preferences = TasksAIRunPreferencesSerializer(
         help_text="Project-wide default AI run triple; all fields null when unset."
     )
+    email_inbox_address = serializers.CharField(
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "Address that project members can email to start a task; null until enabled. "
+            "The sender's address must pass SPF or DKIM and belong to an organization member."
+        ),
+    )
+
+
+class TasksEmailInboxResponseSerializer(serializers.Serializer):
+    """The project's task inbox address."""
+
+    email_inbox_address = serializers.CharField(
+        allow_null=True,
+        read_only=True,
+        help_text="Address that project members can email to start a task; null when disabled.",
+    )
 
 
 @extend_schema_serializer(many=False)

@@ -137,6 +137,7 @@ import type {
     TasksCommentsListParams,
     TasksCommentsRetrieveParams,
     TasksConfigListParams,
+    TasksEmailInboxResponseApi,
     TasksListParams,
     TasksMeConfigListParams,
     TasksRepositoryReadinessRetrieveParams,
@@ -2736,6 +2737,40 @@ export const tasksConfigCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(tasksAIRunPreferencesApi),
+    })
+}
+
+export const getTasksConfigEmailInboxCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/config/email_inbox/`
+}
+
+/**
+ * Enable the project's task inbox address, or rotate it if one already exists. Emailing the address starts a task for the sender.
+ */
+export const tasksConfigEmailInboxCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TasksEmailInboxResponseApi> => {
+    return apiMutator<TasksEmailInboxResponseApi>(getTasksConfigEmailInboxCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getTasksConfigEmailInboxDestroyUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/config/email_inbox/`
+}
+
+/**
+ * Disable the project's task inbox address. Mail sent to it is dropped.
+ */
+export const tasksConfigEmailInboxDestroy = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TasksEmailInboxResponseApi> => {
+    return apiMutator<TasksEmailInboxResponseApi>(getTasksConfigEmailInboxDestroyUrl(projectId), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

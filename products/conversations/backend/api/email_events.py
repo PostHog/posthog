@@ -54,6 +54,7 @@ from products.conversations.backend.services.region_routing import (
     proxy_to_secondary_region,
     request_secondary_region_status,
 )
+from products.tasks.backend.facade import email_intake as tasks_email_intake
 
 logger = structlog.get_logger(__name__)
 
@@ -203,7 +204,7 @@ def _is_plausible_email(addr: str) -> bool:
 
 def _recover_dmarc_rewritten_sender(
     request: HttpRequest,
-    config: EmailChannel,
+    config: EmailChannel | None,
     sender_email: str,
     sender_name: str,
 ) -> tuple[str, str]:
@@ -229,7 +230,7 @@ def _recover_dmarc_rewritten_sender(
     is vanishingly unlikely — the "via" pattern is injected by mail
     forwarders, not by human MUAs.
     """
-    if sender_email.lower() != config.from_email.lower():
+    if config is None or sender_email.lower() != config.from_email.lower():
         return sender_email, sender_name
 
     if " via " not in sender_name.lower():
@@ -306,6 +307,18 @@ def _parse_message_ids(value: str) -> tuple[str, ...]:
     if not message_ids:
         message_ids = value.split()
     return tuple(dict.fromkeys(message_id.strip()[:998] for message_id in message_ids if message_id.strip()))
+
+
+def _is_auto_submitted(request: HttpRequest) -> bool:
+    """True for mail a machine sent on its own, such as an out-of-office reply (RFC 3834)."""
+    if any(value.strip().lower() != "no" for value in _iter_message_header_values(request, "Auto-Submitted")):
+        return True
+    if any(True for _ in _iter_message_header_values(request, "X-Auto-Response-Suppress")):
+        return True
+    return any(
+        value.strip().lower() in ("auto_reply", "bulk", "junk")
+        for value in _iter_message_header_values(request, "Precedence")
+    )
 
 
 def _iter_message_header_values(request: HttpRequest, header_name: str) -> Iterator[str]:
@@ -419,7 +432,55 @@ def _parse_sent_at(request: HttpRequest) -> datetime:
     return now
 
 
-def _parse_inbound_email(request: HttpRequest, config: EmailChannel) -> ParsedEmail | None:
+def _quoted_body(email: ParsedEmail) -> str:
+    """The quoted history of a reply: everything Mailgun removed to make ``stripped-text``."""
+    new_text = email.stripped_text.strip()
+    full_text = email.body_plain.strip()
+    if not new_text or full_text == new_text:
+        return ""
+    if full_text.startswith(new_text):
+        return full_text[len(new_text) :].strip()
+    return full_text
+
+
+def _start_task_from_inbound_email(request: HttpRequest, inbox_token: str) -> HttpResponse:
+    """Mail to a project's task inbox address (``code-<token>@...``) starts a task instead of a ticket."""
+    team = tasks_email_intake.find_team_by_inbox_token(inbox_token)
+    if team is None:
+        if is_primary_region(request):
+            success = proxy_to_secondary_region(request, log_prefix="email_task_inbox", timeout=10)
+            return HttpResponse(status=200 if success else 502)
+        logger.warning("email_task_inbox_unknown_token")
+        return HttpResponse("Unknown recipient", status=404)
+
+    email = _parse_inbound_email(request, None)
+    if email is None:
+        logger.warning("email_task_inbox_no_message_id", team_id=team.id)
+        return HttpResponse(status=200)
+
+    intake = tasks_email_intake.start_task_from_email(
+        team,
+        tasks_email_intake.InboundTaskEmail(
+            message_id=email.message_id,
+            sender_email=email.sender.email,
+            sender_name=email.sender.name,
+            subject=email.subject,
+            body=email.stripped_text or email.body_plain,
+            quoted_body=_quoted_body(email),
+            sender_authenticated=email.sender_authenticated,
+            is_auto_reply=_is_auto_submitted(request),
+        ),
+    )
+    logger.info(
+        "email_task_inbox_processed",
+        team_id=team.id,
+        outcome=intake.outcome,
+        task_id=str(intake.task_id) if intake.task_id else None,
+    )
+    return HttpResponse(status=200)
+
+
+def _parse_inbound_email(request: HttpRequest, config: EmailChannel | None) -> ParsedEmail | None:
     message_ids = _parse_message_ids(request.POST.get("Message-Id", ""))
     if not message_ids:
         return None
@@ -445,7 +506,7 @@ def _parse_inbound_email(request: HttpRequest, config: EmailChannel) -> ParsedEm
         if uploaded_file.size is not None and uploaded_file.size > MAX_ATTACHMENT_SIZE:
             logger.warning(
                 "email_inbound_attachment_too_large",
-                team_id=config.team_id,
+                team_id=config.team_id if config else None,
                 file_name=uploaded_file.name,
                 size=uploaded_file.size,
             )
@@ -793,6 +854,10 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse("Invalid signature", status=403)
 
     recipient = request.POST.get("recipient", "")
+    task_inbox_token = tasks_email_intake.extract_inbox_token(recipient)
+    if task_inbox_token:
+        return _start_task_from_inbound_email(request, task_inbox_token)
+
     inbound_token = _extract_inbound_token(recipient)
     if not inbound_token:
         logger.warning("email_inbound_no_token", recipient=recipient)

@@ -14,7 +14,7 @@ from parameterized import parameterized
 from posthog.api.authentication import password_reset_token_generator
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
-from posthog.models.instance_setting import set_instance_setting
+from posthog.models.instance_setting import override_instance_config, set_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
@@ -58,6 +58,7 @@ from products.batch_exports.backend.models.batch_export import (
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.tasks.backend.facade import email_intake as tasks_email_intake
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
@@ -2458,6 +2459,50 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assert "failing_view" in mocked_email_messages[0].html_body
         else:
             assert len(mocked_email_messages) == 0
+
+    def test_matview_failure_emails_reply_to_the_task_inbox(self, MockEmailMessage: MagicMock) -> None:
+        mock_email_messages(MockEmailMessage)
+        self.user.partial_notification_settings = {
+            "materialized_view_sync_failed": True,
+            "materialized_view_sync_failed_immediate": True,
+        }
+        self.user.save()
+        sq = DataWarehouseSavedQuery.objects.create(team=self.team, name="failing_view", query={"query": "SELECT 1"})
+        job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=sq,
+            status=DataModelingJob.Status.FAILED,
+            error="Some error",
+            last_run_at=timezone.now(),
+        )
+
+        with override_instance_config("CONVERSATIONS_EMAIL_INBOUND_DOMAIN", "inbound.example.com"):
+            address = tasks_email_intake.ensure_inbox_address(self.team)
+            send_matview_failure_immediate_email(self.team.id, str(sq.id), str(job.id))
+            assert MockEmailMessage.call_args.kwargs["reply_to"] == address
+
+            send_matview_failure_digest()
+            assert MockEmailMessage.call_args.kwargs["reply_to"] == address
+
+    def test_matview_failure_email_has_no_reply_to_without_a_task_inbox(self, MockEmailMessage: MagicMock) -> None:
+        mock_email_messages(MockEmailMessage)
+        self.user.partial_notification_settings = {
+            "materialized_view_sync_failed": True,
+            "materialized_view_sync_failed_immediate": True,
+        }
+        self.user.save()
+        sq = DataWarehouseSavedQuery.objects.create(team=self.team, name="failing_view", query={"query": "SELECT 1"})
+        job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=sq,
+            status=DataModelingJob.Status.FAILED,
+            error="Some error",
+            last_run_at=timezone.now(),
+        )
+
+        send_matview_failure_immediate_email(self.team.id, str(sq.id), str(job.id))
+
+        assert MockEmailMessage.call_args.kwargs["reply_to"] is None
 
     @parameterized.expand(
         [
