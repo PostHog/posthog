@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -8,6 +8,7 @@ import { ApiError } from 'lib/api-error'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -17,6 +18,7 @@ import {
     signalsScoutConfigSync,
     signalsScoutConfigUpdate,
     signalsScoutRunsRecentPerScout,
+    signalsScoutRunsTokenCosts,
 } from 'products/signals/frontend/generated/api'
 import type { SignalScoutConfigApi, UserBasicApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -33,6 +35,7 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutRunsFindingsSummary: jest.fn(),
     signalsScoutRunsList: jest.fn(),
     signalsScoutRunsRecentPerScout: jest.fn(),
+    signalsScoutRunsTokenCosts: jest.fn(),
 }))
 
 const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.MockedFunction<
@@ -43,6 +46,9 @@ const mockSignalsScoutConfigSync = signalsScoutConfigSync as jest.MockedFunction
 const mockSignalsScoutConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof signalsScoutConfigUpdate>
 const mockSignalsScoutRunsRecentPerScout = signalsScoutRunsRecentPerScout as jest.MockedFunction<
     typeof signalsScoutRunsRecentPerScout
+>
+const mockSignalsScoutRunsTokenCosts = signalsScoutRunsTokenCosts as jest.MockedFunction<
+    typeof signalsScoutRunsTokenCosts
 >
 
 const BASE_CONFIG: SignalScoutConfigApi = {
@@ -124,6 +130,7 @@ describe('scoutFleetLogic', () => {
         mockSignalsScoutConfigSync.mockReset().mockResolvedValue([])
         mockSignalsScoutConfigUpdate.mockReset()
         mockSignalsScoutRunsRecentPerScout.mockReset().mockResolvedValue([])
+        mockSignalsScoutRunsTokenCosts.mockReset().mockResolvedValue({ costs: [], available: true })
         logic = scoutFleetLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -822,6 +829,134 @@ describe('scoutFleetLogic', () => {
             expect(second.find((run) => run.run_id === 'run-live')).not.toBe(
                 first.find((run) => run.run_id === 'run-live')
             )
+        })
+    })
+    describe('staff-only run costs', () => {
+        const mountAsStaff = async (isStaff: boolean): Promise<void> => {
+            logic.unmount()
+            userLogic.mount()
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: isStaff })
+            logic = scoutFleetLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
+        it('annotates staff runs with the cost of the runs that have spend attributed', async () => {
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([
+                makeRun({ run_id: 'run-priced' }),
+                makeRun({ run_id: 'run-unpriced' }),
+            ])
+            mockSignalsScoutRunsTokenCosts.mockResolvedValue({
+                costs: [
+                    { run_id: 'run-priced', token_cost_usd: 4.03 },
+                    // A run with nothing attributed is dropped, so its tooltip says nothing about
+                    // cost rather than claiming the run was free.
+                    { run_id: 'run-unpriced', token_cost_usd: null },
+                ],
+                available: true,
+            })
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+
+            expect(mockSignalsScoutRunsTokenCosts).toHaveBeenCalledWith(String(MOCK_TEAM_ID), {
+                run_ids: ['run-priced', 'run-unpriced'],
+            })
+            expect(logic.values.scoutRunCosts.get('run-priced')).toBe(4.03)
+            expect(logic.values.scoutRunCosts.has('run-unpriced')).toBe(false)
+        })
+
+        it('keeps the cost map when a poll re-derives the same numbers, and replaces it when one moves', async () => {
+            // Every roster card subscribes to this map and ScoutRunBoxes keys its tooltip memo on it,
+            // so a fresh map each poll re-renders the whole roster for nothing. Reusing it too
+            // eagerly is the worse failure though: the roster would show a frozen cost forever.
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([makeRun({ run_id: 'run-priced' })])
+            mockSignalsScoutRunsTokenCosts.mockResolvedValue({
+                costs: [{ run_id: 'run-priced', token_cost_usd: 4.03 }],
+                available: true,
+            })
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+            const first = logic.values.scoutRunCosts
+            expect(first.get('run-priced')).toBe(4.03)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+            expect(logic.values.scoutRunCosts).toBe(first)
+
+            mockSignalsScoutRunsTokenCosts.mockResolvedValue({
+                costs: [{ run_id: 'run-priced', token_cost_usd: 5.11 }],
+                available: true,
+            })
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+            expect(logic.values.scoutRunCosts).not.toBe(first)
+            expect(logic.values.scoutRunCosts.get('run-priced')).toBe(5.11)
+        })
+
+        it('sends no further batches once the deployment reports it cannot price runs', async () => {
+            // `available: false` is the same answer for every batch, and each one costs the backend
+            // a run-row read and a traceback, so asking again buys nothing.
+            const runIds = Array.from({ length: 201 }, (_, index) => `run-${index}`)
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue(runIds.map((run_id) => makeRun({ run_id })))
+            mockSignalsScoutRunsTokenCosts.mockResolvedValue({ costs: [], available: false })
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+
+            expect(mockSignalsScoutRunsTokenCosts).toHaveBeenCalledTimes(1)
+            expect(logic.values.scoutRunCosts.size).toBe(0)
+        })
+
+        it('keeps the batches that answered when a later batch fails', async () => {
+            // A materialized fleet is more run ids than one request carries, so the loader sends
+            // several. Discarding the whole load over one failed batch blanks every tooltip in the
+            // roster instead of only the runs that batch was pricing.
+            const runIds = Array.from({ length: 201 }, (_, index) => `run-${index}`)
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue(runIds.map((run_id) => makeRun({ run_id })))
+            mockSignalsScoutRunsTokenCosts.mockImplementation(async (_projectId, body) => {
+                if (!body.run_ids.includes('run-0')) {
+                    throw new ApiError('nope', 500)
+                }
+                return { costs: [{ run_id: 'run-0', token_cost_usd: 4.03 }], available: true }
+            })
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+
+            expect(logic.values.scoutRunCosts.get('run-0')).toBe(4.03)
+        })
+
+        // Recovering in the loader skips the gate `initKea` applies to loader failures, so the
+        // loader reapplies it. A backend fault must still leave a client-side exception behind, and
+        // a gateway blip must not, since filing those buries the crashes worth seeing.
+        it.each([
+            ['a backend fault, which reaches error tracking', 500, true],
+            ['a gateway blip, which does not', 503, false],
+        ])('recovers from %s', async (_name: string, status: number, reported: boolean) => {
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([makeRun({ run_id: 'run-priced' })])
+            mockSignalsScoutRunsTokenCosts.mockRejectedValue(new ApiError('nope', status))
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+
+            expect(jest.mocked(posthog.captureException).mock.calls.length > 0).toBe(reported)
+        })
+
+        it('never asks for costs on behalf of a non-staff user', async () => {
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([makeRun({ run_id: 'run-priced' })])
+            await mountAsStaff(false)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess']).toFinishAllListeners()
+
+            expect(mockSignalsScoutRunsTokenCosts).not.toHaveBeenCalled()
         })
     })
 })

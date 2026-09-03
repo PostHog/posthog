@@ -110,6 +110,8 @@ class TestValidation:
             ("substring with metacharacters", {"pattern": "Acme (bot) v1.0"}),
             ("anchored regex", {"pattern": "^AcmeBot/[0-9]+$", "matcher": CustomBotMatcher.REGEX}),
             ("a non-default property", {"key": CustomBotField.FIELD_LIB, "pattern": "posthog-python"}),
+            ("a numeric property", {"key": CustomBotField.FIELD_SCREEN_WIDTH, "pattern": "800"}),
+            ("browser language", {"key": CustomBotField.FIELD_BROWSER_LANGUAGE, "pattern": "@posix"}),
         ]
     )
     def test_accepts_usable_definitions(self, _name: str, overrides: dict):
