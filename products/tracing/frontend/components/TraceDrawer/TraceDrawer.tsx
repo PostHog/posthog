@@ -25,6 +25,7 @@ import { ExpandedSpanContent } from '../VirtualizedSpanList/ExpandedSpanContent'
 import { SpanLogsTab } from './SpanLogsTab'
 import { SpanMetricsTab } from './SpanMetricsTab'
 import { SpanSummaryHeader } from './SpanSummaryHeader'
+import { TraceIdentityChips } from './TraceIdentityChips'
 
 type InspectorTab = 'attributes' | 'query' | 'logs' | 'metrics' | 'raw'
 
@@ -142,6 +143,7 @@ export function TraceDrawer({
                     />
                 </div>
             }
+            description={<TraceIdentityChips spans={spans} timestamp={rootSpan?.timestamp ?? ts} />}
         >
             <div className="relative min-h-32 flex gap-4 items-start">
                 {loading && <SpinnerOverlay />}
