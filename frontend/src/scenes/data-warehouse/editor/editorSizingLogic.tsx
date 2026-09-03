@@ -206,7 +206,10 @@ export const editorSizingLogic = kea<editorSizingLogicType>([
                 queryPaneMinHeight: number | undefined
             ) =>
                 Math.max(
-                    queryPaneDesiredSize || queryPaneDefaultHeight || DEFAULT_QUERY_PANE_HEIGHT,
+                    // `??`, not `||`: a drag that lands on exactly 0 is still a size the user
+                    // chose, and the clamp below turns it into the floor. `||` would read it as
+                    // "no size yet" and snap the pane back to its default height.
+                    queryPaneDesiredSize ?? queryPaneDefaultHeight ?? DEFAULT_QUERY_PANE_HEIGHT,
                     queryPaneMinHeight ?? MINIMUM_QUERY_PANE_HEIGHT
                 ),
         ],
