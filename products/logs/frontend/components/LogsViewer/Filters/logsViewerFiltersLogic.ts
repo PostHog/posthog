@@ -62,6 +62,10 @@ export interface LogsViewerFiltersLogicProps {
     // attributes — unlike a pinned distinct-ids filter, not capped by how many ids the
     // person page happened to load.
     personId?: string
+    // Scope every query to this session id. Matched server-side against the team's configured
+    // session-id log attributes plus the built-in conventions, in both the attribute and
+    // resource-attribute maps. A filter group can't express that OR (see buildLogsSessionScope).
+    sessionId?: string
 }
 
 // Combines the user-editable filterGroup with pinned filters (prepended to the inner
@@ -141,6 +145,7 @@ export interface logsViewerFiltersLogicValues {
     pinnedFilters: UniversalFiltersGroup | undefined
     queryFilterGroup: UniversalFiltersGroup
     searchTerm: LogsQuery['searchTerm']
+    sessionId: string | undefined
     utcDateRange: {
         date_from: string | null | undefined
         date_to: string | null | undefined
@@ -186,6 +191,9 @@ export interface logsViewerFiltersLogicActions {
     }
     setPersonId: (personId: string | undefined) => {
         personId: string | undefined
+    }
+    setSessionId: (sessionId: string | undefined) => {
+        sessionId: string | undefined
     }
     setPinnedFilters: (pinnedFilters: UniversalFiltersGroup | undefined) => {
         pinnedFilters: UniversalFiltersGroup | undefined
@@ -256,6 +264,9 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
 
         // Mirror of the `personId` prop into state, same rationale as `setPinnedFilters`.
         setPersonId: (personId: string | undefined) => ({ personId }),
+
+        // Mirror of the `sessionId` prop into state, same rationale as `setPersonId`.
+        setSessionId: (sessionId: string | undefined) => ({ sessionId }),
 
         zoomDateRange: (multiplier: number) => ({ multiplier }),
 
@@ -332,6 +343,12 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             undefined as string | undefined,
             {
                 setPersonId: (_, { personId }) => personId,
+            },
+        ],
+        sessionId: [
+            undefined as string | undefined,
+            {
+                setSessionId: (_, { sessionId }) => sessionId,
             },
         ],
     }),
@@ -425,6 +442,9 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         if (logicProps.personId !== oldProps.personId) {
             actions.setPersonId(logicProps.personId)
         }
+        if (logicProps.sessionId !== oldProps.sessionId) {
+            actions.setSessionId(logicProps.sessionId)
+        }
     }),
 
     afterMount(({ actions, props: logicProps }) => {
@@ -436,6 +456,9 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         }
         if (logicProps.personId) {
             actions.setPersonId(logicProps.personId)
+        }
+        if (logicProps.sessionId) {
+            actions.setSessionId(logicProps.sessionId)
         }
     }),
 ])

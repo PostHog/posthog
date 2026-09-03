@@ -86,6 +86,7 @@ export interface FacetScope {
     /** filterGroup with pinned filters folded in — what the query actually carries. */
     queryFilterGroup: UniversalFiltersGroup | undefined
     personId?: string
+    sessionId?: string
 }
 
 /**
@@ -126,6 +127,7 @@ export function facetScopeSignature(facet: FacetConfig, scope: FacetScope): stri
         scope.utcDateRange.explicitDate ?? null,
         scope.searchTerm || null,
         scope.personId ?? null,
+        scope.sessionId ?? null,
         groupSignature,
     ])
 }

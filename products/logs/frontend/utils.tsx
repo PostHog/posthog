@@ -3,7 +3,7 @@ import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyOperator } from '~/types'
 
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import {
@@ -219,48 +219,20 @@ export function buildDateRangeAround(timestamp: string, windowMinutes: number): 
     }
 }
 
-// Builds logs viewer filters scoped to one session, for other products surfacing logs
-// (error tracking, session replay). Filters (OR across keys, exact match) on the team's
-// configured session ID keys plus the SESSION_ID_KEYS conventions, deduped, configured
-// first — the same breadth `getSessionIdWithKey` resolves, so a team whose stored key their
-// pipeline never emits still matches. Literal keys only: an exact filter can't express the
-// dot-suffix variants `matchesKey` allows. A timestamp scopes the date range to ±30 minutes
-// so old sessions aren't hidden by the default range.
-export function buildLogsSessionFilters(
+// Builds the viewer scope for one session, for other products surfacing logs (error tracking,
+// session replay). The session id goes to the server as a scope rather than a filter group: it
+// has to match across every configured and conventional key in both attribute maps, and the
+// query runner reads a filter group's inner group as an AND of its leaves, so a group could only
+// ever express "every key holds this id at once". A timestamp scopes the date range to ±30
+// minutes so old sessions aren't hidden by the default range.
+export function buildLogsSessionScope(
     sessionId: string,
-    configuredKeys?: string[],
     timestamp?: string
-): Partial<LogsViewerFilters> {
-    const keys = Array.from(new Set([...(configuredKeys ?? []), ...SESSION_ID_KEYS]))
-    const filters: Partial<LogsViewerFilters> = {
-        filterGroup: {
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    type: FilterLogicalOperator.Or,
-                    // Each key is queried in both maps, because getSessionIdWithKey renders the
-                    // session link off attributes or resource_attributes. Person scoping resolves
-                    // distinct ids across both maps for the same reason.
-                    values: keys.flatMap((key) => [
-                        {
-                            key,
-                            value: [sessionId],
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.LogAttribute,
-                        },
-                        {
-                            key,
-                            value: [sessionId],
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.LogResourceAttribute,
-                        },
-                    ]),
-                },
-            ],
-        },
+): { sessionId: string; initialFilters?: Partial<LogsViewerFilters> } {
+    return {
+        sessionId,
+        initialFilters: timestamp
+            ? { dateRange: buildDateRangeAround(timestamp, SESSION_LOGS_WINDOW_MINUTES) }
+            : undefined,
     }
-    if (timestamp) {
-        filters.dateRange = buildDateRangeAround(timestamp, SESSION_LOGS_WINDOW_MINUTES)
-    }
-    return filters
 }

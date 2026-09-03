@@ -35,7 +35,9 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from products.logs.backend.column_expressions import canonical_key, column_to_expr
 from products.logs.backend.models import (
     DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS,
+    DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS,
     DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS,
+    SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS,
     TeamLogsConfig,
 )
 
@@ -445,6 +447,11 @@ class LogsFilterBuilder:
         if self.query.personId:
             exprs.append(self._person_scope_expr())
 
+        # Scope on the field being present at all, not on it being truthy: a caller that asks for a
+        # session but holds a blank id must match nothing rather than widen to the whole project.
+        if self.query.sessionId is not None:
+            exprs.append(self._session_scope_expr())
+
         exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
 
         if self.query.searchTerm:
@@ -581,6 +588,60 @@ class LogsFilterBuilder:
             )
         # A log links to the person when any of these attribute keys — in either the log
         # attributes or the resource attributes — holds one of their distinct ids.
+        return key_exprs[0] if len(key_exprs) == 1 else ast.Or(exprs=key_exprs)
+
+    def _session_scope_expr(self) -> ast.Expr:
+        # Resolve the key list server-side rather than letting the caller build a filter group.
+        # The keys must be OR'd, and a filterGroup can't express that here: its inner group is
+        # read as an AND of its leaves, and a nested group accepts log_attribute leaves only,
+        # so the resource-attribute half of each key could never join the OR.
+        session_id = (self.query.sessionId or "").strip()
+        if not session_id:
+            # property_to_expr treats an empty value as always-true, which would return every log.
+            return ast.Constant(value=False)
+
+        config = TeamLogsConfig.objects.filter(team=self.team).first()
+        configured_keys = (
+            config.logs_session_id_attribute_keys if config is not None else DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS
+        )
+        # Also scope on the built-in convention keys the logs UI reads a session from
+        # (isSessionIdKey in products/logs/frontend/utils.tsx), so a log the UI shows as belonging
+        # to a session appears when scoped to it even when the team hasn't configured that key.
+        # Deduped, configured keys first.
+        attribute_keys = list(dict.fromkeys([*configured_keys, *SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS]))
+
+        key_exprs: list[ast.Expr] = []
+        for attribute_key in attribute_keys:
+            # Log attribute: force the __str map, for the reason _person_scope_expr documents.
+            # attributes_map_float only exists for numeric values, so a session id that happens
+            # to be all digits must not route there via the usual value-type detection.
+            key_exprs.append(
+                property_to_expr(
+                    LogPropertyFilter(
+                        key=f"{attribute_key}__str",
+                        operator=PropertyOperator.EXACT,
+                        type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                        value=[session_id],
+                    ),
+                    team=self.team,
+                )
+            )
+            # Resource attribute: getSessionIdWithKey resolves a session from resource_attributes
+            # too, so scope on both. resource_attributes is a plain string map on the row, with no
+            # typed __str/__float split, so match the key directly.
+            key_exprs.append(
+                property_to_expr(
+                    LogPropertyFilter(
+                        key=attribute_key,
+                        operator=PropertyOperator.EXACT,
+                        type=LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE,
+                        value=[session_id],
+                    ),
+                    team=self.team,
+                )
+            )
+        # A log belongs to the session when any of these attribute keys, in either the log
+        # attributes or the resource attributes, holds the session id.
         return key_exprs[0] if len(key_exprs) == 1 else ast.Or(exprs=key_exprs)
 
     def resource_filter(self, *, existing_filters):

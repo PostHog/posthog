@@ -306,6 +306,14 @@ class _LogsQueryBodySerializer(serializers.Serializer):
             "distinct IDs and matched against the team's configured distinct-id log attribute keys."
         ),
     )
+    sessionId = serializers.CharField(
+        required=False,
+        help_text=(
+            "Scope results to one session ID. Matched server-side against the team's configured "
+            "session-id log attribute keys plus the built-in conventions, in both log attributes "
+            "and resource attributes."
+        ),
+    )
 
 
 class _LogsQueryRequestSerializer(serializers.Serializer):
@@ -351,6 +359,14 @@ class _LogsSparklineBodySerializer(serializers.Serializer):
         help_text=(
             "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's "
             "distinct IDs and matched against the team's configured distinct-id log attribute keys."
+        ),
+    )
+    sessionId = serializers.CharField(
+        required=False,
+        help_text=(
+            "Scope results to one session ID. Matched server-side against the team's configured "
+            "session-id log attribute keys plus the built-in conventions, in both log attributes "
+            "and resource attributes."
         ),
     )
 
@@ -454,6 +470,14 @@ class _LogsFacetValuesBodySerializer(serializers.Serializer):
         help_text=(
             "Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's "
             "distinct IDs and matched against the team's configured distinct-id log attribute keys."
+        ),
+    )
+    sessionId = serializers.CharField(
+        required=False,
+        help_text=(
+            "Scope counts to one session ID. Matched server-side against the team's configured "
+            "session-id log attribute keys plus the built-in conventions, in both log attributes "
+            "and resource attributes."
         ),
     )
 
@@ -1251,6 +1275,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             "filterGroup": self._normalize_filter_group(query_data.get("filterGroup", None)),
             "resourceFingerprint": query_data.get("resourceFingerprint", None),
             "personId": query_data.get("personId", None),
+            "sessionId": query_data.get("sessionId", None),
             "limit": requested_limit + 1,  # Fetch limit plus 1 to see if theres another page
             "excludeAttributes": query_data.get("excludeAttributes", False),
             "customColumns": custom_columns,
@@ -1346,6 +1371,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
             resourceFingerprint=query_data.get("resourceFingerprint", None),
             personId=query_data.get("personId", None),
+            sessionId=query_data.get("sessionId", None),
             sparklineBreakdownBy=query_data.get("sparklineBreakdownBy"),
             sparklineRankBy=query_data.get("sparklineRankBy"),
         )
@@ -1398,6 +1424,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
             personId=query_data.get("personId", None),
+            sessionId=query_data.get("sessionId", None),
         )
 
         runner = LogFacetValuesQueryRunner(

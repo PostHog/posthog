@@ -26,6 +26,7 @@ export interface facetValuesLogicValues {
     facetRefreshCounter: number // logsViewerFiltersLogic
     filters: LogsViewerFilters // logsViewerFiltersLogic
     personId: string | undefined // logsViewerFiltersLogic
+    sessionId: string | undefined // logsViewerFiltersLogic
     queryFilterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
@@ -122,7 +123,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
     connect((props: FacetValuesLogicProps) => ({
         values: [
             logsViewerFiltersLogic({ id: props.id }),
-            ['filters', 'utcDateRange', 'queryFilterGroup', 'personId', 'facetRefreshCounter'],
+            ['filters', 'utcDateRange', 'queryFilterGroup', 'personId', 'sessionId', 'facetRefreshCounter'],
             teamLogic,
             ['currentTeamId'],
             facetRailLogic({ id: props.id }),
@@ -188,6 +189,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                             facetSearch: values.facetSearch || undefined,
                             filterGroup,
                             personId: values.personId,
+                            sessionId: values.sessionId,
                         },
                     })
                     // Bail out right after the round-trip: the rail (and this logic) unmounts when the
@@ -211,6 +213,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                 s.filters,
                 s.queryFilterGroup,
                 s.personId,
+                s.sessionId,
                 s.utcDateRange,
                 s.currentTeamId,
                 s.facetRefreshCounter,
@@ -220,6 +223,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                 filters: LogsViewerFilters,
                 queryFilterGroup: UniversalFiltersGroup,
                 personId: string | undefined,
+                sessionId: string | undefined,
                 utcDateRange: {
                     date_from: string | null | undefined
                     date_to: string | null | undefined
@@ -235,6 +239,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                     searchTerm: filters.searchTerm,
                     queryFilterGroup,
                     personId,
+                    sessionId,
                 })}|r${facetRefreshCounter}`,
         ],
         // One trigger for the one in-flight request: a scope change and a keystroke in this facet's

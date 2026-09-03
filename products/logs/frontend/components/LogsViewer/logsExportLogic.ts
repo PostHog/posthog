@@ -52,6 +52,7 @@ export interface logsExportLogicValues {
     maxExportableLogs: number // logsViewerDataLogic
     filters: LogsViewerFilters // logsViewerFiltersLogic
     personId: string | undefined // logsViewerFiltersLogic
+    sessionId: string | undefined // logsViewerFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
         date_to: string | null | undefined
@@ -102,7 +103,7 @@ export const logsExportLogic = kea<logsExportLogicType>([
             logsViewerLogic({ id }),
             ['selectedLogsArray', 'attributeColumns'],
             logsViewerFiltersLogic({ id }),
-            ['filters', 'utcDateRange', 'personId'],
+            ['filters', 'utcDateRange', 'personId', 'sessionId'],
             logsViewerDataLogic({ id }),
             ['maxExportableLogs'],
             logsViewerConfigLogic({ id }),
@@ -153,6 +154,7 @@ export const logsExportLogic = kea<logsExportLogicType>([
                 ...unsetColumnQueryFields(),
                 orderBy: values.orderBy,
                 personId: values.personId,
+                sessionId: values.sessionId,
             }
             posthog.capture('logs exported', { format: 'csv', source: 'server', totalLogsCount })
             try {

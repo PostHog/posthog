@@ -1385,3 +1385,140 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(facet_response.status_code, status.HTTP_200_OK)
         self.assertEqual(facet_response.json()["results"], [{"value": "info", "count": 1}])
+
+
+class TestLogsSessionIdFilter(ClickhouseTestMixin, APIBaseTest):
+    # `sessionId` on LogsQuery is resolved server-side against every configured and conventional
+    # session-id attribute key, in both attribute maps. A client-built filter group cannot express
+    # that: the runner reads an inner group as an AND of its leaves, so a group listing every key
+    # asks for logs where all of them hold the session id at once, and matches nothing.
+    # Tests share one ClickHouse team; each uses unique session-id values for isolation.
+
+    def _insert_logs(self, rows: list[dict]) -> None:
+        payload = "\n".join(json.dumps({**row, "team_id": self.team.id}) for row in rows)
+        sync_execute(f"""
+            INSERT INTO logs
+            FORMAT JSONEachRow
+            {payload}
+        """)
+
+    def _log_row(self, session_id_value: str, attribute_key: str = "sessionId", *, resource: bool = False) -> dict:
+        row: dict = {
+            "uuid": str(uuid4()),
+            "timestamp": "2026-03-01 10:00:00.000000",
+            "observed_timestamp": "2026-03-01 10:00:01.000000",
+            "body": f"log for {session_id_value}",
+            "severity_text": "info",
+            "severity_number": 9,
+            "service_name": "session-id-test-svc",
+            "resource_attributes": {"service.name": "session-id-test-svc"},
+            "attributes_map_str": {},
+        }
+        if resource:
+            row["resource_attributes"][attribute_key] = session_id_value
+        else:
+            row["attributes_map_str"][f"{attribute_key}__str"] = session_id_value
+        return row
+
+    def _session_query(self, session_id: str) -> LogsQuery:
+        return LogsQuery(
+            kind="LogsQuery",
+            dateRange=DateRange(date_from="2026-03-01T00:00:00Z", date_to="2026-03-02T00:00:00Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[])],
+            ),
+            sessionId=session_id,
+        )
+
+    def _run(self, session_id: str) -> list:
+        return LogsQueryRunner(query=self._session_query(session_id), team=self.team).calculate().results
+
+    def test_session_id_matches_every_configured_and_convention_key(self):
+        # Each log carries the session id under one key only. The keys must be OR'd: an AND across
+        # them matches nothing, which is what a filter group built from the same key list produced.
+        # `sessionId` is the configured default; the rest are convention-only, and the UI renders a
+        # value under any of them as the log's session (isSessionIdKey).
+        self._insert_logs(
+            [
+                self._log_row("session-id-test-all", attribute_key="sessionId"),
+                self._log_row("session-id-test-all", attribute_key="session.id"),
+                self._log_row("session-id-test-all", attribute_key="$session_id"),
+                self._log_row("session-id-test-all", attribute_key="posthog_session_id"),
+                self._log_row("session-id-test-all", attribute_key="sessionId", resource=True),
+                self._log_row("session-id-test-all", attribute_key="session_id", resource=True),
+                self._log_row("session-id-test-other", attribute_key="sessionId"),
+            ]
+        )
+
+        results = self._run("session-id-test-all")
+
+        self.assertEqual(len(results), 6)
+        self.assertEqual(
+            {
+                value
+                for r in results
+                for key, value in (*r["attributes"].items(), *r["resource_attributes"].items())
+                if key != "service.name"
+            },
+            {"session-id-test-all"},
+        )
+
+    @parameterized.expand([("attributes", False), ("resource_attributes", True)])
+    def test_session_id_respects_configured_attribute_key(self, _name: str, resource: bool):
+        # A team whose pipeline stamps the session under its own key must still match, in either
+        # map. A custom key (not a built-in convention) isolates configured-key handling from the
+        # convention fallback.
+        TeamLogsConfig.objects.update_or_create(
+            team=self.team, defaults={"logs_session_id_attribute_keys": ["trace.session"]}
+        )
+        self._insert_logs(
+            [
+                self._log_row("session-id-test-cfg", attribute_key="trace.session", resource=resource),
+                self._log_row("session-id-test-cfg-other", attribute_key="trace.session", resource=resource),
+            ]
+        )
+
+        results = self._run("session-id-test-cfg")
+
+        self.assertEqual(len(results), 1)
+        source = "resource_attributes" if resource else "attributes"
+        self.assertEqual(results[0][source]["trace.session"], "session-id-test-cfg")
+
+    @parameterized.expand([("empty", ""), ("whitespace", "   ")])
+    def test_blank_session_id_matches_nothing(self, _name: str, session_id: str):
+        # A blank session id must never reach property_to_expr: it treats an empty value as
+        # always-true, which would leak every log in the project into a session-scoped viewer.
+        self._insert_logs([self._log_row("session-id-test-leak")])
+
+        self.assertEqual(self._run(session_id), [])
+
+    def test_session_id_via_query_sparkline_and_facet_values_apis(self):
+        # The logs endpoints hand-build LogsQuery from request data, so a sessionId omitted from
+        # that whitelist silently un-scopes a session-scoped viewer.
+        self._insert_logs([self._log_row("session-id-test-api"), self._log_row("session-id-test-api-unrelated")])
+        query_params = {
+            "dateRange": {"date_from": "2026-03-01T00:00:00Z", "date_to": "2026-03-02T00:00:00Z"},
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+            "sessionId": "session-id-test-api",
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/logs/query", data={"query": query_params})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual([r["attributes"]["sessionId"] for r in results], ["session-id-test-api"])
+
+        sparkline_response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/sparkline", data={"query": query_params}
+        )
+        self.assertEqual(sparkline_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(sum(bucket["count"] for bucket in sparkline_response.json()), 1)
+
+        facet_response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/facet_values",
+            data={"query": {**query_params, "facetField": "severity_text"}},
+        )
+        self.assertEqual(facet_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(facet_response.json()["results"], [{"value": "info", "count": 1}])
