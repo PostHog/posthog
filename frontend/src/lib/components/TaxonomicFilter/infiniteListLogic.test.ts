@@ -971,6 +971,26 @@ describe('infiniteListLogic', () => {
                     action.payload.item?.isNonCaptured === true,
             ])
         })
+
+        it('leaves a matching keyword shortcut in place instead of offering the row', async () => {
+            const listLogic = logicWith({
+                taxonomicFilterLogicKey: 'non-captured-shortcut',
+                listGroupType: TaxonomicFilterGroupType.EventProperties,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+                allowNonCapturedProperties: true,
+                enableKeywordShortcuts: true,
+            })
+
+            // No mock property definition matches "submit", so the shortcut is the only result.
+            await expectLogic(listLogic, () => {
+                listLogic.actions.setSearchQuery('submit')
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ nonCapturedKind: null })
+
+            expect(listLogic.values.results.map((item: any) => item.name)).toEqual(['Submit (event type)'])
+            expect(listLogic.values.rowCount).toBe(1)
+        })
     })
 
     describe('data warehouse pin lifecycle', () => {

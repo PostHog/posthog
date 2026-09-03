@@ -36,7 +36,6 @@ import {
     QuickFilterItem,
     SelectingKeyOnly,
     SkeletonItem,
-    isQuickFilterItem,
     isSkeletonItem,
     ListFuse,
     ListStorage,
@@ -1308,10 +1307,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 if (excludedProperties?.includes(trimmedSearch) || propertyAllowList) {
                     return null
                 }
-                // Keyword-shortcut QuickFilterItems don't represent captured keys — ignore them
-                // when deciding whether to show the "not seen yet" escape hatch.
-                const realResults = results.filter((item) => !isQuickFilterItem(item))
-                return realResults.length === 0 ? kind : null
+                // Any row at all suppresses the offer, keyword shortcuts included. The offer row
+                // replaces the list instead of joining it, so showing it next to a match hides
+                // that match while Enter still commits it.
+                return results.length === 0 ? kind : null
             },
         ],
         // True while the aggregated SuggestedFilters ("All") tab is still catching up to the current
