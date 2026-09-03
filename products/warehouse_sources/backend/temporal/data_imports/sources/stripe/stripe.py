@@ -1491,6 +1491,8 @@ def create_webhook(
     api_key: str,
     stripe_account_id: str | None,
     webhook_url: str,
+    *,
+    api_version: str,
     auth_method: Literal["api_key", "oauth"] = "api_key",
 ) -> WebhookCreationResult:
     logger = LOGGER.bind()
@@ -1507,7 +1509,7 @@ def create_webhook(
         client = StripeClient(
             api_key,
             stripe_account=stripe_account_id,
-            stripe_version="2024-09-30.acacia",
+            stripe_version=api_version,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
             http_client=_tracked_stripe_http_client(),
@@ -1518,6 +1520,11 @@ def create_webhook(
                 "url": webhook_url,
                 "enabled_events": filtered_events,  # type: ignore
                 "description": "PostHog data warehouse webhook",
+                # Stripe renders delivered events at the account's default version unless the
+                # endpoint pins one, so an account on basil or later would send reshaped Invoice /
+                # Subscription payloads whose moved fields the canonical schema reads as NULL.
+                # The SDK types this as a Literal of the versions it shipped with, hence the ignore.
+                "api_version": api_version,  # type: ignore[typeddict-item]
             }
         )
 
