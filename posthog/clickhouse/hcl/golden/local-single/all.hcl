@@ -390,6 +390,39 @@ database "posthog" {
     }
   }
 
+  table "billing_usage_records_daily" {
+    column "day" {
+      type = "Date"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "organization_id" {
+      type = "UUID"
+    }
+    column "producer_id" {
+      type = "LowCardinality(String)"
+    }
+    column "usage_key" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "quantity" {
+      type = "Int64"
+    }
+    column "rolled_up_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_billing_usage_records_daily"
+      sharding_key    = "cityHash64(team_id)"
+    }
+  }
+
   table "channel_definition" {
     order_by = ["domain", "kind"]
     settings = {
@@ -9372,6 +9405,40 @@ SQL
       zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
       replica_name   = "{replica}"
       version_column = "inserted_at"
+    }
+  }
+
+  table "sharded_billing_usage_records_daily" {
+    order_by     = ["team_id", "day", "organization_id", "producer_id", "usage_key", "unit"]
+    partition_by = "toYYYYMM(day)"
+    column "day" {
+      type = "Date"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "organization_id" {
+      type = "UUID"
+    }
+    column "producer_id" {
+      type = "LowCardinality(String)"
+    }
+    column "usage_key" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "quantity" {
+      type = "Int64"
+    }
+    column "rolled_up_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records_daily"
+      replica_name   = "{replica}"
+      version_column = "rolled_up_at"
     }
   }
 

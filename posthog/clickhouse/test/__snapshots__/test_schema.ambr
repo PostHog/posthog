@@ -1170,6 +1170,24 @@
   
   '''
 # ---
+# name: test_create_table_query[billing_usage_records_daily]
+  '''
+
+  CREATE TABLE IF NOT EXISTS billing_usage_records_daily
+  (
+      day Date,
+      team_id Int64,
+      organization_id UUID,
+      producer_id LowCardinality(String),
+      usage_key LowCardinality(String),
+      unit LowCardinality(String),
+      quantity Int64,
+      rolled_up_at DateTime64(6, 'UTC')
+  )
+  ENGINE = Distributed('posthog', 'posthog_test', 'sharded_billing_usage_records_daily', cityHash64(team_id))
+
+  '''
+# ---
 # name: test_create_table_query[billing_usage_records_mv]
   '''
   
@@ -6557,6 +6575,26 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_billing_usage_records_daily]
+  '''
+
+  CREATE TABLE IF NOT EXISTS sharded_billing_usage_records_daily
+  (
+      day Date,
+      team_id Int64,
+      organization_id UUID,
+      producer_id LowCardinality(String),
+      usage_key LowCardinality(String),
+      unit LowCardinality(String),
+      quantity Int64,
+      rolled_up_at DateTime64(6, 'UTC')
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_billing_usage_records_daily', '{replica}', rolled_up_at)
+  PARTITION BY toYYYYMM(day)
+  ORDER BY (team_id, day, organization_id, producer_id, usage_key, unit)
+
+  '''
+# ---
 # name: test_create_table_query[sharded_conversion_goal_attributed_preaggregated]
   '''
   
@@ -11589,6 +11627,26 @@
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id)
   
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_billing_usage_records_daily]
+  '''
+
+  CREATE TABLE IF NOT EXISTS sharded_billing_usage_records_daily
+  (
+      day Date,
+      team_id Int64,
+      organization_id UUID,
+      producer_id LowCardinality(String),
+      usage_key LowCardinality(String),
+      unit LowCardinality(String),
+      quantity Int64,
+      rolled_up_at DateTime64(6, 'UTC')
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_billing_usage_records_daily', '{replica}', rolled_up_at)
+  PARTITION BY toYYYYMM(day)
+  ORDER BY (team_id, day, organization_id, producer_id, usage_key, unit)
+
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_conversion_goal_attributed_preaggregated]
