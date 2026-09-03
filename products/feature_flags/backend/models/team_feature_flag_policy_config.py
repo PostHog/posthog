@@ -21,7 +21,11 @@ class TeamFeatureFlagPolicyConfig(models.Model):
 
     # db_constraint=False: a real FK constraint would take a SHARE ROW EXCLUSIVE
     # lock on posthog_team (a hot table) while migrating.
-    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True, db_constraint=False)
+    # related_name="+": the relation crosses a product boundary, so it must not add a reverse
+    # accessor to Team. Readers come in through `Team.feature_flag_policy_config` instead.
+    team = models.OneToOneField(
+        "posthog.Team", on_delete=models.CASCADE, primary_key=True, db_constraint=False, related_name="+"
+    )
 
     # Blocks creating a flag with no tags, and blocks removing the last tag from a flag that has
     # one. Only applies to flags a person creates directly. Flags generated to back a survey,

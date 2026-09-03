@@ -20,6 +20,7 @@ class Migration(migrations.Migration):
                         db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         primary_key=True,
+                        related_name="+",
                         serialize=False,
                         to="posthog.team",
                     ),
