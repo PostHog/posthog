@@ -79,6 +79,11 @@ SLIM_IMAGE_NAME = "posthog-sandbox-slim"
 _DOCKERFILE_SHA_LABEL = "com.posthog.sandbox.dockerfile-sha"
 _AGENT_VERSION_LABEL = "com.posthog.sandbox.agent-version"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
+
+# posthog-code workspace packages staged into a local sandbox image build. @posthog/agent
+# needs shared, git and enricher; git needs shared. Both the path check and the copy read
+# this tuple, so a package named here but absent from the checkout fails the build outright.
+_LOCAL_SANDBOX_PACKAGES = ("agent", "shared", "git", "enricher")
 # Streamlit sandboxes expose their auth proxy (not the agent-server) on this port; the
 # host-published port maps to it so connect_info can reach the app across processes.
 
@@ -262,7 +267,7 @@ class DockerSandbox(SandboxBase):
             os.path.join(monorepo_root, "scripts", "rimraf.mjs"),
             *[
                 os.path.join(monorepo_root, "packages", package_name, "package.json")
-                for package_name in ("agent", "harness", "shared", "git", "enricher")
+                for package_name in _LOCAL_SANDBOX_PACKAGES
             ],
         ]
         missing = [path for path in required_paths if not os.path.exists(path)]
@@ -345,7 +350,7 @@ class DockerSandbox(SandboxBase):
             shutil.copytree(os.path.join(monorepo_root, "patches"), os.path.join(workspace_path, "patches"))
             shutil.copy2(os.path.join(monorepo_root, "scripts", "rimraf.mjs"), scripts_path)
 
-            for package_name in ("agent", "harness", "shared", "git", "enricher"):
+            for package_name in _LOCAL_SANDBOX_PACKAGES:
                 shutil.copytree(
                     os.path.join(monorepo_root, "packages", package_name),
                     os.path.join(packages_path, package_name),

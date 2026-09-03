@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.tasks.backend.exceptions import SandboxExecutionError, SandboxProvisionError
-from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+from products.tasks.backend.logic.services.docker_sandbox import _LOCAL_SANDBOX_PACKAGES, DockerSandbox
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     SandboxConfig,
@@ -153,7 +153,7 @@ class TestDockerSandboxUnit:
         (tmp_path / "patches").mkdir()
         (tmp_path / "scripts").mkdir()
         (tmp_path / "scripts" / "rimraf.mjs").touch()
-        for package_name in ("agent", "harness", "shared", "git", "enricher"):
+        for package_name in _LOCAL_SANDBOX_PACKAGES:
             package_path = tmp_path / "packages" / package_name
             package_path.mkdir(parents=True)
             (package_path / "package.json").touch()
@@ -170,7 +170,7 @@ class TestDockerSandboxUnit:
         (monorepo_path / "patches").mkdir()
         (monorepo_path / "scripts").mkdir()
         (monorepo_path / "scripts" / "rimraf.mjs").touch()
-        for package_name in ("agent", "harness", "shared", "git", "enricher"):
+        for package_name in _LOCAL_SANDBOX_PACKAGES:
             package_path = monorepo_path / "packages" / package_name
             package_path.mkdir(parents=True)
             (package_path / "package.json").touch()
@@ -185,7 +185,8 @@ class TestDockerSandboxUnit:
         workspace_path = context_path / "local-workspace"
         assert (workspace_path / "pnpm-workspace.yaml").is_file()
         assert (workspace_path / "scripts" / "rimraf.mjs").is_file()
-        assert (workspace_path / "packages" / "harness" / "package.json").is_file()
+        for package_name in _LOCAL_SANDBOX_PACKAGES:
+            assert (workspace_path / "packages" / package_name / "package.json").is_file()
         command = run.call_args.args[0]
         assert command[0:2] == ["docker", "build"]
         assert command[-1] == str(context_path)
