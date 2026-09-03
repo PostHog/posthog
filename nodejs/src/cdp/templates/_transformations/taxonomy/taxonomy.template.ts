@@ -34,11 +34,15 @@ fun capitalize(word) {
     return concat(upper(substring(word, 1, 1)), substring(word, 2, length(word) - 1))
 }
 
-// Split a name into lowercased words on separators and on lower-to-upper case boundaries,
+// Split a name into lowercased words on separators and on case boundaries,
 // so 'userSignedUp', 'user_signed_up' and 'User Signed Up' all become ['user', 'signed', 'up'].
+// Keep the last character in its own variable. Reading it back out of the word instead would
+// pair length() with substring(), and those two count differently on one of the supported
+// virtual machines, which drops the boundary after a word that holds a non-ASCII character.
 fun tokenize(name) {
     let words := []
     let current := ''
+    let previous := ''
     let i := 1
     while (i <= length(name)) {
         let ch := substring(name, i, 1)
@@ -47,12 +51,21 @@ fun tokenize(name) {
                 words := arrayPushBack(words, lower(current))
                 current := ''
             }
+            previous := ''
         } else {
-            if (isUpper(ch) and not empty(current) and isLower(substring(current, length(current), 1))) {
+            // 'userSigned' breaks at the capital. 'APIResponse' breaks at the last capital of a
+            // run, so the character after this one decides.
+            let following := substring(name, i + 1, 1)
+            if (
+                isUpper(ch)
+                and not empty(current)
+                and (isLower(previous) or (isUpper(previous) and isLower(following)))
+            ) {
                 words := arrayPushBack(words, lower(current))
                 current := ''
             }
             current := concat(current, ch)
+            previous := ch
         }
         i := i + 1
     }
@@ -76,8 +89,7 @@ if (convention == 'snake_case') {
     result := arrayStringConcat(words, '-')
 } else if (convention == 'spaces') {
     result := arrayStringConcat(words, ' ')
-} else {
-    // camelCase or PascalCase
+} else if (convention == 'camelCase' or convention == 'PascalCase') {
     let i := 1
     while (i <= length(words)) {
         if (i == 1 and convention == 'camelCase') {
@@ -87,6 +99,9 @@ if (convention == 'snake_case') {
         }
         i := i + 1
     }
+} else {
+    // A convention outside the list keeps the name, because a renamed event cannot be undone.
+    return event
 }
 
 let returnEvent := event
