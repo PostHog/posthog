@@ -121,8 +121,9 @@ def _load_run(input: StamphogReviewInput) -> ReviewRun:
     )
 
 
+# aio_ continues the series the Action-era runs emitted; the engine blob carries the same word.
+STAMPHOG_AI_PRODUCT = "aio_stamphog"
 # The cap bounds what a leaked token can spend; the TTL must outlive the 30-minute review activity.
-STAMPHOG_AI_PRODUCT = "stamphog"
 _REVIEWER_TOKEN_CAP_USD = "5"
 _REVIEWER_TOKEN_TTL_SECONDS = 3600
 _MINT_ATTEMPTS = 2

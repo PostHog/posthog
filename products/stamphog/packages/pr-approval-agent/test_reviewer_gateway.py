@@ -42,6 +42,6 @@ def test_gateway_mode_uses_plain_query_and_applies_env():
     assert os.environ["ANTHROPIC_API_KEY"] == "phs_secret"
     headers = os.environ["ANTHROPIC_CUSTOM_HEADERS"]
     # Single X-PostHog-Properties JSON blob; the slugless gateway ignores per-property headers.
-    assert '"ai_product":"stamphog"' in headers
+    assert '"ai_product":"aio_stamphog"' in headers
     assert '"stamphog_pr_number":7' in headers
     assert "x-posthog-property-" not in headers

@@ -771,7 +771,7 @@ def test_the_digest_call_names_its_product_team_and_source() -> None:
     assert summary.judged is True
     build.assert_called_once_with(
         "stamphog",
-        ai_product="stamphog",
+        ai_product="aio_stamphog",
         team_id=team_id,
         properties={"source_product": "stamphog_digest"},
         distinct_id=f"team-{team_id}",

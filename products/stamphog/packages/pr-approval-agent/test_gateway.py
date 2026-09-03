@@ -83,15 +83,13 @@ def test_gateway_env_tags_ai_product_and_attribution():
     env = gateway_env("https://host", "phs_secret", {"stamphog_pr_number": 123, "stamphog_repo": "PostHog/posthog"})
     headers = env["ANTHROPIC_CUSTOM_HEADERS"]
     assert headers == (
-        'X-PostHog-Properties: {"ai_product":"stamphog","stamphog_pr_number":123,"stamphog_repo":"PostHog/posthog"}'
+        'X-PostHog-Properties: {"ai_product":"aio_stamphog","stamphog_pr_number":123,"stamphog_repo":"PostHog/posthog"}'
     )
     assert "x-posthog-property-" not in headers
 
 
-def test_ai_product_matches_the_scoped_token_pin_no_reserved_prefix():
-    # Hosted runs pin this exact value at mint; the blob must agree so the custom prop never
-    # disagrees with $ai_product.
-    assert AI_PRODUCT == "stamphog"
+def test_ai_product_uses_aio_prefix_no_reserved_prefix():
+    assert AI_PRODUCT == "aio_stamphog"
     assert not AI_PRODUCT.startswith("$")
 
 

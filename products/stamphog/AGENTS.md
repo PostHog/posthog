@@ -95,7 +95,7 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
 
 - The sandbox holds NO long-lived secret; `_reviewer_environment` mints a per-run credential under
   the repo's connecting user. With the Go ai-gateway configured (`AI_GATEWAY_URL` + `AI_GATEWAY_API_KEY`
-  in the worker env) that is a `phe_` scoped token from `POST /v1/tokens`: `product=stamphog`,
+  in the worker env) that is a `phe_` scoped token from `POST /v1/tokens`: `product=aio_stamphog`,
   `obo=<customer team>`, `cap_usd=5`, `ttl_seconds=3600`. The worker's `phs_` mints it and never
   enters the sandbox, and the worker revokes the token once the sandbox is destroyed. With
   `AI_GATEWAY_URL` on the Go host and no key the run fails closed: the OAuth token below is a

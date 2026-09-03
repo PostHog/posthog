@@ -619,7 +619,7 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
     try:
         client = build_anthropic_client(
             "stamphog",
-            ai_product="stamphog",
+            ai_product="aio_stamphog",
             team_id=team_id,
             properties={"source_product": _SOURCE_PRODUCT},
             distinct_id=team_distinct_id(team_id),

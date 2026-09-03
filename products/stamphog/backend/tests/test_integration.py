@@ -663,7 +663,7 @@ def test_sandbox_gets_a_scoped_gateway_token_when_the_go_gateway_is_configured(
     assert mint_call.kwargs["json"] == {
         "cap_usd": "5",
         "ttl_seconds": 3600,
-        "product": "stamphog",
+        "product": "aio_stamphog",
         "obo": str(team.id),
         "user": user.distinct_id,
     }
