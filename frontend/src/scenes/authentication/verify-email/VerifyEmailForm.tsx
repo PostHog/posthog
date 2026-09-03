@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { ExplorerHog, SleepingHog } from 'lib/components/hedgehogs'
+import { SleepingHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -16,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { verifyEmailLogic } from './verifyEmailLogic'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogExplorer = pngHoggie(explorerPng)
 
 const NOTES: Record<string, string[]> = {
     pending: ['// one email away', '// we just hit send'],
@@ -172,7 +174,7 @@ export function VerifyEmailForm(): JSX.Element {
             <AuthScene notes={notes}>
                 <AuthSceneCard>
                     <div className="flex flex-col items-center text-center">
-                        <ExplorerHog className="block w-auto mx-auto h-32" />
+                        <HedgehogExplorer className="block w-auto mx-auto h-32" />
                         <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
                             You're verified, go explore!
                         </h1>

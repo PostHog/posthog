@@ -1306,7 +1306,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             })
         },
         prefetchSessionContexts: async ({ sessionIds }, breakpoint) => {
-            if (!values.featureFlags[FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT] || sessionIds.length === 0) {
+            if (sessionIds.length === 0) {
                 return
             }
             // Debounce rapid filter churn — a superseded batch is cancelled at the breakpoint.

@@ -29,7 +29,12 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+)
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.organization import OrganizationMembership
@@ -39,6 +44,8 @@ from posthog.permissions import is_service_auth, posthog_feature_flag_enabled
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    PersonalOrProjectSecretApiKeyRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
     SessionBucketsBurstRateThrottle,
     SessionBucketsSustainedRateThrottle,
     SessionContextsBurstRateThrottle,
@@ -252,6 +259,34 @@ def _accessible_session_ids(
     return [session_id for session_id in session_ids if session_id not in denied_ids]
 
 
+class ExperimentBurstRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    # Same scope and rate as the default BurstRateThrottle so personal-key and session
+    # behavior is unchanged; the subclass only adds per-key throttling for PSAK requests,
+    # which the default throttles silently bypass (no personal key, no throttling).
+    scope = "burst"
+    rate = "480/minute"
+
+
+class ExperimentSustainedRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "sustained"
+    rate = "4800/hour"
+
+
+class ExperimentProjectSecretApiKeyTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate burst budget across all of a project's PSAKs — same size as the
+    per-key budget, so minting extra keys never multiplies a project's total burst capacity."""
+
+    scope = "experiment_psak_team_burst"
+    rate = "480/minute"
+
+
+class ExperimentProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate sustained budget across all of a project's PSAKs."""
+
+    scope = "experiment_psak_team_sustained"
+    rate = "4800/hour"
+
+
 @extend_schema_view(
     # PATCH /experiments/{id}/
     # DRF mixin calls implementation at ExperimentSerializer.update
@@ -368,6 +403,18 @@ class EnterpriseExperimentsViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object: Literal["experiment"] = "experiment"
+    # Extends the default authenticators (TeamAndOrgViewSetMixin appends session/PAT/OAuth).
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    # A project secret API key with experiment:read can export experiment definitions
+    # (list/retrieve) — a service credential not tied to one person's account. Everything
+    # else (writes, lifecycle actions, results) stays session/PAT/OAuth-only.
+    psak_allowed_actions = ["list", "retrieve"]
+    throttle_classes = [
+        ExperimentBurstRateThrottle,
+        ExperimentSustainedRateThrottle,
+        ExperimentProjectSecretApiKeyTeamBurstThrottle,
+        ExperimentProjectSecretApiKeyTeamSustainedThrottle,
+    ]
     serializer_class = ExperimentSerializer
     queryset = (
         Experiment.objects.select_related(
