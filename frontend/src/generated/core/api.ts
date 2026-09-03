@@ -67,6 +67,7 @@ import type {
     PatchedFileSystemShortcutApi,
     PatchedIdentityProviderConfigApi,
     PatchedOrganizationDomainApi,
+    PatchedProductIntroSeenApi,
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
     PatchedUserApi,
@@ -102,6 +103,7 @@ import type {
     UsersIntegrationsListParams,
     UsersListParams,
     UsersLoginSessionsListParams,
+    UsersProductIntroSeenPartialUpdate200,
     VerifyEmailRequestApi,
 } from './api.schemas'
 
@@ -3117,6 +3119,34 @@ export const usersOnboardingSkipCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(onboardingSkipRequestApi),
+    })
+}
+
+export const getUsersProductIntroSeenPartialUpdateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/product_intro_seen/`
+}
+
+/**
+ * Record that this user has seen one product intro.
+ *
+ * Separate from the `has_seen_product_intro_for` field on the main user PATCH, which requires a
+ * recently authenticated session. Dismissing an intro must not depend on that: a re-auth prompt
+ * would cover the intro it interrupts, and the dismissal would never persist. Nothing reachable
+ * here changes an account, an organization, or a profile.
+ *
+ * Merging server-side also keeps two intros dismissed from separate tabs from dropping each
+ * other's key, which a read-modify-write of the whole map cannot avoid.
+ */
+export const usersProductIntroSeenPartialUpdate = async (
+    uuid: string,
+    patchedProductIntroSeenApi?: PatchedProductIntroSeenApi,
+    options?: RequestInit
+): Promise<UsersProductIntroSeenPartialUpdate200> => {
+    return apiMutator<UsersProductIntroSeenPartialUpdate200>(getUsersProductIntroSeenPartialUpdateUrl(uuid), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedProductIntroSeenApi),
     })
 }
 
