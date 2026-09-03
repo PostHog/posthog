@@ -197,6 +197,56 @@ class TestCloseImplementationPrForReport(BaseTest):
         self.assignment.refresh_from_db()
         assert self.assignment.pr_state == SignalReportAssignment.PrState.OPEN
 
+    def _other_report_sharing_the_pr(self, report_status: str) -> SignalReport:
+        other_report = SignalReport.objects.create(
+            team=self.team,
+            status=report_status,
+            title="Other report",
+            summary="Other summary",
+        )
+        SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=other_report,
+            pr_url=_PR_URL,
+            repository="posthog/posthog",
+            pr_number=123,
+            pr_state=SignalReportAssignment.PrState.OPEN,
+        )
+        return other_report
+
+    def test_does_not_close_a_pr_another_live_report_still_uses(self):
+        self._other_report_sharing_the_pr(SignalReport.Status.READY)
+
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository"
+        ) as mock_resolve:
+            assert close_implementation_pr_for_report(self.team.id, str(self.report.id)) is False
+
+        mock_resolve.assert_not_called()
+        self.assignment.refresh_from_db()
+        assert self.assignment.pr_state == SignalReportAssignment.PrState.OPEN
+
+    @parameterized.expand(
+        [
+            ("suppressed", SignalReport.Status.SUPPRESSED),
+            ("resolved", SignalReport.Status.RESOLVED),
+        ]
+    )
+    def test_closes_the_pr_once_every_other_linked_report_is_finished(self, _name: str, other_status: str):
+        self._other_report_sharing_the_pr(other_status)
+        github = MagicMock()
+        github.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
+        github.comment_on_pull_request.return_value = {"success": True}
+        github.close_pull_request.return_value = {"success": True, "number": 123, "state": "closed"}
+
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            assert close_implementation_pr_for_report(self.team.id, str(self.report.id)) is True
+
+        github.close_pull_request.assert_called_once_with("PostHog/posthog", 123)
+
     @parameterized.expand(
         [
             (

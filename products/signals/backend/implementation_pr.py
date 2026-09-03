@@ -8,9 +8,15 @@ from posthog.dataclasses import frozen
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 
-from products.signals.backend.models import SignalReportAssignment
+from products.signals.backend.models import SignalReport, SignalReportAssignment
 
 logger = structlog.get_logger(__name__)
+
+# A report in one of these statuses is finished with its pull request. Anything else still holds
+# it open — a status this list doesn't know about keeps the PR, which is the safe direction.
+_FINISHED_REPORT_STATUSES = frozenset(
+    {SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED, SignalReport.Status.DELETED}
+)
 
 
 @frozen
@@ -90,6 +96,27 @@ def close_implementation_pr_for_report(
         parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
         if parsed is None:
             logger.warning("close_implementation_pr_unparseable_url", report_id=str(report_id), pr_url=pr_url)
+            return False
+
+        # One pull request can back several reports. Closing it for one dismissal would close the
+        # work the others still depend on, and the close webhook would then suppress them too, so
+        # only the last report still using it closes it.
+        still_used_elsewhere = (
+            SignalReportAssignment.all_teams.filter(
+                report__team_id=team_id,
+                repository=parsed.repository.lower(),
+                pr_number=parsed.number,
+            )
+            .exclude(report_id=report_id)
+            .exclude(report__status__in=_FINISHED_REPORT_STATUSES)
+            .exists()
+        )
+        if still_used_elsewhere:
+            logger.info(
+                "close_implementation_pr_still_used_by_another_report",
+                report_id=str(report_id),
+                pr_url=pr_url,
+            )
             return False
 
         github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
