@@ -5576,6 +5576,14 @@ snapshots:
         hash: v1.k794b7964.e72031a3a874ed6a1825089edff6147a3ea0d74c20c74951f8b5d38d92f54464.WQmsYZby7Raw1OaQn_oKtu1eASs_te6AgRALWXM6xLE
     products-signals-self-driving-intro-modal--default--light:
         hash: v1.k794b7964.602b1235812b95a5a5e1b8394fcb0bf613698958302c0d8555e89c587e258c36.00YN2IU5qnM8hUXbxAhMv5wX7Hiwrxw4vYXXOWKu1Is
+    products-subscriptions-new-subscription-target--pick-what-to-send--dark:
+        hash: v1.k794b7964.256d7c2817c80a78143a68aa757935c7d5676e8a32ce6e38a705beb49de0ea2b.bT_FOHDP86GzzCJQ2oIXQBfhq6Mp1sxjharW6zoRjho
+    products-subscriptions-new-subscription-target--pick-what-to-send--light:
+        hash: v1.k794b7964.49a6e33deddd0075162c5634131eaea679512623c7536886c176079ab939559d.ghCpyCi5wnPgNXh9zDuBWvfwV83nJgplqMhtItYvQ4w
+    products-subscriptions-new-subscription-target--without-ai-prompts--dark:
+        hash: v1.k794b7964.45de098efffca42dcea68553b7a80e5efe68a017b2bff44bce74b7093e930eb7.9FhkjUGU2V7zGi7iQ8F5QfVAlhB-QMIxUvRa03HE1sE
+    products-subscriptions-new-subscription-target--without-ai-prompts--light:
+        hash: v1.k794b7964.a59d597328fc4b0b38adc693a3268e6eac7176d996a2dc6693ba994bf4fcc9c6.gLaMWqS88P5I2Q0H354DYnC7RBJAawv0qDgYOg3tVt8
     products-subscriptions-subscription-delivery-history--empty--dark:
         hash: v1.k794b7964.267363ce3a0453be58b96ef2c00446ae4aaf5ed42b02472c495b3c468f25e18f.PjabhWWV-dc6vzuSl_wdoaQ2VAB35IG84kOVKe5eaA4
     products-subscriptions-subscription-delivery-history--empty--light:
