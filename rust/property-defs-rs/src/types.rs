@@ -145,10 +145,9 @@ impl GroupType {
         }
     }
 
-    /// Returns the Unresolved form of this group type. The shared dedup cache
-    /// always stores entries as Unresolved (inserted by the producer before
-    /// resolution), so cache removal after a failed batch write must use this
-    /// form to match the original key.
+    /// Returns the Unresolved form of this group type. The dedup cache keys
+    /// group properties by name, so cache operations accept either form; this
+    /// exists for call sites that want the canonical producer-side shape.
     pub fn as_unresolved(&self) -> Self {
         match self {
             GroupType::Unresolved(_) => self.clone(),
