@@ -577,7 +577,7 @@ class ReorderTilesRequestSerializer(serializers.Serializer):
         min_length=1,
         help_text=(
             "Array of tile IDs in the desired display order (top to bottom, left to right). "
-            "The three_column layout requires every tile ID returned by dashboard-get."
+            "The three_column layout requires exactly the tile IDs returned by dashboard-get."
         ),
     )
     layout = serializers.ChoiceField(
@@ -589,8 +589,8 @@ class ReorderTilesRequestSerializer(serializers.Serializer):
             "and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per "
             "row). 'three_column' packs non-text tiles three per row at width 4 and height 5 while keeping text and "
             "image tiles full-width at their saved height (or rendered default height 2 when no valid height is "
-            "saved); it requires every tile ID returned by dashboard-get. 'full_width' forces each tile to span the full "
-            "12-column row at height 5."
+            "saved); it requires exactly the tile IDs returned by dashboard-get. 'full_width' forces each tile to span "
+            "the full 12-column row at height 5."
         ),
     )
 
@@ -3016,11 +3016,12 @@ class DashboardsViewSet(
                 {"detail": "tile_order must contain unique tile IDs"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        requested_tile_ids = set(tile_order)
 
         tiles = DashboardTile.objects.filter(dashboard=dashboard, id__in=tile_order)
         tile_map = {tile.id: tile for tile in tiles}
 
-        missing = set(tile_order) - set(tile_map.keys())
+        missing = requested_tile_ids - set(tile_map.keys())
         if missing:
             return Response(
                 {"detail": f"Tile IDs not found on this dashboard: {sorted(missing)}"},
@@ -3029,13 +3030,19 @@ class DashboardsViewSet(
 
         if layout_mode == ReorderLayout.THREE_COLUMN:
             visible_tile_ids = set(DashboardTile.dashboard_queryset(dashboard.tiles.all()).values_list("id", flat=True))
-            omitted_tile_ids = visible_tile_ids - set(tile_order)
-            if omitted_tile_ids:
+            omitted_tile_ids = visible_tile_ids - requested_tile_ids
+            unexpected_tile_ids = requested_tile_ids - visible_tile_ids
+            if omitted_tile_ids or unexpected_tile_ids:
+                mismatch_details = []
+                if omitted_tile_ids:
+                    mismatch_details.append(f"Missing tile IDs: {sorted(omitted_tile_ids)}")
+                if unexpected_tile_ids:
+                    mismatch_details.append(f"Unexpected tile IDs: {sorted(unexpected_tile_ids)}")
                 return Response(
                     {
                         "detail": (
-                            "three_column layout requires tile_order to include every visible dashboard tile ID. "
-                            f"Missing tile IDs: {sorted(omitted_tile_ids)}"
+                            "three_column layout requires tile_order to contain exactly the tile IDs returned by "
+                            f"dashboard-get. {' '.join(mismatch_details)}"
                         )
                     },
                     status=status.HTTP_400_BAD_REQUEST,

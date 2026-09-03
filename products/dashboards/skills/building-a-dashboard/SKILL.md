@@ -55,7 +55,7 @@ Prefer reusing existing insights over recreating them.
   tiles — insights you omit are removed, so include the ones you want to keep.
 - Layout: `posthog:dashboard-reorder-tiles` supports `preserve` (the default), `two_column`, `three_column`, and
   `full_width`. Only reflow when the user explicitly asks to rearrange, reorder, or move tiles. Use `three_column` only
-  when the user specifically asks for a three-column or equal-thirds row, and pass every tile ID returned by
+  when the user specifically asks for a three-column or equal-thirds row, and pass exactly the tile IDs returned by
   `dashboard-get`. It keeps text and image separators full-width at their saved heights (or rendered height 2 when
   layoutless), then packs each contiguous run of other tiles three per row.
 - After every layout change, call `posthog:dashboard-get` and verify the tile IDs match the requested order.

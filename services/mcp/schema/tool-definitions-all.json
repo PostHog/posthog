@@ -2362,7 +2362,7 @@
         }
     },
     "dashboard-reorder-tiles": {
-        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved; see the layout parameter to force a two-column, three-column, or full-width grid instead. The three-column layout is only for an explicitly requested three-column or equal-thirds layout and requires every tile ID returned by dashboard-get. It keeps text and image tiles full-width as separators, preserving their saved height or using rendered height 2 when layoutless, and packs each contiguous run of other tiles three per row.",
+        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved; see the layout parameter to force a two-column, three-column, or full-width grid instead. The three-column layout is only for an explicitly requested three-column or equal-thirds layout and requires exactly the tile IDs returned by dashboard-get. It keeps text and image tiles full-width as separators, preserving their saved height or using rendered height 2 when layoutless, and packs each contiguous run of other tiles three per row.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Reorder dashboard tiles",

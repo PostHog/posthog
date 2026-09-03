@@ -4385,7 +4385,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             response.json(),
             {
                 "detail": (
-                    "three_column layout requires tile_order to include every visible dashboard tile ID. "
+                    "three_column layout requires tile_order to contain exactly the tile IDs returned by "
+                    "dashboard-get. "
                     f"Missing tile IDs: [{tile2.pk}]"
                 )
             },
@@ -4410,6 +4411,34 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([tile["id"] for tile in response.json()["tiles"]], [visible_tile.pk])
+
+    def test_reorder_tiles_three_column_rejects_tile_hidden_by_deleted_insight(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        visible_insight = Insight.objects.create(team=self.team, name="Visible insight")
+        deleted_insight = Insight.objects.create(team=self.team, name="Deleted insight")
+        visible_tile = DashboardTile.objects.create(dashboard=dashboard, insight=visible_insight)
+        hidden_tile = DashboardTile.objects.create(dashboard=dashboard, insight=deleted_insight)
+        Insight.objects.filter(pk=deleted_insight.pk).update(deleted=True)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
+            {
+                "tile_order": [visible_tile.pk, hidden_tile.pk],
+                "layout": "three_column",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "detail": (
+                    "three_column layout requires tile_order to contain exactly the tile IDs returned by "
+                    f"dashboard-get. Unexpected tile IDs: [{hidden_tile.pk}]"
+                )
+            },
+        )
 
     def test_reorder_tiles_three_column_starts_new_rows_around_separator_after_partial_row(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
