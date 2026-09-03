@@ -172,7 +172,9 @@ def get_property_access_level(
             raise ValueError("user does not have organization membership")
 
         user_role_ids = set(
-            RoleMembership.objects.filter(organization_member=membership).values_list("role_id", flat=True)
+            RoleMembership.objects.filter(organization_member=membership)
+            .valid_for_authorization()
+            .values_list("role_id", flat=True)
         )
 
     return _resolve_access_level(rules, membership=membership, user_role_ids=user_role_ids)
@@ -263,7 +265,11 @@ def get_non_writable_property_names(
 
         from products.access_control.backend.models.role import RoleMembership
 
-        user_role_ids = set(RoleMembership.objects.filter(user=user).values_list("role_id", flat=True))
+        user_role_ids = set(
+            RoleMembership.objects.filter(user=user, role__organization_id=org_id)
+            .valid_for_authorization()
+            .values_list("role_id", flat=True)
+        )
 
     non_writable: set[str] = set()
     for _prop_def_id, prop_rules in rules_by_property.items():
@@ -366,7 +372,9 @@ def get_restricted_properties_with_group_type_index_for_team(
             raise ValueError("user does not have organization membership")
 
         user_role_ids = set(
-            RoleMembership.objects.filter(organization_member=membership).values_list("role_id", flat=True)
+            RoleMembership.objects.filter(organization_member=membership)
+            .valid_for_authorization()
+            .values_list("role_id", flat=True)
         )
 
     restricted: set[RestrictedProperty] = set()

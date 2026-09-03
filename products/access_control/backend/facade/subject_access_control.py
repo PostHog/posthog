@@ -246,6 +246,7 @@ class SubjectAccessControl(UserAccessControl):
             return list(
                 cast(Any, self._subject_member.user)
                 .role_memberships.filter(role__organization_id=self._organization_id)
+                .valid_for_authorization()
                 .values_list("role_id", flat=True)
             )
         return [self._subject_role_id] if self._subject_role_id else []
@@ -313,7 +314,7 @@ def get_project_scoped_visible_membership_ids(
     candidate_role_ids: dict[str, list[str]] = defaultdict(list)
     referenced_role_ids = {role_id for (_, role_id) in role_overrides}
     if referenced_role_ids:
-        for rm in RoleMembership.objects.filter(role_id__in=referenced_role_ids):
+        for rm in RoleMembership.objects.filter(role_id__in=referenced_role_ids).valid_for_authorization():
             if rm.organization_member_id:
                 candidate_role_ids[str(rm.organization_member_id)].append(str(rm.role_id))
     candidate_ids = {membership_id for (_, membership_id) in member_overrides} | set(candidate_role_ids)
