@@ -85,6 +85,60 @@ describe('slack template', () => {
         expect(bodyOf(response.invocation.queueParameters)).not.toHaveProperty('thread_ts')
     })
 
+    describe('Slack block limits', () => {
+        const sectionBlock = (text: string): any => ({ type: 'section', text: { type: 'mrkdwn', text } })
+
+        it('should shorten section text that is longer than 3000 characters', async () => {
+            const response = await tester.invoke({ ...commonInputs, blocks: [sectionBlock('a'.repeat(3500))] })
+
+            expect(response.error).toBeUndefined()
+            expect(bodyOf(response.invocation.queueParameters).blocks).toEqual([
+                sectionBlock(`${'a'.repeat(2999)}\u2026`),
+            ])
+        })
+
+        it('should shorten a button label that is longer than 75 characters', async () => {
+            const button = (text: string): any => ({
+                type: 'button',
+                url: 'https://example.com',
+                text: { type: 'plain_text', text },
+            })
+            const blocks = [{ type: 'actions', elements: [button('b'.repeat(100))] }]
+
+            const response = await tester.invoke({ ...commonInputs, blocks })
+
+            expect(response.error).toBeUndefined()
+            expect(bodyOf(response.invocation.queueParameters).blocks).toEqual([
+                { type: 'actions', elements: [button(`${'b'.repeat(74)}\u2026`)] },
+            ])
+        })
+
+        it('should send only the first 50 blocks', async () => {
+            const blocks = Array.from({ length: 60 }, () => sectionBlock('block'))
+
+            const response = await tester.invoke({ ...commonInputs, blocks })
+
+            expect(response.error).toBeUndefined()
+            expect(bodyOf(response.invocation.queueParameters).blocks).toEqual(blocks.slice(0, 50))
+        })
+
+        it('should keep blocks unset when there are none', async () => {
+            const response = await tester.invoke({ ...commonInputs, blocks: undefined })
+
+            expect(response.error).toBeUndefined()
+            expect(bodyOf(response.invocation.queueParameters).blocks).toBeNull()
+        })
+
+        it('should leave blocks that are inside the limits alone', async () => {
+            const blocks = [sectionBlock('short'), { type: 'divider' }]
+
+            const response = await tester.invoke({ ...commonInputs, blocks })
+
+            expect(response.error).toBeUndefined()
+            expect(bodyOf(response.invocation.queueParameters).blocks).toEqual(blocks)
+        })
+    })
+
     it.each([
         ['a non-200 status', { status: 400, body: { ok: true } }, "Failed to post message to Slack: 400: {'ok': true}"],
         ['ok: false', { status: 200, body: { ok: false } }, "Failed to post message to Slack: 200: {'ok': false}"],
