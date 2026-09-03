@@ -1,3 +1,4 @@
+import { deepEqual as equal } from 'fast-equals'
 import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -32,7 +33,6 @@ import {
 } from '~/types'
 
 import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
-import { isDashboardFilterEmpty } from './dashboardFilterEmpty'
 
 export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError | null {
     const queryStatus = insight.query_status
@@ -461,20 +461,38 @@ export const encodeURLFilters = (filters: DashboardFilter): Record<string, strin
 }
 
 /**
- * Search params for a dashboard filter change. A filter that constrains nothing drops the param instead
- * of writing an empty one, so clearing the last filter doesn't leave the dashboard looking overridden on
- * its next load. Spreading the encoded filter can't do this — it never removes a key already in the URL.
+ * An empty override must stay in the URL when it clears a saved dashboard filter. Without that explicit
+ * value, a reload restores the saved filter. Empty overrides on unfiltered dashboards can be removed.
  */
 export function searchParamsWithUrlFilters(
     searchParams: Record<string, any>,
-    filters: DashboardFilter
+    filters: DashboardFilter,
+    persistedFilters: DashboardFilter = {}
 ): Record<string, any> {
     const nextSearchParams = { ...searchParams }
-    if (isDashboardFilterEmpty(filters)) {
+    if (!dashboardFilterOverrideChangesFilters(filters, persistedFilters)) {
         delete nextSearchParams[SEARCH_PARAM_FILTERS_KEY]
         return nextSearchParams
     }
     return { ...nextSearchParams, ...encodeURLFilters(filters) }
+}
+
+export function dashboardFilterOverrideChangesFilters(
+    filters: DashboardFilter,
+    persistedFilters: DashboardFilter
+): boolean {
+    return Object.entries(filters).some(([key, value]) => {
+        const persistedValue = (persistedFilters as Record<string, unknown>)[key]
+        if (key === 'properties') {
+            const properties = Array.isArray(value) ? value : []
+            const persistedProperties = Array.isArray(persistedValue) ? persistedValue : []
+            return !equal(properties, persistedProperties)
+        }
+        if (value == null && persistedValue == null) {
+            return false
+        }
+        return !equal(value, persistedValue)
+    })
 }
 
 export function combineDashboardFilters(...filters: DashboardFilter[]): DashboardFilter {

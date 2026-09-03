@@ -137,7 +137,6 @@ import {
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
-import { isDashboardFilterEmpty } from './dashboardFilterEmpty'
 import {
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
@@ -146,6 +145,7 @@ import {
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     combineDashboardFilters,
+    dashboardFilterOverrideChangesFilters,
     encodeURLFilters,
     encodeURLVariables,
     getDashboardWidgetType,
@@ -2585,7 +2585,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
         // An override that constrains nothing still has keys — clearing the last property filter leaves
         // `{"properties":[]}` in the URL. Counting keys reads that as an active override, so the dashboard
         // announces overrides while showing exactly its saved state.
-        hasUrlFilters: [(s) => [s.urlFilters], (urlFilters: DashboardFilter) => !isDashboardFilterEmpty(urlFilters)],
+        hasUrlFilters: [
+            (s) => [s.dashboard, s.externalFilters, s.urlFilters],
+            (
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                externalFilters: DashboardFilter,
+                urlFilters: DashboardFilter
+            ) =>
+                dashboardFilterOverrideChangesFilters(
+                    urlFilters,
+                    combineDashboardFilters(dashboard?.persisted_filters || {}, externalFilters)
+                ),
+        ],
         showApplyFiltersBanner: [
             (s) => [s.canAutoPreview, s.hasIntermittentFilters],
             (canAutoPreview: boolean, hasIntermittentFilters: boolean) => !canAutoPreview && hasIntermittentFilters,
@@ -4828,7 +4839,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return [
                 currentLocation.pathname,
-                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
+                searchParamsWithUrlFilters(
+                    currentLocation.searchParams,
+                    newUrlFilters,
+                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
+                ),
                 currentLocation.hashParams,
             ]
         },
@@ -4847,7 +4862,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return [
                 currentLocation.pathname,
-                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
+                searchParamsWithUrlFilters(
+                    currentLocation.searchParams,
+                    newUrlFilters,
+                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
+                ),
                 currentLocation.hashParams,
             ]
         },
@@ -4868,7 +4887,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return [
                 currentLocation.pathname,
-                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
+                searchParamsWithUrlFilters(
+                    currentLocation.searchParams,
+                    newUrlFilters,
+                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
+                ),
                 currentLocation.hashParams,
             ]
         },
@@ -4887,7 +4910,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return [
                 currentLocation.pathname,
-                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
+                searchParamsWithUrlFilters(
+                    currentLocation.searchParams,
+                    newUrlFilters,
+                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
+                ),
                 currentLocation.hashParams,
             ]
         },
@@ -4906,7 +4933,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return [
                 currentLocation.pathname,
-                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
+                searchParamsWithUrlFilters(
+                    currentLocation.searchParams,
+                    newUrlFilters,
+                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
+                ),
                 currentLocation.hashParams,
             ]
         },
@@ -4925,7 +4956,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return [
                 currentLocation.pathname,
-                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
+                searchParamsWithUrlFilters(
+                    currentLocation.searchParams,
+                    newUrlFilters,
+                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
+                ),
                 currentLocation.hashParams,
             ]
         },

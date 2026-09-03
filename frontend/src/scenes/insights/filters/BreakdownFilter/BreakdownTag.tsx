@@ -143,8 +143,7 @@ export function BreakdownTag({
 
     const clickable = onClick !== undefined
     const closeable = onClose !== undefined
-    const hasNestedControl = closeable || popover?.overlay !== undefined
-    const ButtonComponent = clickable && !hasNestedControl ? 'button' : 'div'
+    const ButtonComponent = clickable ? 'button' : 'div'
 
     return (
         <ButtonComponent
