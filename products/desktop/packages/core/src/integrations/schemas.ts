@@ -1,6 +1,7 @@
+import { CLOUD_REGIONS } from "@posthog/shared";
 import { z } from "zod";
 
-export const cloudRegion = z.enum(["us", "eu", "dev"]);
+export const cloudRegion = z.enum(CLOUD_REGIONS);
 export type CloudRegion = z.infer<typeof cloudRegion>;
 
 export const startIntegrationFlowInput = z.object({

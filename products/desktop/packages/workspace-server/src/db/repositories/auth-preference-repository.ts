@@ -1,3 +1,4 @@
+import type { CloudRegion } from "@posthog/shared";
 import { and, eq } from "drizzle-orm";
 import { inject, injectable } from "inversify";
 import { DATABASE_SERVICE } from "../identifiers";
@@ -13,27 +14,24 @@ export type NewAuthOrgProjectPreference =
 
 export interface PersistAuthPreferenceInput {
   accountKey: string;
-  cloudRegion: "us" | "eu" | "dev";
+  cloudRegion: CloudRegion;
   lastSelectedProjectId: number | null;
   lastSelectedOrgId: string | null;
 }
 
 export interface PersistAuthOrgProjectPreferenceInput {
   accountKey: string;
-  cloudRegion: "us" | "eu" | "dev";
+  cloudRegion: CloudRegion;
   orgId: string;
   lastSelectedProjectId: number;
 }
 
 export interface IAuthPreferenceRepository {
-  get(
-    accountKey: string,
-    cloudRegion: "us" | "eu" | "dev",
-  ): AuthPreference | null;
+  get(accountKey: string, cloudRegion: CloudRegion): AuthPreference | null;
   save(input: PersistAuthPreferenceInput): AuthPreference;
   getOrgProject(
     accountKey: string,
-    cloudRegion: "us" | "eu" | "dev",
+    cloudRegion: CloudRegion,
     orgId: string,
   ): AuthOrgProjectPreference | null;
   saveOrgProject(
@@ -54,10 +52,7 @@ export class AuthPreferenceRepository implements IAuthPreferenceRepository {
     return this.databaseService.db;
   }
 
-  get(
-    accountKey: string,
-    cloudRegion: "us" | "eu" | "dev",
-  ): AuthPreference | null {
+  get(accountKey: string, cloudRegion: CloudRegion): AuthPreference | null {
     return (
       this.db
         .select()
@@ -110,7 +105,7 @@ export class AuthPreferenceRepository implements IAuthPreferenceRepository {
 
   getOrgProject(
     accountKey: string,
-    cloudRegion: "us" | "eu" | "dev",
+    cloudRegion: CloudRegion,
     orgId: string,
   ): AuthOrgProjectPreference | null {
     return (

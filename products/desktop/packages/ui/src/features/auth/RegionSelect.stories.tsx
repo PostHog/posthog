@@ -52,6 +52,6 @@ export const SignInBlock: StoryObj = {
   render: () => <SignInCardPreview includeDevRegion={false} />,
 };
 
-export const WithDevRegion: StoryObj = {
+export const WithDevelopmentRegions: StoryObj = {
   render: () => <SignInCardPreview includeDevRegion={true} />,
 };

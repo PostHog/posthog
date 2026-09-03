@@ -1,18 +1,28 @@
-# Connecting the Desktop App to a Local PostHog Instance
+# Connect PostHog Desktop to a development environment
 
-This guide walks you through running the desktop app's dev build against a local PostHog instance (localhost:8010).
+Development builds can connect to a local PostHog instance or the hosted Dev Cloud deployment.
+
+| Choice | PostHog host | Use it for |
+| --- | --- | --- |
+| Local development | `http://localhost:8010` | Local backend changes and local test data |
+| Dev Cloud | `https://app.dev.posthog.dev` | Code deployed to the shared development environment |
+
+Production builds show only US Cloud and EU Cloud. The two development choices appear only in development builds. `VITE_POSTHOG_API_HOST` does not select the data backend. It controls the separate analytics and feature flag client.
 
 ## Prerequisites
 
-- A running local PostHog instance at `http://localhost:8010` ([PostHog local development docs](https://posthog.com/handbook/engineering/developing-locally))
+- For Local development, a running PostHog instance at `http://localhost:8010` ([PostHog local development docs](https://posthog.com/handbook/engineering/developing-locally))
+- For Dev Cloud, access to `https://app.dev.posthog.dev`
 - Node.js 22+
 - pnpm 10+
 
-## 1. Set up the OAuth application in PostHog
+## Local development setup
+
+### 1. Set up the OAuth application in PostHog
 
 The desktop app authenticates with PostHog via OAuth. Your local PostHog instance needs an OAuth application registered for the app to connect to it.
 
-### Option A: Generate demo data (easiest)
+#### Option A: Generate demo data
 
 PostHog's demo data generator creates a pre-configured OAuth application with the correct client ID:
 
@@ -25,22 +35,22 @@ This creates an OAuth application with:
 - **Client ID**: `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ`
 - **Redirect URIs**: includes `http://localhost:8237/callback` and `http://localhost:8239/callback`
 
-### Option B: Create the OAuth application manually via Django admin
+#### Option B: Create the OAuth application manually via Django admin
 
 1. Go to http://localhost:8010/admin/posthog/oauthapplication/
 2. Click **Add OAuth Application**
 3. Set these fields:
    - **Name**: `PostHog Desktop` (or whatever you like)
-   - **Client ID**: `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ` — this must match the `POSTHOG_DEV_CLIENT_ID` in the app's source
+   - **Client ID**: `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ`. This must match `POSTHOG_DEV_CLIENT_ID` in the app source.
    - **Client type**: `Public` (the app is an Electron desktop app)
    - **Authorization grant type**: `Authorization code`
    - **Redirect URIs**: `http://localhost:8237/callback http://localhost:8239/callback`
    - **Algorithm**: `RS256`
 4. Save
 
-> **Important**: The Client ID must be exactly `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ` — this is hardcoded in the app as the Dev region client ID (see `apps/code/src/shared/constants/oauth.ts`).
+> **Important**: The client ID must be exactly `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ`. The value is defined in `packages/shared/src/oauth.ts`.
 
-## 2. Configure RSA keys in PostHog
+### 2. Configure RSA keys in PostHog
 
 OAuth token signing requires an RSA private key. In your PostHog repo:
 
@@ -58,7 +68,7 @@ openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -outform PEM | \
 # Add to your PostHog .env as OIDC_RSA_PRIVATE_KEY="<generated_key>"
 ```
 
-## 3. Clone and run the app
+## Run the app
 
 Already working in the posthog/posthog monorepo? Skip the clone: the app lives at `products/desktop`. Note it needs Node 22 (see `.node-version`), not the Node version the monorepo's flox environment provides, so switch with your version manager first.
 
@@ -79,20 +89,21 @@ cp .env.example .env
 pnpm dev
 ```
 
-## 4. Connect to your local instance
+## Connect
 
-1. When the app opens, select the **Dev** region on the login screen (in addition to US & EU, the dev build shows a Dev option that points to `localhost:8010`)
-2. This will redirect you to your local PostHog instance for OAuth authorization
+1. Select **Local development** for `localhost:8010`, or select **Dev Cloud** for `app.dev.posthog.dev`.
+2. Desktop opens the selected PostHog host for OAuth authorization.
 3. Authorize the application and select the project/organization access level
-4. You'll be redirected back to the app, now connected to your local PostHog
+4. PostHog redirects to Desktop on its existing localhost callback port.
 
 ## How it works
 
-The dev build includes a "Dev" cloud region that maps to:
-- **API URL**: `http://localhost:8010`
-- **OAuth Client ID**: `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ`
+The development build has two separate region values:
 
-This is defined in `apps/code/src/shared/constants/oauth.ts`. The Dev region only appears when running the dev build (`pnpm dev`), not in production releases.
+- `dev` remains Local development at `http://localhost:8010` and uses its existing OAuth client ID.
+- `dev-cloud` connects to `https://app.dev.posthog.dev` and uses its dedicated OAuth client ID.
+
+Keeping both values preserves stored Local development sessions. Dev Cloud agent requests use `https://gateway.dev.posthog.dev`.
 
 ## Dev console commands
 
@@ -127,8 +138,8 @@ pnpm dev
 `node scripts/use-local-posthog.mjs` auto-reads the project API key from the
 surrounding monorepo checkout (or pass it:
 `node scripts/use-local-posthog.mjs phc_xxx`, or set `POSTHOG_DIR`). This
-only affects the analytics/flags client — the data API still uses the **Dev**
-region you pick at login.
+only affects the analytics/flags client. The data API still uses the **Local development**
+choice you pick at login.
 
 > One-off override without changing `.env`: the dev build exposes the client on
 > `window.posthog`, so you can run

@@ -13,18 +13,26 @@ interface RegionSelectProps {
   region: CloudRegion;
   onRegionChange: (region: CloudRegion) => void;
   disabled?: boolean;
-  /** Host decides whether the local "dev" region is offered (e.g. dev builds). */
+  /** Host decides whether development regions are offered. */
   includeDevRegion?: boolean;
 }
 
-const CLOUD_REGIONS: CloudRegion[] = ["us", "eu"];
+const PRODUCTION_REGIONS: CloudRegion[] = ["us", "eu"];
+const DEVELOPMENT_REGIONS: CloudRegion[] = ["dev", "dev-cloud"];
+
+export function getSelectableRegions(includeDevRegion: boolean): CloudRegion[] {
+  return includeDevRegion
+    ? [...PRODUCTION_REGIONS, ...DEVELOPMENT_REGIONS]
+    : PRODUCTION_REGIONS;
+}
 
 function RegionOptionLabel({ region }: { region: CloudRegion }) {
-  const { flag, label } = REGION_LABELS[region];
+  const { flag, hint, label } = REGION_LABELS[region];
   return (
     <span className="flex items-center gap-2">
       <span className="shrink-0 leading-none">{flag}</span>
-      <span>{label}</span>
+      <span className="font-medium">{label}</span>
+      <span className="text-(--gray-10) text-xs">{hint}</span>
     </span>
   );
 }
@@ -35,9 +43,7 @@ export function RegionSelect({
   disabled = false,
   includeDevRegion = false,
 }: RegionSelectProps) {
-  const offered: CloudRegion[] = includeDevRegion
-    ? [...CLOUD_REGIONS, "dev"]
-    : CLOUD_REGIONS;
+  const offered = getSelectableRegions(includeDevRegion);
 
   return (
     <div className="flex items-center justify-center gap-2">
@@ -51,7 +57,7 @@ export function RegionSelect({
         }
         items={offered.map((candidate) => ({
           value: candidate,
-          label: REGION_LABELS[candidate].label,
+          label: `${REGION_LABELS[candidate].label} - ${REGION_LABELS[candidate].hint}`,
         }))}
       >
         {/* Fixed width so switching regions never reflows the row beneath the button. */}
@@ -59,7 +65,7 @@ export function RegionSelect({
           size="sm"
           disabled={disabled}
           aria-label="Data region"
-          className="w-[176px]"
+          className="w-[280px]"
         >
           <SelectValue>
             <RegionOptionLabel region={region} />

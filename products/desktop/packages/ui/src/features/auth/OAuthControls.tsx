@@ -5,7 +5,7 @@ import { useOAuthFlow } from "./useOAuthFlow";
 
 interface OAuthControlsProps {
   onAuthInitiated?: (region: CloudRegion) => void;
-  /** Defaults to the dev build, which is the only place a local instance is worth offering. */
+  /** Defaults to the dev build, where development targets are available. */
   includeDevRegion?: boolean;
 }
 
