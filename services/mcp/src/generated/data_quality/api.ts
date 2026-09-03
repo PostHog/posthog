@@ -20,11 +20,9 @@ export const WarehouseSavedQueriesChecksCreateParams = () => zod.object({
     saved_query_id: zod.string(),
 })
 
-export const warehouseSavedQueriesChecksCreateBodyNameOneMax = 128
+export const warehouseSavedQueriesChecksCreateBodyNameMax = 128
 
-export const warehouseSavedQueriesChecksCreateBodyNameOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
-export const warehouseSavedQueriesChecksCreateBodyNameTwoMax = 0
-
+export const warehouseSavedQueriesChecksCreateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const warehouseSavedQueriesChecksCreateBodyColumnNameMax = 400
 
 export const warehouseSavedQueriesChecksCreateBodyAiModelMax = 128
@@ -35,13 +33,9 @@ export const warehouseSavedQueriesChecksCreateBodyConfidenceMax = 1
 export const WarehouseSavedQueriesChecksCreateBody = () => zod
     .object({
         name: zod
-            .union([
-                zod
-                    .string()
-                    .max(warehouseSavedQueriesChecksCreateBodyNameOneMax)
-                    .regex(warehouseSavedQueriesChecksCreateBodyNameOneRegExp),
-                zod.string().max(warehouseSavedQueriesChecksCreateBodyNameTwoMax),
-            ])
+            .string()
+            .max(warehouseSavedQueriesChecksCreateBodyNameMax)
+            .regex(warehouseSavedQueriesChecksCreateBodyNameRegExp)
             .optional()
             .describe('Optional identifier-safe handle, unique per project. Omit to address the check by id.'),
         description: zod.string().optional().describe('Why this check exists and what a failure means.'),
@@ -106,11 +100,9 @@ export const WarehouseSavedQueriesChecksPartialUpdateParams = () => zod.object({
     saved_query_id: zod.string(),
 })
 
-export const warehouseSavedQueriesChecksPartialUpdateBodyNameOneMax = 128
+export const warehouseSavedQueriesChecksPartialUpdateBodyNameMax = 128
 
-export const warehouseSavedQueriesChecksPartialUpdateBodyNameOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
-export const warehouseSavedQueriesChecksPartialUpdateBodyNameTwoMax = 0
-
+export const warehouseSavedQueriesChecksPartialUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const warehouseSavedQueriesChecksPartialUpdateBodyColumnNameMax = 400
 
 export const warehouseSavedQueriesChecksPartialUpdateBodyAiModelMax = 128
@@ -121,13 +113,9 @@ export const warehouseSavedQueriesChecksPartialUpdateBodyConfidenceMax = 1
 export const WarehouseSavedQueriesChecksPartialUpdateBody = () => zod
     .object({
         name: zod
-            .union([
-                zod
-                    .string()
-                    .max(warehouseSavedQueriesChecksPartialUpdateBodyNameOneMax)
-                    .regex(warehouseSavedQueriesChecksPartialUpdateBodyNameOneRegExp),
-                zod.string().max(warehouseSavedQueriesChecksPartialUpdateBodyNameTwoMax),
-            ])
+            .string()
+            .max(warehouseSavedQueriesChecksPartialUpdateBodyNameMax)
+            .regex(warehouseSavedQueriesChecksPartialUpdateBodyNameRegExp)
             .optional()
             .describe('Optional identifier-safe handle, unique per project. Omit to address the check by id.'),
         description: zod.string().optional().describe('Why this check exists and what a failure means.'),
@@ -243,11 +231,9 @@ export const WarehouseTablesChecksCreateParams = () => zod.object({
     table_id: zod.string(),
 })
 
-export const warehouseTablesChecksCreateBodyNameOneMax = 128
+export const warehouseTablesChecksCreateBodyNameMax = 128
 
-export const warehouseTablesChecksCreateBodyNameOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
-export const warehouseTablesChecksCreateBodyNameTwoMax = 0
-
+export const warehouseTablesChecksCreateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const warehouseTablesChecksCreateBodyColumnNameMax = 400
 
 export const warehouseTablesChecksCreateBodyAiModelMax = 128
@@ -258,13 +244,9 @@ export const warehouseTablesChecksCreateBodyConfidenceMax = 1
 export const WarehouseTablesChecksCreateBody = () => zod
     .object({
         name: zod
-            .union([
-                zod
-                    .string()
-                    .max(warehouseTablesChecksCreateBodyNameOneMax)
-                    .regex(warehouseTablesChecksCreateBodyNameOneRegExp),
-                zod.string().max(warehouseTablesChecksCreateBodyNameTwoMax),
-            ])
+            .string()
+            .max(warehouseTablesChecksCreateBodyNameMax)
+            .regex(warehouseTablesChecksCreateBodyNameRegExp)
             .optional()
             .describe('Optional identifier-safe handle, unique per project. Omit to address the check by id.'),
         description: zod.string().optional().describe('Why this check exists and what a failure means.'),
@@ -329,11 +311,9 @@ export const WarehouseTablesChecksPartialUpdateParams = () => zod.object({
     table_id: zod.string(),
 })
 
-export const warehouseTablesChecksPartialUpdateBodyNameOneMax = 128
+export const warehouseTablesChecksPartialUpdateBodyNameMax = 128
 
-export const warehouseTablesChecksPartialUpdateBodyNameOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
-export const warehouseTablesChecksPartialUpdateBodyNameTwoMax = 0
-
+export const warehouseTablesChecksPartialUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const warehouseTablesChecksPartialUpdateBodyColumnNameMax = 400
 
 export const warehouseTablesChecksPartialUpdateBodyAiModelMax = 128
@@ -344,13 +324,9 @@ export const warehouseTablesChecksPartialUpdateBodyConfidenceMax = 1
 export const WarehouseTablesChecksPartialUpdateBody = () => zod
     .object({
         name: zod
-            .union([
-                zod
-                    .string()
-                    .max(warehouseTablesChecksPartialUpdateBodyNameOneMax)
-                    .regex(warehouseTablesChecksPartialUpdateBodyNameOneRegExp),
-                zod.string().max(warehouseTablesChecksPartialUpdateBodyNameTwoMax),
-            ])
+            .string()
+            .max(warehouseTablesChecksPartialUpdateBodyNameMax)
+            .regex(warehouseTablesChecksPartialUpdateBodyNameRegExp)
             .optional()
             .describe('Optional identifier-safe handle, unique per project. Omit to address the check by id.'),
         description: zod.string().optional().describe('Why this check exists and what a failure means.'),

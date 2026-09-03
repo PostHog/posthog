@@ -1438,10 +1438,8 @@ export const featureRequestsCreateBodyEvidenceOneSummaryDefault = ``
 export const featureRequestsCreateBodyEvidenceOneCustomerQuoteDefault = ``
 export const featureRequestsCreateBodyEvidenceOneEvidenceSourceMax = 200
 
-export const featureRequestsCreateBodyEvidenceOneSourceUrlOneDefault = ``
-export const featureRequestsCreateBodyEvidenceOneSourceUrlOneMax = 2000
-
-export const featureRequestsCreateBodyEvidenceOneSourceUrlTwoMax = 0
+export const featureRequestsCreateBodyEvidenceOneSourceUrlDefault = ``
+export const featureRequestsCreateBodyEvidenceOneSourceUrlMax = 2000
 
 export const FeatureRequestsCreateBody = () => zod.object({
     title: zod.string().max(featureRequestsCreateBodyTitleMax).describe('Required customer-facing request title.'),
@@ -1474,14 +1472,9 @@ export const FeatureRequestsCreateBody = () => zod.object({
                     .max(featureRequestsCreateBodyEvidenceOneEvidenceSourceMax)
                     .describe('Free-form name of the source where this evidence was recorded.'),
                 source_url: zod
-                    .union([
-                        zod
-                            .url()
-                            .max(featureRequestsCreateBodyEvidenceOneSourceUrlOneMax)
-                            .default(featureRequestsCreateBodyEvidenceOneSourceUrlOneDefault),
-                        zod.string().max(featureRequestsCreateBodyEvidenceOneSourceUrlTwoMax),
-                    ])
-                    .optional()
+                    .url()
+                    .max(featureRequestsCreateBodyEvidenceOneSourceUrlMax)
+                    .default(featureRequestsCreateBodyEvidenceOneSourceUrlDefault)
                     .describe('Optional HTTP or HTTPS link to the source.'),
                 requested_on: zod.iso
                     .date()
@@ -1572,10 +1565,8 @@ export const featureRequestsAddAccountCreateBodyEvidenceOneSummaryDefault = ``
 export const featureRequestsAddAccountCreateBodyEvidenceOneCustomerQuoteDefault = ``
 export const featureRequestsAddAccountCreateBodyEvidenceOneEvidenceSourceMax = 200
 
-export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlOneDefault = ``
-export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlOneMax = 2000
-
-export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlTwoMax = 0
+export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlDefault = ``
+export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlMax = 2000
 
 export const FeatureRequestsAddAccountCreateBody = () => zod.object({
     expected_version: zod
@@ -1599,14 +1590,9 @@ export const FeatureRequestsAddAccountCreateBody = () => zod.object({
                     .max(featureRequestsAddAccountCreateBodyEvidenceOneEvidenceSourceMax)
                     .describe('Free-form name of the source where this evidence was recorded.'),
                 source_url: zod
-                    .union([
-                        zod
-                            .url()
-                            .max(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlOneMax)
-                            .default(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlOneDefault),
-                        zod.string().max(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlTwoMax),
-                    ])
-                    .optional()
+                    .url()
+                    .max(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlMax)
+                    .default(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlDefault)
                     .describe('Optional HTTP or HTTPS link to the source.'),
                 requested_on: zod.iso
                     .date()
@@ -1636,10 +1622,8 @@ export const featureRequestsAddEvidenceCreateBodySummaryDefault = ``
 export const featureRequestsAddEvidenceCreateBodyCustomerQuoteDefault = ``
 export const featureRequestsAddEvidenceCreateBodyEvidenceSourceMax = 200
 
-export const featureRequestsAddEvidenceCreateBodySourceUrlOneDefault = ``
-export const featureRequestsAddEvidenceCreateBodySourceUrlOneMax = 2000
-
-export const featureRequestsAddEvidenceCreateBodySourceUrlTwoMax = 0
+export const featureRequestsAddEvidenceCreateBodySourceUrlDefault = ``
+export const featureRequestsAddEvidenceCreateBodySourceUrlMax = 2000
 
 export const FeatureRequestsAddEvidenceCreateBody = () => zod.object({
     summary: zod
@@ -1655,14 +1639,9 @@ export const FeatureRequestsAddEvidenceCreateBody = () => zod.object({
         .max(featureRequestsAddEvidenceCreateBodyEvidenceSourceMax)
         .describe('Free-form name of the source where this evidence was recorded.'),
     source_url: zod
-        .union([
-            zod
-                .url()
-                .max(featureRequestsAddEvidenceCreateBodySourceUrlOneMax)
-                .default(featureRequestsAddEvidenceCreateBodySourceUrlOneDefault),
-            zod.string().max(featureRequestsAddEvidenceCreateBodySourceUrlTwoMax),
-        ])
-        .optional()
+        .url()
+        .max(featureRequestsAddEvidenceCreateBodySourceUrlMax)
+        .default(featureRequestsAddEvidenceCreateBodySourceUrlDefault)
         .describe('Optional HTTP or HTTPS link to the source.'),
     requested_on: zod.iso.date().nullish().describe('Date the account made the request, or null when unknown.'),
     image_ids: zod
@@ -1756,10 +1735,8 @@ export const featureRequestsUpdateEvidenceCreateBodySummaryDefault = ``
 export const featureRequestsUpdateEvidenceCreateBodyCustomerQuoteDefault = ``
 export const featureRequestsUpdateEvidenceCreateBodyEvidenceSourceMax = 200
 
-export const featureRequestsUpdateEvidenceCreateBodySourceUrlOneDefault = ``
-export const featureRequestsUpdateEvidenceCreateBodySourceUrlOneMax = 2000
-
-export const featureRequestsUpdateEvidenceCreateBodySourceUrlTwoMax = 0
+export const featureRequestsUpdateEvidenceCreateBodySourceUrlDefault = ``
+export const featureRequestsUpdateEvidenceCreateBodySourceUrlMax = 2000
 
 export const FeatureRequestsUpdateEvidenceCreateBody = () => zod.object({
     summary: zod
@@ -1775,14 +1752,9 @@ export const FeatureRequestsUpdateEvidenceCreateBody = () => zod.object({
         .max(featureRequestsUpdateEvidenceCreateBodyEvidenceSourceMax)
         .describe('Free-form name of the source where this evidence was recorded.'),
     source_url: zod
-        .union([
-            zod
-                .url()
-                .max(featureRequestsUpdateEvidenceCreateBodySourceUrlOneMax)
-                .default(featureRequestsUpdateEvidenceCreateBodySourceUrlOneDefault),
-            zod.string().max(featureRequestsUpdateEvidenceCreateBodySourceUrlTwoMax),
-        ])
-        .optional()
+        .url()
+        .max(featureRequestsUpdateEvidenceCreateBodySourceUrlMax)
+        .default(featureRequestsUpdateEvidenceCreateBodySourceUrlDefault)
         .describe('Optional HTTP or HTTPS link to the source.'),
     requested_on: zod.iso.date().nullish().describe('Date the account made the request, or null when unknown.'),
     image_ids: zod
