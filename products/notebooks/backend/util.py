@@ -5,6 +5,8 @@ import uuid
 from collections.abc import Iterator
 from typing import Any
 
+from posthog.dataclasses import frozen
+
 # Type aliases for TipTap editor nodes
 TipTapNode = dict[str, Any]
 TipTapContent = list[TipTapNode]
@@ -67,6 +69,13 @@ _MARKDOWN_COMPONENT_TAG_REGEX = re.compile(r"^<([A-Z][A-Za-z0-9]*)([\s\S]*?)(?:/
 _MARKDOWN_COMPONENT_PROP_NAME_REGEX = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)")
 _MARKDOWN_COMPONENT_RAW_PROP_VALUE_REGEX = re.compile(r"^([^\s/>]+)")
 _MARKDOWN_COMPONENT_NUMBER_REGEX = re.compile(r"^-?\d+(\.\d+)?$")
+
+
+@frozen
+class _MarkdownComponentPropValue:
+    value: Any
+    next_index: int
+    is_valid: bool
 
 
 def filter_notebook_content_for_sharing(content: Any) -> Any:
@@ -438,11 +447,12 @@ def _parse_markdown_component_props_with_status(raw: str) -> tuple[dict[str, Any
         index += 1
         index = _skip_markdown_component_whitespace(source, index)
 
-        value, index, is_valid = _read_markdown_component_prop_value(source, index)
-        if not is_valid:
+        parsed_value = _read_markdown_component_prop_value(source, index)
+        index = parsed_value.next_index
+        if not parsed_value.is_valid:
             return props, False
-        if _is_markdown_notebook_prop_value(value):
-            props[name] = value
+        if _is_markdown_notebook_prop_value(parsed_value.value):
+            props[name] = parsed_value.value
         else:
             return props, False
 
@@ -455,7 +465,7 @@ def _skip_markdown_component_whitespace(source: str, index: int) -> int:
     return index
 
 
-def _read_markdown_component_prop_value(source: str, index: int) -> tuple[Any, int, bool]:
+def _read_markdown_component_prop_value(source: str, index: int) -> _MarkdownComponentPropValue:
     first_char = source[index] if index < len(source) else ""
 
     if first_char in {"'", '"'}:
@@ -473,24 +483,30 @@ def _read_markdown_component_prop_value(source: str, index: int) -> tuple[Any, i
                     try:
                         parsed_value = json.loads(source[index : next_index + 1])
                         if isinstance(parsed_value, str):
-                            return html.unescape(parsed_value), next_index + 1, True
+                            return _MarkdownComponentPropValue(
+                                value=html.unescape(parsed_value), next_index=next_index + 1, is_valid=True
+                            )
                     except (TypeError, ValueError):
                         pass
-                return html.unescape(value), next_index + 1, True
+                return _MarkdownComponentPropValue(value=html.unescape(value), next_index=next_index + 1, is_valid=True)
             value += character
             next_index += 1
-        return None, next_index, False
+        return _MarkdownComponentPropValue(value=None, next_index=next_index, is_valid=False)
 
     if first_char == "{":
         balanced = _read_balanced_markdown_expression(source, index)
         if balanced is None:
-            return None, len(source), False
+            return _MarkdownComponentPropValue(value=None, next_index=len(source), is_valid=False)
         value, next_index = balanced
-        return _parse_markdown_expression_value(value), next_index, True
+        return _MarkdownComponentPropValue(
+            value=_parse_markdown_expression_value(value), next_index=next_index, is_valid=True
+        )
 
     raw_match = _MARKDOWN_COMPONENT_RAW_PROP_VALUE_REGEX.match(source[index:])
     raw = raw_match.group(1) if raw_match else ""
-    return _parse_markdown_expression_value(raw), index + len(raw), bool(raw)
+    return _MarkdownComponentPropValue(
+        value=_parse_markdown_expression_value(raw), next_index=index + len(raw), is_valid=bool(raw)
+    )
 
 
 def _read_balanced_markdown_expression(source: str, index: int) -> tuple[str, int] | None:
