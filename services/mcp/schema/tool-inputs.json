@@ -55,6 +55,97 @@
             "maximum": 9007199254740991,
             "description": "Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions."
         },
+        "DashboardTileCreateSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                    "description": "Dashboard ID. Use dashboard-get or dashboards-get-all to find it."
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["text", "image"],
+                    "description": "Tile type. Use text for Markdown content. Use image for a body with exactly one Markdown image."
+                },
+                "body": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000,
+                    "description": "Markdown body. For image, provide exactly one Markdown image. For text, provide Markdown content that is not an image-only body."
+                },
+                "layouts": {
+                    "description": "Optional dashboard-grid layout for desktop (sm) and mobile (xs).",
+                    "type": "object",
+                    "properties": {
+                        "sm": {
+                            "type": "object",
+                            "properties": {
+                                "x": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                "y": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                "w": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 9007199254740991
+                                },
+                                "h": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 9007199254740991
+                                }
+                            }
+                        },
+                        "xs": {
+                            "type": "object",
+                            "properties": {
+                                "x": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                "y": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                "w": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 9007199254740991
+                                },
+                                "h": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 9007199254740991
+                                }
+                            }
+                        }
+                    }
+                },
+                "color": {
+                    "description": "Optional tile accent color.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "maxLength": 400
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": ["id", "type", "body"]
+        },
         "DebugMcpUiAppsSchema": {
             "type": "object",
             "properties": {
@@ -906,7 +997,8 @@
                                     "maximum": 9007199254740991
                                 }
                             },
-                            "required": ["kind"]
+                            "required": ["kind"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -920,7 +1012,8 @@
                                     "description": "The name of the event that you want to retrieve properties for."
                                 }
                             },
-                            "required": ["kind", "event_name"]
+                            "required": ["kind", "event_name"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -934,7 +1027,8 @@
                                     "description": "The type of the entity that you want to retrieve properties for."
                                 }
                             },
-                            "required": ["kind", "entity"]
+                            "required": ["kind", "entity"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -950,7 +1044,8 @@
                                     "description": "The ID of the action that you want to retrieve properties for."
                                 }
                             },
-                            "required": ["kind", "action_id"]
+                            "required": ["kind", "action_id"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -968,7 +1063,8 @@
                                     "description": "Verified property name of an entity."
                                 }
                             },
-                            "required": ["kind", "entity", "property_name"]
+                            "required": ["kind", "entity", "property_name"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -986,7 +1082,8 @@
                                     "description": "Verified property name of an event."
                                 }
                             },
-                            "required": ["kind", "event_name", "property_name"]
+                            "required": ["kind", "event_name", "property_name"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -1006,7 +1103,8 @@
                                     "description": "Verified property name of an action."
                                 }
                             },
-                            "required": ["kind", "action_id", "property_name"]
+                            "required": ["kind", "action_id", "property_name"],
+                            "additionalProperties": false
                         }
                     ],
                     "description": "The data schema query to execute."

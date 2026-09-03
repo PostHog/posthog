@@ -9,6 +9,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
 )
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     DISABLED_ESTIMATE_STALE_AFTER,
+    ESTIMATE_RETRY_BACKOFF,
     ESTIMATE_STALE_AFTER,
     PREVIEW_ESTIMATE_BUDGET,
     SAVE_ESTIMATE_BUDGET,
@@ -25,6 +26,7 @@ __all__ = [
     "PREVIEW_ESTIMATE_BUDGET",
     "SAVE_ESTIMATE_BUDGET",
     "DISABLED_ESTIMATE_STALE_AFTER",
+    "ESTIMATE_RETRY_BACKOFF",
     "ESTIMATE_STALE_AFTER",
     "MIN_SAMPLING_RATE",
     "SAMPLE_RATE_PRECISION",
