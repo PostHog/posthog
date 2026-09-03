@@ -114,7 +114,7 @@ jobs:
 
             - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: '3.12.10' # There is no 3.12.11/3.12.12 binary for mac/darwin architectures yet
+                  python-version: '3.13.13'
 
             - name: Build sdist
               if: matrix.os == 'ubuntu-22.04' # Only build the sdist once
@@ -123,7 +123,7 @@ jobs:
                   cd common/hogql_parser && python setup.py sdist
 
             - name: Install cibuildwheel
-              run: pip install cibuildwheel==2.23.*
+              run: pip install cibuildwheel==4.2.*
 
             - name: Build wheels
               run: cd common/hogql_parser && python -m cibuildwheel --output-dir dist
