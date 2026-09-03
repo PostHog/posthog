@@ -6297,9 +6297,9 @@ snapshots:
     scenes-app-customer-analytics-journey-templates--templates-without-events-configured--light:
         hash: v1.k794b7964.0761780dbf85a3f43a51b2e4eaedb3d9d64a6bfce8d4c7d3ac6326ce0cd9c076.0kyVc2Z1z9d8-IxFmdvbK8bKxazJjoDHSzcK3_PN0XM
     scenes-app-customer-analytics-journeys--empty-state--dark:
-        hash: v1.k794b7964.db3b8701e1fa19e84df225ecd89a14373112c974a809abc33490176d6d0b581f.A6VXHMZfcipos-2SVANlA9vxQm--uJfoepq9oFJBMKU
+        hash: v1.k794b7964.6b9c8015708781764b4b07a1b3e092057da61c3cc13e618b116af13f48ee34dc.sf3UJ0sfRta2sA3EctR7_i3aEqYw2N7vNbBDotijQJs
     scenes-app-customer-analytics-journeys--empty-state--light:
-        hash: v1.k794b7964.f5697f819943a32616b64b4b6341e8edcff8239134faa3068993a63b43d5caa0.y_hPApcCyh-1vvgA_qm_3S2DKZYfEBXF92iFQl7_Tek
+        hash: v1.k794b7964.29f7134b12cd47b7afed6449964b733dadb83fbcd284b7bc8c69c604ba87b859.xq9cohgKAf9Yb4OezSDhJf9cVvmJp2ngZONesZZMX4Y
     scenes-app-customer-analytics-journeys--journey-with-empty-steps--dark:
         hash: v1.k794b7964.02a6b186fdde5bfb152d9e35473942aee36706690654dc534330e4b43f591002.BGMSF53RpkKcYgXVaMfHJfIiaSUdnFr-ABWsp1_lEbg
     scenes-app-customer-analytics-journeys--journey-with-empty-steps--light:
@@ -9049,9 +9049,9 @@ snapshots:
     scenes-other-billing--billing-unsubscribe-modal--light:
         hash: v1.k794b7964.6100db4faec203f5e2629301138fb6b659b4c299df0e09bd4591ff57069e893e.27eT5ZMZMxKWwL2-TYhS5FeYigHNGkpMnKgPnGEXjOQ
     scenes-other-billing--billing-with-credit-cta--dark:
-        hash: v1.k794b7964.22e956b81a60e109c776e1843432eedcde16c0650ca802535f28413ec664c349.MyBRLcUwuXTF7wuX801mr6hb5o990XZ9Mi8wohmqLYc
+        hash: v1.k794b7964.23945681b34a2f84c7162d639dc4abca8d0e08bd9284df41e17380a7a68cf863._aUuTLLQFXc6McIFJBmYHKv1ED-c24XE9NXnAL0VEAU
     scenes-other-billing--billing-with-credit-cta--light:
-        hash: v1.k794b7964.12fca0e32aedf416403941d9962adccda6eee00af6caeda1bd84edeaa8d17f7a.UevafUZNKAVpe0Y6NvD-t92THoze_KOM57lVEebj0MQ
+        hash: v1.k794b7964.e5b7a8d505d67e335dd5fe30899e308ffe12fefec931f57c885c5cdf7eff2730.ZkJaA_ue5R7WO7W911R74z9rwW8n3f9ZRhjrhfaYhFA
     scenes-other-billing--billing-with-credits--dark:
         hash: v1.k794b7964.7b97b075096e4060e1cca18e125b7ba9f5a92aaf4bb670d67fe5200908768ad3.EWEZDVB5oFn1hQQbt30wMI8sV9SYdrTLSgnTXQAsXVw
     scenes-other-billing--billing-with-credits--light:
@@ -9229,9 +9229,9 @@ snapshots:
     scenes-other-onboarding-legacy-install-step--test-arm--light:
         hash: v1.k794b7964.421b5cebe6bb09aa509224da47b266ece6cd81b1e8a8c4346865724be53d493f.oJXUzGGMy03cEx_8ZvnJMPVdfAF_SksSZgShSA_WsX4
     scenes-other-onboarding-legacy-product-selection--base--dark:
-        hash: v1.k794b7964.aaff710f4f8a004ff7bc73a2709377bd3ac83bccafec478086396c0beae1e832.jqsB3nXBYy8WbHSVAPz-o8Vu46etxe4uDx3zXbtlf-U
+        hash: v1.k794b7964.45a890f3ec44926a1e549b4aa321733b23d04316acb32d411b94e718b67d0fab.iQtBXPUKt1OvKo9IUnN4Iar9gsgLeZChTacIZW3OXY8
     scenes-other-onboarding-legacy-product-selection--base--light:
-        hash: v1.k794b7964.d5a6e4d5e44b84e7a1b0a9eb095fb62a08eea227968860911c9e23757eb99d33.mrMEqKjXZgfMivqJdaamdN2nJVc-I_8Sccv6XXQylg8
+        hash: v1.k794b7964.13e1a1682ea13691b71392cd699ae3982a8592276227cc1715f38a46444d3948.6ey8RRxGMGI-mnTOznO8gUFn1sKwT5pcWqdZ7WFwnCM
     scenes-other-onboarding-legacy-weekly-reports--engineering-report--dark:
         hash: v1.k794b7964.5000ffcd0d6aabaac809d9a7635d4d3412ca0e3b4badccc48c31b5745fb3cdb0.fbrer1o3cGzKNcw4qqczs-F9_vacS5pDBHt8J__BIQM
     scenes-other-onboarding-legacy-weekly-reports--engineering-report--light:
