@@ -396,10 +396,10 @@ export interface LogsAlertFiltersApi {
  * * `above` - Above
  * * `below` - Below
  */
-export type LogsAlertThresholdOperatorEnumApi =
-    (typeof LogsAlertThresholdOperatorEnumApi)[keyof typeof LogsAlertThresholdOperatorEnumApi]
+export type LogsAlertConfigurationThresholdOperatorEnumApi =
+    (typeof LogsAlertConfigurationThresholdOperatorEnumApi)[keyof typeof LogsAlertConfigurationThresholdOperatorEnumApi]
 
-export const LogsAlertThresholdOperatorEnumApi = {
+export const LogsAlertConfigurationThresholdOperatorEnumApi = {
     Above: 'above',
     Below: 'below',
 } as const
@@ -546,7 +546,7 @@ export interface LogsAlertConfigurationApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator?: LogsAlertThresholdOperatorEnumApi
+    threshold_operator?: LogsAlertConfigurationThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
@@ -634,6 +634,128 @@ export interface PaginatedLogsAlertConfigurationListApi {
     results: LogsAlertConfigurationApi[]
 }
 
+export interface LogsAlertDestinationConfigApi {
+    hog_function_ids: string[]
+    /** Notification destination type.
+     *
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams */
+    type: NotificationDestinationTypeEnumApi
+    /** Whether every HogFunction in the group is enabled, so the destination notifies for all alert event kinds. This is the stored setting: a destination PostHog stopped delivering to after repeated failures still reads as true. */
+    enabled: boolean
+    slack_workspace_id?: number
+    slack_channel_id?: string
+    /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+    webhook_url?: string
+}
+
+/**
+ * One alert, with the destinations attached to it. The list endpoint leaves them out:
+ * reading a destination pulls its stored inputs, which run to several KB per row.
+ */
+export interface LogsAlertConfigurationDetailApi {
+    /** Unique identifier for this alert. */
+    readonly id: string
+    /**
+     * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
+    enabled?: boolean
+    /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
+    filters?: LogsAlertFiltersApi
+    /**
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.
+     * @minimum 0
+     */
+    threshold_count?: number
+    /** Whether the alert fires when the count is above or below the threshold.
+     *
+     * * `above` - Above
+     * * `below` - Below */
+    threshold_operator?: LogsAlertConfigurationThresholdOperatorEnumApi
+    /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
+    window_minutes?: number
+    /** How often the alert is evaluated, in minutes. Server-managed. */
+    readonly check_interval_minutes: number
+    /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
+     *
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `pending_resolve` - Pending resolve
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken */
+    readonly state: LogsAlertConfigurationStateEnumApi
+    /**
+     * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * @minimum 0
+     */
+    cooldown_minutes?: number
+    /** Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+     * @nullable
+     */
+    snooze_until?: string | null
+    /**
+     * When the next evaluation is scheduled. Server-managed.
+     * @nullable
+     */
+    readonly next_check_at: string | null
+    /**
+     * When the last notification was sent. Server-managed.
+     * @nullable
+     */
+    readonly last_notified_at: string | null
+    /**
+     * When the alert was last evaluated. Server-managed.
+     * @nullable
+     */
+    readonly last_checked_at: string | null
+    /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
+    readonly consecutive_failures: number
+    /**
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * @nullable
+     */
+    readonly last_error_message: string | null
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    readonly state_timeline: readonly LogsAlertStateIntervalApi[]
+    /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
+    readonly destination_types: readonly NotificationDestinationTypeEnumApi[]
+    /**
+     * When the alert was first enabled. Null means the alert is still in draft state.
+     * @nullable
+     */
+    readonly first_enabled_at: string | null
+    /** When the alert was created. */
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /**
+     * When the alert was last modified.
+     * @nullable
+     */
+    readonly updated_at: string | null
+    /** This alert's notification destinations, one entry per destination. Each carries the HogFunction IDs that delete it as a group, and its configuration with credential-bearing URL components removed. */
+    readonly destinations: readonly LogsAlertDestinationConfigApi[]
+}
+
 export interface PatchedLogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
     readonly id?: string
@@ -655,7 +777,7 @@ export interface PatchedLogsAlertConfigurationApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator?: LogsAlertThresholdOperatorEnumApi
+    threshold_operator?: LogsAlertConfigurationThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
@@ -759,7 +881,6 @@ export interface LogsAlertDeleteDestinationApi {
     /**
      * HogFunction IDs to delete as one atomic destination group.
      * @minItems 1
-     * @maxItems 4
      */
     hog_function_ids: string[]
 }
@@ -823,7 +944,7 @@ export interface LogsAlertSimulateRequestApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator: LogsAlertThresholdOperatorEnumApi
+    threshold_operator: LogsAlertConfigurationThresholdOperatorEnumApi
     /** Window size in minutes — determines bucket interval. */
     window_minutes: number
     /**
@@ -1121,6 +1242,19 @@ export interface LogsAnomalyScanErrorApi {
     error: string
 }
 
+export interface _SeriesBandsDateRangeApi {
+    /**
+     * Start of the window. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1wStart, etc.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * End of the window. Same format as date_from. Omit or null for "now".
+     * @nullable
+     */
+    date_to?: string | null
+}
+
 /**
  * * `60` - 60
  */
@@ -1133,6 +1267,8 @@ export const IntervalMinutesEnumApi = {
 export interface LogsSeriesBandsRequestApi {
     /** Service whose per-series volume to chart (the log record's service_name). */
     serviceName: string
+    /** Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches. */
+    dateRange?: _SeriesBandsDateRangeApi
     /** Display grain in minutes for buckets and bands. Only hourly is supported today.
      *
      * * `60` - 60 */
@@ -1167,6 +1303,13 @@ export interface LogsSeriesBandSeriesApi {
     total_count: number
     /** Full weeks of history behind the band, 0 to 5. Below 2 the series is still learning and its buckets carry no band. */
     baseline_weeks: number
+    /** Earliest bucket with data inside the fetched lookback. */
+    history_start: string
+    /**
+     * When this series gains its band, so a learning series can count down to it. Null once the band is drawn.
+     * @nullable
+     */
+    band_ready_at: string | null
     /** One entry per display bucket across the whole window, oldest first, zero-filled. */
     buckets: LogsSeriesBandBucketApi[]
 }
@@ -2021,9 +2164,10 @@ export interface LogsRetentionRuleNameSuggestionApi {
  * * `path_drop` - Path exclusion
  * * `rate_limit` - Rate limit
  */
-export type RuleTypeEnumApi = (typeof RuleTypeEnumApi)[keyof typeof RuleTypeEnumApi]
+export type LogsExclusionRuleRuleTypeEnumApi =
+    (typeof LogsExclusionRuleRuleTypeEnumApi)[keyof typeof LogsExclusionRuleRuleTypeEnumApi]
 
-export const RuleTypeEnumApi = {
+export const LogsExclusionRuleRuleTypeEnumApi = {
     SeveritySampling: 'severity_sampling',
     PathDrop: 'path_drop',
     RateLimit: 'rate_limit',
@@ -2052,7 +2196,7 @@ export interface LogsSamplingRuleApi {
      * * `severity_sampling` - Severity-based reduction
      * * `path_drop` - Path exclusion
      * * `rate_limit` - Rate limit */
-    rule_type: RuleTypeEnumApi
+    rule_type: LogsExclusionRuleRuleTypeEnumApi
     /**
      * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
      * @maxLength 512
@@ -2109,7 +2253,7 @@ export interface PatchedLogsSamplingRuleApi {
      * * `severity_sampling` - Severity-based reduction
      * * `path_drop` - Path exclusion
      * * `rate_limit` - Rate limit */
-    rule_type?: RuleTypeEnumApi
+    rule_type?: LogsExclusionRuleRuleTypeEnumApi
     /**
      * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
      * @maxLength 512
@@ -2315,6 +2459,7 @@ export interface _LogsValuesResponseApi {
  * * `source` - source
  * * `trace_id` - trace_id
  * * `span_id` - span_id
+ * * `pattern` - pattern
  * * `message` - message
  * * `custom` - custom
  */
@@ -2326,6 +2471,7 @@ export const LogsViewColumnTypeEnumApi = {
     Source: 'source',
     TraceId: 'trace_id',
     SpanId: 'span_id',
+    Pattern: 'pattern',
     Message: 'message',
     Custom: 'custom',
 } as const
@@ -2333,13 +2479,14 @@ export const LogsViewColumnTypeEnumApi = {
 export interface LogsViewColumnApi {
     /** Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server. */
     id: string
-    /** Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.
+    /** Column type. Most built-in types resolve client-side from log row fields; `pattern` and `custom` columns are computed server-side, the latter from `expression`.
      *
      * * `timestamp` - timestamp
      * * `level` - level
      * * `source` - source
      * * `trace_id` - trace_id
      * * `span_id` - span_id
+     * * `pattern` - pattern
      * * `message` - message
      * * `custom` - custom */
     type: LogsViewColumnTypeEnumApi

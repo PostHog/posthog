@@ -8,7 +8,7 @@ from django.urls import reverse
 
 from posthog.admin import register_all_admin
 
-from products.tasks.backend.models import Channel, CodeInvite, Loop, Task, TaskRun
+from products.tasks.backend.models import Channel, Loop, Task, TaskRun
 
 register_all_admin()
 
@@ -107,29 +107,6 @@ class TestTaskRunAdminDownloadLogs(BaseTest):
 
         self.assertEqual(resp.status_code, 302)
         self.assertIn("/login", resp["Location"])
-
-
-class TestCodeInviteAdminExpireAction(BaseTest):
-    def setUp(self):
-        super().setUp()
-        self.user.is_staff = True
-        self.user.save()
-        self.client.force_login(self.user)
-
-    def test_expires_selected_invites_only(self):
-        selected = CodeInvite.objects.create(code="SELECTED")
-        other = CodeInvite.objects.create(code="OTHER")
-
-        resp = self.client.post(
-            reverse("admin:tasks_codeinvite_changelist"),
-            {"action": "expire_invites", "_selected_action": [str(selected.id)]},
-        )
-
-        self.assertEqual(resp.status_code, 302)
-        selected.refresh_from_db()
-        other.refresh_from_db()
-        self.assertIsNotNone(selected.expires_at)
-        self.assertIsNone(other.expires_at)
 
 
 class TestLoopAdminPauseAction(BaseTest):

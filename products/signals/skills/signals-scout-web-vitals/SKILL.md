@@ -1,18 +1,9 @@
 ---
 name: signals-scout-web-vitals
 description: >
-  Focused Signals scout for PostHog projects capturing Core Web Vitals (`$web_vitals`).
-  Watches each page's p75 LCP / INP / CLS / FCP against the absolute Google thresholds
-  (good / needs-improvement / poor) and against its own history: pages standing in the
-  poor band, pages crossing a band boundary after a deploy, and sharp in-band
-  regressions. Reads the historical trajectory — not just the moment a value changes —
-  so a page that is steadily slow surfaces even when nothing moved today. Dates a
-  regression to a sub-hour boundary and correlates it with the project's own deploy
-  markers and feature flag rollouts, confirming a flag or variant cause by splitting the
-  metric on it. Every finding carries a metric-specific cause hypothesis and a concrete
-  remediation, filed as a report in the inbox only above the confidence bar; otherwise
-  writes durable memory and closes out empty. Self-contained peer in the
-  signals-scout-* fleet.
+  Signals scout for Core Web Vitals (`$web_vitals`). Watches each page's p75 LCP / INP / CLS /
+  FCP against Google's thresholds and its own history — poor-band pages, band crossings, sharp
+  regressions — and dates each regression against deploys and flag rollouts.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
   read-only analytics plus signal_scout_internal:write (for scratchpad) +

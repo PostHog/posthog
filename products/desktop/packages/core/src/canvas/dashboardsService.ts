@@ -183,6 +183,15 @@ export class DashboardsService {
     return rows.map(toRecord);
   }
 
+  async listAll(): Promise<DashboardRecord[]> {
+    const rows = await this.api.listPaginated<ApiCanvas>(
+      "canvases/",
+      "list all canvases",
+      { limit: 500 },
+    );
+    return rows.map(toRecord).filter((record) => record.kind !== "component");
+  }
+
   async create(input: {
     channelId: string;
     name: string;

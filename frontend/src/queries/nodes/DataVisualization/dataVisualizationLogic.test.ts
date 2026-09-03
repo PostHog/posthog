@@ -136,6 +136,64 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('initializes axes when columns load after selecting a visualization type', async () => {
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: null,
+            selectedYAxis: null,
+        })
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            results: [['signed_up', 'Safari', 11]],
+            columns: ['event', 'browser', 'total_count'],
+            types: [
+                ['event', 'String'],
+                ['browser', 'Nullable(String)'],
+                ['total_count', 'UInt64'],
+            ],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: 'event',
+            selectedYAxis: [expect.objectContaining({ name: 'total_count' })],
+        })
+    })
+
+    it('auto-maps box plot columns when the chart is selected', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['bucket', 'series', 'min', 'p25', 'median', 'mean', 'p75', 'max'],
+            types: [
+                ['bucket', 'Date'],
+                ['series', 'String'],
+                ['min', 'Float64'],
+                ['p25', 'Float64'],
+                ['median', 'Float64'],
+                ['mean', 'Float64'],
+                ['p75', 'Float64'],
+                ['max', 'Float64'],
+            ],
+            results: [['2026-01-01', 'Free', 1, 2, 3, 4, 5, 6]],
+        })
+
+        logic.actions.setVisualizationType(ChartDisplayType.BoxPlot)
+
+        await expectLogic(logic).toMatchValues({
+            chartSettings: expect.objectContaining({
+                boxPlot: {
+                    xAxisColumn: 'bucket',
+                    seriesColumn: 'series',
+                    minColumn: 'min',
+                    p25Column: 'p25',
+                    medianColumn: 'median',
+                    meanColumn: 'mean',
+                    p75Column: 'p75',
+                    maxColumn: 'max',
+                },
+            }),
+        })
+    })
+
     it('resets axes when y-axis columns are no longer numerical', async () => {
         const dataNode = dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId })
 
@@ -466,13 +524,13 @@ describe('dataVisualizationLogic', () => {
         await expectLogic(logic).toMatchValues({
             visualizationType: ChartDisplayType.Auto,
             effectiveVisualizationType: ChartDisplayType.TwoDimensionalHeatmap,
-            chartSettings: {
+            chartSettings: expect.objectContaining({
                 heatmap: {
                     xAxisColumn: 'region',
                     yAxisColumn: 'segment',
                     valueColumn: 'count',
                 },
-            },
+            }),
         })
     })
 

@@ -20,6 +20,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 
 from products.legal_documents.backend.facade import api as legal_api
+from products.legal_documents.backend.logic.pandadoc import PandaDocError
 from products.legal_documents.backend.models import LegalDocument
 
 BAA_PAYLOAD = {
@@ -918,6 +919,73 @@ class TestLegalDocumentReconciliation(APIBaseTest):
         self.assertEqual(result.newly_signed, 0)
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "submitted_for_signature")
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document")
+    def test_reconcile_resends_stale_draft_document(self, send_mock, status_mock) -> None:
+        status_mock.return_value = "document.draft"
+        LegalDocument.objects.filter(id=self.document.id).update(created_at=timezone.now() - timedelta(minutes=6))
+
+        result = legal_api.reconcile_pending_signatures()
+
+        send_mock.assert_called_once()
+        self.assertEqual(result.drafts_resent, 1)
+        self.assertEqual(result.archives_requeued, 0)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.status, "submitted_for_signature")
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document")
+    def test_reconcile_skips_freshly_created_draft_document(self, send_mock, status_mock) -> None:
+        status_mock.return_value = "document.draft"
+
+        result = legal_api.reconcile_pending_signatures()
+
+        send_mock.assert_not_called()
+        self.assertEqual(result.drafts_resent, 0)
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document")
+    def test_reconcile_counts_error_when_draft_resend_fails_and_continues(self, send_mock, status_mock) -> None:
+        later_org = Organization.objects.create(name="Later Co")
+        later = LegalDocument.objects.create(
+            organization=later_org,
+            document_type="DPA",
+            company_name="Later Co",
+            company_address="Elsewhere",
+            representative_email="later@other.example",
+            pandadoc_document_id="doc_later",
+            created_by=self.user,
+        )
+        now = timezone.now()
+        LegalDocument.objects.filter(id=self.document.id).update(created_at=now - timedelta(minutes=10))
+        LegalDocument.objects.filter(id=later.id).update(created_at=now - timedelta(minutes=9))
+
+        def status_side_effect(*, document_id):
+            return "document.draft" if document_id == "doc_123" else "document.completed"
+
+        status_mock.side_effect = status_side_effect
+        send_mock.side_effect = PandaDocError("boom")
+
+        with self._fake_pdf_pipeline(), self.captureOnCommitCallbacks(execute=True):
+            result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.errors, 1)
+        self.assertEqual(result.drafts_resent, 0)
+        self.assertEqual(result.newly_signed, 1)
+        later.refresh_from_db()
+        self.assertEqual(later.status, "signed")
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document")
+    def test_reconcile_ignores_document_sent_status(self, send_mock, status_mock) -> None:
+        status_mock.return_value = "document.sent"
+
+        result = legal_api.reconcile_pending_signatures()
+
+        send_mock.assert_not_called()
+        self.assertEqual(result.drafts_resent, 0)
+        self.assertEqual(result.newly_signed, 0)
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
     def test_reconcile_continues_past_a_row_that_raises(self, status_mock) -> None:

@@ -2,6 +2,7 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 
 import type { RepublishReason, UrlDropReason } from './collected-urls-record'
 import type { AttemptOutcome } from './fetch-runner'
+import type { FrontierDeadLetterReason } from './frontier-dead-letter-sink'
 import type { FetchRefusalReason, RequestScheduleBlockReason, TransientFetchOutcome } from './image-fetcher'
 
 /** What the in-flight gauge reads. Narrower than `ConcurrencyController`, so the metrics do not depend on the whole of it. */
@@ -23,6 +24,8 @@ export type HttpRequestOutcome = '2xx' | '3xx' | '4xx' | '5xx' | 'other' | 'netw
 export type RepublishDestination = 'frontier' | 'delay'
 export type RepublishTopic = 'frontier' | 'retry_1m' | 'retry_10m' | 'retry_1h'
 type BatchDiversityScope = 'origin' | 'registrable_domain'
+type PartitionUrlStage = 'parsed' | 'accepted' | 'unique' | 'fetchable' | 'not_ready' | 'store_deduped'
+type PartitionAttemptDisposition = 'completed' | 'republished'
 type PolicyAndBudgetReason = FetchRefusalReason | RequestScheduleBlockReason | 'none'
 
 const BATCH_DIVERSITY_TOP_COUNTS = [1, 5, 10] as const
@@ -45,7 +48,17 @@ export class ImageFetchConsumerMetrics {
      */
     private static readonly dropped = new Counter({
         name: 'ml_image_fetch_consumer_dropped_total',
-        help: 'URLs refused before dedup because the versioned record, URL, ref, or registrable-domain key was invalid',
+        help: 'URLs refused before dedup because the versioned record, URL, ref, or registrable-domain key was invalid. When a dead-letter topic is configured, its Kafka acknowledgement precedes this increment and the source commit',
+        labelNames: ['reason'],
+    })
+    private static readonly deadLettered = new Counter({
+        name: 'ml_image_fetch_consumer_dead_lettered_total',
+        help: 'Rejected frontier records acknowledged by the dead-letter topic before the source offset can advance',
+        labelNames: ['reason'],
+    })
+    private static readonly deadLetterFailed = new Counter({
+        name: 'ml_image_fetch_consumer_dead_letter_failed_total',
+        help: 'Rejected frontier records that could not reach the dead-letter topic. The source batch fails so its offsets remain uncommitted',
         labelNames: ['reason'],
     })
     /**
@@ -78,6 +91,28 @@ export class ImageFetchConsumerMetrics {
         labelNames: ['scope'],
         buckets: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384, 32_768, 65_536],
     })
+    private static readonly partitionRecords = new Counter({
+        name: 'ml_image_fetch_partition_records_total',
+        help: 'Valid Kafka records handled by source partition',
+        labelNames: ['partition'],
+    })
+    private static readonly partitionUrls = new Counter({
+        name: 'ml_image_fetch_partition_urls_total',
+        help: 'URL jobs attributed to a source partition and bounded processing stage. A shared deduplicated job counts once for each contributing partition',
+        labelNames: ['partition', 'stage'],
+    })
+    private static readonly partitionTopShare = new Histogram({
+        name: 'ml_image_fetch_partition_top_share',
+        help: 'Share of deduplicated URL jobs in one source partition held by its largest origin or registrable domain in a joined batch',
+        labelNames: ['partition', 'scope'],
+        buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 1],
+    })
+    private static readonly partitionEffectiveCount = new Histogram({
+        name: 'ml_image_fetch_partition_effective_count',
+        help: 'Inverse Simpson effective count of origins or registrable domains for one source partition in a joined batch',
+        labelNames: ['partition', 'scope'],
+        buckets: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384],
+    })
     private static readonly urlsPerRecord = new Histogram({
         name: 'ml_image_fetch_consumer_urls_per_record',
         help: 'URLs carried by one Kafka record. The producer packs a record to a byte budget, so a distribution pinned at the top means the count bound rather than the byte budget is what split it',
@@ -99,12 +134,15 @@ export class ImageFetchConsumerMetrics {
         help: 'Wall time per completed poll batch. Read against Kafka max.poll.interval.ms (300s)',
         buckets: [0.01, 0.05, 0.1, 0.5, 1, 5, 15, 30, 60, 120, 240, 300, 600],
     })
-    private static activeBatchStartedAtMs: number | undefined
+    private static readonly activeBatchStartedAtMs = new Map<symbol, number>()
     private static readonly activeBatchElapsed = new Gauge({
         name: 'ml_image_fetch_consumer_active_batch_elapsed_seconds',
         help: 'Elapsed wall time of the active non-empty poll batch, or zero between batches. This exposes a stuck batch before Kafka max.poll.interval.ms revokes it',
         collect() {
-            const startedAtMs = ImageFetchConsumerMetrics.activeBatchStartedAtMs
+            const startedAtMs =
+                ImageFetchConsumerMetrics.activeBatchStartedAtMs.size > 0
+                    ? Math.min(...ImageFetchConsumerMetrics.activeBatchStartedAtMs.values())
+                    : undefined
             this.set(startedAtMs === undefined ? 0 : Math.max(0, performance.now() - startedAtMs) / 1000)
         },
     })
@@ -130,6 +168,12 @@ export class ImageFetchConsumerMetrics {
     public static incDropped(reason: UrlDropReason, count: number): void {
         this.dropped.labels(reason).inc(count)
     }
+    public static incDeadLettered(reason: FrontierDeadLetterReason): void {
+        this.deadLettered.labels(reason).inc()
+    }
+    public static incDeadLetterFailed(reason: FrontierDeadLetterReason): void {
+        this.deadLetterFailed.labels(reason).inc()
+    }
     public static incStoreError(operation: 'read' | 'write', count: number): void {
         this.storeErrors.labels(operation).inc(count)
     }
@@ -150,14 +194,33 @@ export class ImageFetchConsumerMetrics {
         this.observeBatchDistribution('origin', originCounts)
         this.observeBatchDistribution('registrable_domain', registrableDomainCounts)
     }
-    public static startBatch(nowMs = performance.now()): void {
-        this.activeBatchStartedAtMs = nowMs
+    public static startBatch(nowMs = performance.now()): symbol {
+        const batchId = Symbol()
+        this.activeBatchStartedAtMs.set(batchId, nowMs)
+        return batchId
     }
-    public static finishBatch(): void {
-        this.activeBatchStartedAtMs = undefined
+    public static finishBatch(batchId: symbol): void {
+        this.activeBatchStartedAtMs.delete(batchId)
     }
     public static observeRecord(urls: number): void {
         this.urlsPerRecord.observe(urls)
+    }
+    public static observePartitionRecord(partition: number, urls: number, acceptedUrls: number): void {
+        const partitionLabel = String(partition)
+        this.partitionRecords.labels(partitionLabel).inc()
+        this.partitionUrls.labels(partitionLabel, 'parsed').inc(urls)
+        this.partitionUrls.labels(partitionLabel, 'accepted').inc(acceptedUrls)
+    }
+    public static incPartitionUrls(partition: number, stage: PartitionUrlStage, count: number): void {
+        this.partitionUrls.labels(String(partition), stage).inc(count)
+    }
+    public static observePartitionBatchDiversity(
+        partition: number,
+        originCounts: number[],
+        registrableDomainCounts: number[]
+    ): void {
+        this.observePartitionDistribution(partition, 'origin', originCounts)
+        this.observePartitionDistribution(partition, 'registrable_domain', registrableDomainCounts)
     }
     public static observeAge(ageSeconds: number): void {
         this.ageSeconds.observe(ageSeconds)
@@ -173,6 +236,18 @@ export class ImageFetchConsumerMetrics {
             this.batchTopShare.labels(scope, String(topCount)).observe(topTotal / summary.total)
         }
         this.batchEffectiveCount.labels(scope).observe((summary.total * summary.total) / summary.sumOfSquares)
+    }
+
+    private static observePartitionDistribution(partition: number, scope: BatchDiversityScope, counts: number[]): void {
+        const summary = summarizeBatchDistribution(counts)
+        if (!summary) {
+            return
+        }
+        const partitionLabel = String(partition)
+        this.partitionTopShare.labels(partitionLabel, scope).observe(summary.largestCounts[0] / summary.total)
+        this.partitionEffectiveCount
+            .labels(partitionLabel, scope)
+            .observe((summary.total * summary.total) / summary.sumOfSquares)
     }
 }
 
@@ -230,25 +305,6 @@ export class ImageFetchRequestMetrics {
         help: 'Origin-policy and registrable-domain request-control decisions after block state is known',
         labelNames: ['blocked', 'reason'],
     })
-    private static readonly lowOriginDiversityPasses = new Counter({
-        name: 'ml_image_fetch_low_origin_diversity_passes_total',
-        help: 'Fetch passes that entered low-diversity mode because too few request slots remained',
-    })
-    private static readonly lowOriginDiversityOrigins = new Histogram({
-        name: 'ml_image_fetch_low_origin_diversity_origins',
-        help: 'Origins remaining when a fetch pass entered low-diversity mode',
-        buckets: [1, 2, 4, 8, 16, 32, 64],
-    })
-    private static readonly lowOriginDiversityCandidates = new Histogram({
-        name: 'ml_image_fetch_low_origin_diversity_candidates',
-        help: 'Canonical URL jobs remaining when a fetch pass entered low-diversity mode',
-        buckets: [1, 8, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384, 32_768, 65_536],
-    })
-    private static readonly lowOriginDiversityRequestSlots = new Histogram({
-        name: 'ml_image_fetch_low_origin_diversity_request_slots',
-        help: 'Request slots remaining when a fetch pass entered low-diversity mode',
-        buckets: [1, 2, 4, 8, 16, 32, 48, 64, 128, 256, 300],
-    })
     private static readonly batchSchedulableSlots = new Histogram({
         name: 'ml_image_fetch_batch_schedulable_slots',
         help: 'Request slots that the initial fetch queue can use after live pod and registrable-domain concurrency limits',
@@ -273,6 +329,22 @@ export class ImageFetchRequestMetrics {
         labelNames: ['outcome'],
         buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
     })
+    private static readonly partitionOutcomes = new Counter({
+        name: 'ml_image_fetch_partition_requests_total',
+        help: 'Completed image HTTP requests attributed to each source partition and status class or network failure',
+        labelNames: ['partition', 'outcome'],
+    })
+    private static readonly partitionDuration = new Histogram({
+        name: 'ml_image_fetch_partition_request_duration_seconds',
+        help: 'Time for one completed image HTTP request attributed to each source partition, including its response body',
+        labelNames: ['partition', 'outcome'],
+        buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
+    })
+    private static readonly partitionAttempts = new Counter({
+        name: 'ml_image_fetch_partition_attempts_total',
+        help: 'URL jobs completed or republished after successful delivery and URL accounting, attributed to each source partition and outcome',
+        labelNames: ['partition', 'disposition', 'outcome'],
+    })
     private static readonly retryCauses = new Counter({
         name: 'ml_image_fetch_retry_causes_total',
         help: 'Transient fetch outcomes that caused the URL to be scheduled for another attempt',
@@ -286,6 +358,12 @@ export class ImageFetchRequestMetrics {
         name: 'ml_image_fetch_scheduler_wait_seconds',
         help: 'Time a request waited for an origin crawl delay, registrable-domain rate, or pod request slot',
         labelNames: ['scope'],
+        buckets: [0, 0.1, 0.5, 1, 2, 5, 10, 20],
+    })
+    private static readonly partitionSchedulerWait = new Histogram({
+        name: 'ml_image_fetch_partition_scheduler_wait_seconds',
+        help: 'Time an image request waited, attributed to each source partition and politeness or capacity scope',
+        labelNames: ['partition', 'scope'],
         buckets: [0, 0.1, 0.5, 1, 2, 5, 10, 20],
     })
     private static readonly responseBytes = new Histogram({
@@ -352,9 +430,18 @@ export class ImageFetchRequestMetrics {
         }
         return 'other'
     }
-    public static observeRequest(outcome: HttpRequestOutcome, durationSeconds: number): void {
+    public static observeRequest(
+        outcome: HttpRequestOutcome,
+        durationSeconds: number,
+        sourcePartitions?: readonly number[]
+    ): void {
         this.outcomes.labels(outcome).inc()
         this.duration.labels(outcome).observe(durationSeconds)
+        for (const sourcePartition of new Set(sourcePartitions ?? [])) {
+            const partitionLabel = String(sourcePartition)
+            this.partitionOutcomes.labels(partitionLabel, outcome).inc()
+            this.partitionDuration.labels(partitionLabel, outcome).observe(durationSeconds)
+        }
     }
     public static incRetryCause(cause: TransientFetchOutcome): void {
         this.retryCauses.labels(cause).inc()
@@ -377,19 +464,27 @@ export class ImageFetchRequestMetrics {
     public static observePolicyAndBudgetDecision(blocked: boolean, reason: PolicyAndBudgetReason = 'none'): void {
         this.policyAndBudgetDecisions.labels(blocked ? 'true' : 'false', reason).inc()
     }
-    public static observeLowOriginDiversity(origins: number, candidates: number, requestSlots: number): void {
-        this.lowOriginDiversityPasses.inc()
-        this.lowOriginDiversityOrigins.observe(origins)
-        this.lowOriginDiversityCandidates.observe(candidates)
-        this.lowOriginDiversityRequestSlots.observe(requestSlots)
-    }
     public static observeBatchSchedulableCapacity(slots: number, podRequestLimit: number): void {
         const boundedSlots = Math.min(slots, podRequestLimit)
         this.batchSchedulableSlots.observe(boundedSlots)
         this.batchSchedulableCapacityRatio.observe(boundedSlots / podRequestLimit)
     }
-    public static observeSchedulerWait(scope: SchedulerWaitScope, waitSeconds: number): void {
+    public static observeSchedulerWait(
+        scope: SchedulerWaitScope,
+        waitSeconds: number,
+        sourcePartitions?: readonly number[]
+    ): void {
         this.schedulerWait.labels(scope).observe(waitSeconds)
+        for (const sourcePartition of new Set(sourcePartitions ?? [])) {
+            this.partitionSchedulerWait.labels(String(sourcePartition), scope).observe(waitSeconds)
+        }
+    }
+    public static incPartitionAttempt(
+        partition: number,
+        disposition: PartitionAttemptDisposition,
+        outcome: AttemptOutcome
+    ): void {
+        this.partitionAttempts.labels(String(partition), disposition, outcome).inc()
     }
     public static observeBytes(bytes: number): void {
         this.responseBytes.observe(bytes)
@@ -432,7 +527,7 @@ export class ImageFetchRequestMetrics {
      */
     private static readonly republished = new Counter({
         name: 'ml_image_fetch_republished_total',
-        help: 'URLs published back to Kafka by bounded reason and destination class. "redirect" left the origin. "retry" hit a transient failure and waits in a delay topic. "not_ready" arrived before its wait ended. "low_origin_diversity" returns queued work to the frontier so a later batch can add origins',
+        help: 'URLs published back to Kafka by bounded reason and destination class. "redirect" left the origin. "retry" hit a transient failure and waits in a delay topic. "not_ready" arrived before its wait ended',
         labelNames: ['reason', 'topic'],
     })
     private static readonly republishFailed = new Counter({

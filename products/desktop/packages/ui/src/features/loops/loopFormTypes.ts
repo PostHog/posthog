@@ -56,17 +56,20 @@ export interface LoopFormValues {
   behaviors: LoopSchemas.LoopBehaviors;
   notifications: LoopSchemas.LoopNotifications;
   contextTarget: LoopContextTargetDraft | null;
+  /** Names of team skills attached to a workflow-backed loop. The loops API
+   * has no equivalent and ignores it. */
+  teamSkills: string[];
 }
 
-export function emptyLoopScheduleTriggerConfig(): LoopSchemas.LoopScheduleTriggerConfig {
+function emptyLoopScheduleTriggerConfig(): LoopSchemas.LoopScheduleTriggerConfig {
   return { cron_expression: "0 9 * * 1", timezone: systemTimezone() };
 }
 
-export function emptyLoopGithubTriggerConfig(): LoopSchemas.LoopGithubTriggerConfig {
+function emptyLoopGithubTriggerConfig(): LoopSchemas.LoopGithubTriggerConfig {
   return { github_integration_id: 0, repository: "", events: [] };
 }
 
-export function emptyLoopApiTriggerConfig(): LoopSchemas.LoopApiTriggerConfig {
+function emptyLoopApiTriggerConfig(): LoopSchemas.LoopApiTriggerConfig {
   return {};
 }
 
@@ -163,7 +166,7 @@ export function withGithubTriggerFilters(
   return { ...config, filters };
 }
 
-export function defaultLoopNotifications(): LoopSchemas.LoopNotifications {
+function defaultLoopNotifications(): LoopSchemas.LoopNotifications {
   const off = { enabled: false, events: [], params: {} };
   return { push: { ...off }, email: { ...off }, slack: { ...off } };
 }
@@ -205,7 +208,7 @@ export function nextDraftTriggerKey(): string {
   return `draft-trigger-${draftKeySeq}`;
 }
 
-export function defaultLoopScheduleTrigger(): LoopTriggerDraft {
+function defaultLoopScheduleTrigger(): LoopTriggerDraft {
   return {
     key: nextDraftTriggerKey(),
     type: "schedule",
@@ -246,6 +249,7 @@ export function emptyLoopFormValues(): LoopFormValues {
     behaviors: defaultLoopBehaviors(),
     notifications: defaultLoopNotifications(),
     contextTarget: null,
+    teamSkills: [],
   };
 }
 
@@ -299,6 +303,7 @@ export function loopToFormValues(loop: LoopSchemas.Loop): LoopFormValues {
           outputs: loop.context_target.outputs,
         }
       : null,
+    teamSkills: [],
   };
 }
 
@@ -340,7 +345,22 @@ export function formValuesToLoopWrite(
   };
 }
 
-export function isLoopFormValid(values: LoopFormValues): boolean {
+/**
+ * What a loop's backend can store. The loops API takes any trigger list; a
+ * workflow holds exactly one trigger, resolves the GitHub repository itself
+ * (so no integration id is needed), and listens to one event type.
+ */
+export interface LoopFormRules {
+  backend: "loops" | "workflow";
+}
+
+export const LOOPS_API_RULES: LoopFormRules = { backend: "loops" };
+export const WORKFLOW_RULES: LoopFormRules = { backend: "workflow" };
+
+export function isLoopFormValid(
+  values: LoopFormValues,
+  rules: LoopFormRules = LOOPS_API_RULES,
+): boolean {
   if (!values.name.trim()) {
     return false;
   }
@@ -350,24 +370,43 @@ export function isLoopFormValid(values: LoopFormValues): boolean {
   if (values.contextTarget && values.visibility !== "team") {
     return false;
   }
-  return values.triggers.every((trigger) => isTriggerDraftValid(trigger));
+  return isTriggerListValid(values.triggers, rules);
 }
 
-export function isTriggerDraftValid(trigger: LoopTriggerDraft): boolean {
+/** Whether the trigger list can be saved: the loops API takes any list, an
+ * empty one included, and a workflow needs exactly one enabled trigger. */
+export function isTriggerListValid(
+  triggers: LoopTriggerDraft[],
+  rules: LoopFormRules = LOOPS_API_RULES,
+): boolean {
+  if (rules.backend === "workflow") {
+    const [trigger, ...rest] = triggers;
+    if (!trigger || rest.length > 0 || !trigger.enabled) {
+      return false;
+    }
+  }
+  return triggers.every((trigger) => isTriggerDraftValid(trigger, rules));
+}
+
+export function isTriggerDraftValid(
+  trigger: LoopTriggerDraft,
+  rules: LoopFormRules = LOOPS_API_RULES,
+): boolean {
   if (trigger.type === "schedule") {
     const config = trigger.config as LoopSchemas.LoopScheduleTriggerConfig;
     return !!config.run_at || !!config.cron_expression;
   }
   if (trigger.type === "github") {
     const config = trigger.config as LoopSchemas.LoopGithubTriggerConfig;
+    const workflow = rules.backend === "workflow";
     return (
       !!config.repository &&
-      config.github_integration_id > 0 &&
-      config.events.length > 0 &&
+      (workflow || config.github_integration_id > 0) &&
+      (workflow ? config.events.length === 1 : config.events.length > 0) &&
       (config.filters?.payload ?? []).every(isPayloadConditionValid)
     );
   }
-  return true;
+  return rules.backend !== "workflow";
 }
 
 /** Each accepted value is its own chip in the editor, never a delimited string. An earlier

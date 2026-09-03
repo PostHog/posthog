@@ -102,6 +102,11 @@ SIGMA_ENDPOINTS: dict[str, SigmaComputingEndpointConfig] = {
         path="/v2/workspaces",
         primary_key="workspaceId",
     ),
+    "Reports": SigmaComputingEndpointConfig(
+        name="Reports",
+        path="/v2/reports",
+        primary_key="reportId",
+    ),
     "WorkbookElements": SigmaComputingEndpointConfig(
         name="WorkbookElements",
         path="/v2/workbooks/{workbookId}/elements",

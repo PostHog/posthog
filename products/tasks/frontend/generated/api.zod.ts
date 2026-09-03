@@ -10,16 +10,6 @@
 import * as zod from 'zod'
 
 /**
- * Redeem a PostHog Desktop invite code to enable legacy access.
- * @summary Redeem invite code
- */
-export const codeInvitesRedeemCreateBodyCodeMax = 50
-
-export const CodeInvitesRedeemCreateBody = /* @__PURE__ */ zod.object({
-    code: zod.string().max(codeInvitesRedeemCreateBodyCodeMax),
-})
-
-/**
  * API for managing loops — named, cloud-executed agent automations triggered by
  * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
  * @summary Create a loop
@@ -963,6 +953,8 @@ export const taskChannelsPartialUpdateBodyRepositoriesItemMax = 255
 
 export const taskChannelsPartialUpdateBodyRepositoriesMax = 10
 
+export const taskChannelsPartialUpdateBodyAutoArchiveAfterDaysMax = 365
+
 export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -978,6 +970,14 @@ export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(taskChannelsPartialUpdateBodyRepositoriesMax)
         .optional()
         .describe('GitHub repositories inherited by new tasks in this channel.'),
+    auto_archive_after_days: zod
+        .number()
+        .min(1)
+        .max(taskChannelsPartialUpdateBodyAutoArchiveAfterDaysMax)
+        .nullish()
+        .describe(
+            'Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.'
+        ),
 })
 
 /**
@@ -1056,6 +1056,74 @@ export const TaskChannelsStarCreateBody = /* @__PURE__ */ zod
     .describe('Request body for starring\/unstarring a channel for the requesting user.')
 
 /**
+ * Feature-flagged test path that creates a repeatable session from explicit prompt-building inputs, in the requester's personal space.
+ * @summary Start a test first-run onboarding session
+ */
+export const taskChannelsOnboardingSessionTestCreateBodyCompanyDomainDefault = ``
+export const taskChannelsOnboardingSessionTestCreateBodyCompanyDomainMax = 253
+
+export const taskChannelsOnboardingSessionTestCreateBodyJoiningExistingOrganizationDefault = false
+export const taskChannelsOnboardingSessionTestCreateBodyHasEventsDefault = false
+export const taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingDefault = 0
+export const taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingMin = 0
+export const taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingMax = 10000
+
+export const taskChannelsOnboardingSessionTestCreateBodyOtherMembersItemMax = 100
+
+export const taskChannelsOnboardingSessionTestCreateBodyOtherMembersMax = 25
+
+export const taskChannelsOnboardingSessionTestCreateBodySourcesEnabledItemMax = 100
+
+export const taskChannelsOnboardingSessionTestCreateBodySourcesEnabledMax = 25
+
+export const taskChannelsOnboardingSessionTestCreateBodySourcesWatchingItemMax = 100
+
+export const taskChannelsOnboardingSessionTestCreateBodySourcesWatchingMax = 25
+
+export const taskChannelsOnboardingSessionTestCreateBodySourcesNewlyEnabledDefault = false
+
+export const TaskChannelsOnboardingSessionTestCreateBody = /* @__PURE__ */ zod.object({
+    company_domain: zod
+        .string()
+        .max(taskChannelsOnboardingSessionTestCreateBodyCompanyDomainMax)
+        .default(taskChannelsOnboardingSessionTestCreateBodyCompanyDomainDefault)
+        .describe('Company domain to research. Blank simulates a personal email address.'),
+    joining_existing_organization: zod
+        .boolean()
+        .default(taskChannelsOnboardingSessionTestCreateBodyJoiningExistingOrganizationDefault)
+        .describe('Whether the user is joining an organization that already has shared context.'),
+    has_events: zod
+        .boolean()
+        .default(taskChannelsOnboardingSessionTestCreateBodyHasEventsDefault)
+        .describe('Whether the project has ingested events.'),
+    signal_reports_waiting: zod
+        .number()
+        .min(taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingMin)
+        .max(taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingMax)
+        .default(taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingDefault)
+        .describe('Number of findings waiting in #general.'),
+    other_members: zod
+        .array(zod.string().max(taskChannelsOnboardingSessionTestCreateBodyOtherMembersItemMax))
+        .max(taskChannelsOnboardingSessionTestCreateBodyOtherMembersMax)
+        .optional()
+        .describe('Display names of other Desktop users in the organization.'),
+    sources_enabled: zod
+        .array(zod.string().max(taskChannelsOnboardingSessionTestCreateBodySourcesEnabledItemMax))
+        .max(taskChannelsOnboardingSessionTestCreateBodySourcesEnabledMax)
+        .optional()
+        .describe('Signal sources that were already enabled.'),
+    sources_watching: zod
+        .array(zod.string().max(taskChannelsOnboardingSessionTestCreateBodySourcesWatchingItemMax))
+        .max(taskChannelsOnboardingSessionTestCreateBodySourcesWatchingMax)
+        .optional()
+        .describe('Signal sources the onboarding flow is watching.'),
+    sources_newly_enabled: zod
+        .boolean()
+        .default(taskChannelsOnboardingSessionTestCreateBodySourcesNewlyEnabledDefault)
+        .describe('Whether onboarding enabled any signal sources.'),
+})
+
+/**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
 export const tasksCreateBodyTitleMax = 255
@@ -1100,6 +1168,7 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 'experiments',
                 'signal_report',
                 'signals_scout',
+                'scout_suggestions',
                 'support_reply',
                 'hogdesk',
                 'review_hog',
@@ -1111,11 +1180,11 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 'workflow',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
             ),
         repository: zod
             .string()
@@ -1177,6 +1246,19 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+        initial_permission_mode: zod
+            .union([
+                zod
+                    .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+                    .describe(
+                        '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
             ),
         pending_user_message: zod
             .string()
@@ -1268,6 +1350,7 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
                 'experiments',
                 'signal_report',
                 'signals_scout',
+                'scout_suggestions',
                 'support_reply',
                 'hogdesk',
                 'review_hog',
@@ -1279,11 +1362,11 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
                 'workflow',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
             ),
         repository: zod
             .string()
@@ -1345,6 +1428,19 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+        initial_permission_mode: zod
+            .union([
+                zod
+                    .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+                    .describe(
+                        '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
             ),
         pending_user_message: zod
             .string()
@@ -1415,6 +1511,7 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
                 'experiments',
                 'signal_report',
                 'signals_scout',
+                'scout_suggestions',
                 'support_reply',
                 'hogdesk',
                 'review_hog',
@@ -1426,11 +1523,11 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
                 'workflow',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
             ),
         repository: zod
             .string()
@@ -1492,6 +1589,19 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+        initial_permission_mode: zod
+            .union([
+                zod
+                    .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+                    .describe(
+                        '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
             ),
         pending_user_message: zod
             .string()
@@ -1739,6 +1849,12 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .describe(
                     'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
                 ),
+            benjamin_enabled: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.'
+                ),
         })
         .describe('Request body for creating a new task run'),
     zod
@@ -1885,6 +2001,12 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .nullish()
                 .describe(
                     'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
+                ),
+            benjamin_enabled: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.'
                 ),
         })
         .describe('Request body for creating a new task run'),
@@ -2137,6 +2259,44 @@ export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.o
 })
 
 /**
+ * Warm an idling successor for the task's latest terminal Run while the user composes the next message. The successor restores the prior snapshot when compatible and waits for the normal run endpoint to activate it. Best-effort: returns an empty body when warming is disabled, capped, or the task advanced to another Run.
+ * @summary Warm a resumed task sandbox
+ */
+export const TasksWarmResumeCreateBody = /* @__PURE__ */ zod
+    .object({
+        resume_from_run_id: zod
+            .uuid()
+            .describe("ID of the task's latest terminal run whose snapshot and conversation should be resumed."),
+        runtime_adapter: zod
+            .enum(['claude', 'codex'])
+            .describe('\* `claude` - claude\n\* `codex` - codex')
+            .optional()
+            .describe(
+                'Agent runtime adapter to start before the next message is submitted.\n\n\* `claude` - claude\n\* `codex` - codex'
+            ),
+        model: zod.string().optional().describe('LLM model to start before the next message is submitted.'),
+        reasoning_effort: zod
+            .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+            .describe(
+                '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            )
+            .optional()
+            .describe(
+                'Reasoning effort to apply when the warmed successor receives its first message.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+        initial_permission_mode: zod
+            .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+            .describe(
+                '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+            )
+            .optional()
+            .describe(
+                "Initial permission mode for the warmed successor's agent session.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
+            ),
+    })
+    .describe('Request body for warming a successor to an existing terminal task run.')
+
+/**
  * Create a new run for a specific task without starting execution.
  * @summary Create task run
  */
@@ -2287,6 +2447,12 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
             ),
+        benjamin_enabled: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.'
+            ),
     })
     .describe('Request body for creating a task run without starting execution yet.')
 
@@ -2319,13 +2485,6 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race.'
         ),
     error_message: zod.string().nullish().describe('Error message if execution failed'),
-    environment: zod
-        .enum(['local'])
-        .describe('\* `local` - local')
-        .optional()
-        .describe(
-            'Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.\n\n\* `local` - local'
-        ),
 })
 
 /**
@@ -2544,7 +2703,11 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
                     .max(tasksRunsArtifactsCreateBodyArtifactsItemSourceMax)
                     .default(tasksRunsArtifactsCreateBodyArtifactsItemSourceDefault)
                     .describe('Optional source label for the artifact, such as agent_output or user_attachment'),
-                content: zod.string().describe('Artifact contents encoded according to content_encoding'),
+                content: zod
+                    .string()
+                    .describe(
+                        'Artifact contents encoded according to content_encoding. Artifacts above 14 MB must use prepare_upload instead.'
+                    ),
                 content_encoding: zod
                     .enum(['utf-8', 'base64'])
                     .describe('\* `utf-8` - utf-8\n\* `base64` - base64')
@@ -2892,12 +3055,20 @@ export const TasksRunsArtifactsReferencesCreateBody = /* @__PURE__ */ zod.object
  */
 export const tasksRunsCancelCreateBodyReasonMax = 500
 
+export const tasksRunsCancelCreateBodyOnlyIfAwaitingFirstMessageDefault = false
+
 export const TasksRunsCancelCreateBody = /* @__PURE__ */ zod.object({
     reason: zod
         .string()
         .max(tasksRunsCancelCreateBodyReasonMax)
         .nullish()
         .describe('Optional reason for the cancellation, recorded on the run and shown to run watchers.'),
+    only_if_awaiting_first_message: zod
+        .boolean()
+        .default(tasksRunsCancelCreateBodyOnlyIfAwaitingFirstMessageDefault)
+        .describe(
+            'Cancel only while the run is still a warm sandbox awaiting its first message. A run that has since received one is left alone and returned unchanged. Set this when handing a warm sandbox back, so a release that races a submit cannot stop the run that submit started.'
+        ),
 })
 
 /**
@@ -3222,7 +3393,73 @@ export const TasksThreadMessagesSendToAgentCreateBody = /* @__PURE__ */ zod
     .describe("Response shape for one message in a task's thread.")
 
 /**
- * Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, `updated_at`, and the latest run's `status` and `environment`.
+ * Set your per-project default AI run preferences; they override the project default wholesale. Send all fields as null to clear and inherit the project default.
+ */
+export const TasksMeConfigCreateBody = /* @__PURE__ */ zod
+    .object({
+        runtime_adapter: zod
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+            .optional()
+            .describe(
+                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.\n\n\* `claude` - claude\n\* `codex` - codex"
+            ),
+        model: zod
+            .string()
+            .nullish()
+            .describe('Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.'),
+        reasoning_effort: zod
+            .union([
+                zod
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                    .describe(
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Default reasoning effort for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+    })
+    .describe(
+        'The default AI run triple stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. `runtime_adapter` and `model` must be set together; send all three\nas null to clear a stored preference.'
+    )
+
+/**
+ * Set the project-wide default AI run preferences applied to task runs created without an explicit runtime selection. Send all fields as null to clear.
+ */
+export const TasksConfigCreateBody = /* @__PURE__ */ zod
+    .object({
+        runtime_adapter: zod
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+            .optional()
+            .describe(
+                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.\n\n\* `claude` - claude\n\* `codex` - codex"
+            ),
+        model: zod
+            .string()
+            .nullish()
+            .describe('Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.'),
+        reasoning_effort: zod
+            .union([
+                zod
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                    .describe(
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Default reasoning effort for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+    })
+    .describe(
+        'The default AI run triple stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. `runtime_adapter` and `model` must be set together; send all three\nas null to clear a stored preference.'
+    )
+
+/**
+ * Returns summary for the requested tasks, including the creator ID and the latest run's ID, status, and environment.
  * @summary Fetch task summaries by ID
  */
 export const tasksSummariesCreateBodyIdsMax = 5000
@@ -3237,7 +3474,7 @@ export const TasksSummariesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Warm a full idling Run for a Code-app cloud task while the user composes: boot a sandbox, clone the repo, check out the branch, and start the agent, then idle awaiting the first message. On submit the normal create+run path transparently reuses and activates this Run; abandoned warms are reaped by the Run's inactivity timeout. Best-effort: returns an empty body when the feature flag is off, the warm pool is full, or the GitHub integration doesn't belong to the team.
+ * Warm a full idling Run for a cloud task while the user composes: boot a sandbox, clone the repo, check out the branch, and start the agent, then idle awaiting the first message. On submit the normal create+run path transparently reuses and activates this Run; abandoned warms are reaped by the Run's inactivity timeout. Best-effort: returns an empty body when the feature flag is off, the warm pool is full, or the GitHub integration doesn't belong to the team.
  * @summary Warm a task sandbox
  */
 export const tasksWarmCreateBodyRepositoryMax = 255
@@ -3247,6 +3484,8 @@ export const tasksWarmCreateBodyRepositoriesItemMax = 255
 export const tasksWarmCreateBodyRepositoriesMax = 3
 
 export const tasksWarmCreateBodyBranchMax = 255
+
+export const tasksWarmCreateBodyOriginProductDefault = `user_created`
 
 export const TasksWarmCreateBody = /* @__PURE__ */ zod
     .object({
@@ -3263,7 +3502,9 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
         github_integration: zod
             .number()
             .nullish()
-            .describe("Primary key of the team's GitHub integration to clone with when a repository is selected."),
+            .describe(
+                "Primary key of the team's GitHub integration. Required when a repository is selected (it is what the sandbox clones with). Accepted without a repository too: the warm Run then boots with that integration's GitHub credentials, matching a repo-less create that carries it."
+            ),
         branch: zod
             .string()
             .max(tasksWarmCreateBodyBranchMax)
@@ -3305,6 +3546,26 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Optional custom base image to provision before the task is submitted; takes precedence over the environment's image."
+            ),
+        origin_product: zod
+            .enum(['user_created', 'posthog_ai'])
+            .describe('\* `user_created` - user_created\n\* `posthog_ai` - posthog_ai')
+            .default(tasksWarmCreateBodyOriginProductDefault)
+            .describe(
+                'Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born under the same origin. Defaults to the Code app.\n\n\* `user_created` - user_created\n\* `posthog_ai` - posthog_ai'
+            ),
+        initial_permission_mode: zod
+            .union([
+                zod
+                    .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+                    .describe(
+                        '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Permission mode to boot the agent session on. Read at session construction, so it cannot be changed once the sandbox is warm — a submit selecting a different mode falls through to a cold Run. Omit to take the runtime's default.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
             ),
     })
     .describe(

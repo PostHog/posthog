@@ -9,7 +9,6 @@ import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
-import type { DashboardAddTileType } from 'scenes/dashboard/dashboardAddTileTypes'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import type { SelfDrivingOnboardingStepId } from 'scenes/onboarding/onboardingEventUsageLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
@@ -78,6 +77,8 @@ import {
     Survey,
     SurveyQuestionType,
 } from '~/types'
+
+import type { DashboardAddTileType } from 'products/dashboards/frontend/types'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
@@ -389,8 +390,23 @@ function sanitizeDashboard(dashboard: DashboardType<QueryBasedInsightModel> | nu
     }
 }
 
+function countBehavioralFilters(value: unknown): number {
+    if (Array.isArray(value)) {
+        return value.reduce((count, item) => count + countBehavioralFilters(item), 0)
+    }
+    if (!value || typeof value !== 'object') {
+        return 0
+    }
+
+    const record = value as Record<string, unknown>
+    return (
+        Number(record.type === PropertyFilterType.Behavioral) +
+        Object.values(record).reduce<number>((count, item) => count + countBehavioralFilters(item), 0)
+    )
+}
+
 /** Takes a query and returns an object with "useful" properties that don't contain sensitive data. */
-function sanitizeQuery(query: Node | null): Record<string, string | number | boolean | undefined> {
+export function sanitizeQuery(query: Node | null): Record<string, string | number | boolean | undefined> {
     const payload: Record<string, string | number | boolean | undefined> = {
         query_kind: query?.kind,
         query_source_kind: isNodeWithSource(query) ? query.source.kind : undefined,
@@ -418,6 +434,7 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
 
         // properties
         payload.has_properties = !!properties
+        payload.behavioral_filter_count = countBehavioralFilters(querySource)
         payload.filter_test_accounts = filterTestAccounts
 
         // breakdown
@@ -1208,10 +1225,12 @@ export interface eventUsageLogicActions {
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
+                | 'experiment_config_change'
                 | 'experiment_launch'
                 | 'experiment_stop'
                 | 'experiment_update'
                 | 'manual'
+                | 'metric_config_change'
                 | 'stale_refresh'
         }
     ) => {
@@ -1229,10 +1248,12 @@ export interface eventUsageLogicActions {
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
+                | 'experiment_config_change'
                 | 'experiment_launch'
                 | 'experiment_stop'
                 | 'experiment_update'
                 | 'manual'
+                | 'metric_config_change'
                 | 'stale_refresh'
                 | undefined
         }
@@ -1318,7 +1339,7 @@ export interface eventUsageLogicActions {
             successful_count: number
             total_duration_ms: number
             total_metrics_count: number
-            triggered_by: 'auto_refresh' | 'config_change' | 'manual' | 'page_load'
+            triggered_by: 'auto_refresh' | 'experiment_config_change' | 'manual' | 'metric_config_change' | 'page_load'
         }
     ) => {
         context: {
@@ -1334,13 +1355,10 @@ export interface eventUsageLogicActions {
             successful_count: number
             total_duration_ms: number
             total_metrics_count: number
-            triggered_by: 'auto_refresh' | 'config_change' | 'manual' | 'page_load'
+            triggered_by: 'auto_refresh' | 'experiment_config_change' | 'manual' | 'metric_config_change' | 'page_load'
         }
         experimentId: ExperimentIdType
         teamId: number | null | undefined
-    }
-    reportExperimentSessionReplaySummaryRequested: (experiment: Experiment) => {
-        experiment: Experiment
     }
     reportExperimentSharedMetricAssigned: (
         experimentId: ExperimentIdType,
@@ -2661,7 +2679,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 successful_count: number
                 errored_count: number
                 cached_count: number
-                triggered_by: 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
+                triggered_by:
+                    | 'page_load'
+                    | 'manual'
+                    | 'auto_refresh'
+                    | 'experiment_config_change'
+                    | 'metric_config_change'
                 force_refresh: boolean
                 refresh_id: string
                 experiment_duration_hours: number | null
@@ -2687,6 +2710,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     | 'cold_run'
                     | 'stale_refresh'
                     | 'auto_refresh'
+                    | 'experiment_config_change'
+                    | 'metric_config_change'
                     | 'config_change'
                     | 'experiment_launch'
                     | 'experiment_stop'
@@ -2711,7 +2736,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             metric,
         }),
         reportExperimentAiSummaryRequested: (experiment: Experiment) => ({ experiment }),
-        reportExperimentSessionReplaySummaryRequested: (experiment: Experiment) => ({ experiment }),
         reportExperimentTabViewed: (experimentId: ExperimentIdType, tab: string) => ({ experimentId, tab }),
         reportExperimentRecordingsTabViewed: (
             experimentId: ExperimentIdType,
@@ -3922,11 +3946,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentAiSummaryRequested: ({ experiment }) => {
             posthog.capture('experiment ai summary requested', {
-                ...getEventPropertiesForExperiment(experiment),
-            })
-        },
-        reportExperimentSessionReplaySummaryRequested: ({ experiment }) => {
-            posthog.capture('experiment session replay summary requested', {
                 ...getEventPropertiesForExperiment(experiment),
             })
         },

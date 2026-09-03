@@ -25,9 +25,11 @@ import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, Experiment, ProjectTreeRef } from '~/types'
+import type { ExperimentIdType } from '~/types'
 
-import type { ExperimentIdType } from '../../types'
-import { NEW_EXPERIMENT } from './constants'
+import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+
 import {
     type ExperimentLogicProps,
     type experimentLogicType,
@@ -35,8 +37,8 @@ import {
     type FormModes,
     experimentLogic,
 } from './experimentLogic'
-import { isLaunched } from './experimentStatus'
 import { stepStorageKey } from './ExperimentWizard/experimentWizardLogic'
+import { modalsLogic } from './modalsLogic'
 import { isLegacyExperiment } from './utils'
 
 export const EXPERIMENT_TABS = ['metrics', 'settings', 'code', 'variants', 'recordings', 'feedback', 'history'] as const
@@ -511,6 +513,9 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 const isSameSceneState = values.experimentId === parsedId && values.formMode === formMode
 
                 actions.setEditMode(false)
+                // The previous experimentLogic (and with it the global modalsLogic) stays mounted
+                // across navigation, so a modal left open would reappear on the next experiment.
+                modalsLogic.findMounted()?.actions.closeAllModals()
 
                 if (!currentLocation.initial && matchesExistingLogic && isSameSceneState) {
                     // Same experiment, already mounted — skip the full reload, but still run the
@@ -574,6 +579,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 const isSameSceneState = values.experimentId === parsedId && values.formMode === parsedFormMode
 
                 actions.setEditMode(false)
+                modalsLogic.findMounted()?.actions.closeAllModals()
 
                 if (!currentLocation.initial && matchesExistingLogic && isSameSceneState) {
                     // Same experiment, already mounted — skip the full reload, but still run the

@@ -2,41 +2,19 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    LogsAlertsCreateBody,
-    LogsAlertsDestinationsCreateBody,
-    LogsAlertsDestinationsCreateParams,
-    LogsAlertsDestinationsDeleteCreateBody,
-    LogsAlertsDestinationsDeleteCreateParams,
-    LogsAlertsDestroyParams,
-    LogsAlertsEventsListParams,
-    LogsAlertsEventsListQueryParams,
-    LogsAlertsListQueryParams,
-    LogsAlertsPartialUpdateBody,
-    LogsAlertsPartialUpdateParams,
-    LogsAlertsRetrieveParams,
-    LogsAlertsSimulateCreateBody,
-    LogsAnomaliesScanCreateBody,
-    LogsAttributesRetrieveQueryParams,
-    LogsCountCreateBody,
-    LogsCountRangesCreateBody,
-    LogsFacetValuesCreateBody,
-    LogsPatternsCreateBody,
-    LogsPatternsDiffCreateBody,
-    LogsQueryCreateBody,
-    LogsServicesCreateBody,
-    LogsSparklineCreateBody,
-    LogsValuesRetrieveQueryParams,
-} from '@/generated/logs/api'
+import * as orvalSchemas from '@/generated/logs/api'
 import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const LogsAlertsCreateSchema = LogsAlertsCreateBody
+const LogsAlertsCreateSchema = () => {
+    const LogsAlertsCreateBody = orvalSchemas.LogsAlertsCreateBody()
+    return LogsAlertsCreateBody
+}
 
-const logsAlertsCreate = (): ToolBase<typeof LogsAlertsCreateSchema, Schemas.LogsAlertConfiguration> => ({
+const logsAlertsCreate = (): ToolBase<ReturnType<typeof LogsAlertsCreateSchema>, Schemas.LogsAlertConfiguration> => ({
     name: 'logs-alerts-create',
-    schema: LogsAlertsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsAlertsCreateSchema>) => {
+    schema: LogsAlertsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsAlertsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -104,33 +82,37 @@ const logsAlertsCreate = (): ToolBase<typeof LogsAlertsCreateSchema, Schemas.Log
     },
 })
 
-const LogsAlertsDestinationsCreateSchema = LogsAlertsDestinationsCreateParams.omit({ project_id: true })
-    .extend(LogsAlertsDestinationsCreateBody.shape)
-    .extend({
-        type: LogsAlertsDestinationsCreateBody.shape['type'].describe(
-            'Destination type. Use slack, webhook, or teams. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url.'
-        ),
-        slack_workspace_id: LogsAlertsDestinationsCreateBody.shape['slack_workspace_id'].describe(
-            'Slack workspace integration ID. Required when type is slack.'
-        ),
-        slack_channel_id: LogsAlertsDestinationsCreateBody.shape['slack_channel_id'].describe(
-            'Slack channel ID. Required when type is slack.'
-        ),
-        slack_channel_name: LogsAlertsDestinationsCreateBody.shape['slack_channel_name'].describe(
-            'Optional Slack channel name used for display.'
-        ),
-        webhook_url: LogsAlertsDestinationsCreateBody.shape['webhook_url'].describe(
-            'Required when type is webhook or teams.'
-        ),
-    })
+const LogsAlertsDestinationsCreateSchema = () => {
+    const LogsAlertsDestinationsCreateBody = orvalSchemas.LogsAlertsDestinationsCreateBody()
+    const LogsAlertsDestinationsCreateParams = orvalSchemas.LogsAlertsDestinationsCreateParams()
+    return LogsAlertsDestinationsCreateParams.omit({ project_id: true })
+        .extend(LogsAlertsDestinationsCreateBody.shape)
+        .extend({
+            type: LogsAlertsDestinationsCreateBody.shape['type'].describe(
+                'Destination type. Use slack, webhook, or teams. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url.'
+            ),
+            slack_workspace_id: LogsAlertsDestinationsCreateBody.shape['slack_workspace_id'].describe(
+                'Slack workspace integration ID. Required when type is slack.'
+            ),
+            slack_channel_id: LogsAlertsDestinationsCreateBody.shape['slack_channel_id'].describe(
+                'Slack channel ID. Required when type is slack.'
+            ),
+            slack_channel_name: LogsAlertsDestinationsCreateBody.shape['slack_channel_name'].describe(
+                'Optional Slack channel name used for display.'
+            ),
+            webhook_url: LogsAlertsDestinationsCreateBody.shape['webhook_url'].describe(
+                'Required when type is webhook or teams.'
+            ),
+        })
+}
 
 const logsAlertsDestinationsCreate = (): ToolBase<
-    typeof LogsAlertsDestinationsCreateSchema,
+    ReturnType<typeof LogsAlertsDestinationsCreateSchema>,
     Schemas.LogsAlertDestinationResponse
 > => ({
     name: 'logs-alerts-destinations-create',
-    schema: LogsAlertsDestinationsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsAlertsDestinationsCreateSchema>) => {
+    schema: LogsAlertsDestinationsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsAlertsDestinationsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.type !== undefined) {
@@ -158,14 +140,21 @@ const logsAlertsDestinationsCreate = (): ToolBase<
     },
 })
 
-const LogsAlertsDestinationsDeleteCreateSchema = LogsAlertsDestinationsDeleteCreateParams.omit({
-    project_id: true,
-}).extend(LogsAlertsDestinationsDeleteCreateBody.shape)
+const LogsAlertsDestinationsDeleteCreateSchema = () => {
+    const LogsAlertsDestinationsDeleteCreateBody = orvalSchemas.LogsAlertsDestinationsDeleteCreateBody()
+    const LogsAlertsDestinationsDeleteCreateParams = orvalSchemas.LogsAlertsDestinationsDeleteCreateParams()
+    return LogsAlertsDestinationsDeleteCreateParams.omit({ project_id: true }).extend(
+        LogsAlertsDestinationsDeleteCreateBody.shape
+    )
+}
 
-const logsAlertsDestinationsDeleteCreate = (): ToolBase<typeof LogsAlertsDestinationsDeleteCreateSchema, unknown> => ({
+const logsAlertsDestinationsDeleteCreate = (): ToolBase<
+    ReturnType<typeof LogsAlertsDestinationsDeleteCreateSchema>,
+    unknown
+> => ({
     name: 'logs-alerts-destinations-delete-create',
-    schema: LogsAlertsDestinationsDeleteCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsAlertsDestinationsDeleteCreateSchema>) => {
+    schema: LogsAlertsDestinationsDeleteCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsAlertsDestinationsDeleteCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.hog_function_ids !== undefined) {
@@ -180,12 +169,15 @@ const logsAlertsDestinationsDeleteCreate = (): ToolBase<typeof LogsAlertsDestina
     },
 })
 
-const LogsAlertsDestroySchema = LogsAlertsDestroyParams.omit({ project_id: true })
+const LogsAlertsDestroySchema = () => {
+    const LogsAlertsDestroyParams = orvalSchemas.LogsAlertsDestroyParams()
+    return LogsAlertsDestroyParams.omit({ project_id: true })
+}
 
-const logsAlertsDestroy = (): ToolBase<typeof LogsAlertsDestroySchema, unknown> => ({
+const logsAlertsDestroy = (): ToolBase<ReturnType<typeof LogsAlertsDestroySchema>, unknown> => ({
     name: 'logs-alerts-destroy',
-    schema: LogsAlertsDestroySchema,
-    handler: async (context: Context, params: z.infer<typeof LogsAlertsDestroySchema>) => {
+    schema: LogsAlertsDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsAlertsDestroySchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -195,17 +187,19 @@ const logsAlertsDestroy = (): ToolBase<typeof LogsAlertsDestroySchema, unknown> 
     },
 })
 
-const LogsAlertsEventsListSchema = LogsAlertsEventsListParams.omit({ project_id: true }).extend(
-    LogsAlertsEventsListQueryParams.shape
-)
+const LogsAlertsEventsListSchema = () => {
+    const LogsAlertsEventsListParams = orvalSchemas.LogsAlertsEventsListParams()
+    const LogsAlertsEventsListQueryParams = orvalSchemas.LogsAlertsEventsListQueryParams()
+    return LogsAlertsEventsListParams.omit({ project_id: true }).extend(LogsAlertsEventsListQueryParams.shape)
+}
 
 const logsAlertsEventsList = (): ToolBase<
-    typeof LogsAlertsEventsListSchema,
+    ReturnType<typeof LogsAlertsEventsListSchema>,
     WithPostHogUrl<Schemas.PaginatedLogsAlertEventList>
 > => ({
     name: 'logs-alerts-events-list',
-    schema: LogsAlertsEventsListSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsAlertsEventsListSchema>) => {
+    schema: LogsAlertsEventsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsAlertsEventsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedLogsAlertEventList>({
             method: 'GET',
@@ -235,15 +229,18 @@ const logsAlertsEventsList = (): ToolBase<
     },
 })
 
-const LogsAlertsListSchema = LogsAlertsListQueryParams
+const LogsAlertsListSchema = () => {
+    const LogsAlertsListQueryParams = orvalSchemas.LogsAlertsListQueryParams()
+    return LogsAlertsListQueryParams
+}
 
 const logsAlertsList = (): ToolBase<
-    typeof LogsAlertsListSchema,
+    ReturnType<typeof LogsAlertsListSchema>,
     WithPostHogUrl<Schemas.PaginatedLogsAlertConfigurationList>
 > => ({
     name: 'logs-alerts-list',
-    schema: LogsAlertsListSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsAlertsListSchema>) => {
+    schema: LogsAlertsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsAlertsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedLogsAlertConfigurationList>({
             method: 'GET',
@@ -275,14 +272,19 @@ const logsAlertsList = (): ToolBase<
     },
 })
 
-const LogsAlertsPartialUpdateSchema = LogsAlertsPartialUpdateParams.omit({ project_id: true }).extend(
-    LogsAlertsPartialUpdateBody.shape
-)
+const LogsAlertsPartialUpdateSchema = () => {
+    const LogsAlertsPartialUpdateBody = orvalSchemas.LogsAlertsPartialUpdateBody()
+    const LogsAlertsPartialUpdateParams = orvalSchemas.LogsAlertsPartialUpdateParams()
+    return LogsAlertsPartialUpdateParams.omit({ project_id: true }).extend(LogsAlertsPartialUpdateBody.shape)
+}
 
-const logsAlertsPartialUpdate = (): ToolBase<typeof LogsAlertsPartialUpdateSchema, Schemas.LogsAlertConfiguration> => ({
+const logsAlertsPartialUpdate = (): ToolBase<
+    ReturnType<typeof LogsAlertsPartialUpdateSchema>,
+    Schemas.LogsAlertConfiguration
+> => ({
     name: 'logs-alerts-partial-update',
-    schema: LogsAlertsPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsAlertsPartialUpdateSchema>) => {
+    schema: LogsAlertsPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsAlertsPartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -350,14 +352,20 @@ const logsAlertsPartialUpdate = (): ToolBase<typeof LogsAlertsPartialUpdateSchem
     },
 })
 
-const LogsAlertsRetrieveSchema = LogsAlertsRetrieveParams.omit({ project_id: true })
+const LogsAlertsRetrieveSchema = () => {
+    const LogsAlertsRetrieveParams = orvalSchemas.LogsAlertsRetrieveParams()
+    return LogsAlertsRetrieveParams.omit({ project_id: true })
+}
 
-const logsAlertsRetrieve = (): ToolBase<typeof LogsAlertsRetrieveSchema, Schemas.LogsAlertConfiguration> => ({
+const logsAlertsRetrieve = (): ToolBase<
+    ReturnType<typeof LogsAlertsRetrieveSchema>,
+    Schemas.LogsAlertConfigurationDetail
+> => ({
     name: 'logs-alerts-retrieve',
-    schema: LogsAlertsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsAlertsRetrieveSchema>) => {
+    schema: LogsAlertsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsAlertsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.LogsAlertConfiguration>({
+        const result = await context.api.request<Schemas.LogsAlertConfigurationDetail>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/`,
         })
@@ -388,15 +396,18 @@ const logsAlertsRetrieve = (): ToolBase<typeof LogsAlertsRetrieveSchema, Schemas
     },
 })
 
-const LogsAlertsSimulateCreateSchema = LogsAlertsSimulateCreateBody
+const LogsAlertsSimulateCreateSchema = () => {
+    const LogsAlertsSimulateCreateBody = orvalSchemas.LogsAlertsSimulateCreateBody()
+    return LogsAlertsSimulateCreateBody
+}
 
 const logsAlertsSimulateCreate = (): ToolBase<
-    typeof LogsAlertsSimulateCreateSchema,
+    ReturnType<typeof LogsAlertsSimulateCreateSchema>,
     Schemas.LogsAlertSimulateResponse
 > => ({
     name: 'logs-alerts-simulate-create',
-    schema: LogsAlertsSimulateCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsAlertsSimulateCreateSchema>) => {
+    schema: LogsAlertsSimulateCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsAlertsSimulateCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.filters !== undefined) {
@@ -443,12 +454,18 @@ const logsAlertsSimulateCreate = (): ToolBase<
     },
 })
 
-const LogsAnomaliesScanSchema = LogsAnomaliesScanCreateBody
+const LogsAnomaliesScanSchema = () => {
+    const LogsAnomaliesScanCreateBody = orvalSchemas.LogsAnomaliesScanCreateBody()
+    return LogsAnomaliesScanCreateBody
+}
 
-const logsAnomaliesScan = (): ToolBase<typeof LogsAnomaliesScanSchema, Schemas.LogsAnomalyScanResponse> => ({
+const logsAnomaliesScan = (): ToolBase<
+    ReturnType<typeof LogsAnomaliesScanSchema>,
+    Schemas.LogsAnomalyScanResponse
+> => ({
     name: 'logs-anomalies-scan',
-    schema: LogsAnomaliesScanSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsAnomaliesScanSchema>) => {
+    schema: LogsAnomaliesScanSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsAnomaliesScanSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.serviceName !== undefined) {
@@ -467,12 +484,18 @@ const logsAnomaliesScan = (): ToolBase<typeof LogsAnomaliesScanSchema, Schemas.L
     },
 })
 
-const LogsAttributeValuesListSchema = LogsValuesRetrieveQueryParams
+const LogsAttributeValuesListSchema = () => {
+    const LogsValuesRetrieveQueryParams = orvalSchemas.LogsValuesRetrieveQueryParams()
+    return LogsValuesRetrieveQueryParams
+}
 
-const logsAttributeValuesList = (): ToolBase<typeof LogsAttributeValuesListSchema, Schemas._LogsValuesResponse> => ({
+const logsAttributeValuesList = (): ToolBase<
+    ReturnType<typeof LogsAttributeValuesListSchema>,
+    Schemas._LogsValuesResponse
+> => ({
     name: 'logs-attribute-values-list',
-    schema: LogsAttributeValuesListSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsAttributeValuesListSchema>) => {
+    schema: LogsAttributeValuesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsAttributeValuesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas._LogsValuesResponse>({
             method: 'GET',
@@ -491,12 +514,18 @@ const logsAttributeValuesList = (): ToolBase<typeof LogsAttributeValuesListSchem
     },
 })
 
-const LogsAttributesListSchema = LogsAttributesRetrieveQueryParams
+const LogsAttributesListSchema = () => {
+    const LogsAttributesRetrieveQueryParams = orvalSchemas.LogsAttributesRetrieveQueryParams()
+    return LogsAttributesRetrieveQueryParams
+}
 
-const logsAttributesList = (): ToolBase<typeof LogsAttributesListSchema, Schemas._LogsAttributesResponse> => ({
+const logsAttributesList = (): ToolBase<
+    ReturnType<typeof LogsAttributesListSchema>,
+    Schemas._LogsAttributesResponse
+> => ({
     name: 'logs-attributes-list',
-    schema: LogsAttributesListSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsAttributesListSchema>) => {
+    schema: LogsAttributesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsAttributesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas._LogsAttributesResponse>({
             method: 'GET',
@@ -517,12 +546,15 @@ const logsAttributesList = (): ToolBase<typeof LogsAttributesListSchema, Schemas
     },
 })
 
-const LogsCountSchema = LogsCountCreateBody
+const LogsCountSchema = () => {
+    const LogsCountCreateBody = orvalSchemas.LogsCountCreateBody()
+    return LogsCountCreateBody
+}
 
-const logsCount = (): ToolBase<typeof LogsCountSchema, Schemas._LogsCountResponse> => ({
+const logsCount = (): ToolBase<ReturnType<typeof LogsCountSchema>, Schemas._LogsCountResponse> => ({
     name: 'logs-count',
-    schema: LogsCountSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsCountSchema>) => {
+    schema: LogsCountSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsCountSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
@@ -538,12 +570,15 @@ const logsCount = (): ToolBase<typeof LogsCountSchema, Schemas._LogsCountRespons
     },
 })
 
-const LogsCountRangesSchema = LogsCountRangesCreateBody
+const LogsCountRangesSchema = () => {
+    const LogsCountRangesCreateBody = orvalSchemas.LogsCountRangesCreateBody()
+    return LogsCountRangesCreateBody
+}
 
-const logsCountRanges = (): ToolBase<typeof LogsCountRangesSchema, Schemas._LogsCountRangesResponse> => ({
+const logsCountRanges = (): ToolBase<ReturnType<typeof LogsCountRangesSchema>, Schemas._LogsCountRangesResponse> => ({
     name: 'logs-count-ranges',
-    schema: LogsCountRangesSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsCountRangesSchema>) => {
+    schema: LogsCountRangesSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsCountRangesSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
@@ -559,12 +594,18 @@ const logsCountRanges = (): ToolBase<typeof LogsCountRangesSchema, Schemas._Logs
     },
 })
 
-const LogsFacetValuesCreateSchema = LogsFacetValuesCreateBody
+const LogsFacetValuesCreateSchema = () => {
+    const LogsFacetValuesCreateBody = orvalSchemas.LogsFacetValuesCreateBody()
+    return LogsFacetValuesCreateBody
+}
 
-const logsFacetValuesCreate = (): ToolBase<typeof LogsFacetValuesCreateSchema, Schemas._LogsFacetValuesResponse> => ({
+const logsFacetValuesCreate = (): ToolBase<
+    ReturnType<typeof LogsFacetValuesCreateSchema>,
+    Schemas._LogsFacetValuesResponse
+> => ({
     name: 'logs-facet-values-create',
-    schema: LogsFacetValuesCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsFacetValuesCreateSchema>) => {
+    schema: LogsFacetValuesCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsFacetValuesCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
@@ -580,12 +621,15 @@ const logsFacetValuesCreate = (): ToolBase<typeof LogsFacetValuesCreateSchema, S
     },
 })
 
-const LogsPatternsSchema = LogsPatternsCreateBody
+const LogsPatternsSchema = () => {
+    const LogsPatternsCreateBody = orvalSchemas.LogsPatternsCreateBody()
+    return LogsPatternsCreateBody
+}
 
-const logsPatterns = (): ToolBase<typeof LogsPatternsSchema, Schemas._LogsPatternsResponse> => ({
+const logsPatterns = (): ToolBase<ReturnType<typeof LogsPatternsSchema>, Schemas._LogsPatternsResponse> => ({
     name: 'logs-patterns',
-    schema: LogsPatternsSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsPatternsSchema>) => {
+    schema: LogsPatternsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsPatternsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
@@ -607,12 +651,18 @@ const logsPatterns = (): ToolBase<typeof LogsPatternsSchema, Schemas._LogsPatter
     },
 })
 
-const LogsPatternsDiffSchema = LogsPatternsDiffCreateBody
+const LogsPatternsDiffSchema = () => {
+    const LogsPatternsDiffCreateBody = orvalSchemas.LogsPatternsDiffCreateBody()
+    return LogsPatternsDiffCreateBody
+}
 
-const logsPatternsDiff = (): ToolBase<typeof LogsPatternsDiffSchema, Schemas._LogsPatternsDiffResponse> => ({
+const logsPatternsDiff = (): ToolBase<
+    ReturnType<typeof LogsPatternsDiffSchema>,
+    Schemas._LogsPatternsDiffResponse
+> => ({
     name: 'logs-patterns-diff',
-    schema: LogsPatternsDiffSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsPatternsDiffSchema>) => {
+    schema: LogsPatternsDiffSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsPatternsDiffSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
@@ -636,12 +686,18 @@ const logsPatternsDiff = (): ToolBase<typeof LogsPatternsDiffSchema, Schemas._Lo
     },
 })
 
-const LogsServicesCreateSchema = LogsServicesCreateBody
+const LogsServicesCreateSchema = () => {
+    const LogsServicesCreateBody = orvalSchemas.LogsServicesCreateBody()
+    return LogsServicesCreateBody
+}
 
-const logsServicesCreate = (): ToolBase<typeof LogsServicesCreateSchema, Schemas._LogsServicesResponse> => ({
+const logsServicesCreate = (): ToolBase<
+    ReturnType<typeof LogsServicesCreateSchema>,
+    Schemas._LogsServicesResponse
+> => ({
     name: 'logs-services-create',
-    schema: LogsServicesCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsServicesCreateSchema>) => {
+    schema: LogsServicesCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsServicesCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
@@ -657,12 +713,18 @@ const logsServicesCreate = (): ToolBase<typeof LogsServicesCreateSchema, Schemas
     },
 })
 
-const LogsSparklineQuerySchema = LogsSparklineCreateBody
+const LogsSparklineQuerySchema = () => {
+    const LogsSparklineCreateBody = orvalSchemas.LogsSparklineCreateBody()
+    return LogsSparklineCreateBody
+}
 
-const logsSparklineQuery = (): ToolBase<typeof LogsSparklineQuerySchema, Schemas._LogsSparklineResponse> => ({
+const logsSparklineQuery = (): ToolBase<
+    ReturnType<typeof LogsSparklineQuerySchema>,
+    Schemas._LogsSparklineResponse
+> => ({
     name: 'logs-sparkline-query',
-    schema: LogsSparklineQuerySchema,
-    handler: async (context: Context, params: z.infer<typeof LogsSparklineQuerySchema>) => {
+    schema: LogsSparklineQuerySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsSparklineQuerySchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
@@ -678,12 +740,15 @@ const logsSparklineQuery = (): ToolBase<typeof LogsSparklineQuerySchema, Schemas
     },
 })
 
-const QueryLogsSchema = LogsQueryCreateBody
+const QueryLogsSchema = () => {
+    const LogsQueryCreateBody = orvalSchemas.LogsQueryCreateBody()
+    return LogsQueryCreateBody
+}
 
-const queryLogs = (): ToolBase<typeof QueryLogsSchema, Schemas._LogsQueryResponse> => ({
+const queryLogs = (): ToolBase<ReturnType<typeof QueryLogsSchema>, Schemas._LogsQueryResponse> => ({
     name: 'query-logs',
-    schema: QueryLogsSchema,
-    handler: async (context: Context, params: z.infer<typeof QueryLogsSchema>) => {
+    schema: QueryLogsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof QueryLogsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {

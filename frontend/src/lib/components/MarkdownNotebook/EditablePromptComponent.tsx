@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { KeyboardEvent, MutableRefObject, useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconSend, IconTrash } from '@posthog/icons'
+import { IconBookmark, IconBookmarkSolid, IconSend, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { getNotebookStringProp, isPromptComponentNode } from './documentModel'
@@ -37,6 +37,7 @@ export function EditablePromptComponent({
     const handledFocusRequestRef = useRef<number | undefined>(undefined)
     const [isCollapsed, setIsCollapsed] = useState(false)
     const question = getNotebookStringProp(node.props.question) ?? ''
+    const keepQuestion = node.props.keepQuestion === true
     const isEmpty = question.length === 0
     const submitDisabledReason = question.trim()
         ? isAIPromptSubmitDisabled
@@ -115,6 +116,23 @@ export function EditablePromptComponent({
 
     const deletePrompt = (): void => {
         deleteNodeAndFocusAdjacent()
+    }
+
+    const toggleKeepQuestion = (): void => {
+        updateNode(node.id, (currentNode) => {
+            if (!isPromptComponentNode(currentNode)) {
+                return currentNode
+            }
+
+            const nextProps = { ...currentNode.props }
+            if (keepQuestion) {
+                delete nextProps.keepQuestion
+            } else {
+                nextProps.keepQuestion = true
+            }
+
+            return { ...currentNode, props: nextProps }
+        })
     }
 
     const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -203,6 +221,17 @@ export function EditablePromptComponent({
                             autoFocus={isActive}
                             disabled={mode !== 'edit'}
                             rows={1}
+                        />
+                        <LemonButton
+                            size="xsmall"
+                            icon={keepQuestion ? <IconBookmarkSolid /> : <IconBookmark />}
+                            active={keepQuestion}
+                            tooltip="Keep question with answer"
+                            aria-label="Keep question with answer"
+                            aria-pressed={keepQuestion}
+                            onClick={toggleKeepQuestion}
+                            disabled={mode !== 'edit'}
+                            data-attr="markdown-notebook-ai-keep-question"
                         />
                         <LemonButton
                             type="primary"

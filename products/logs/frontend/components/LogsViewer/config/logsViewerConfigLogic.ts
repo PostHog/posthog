@@ -1,6 +1,5 @@
 import { MakeLogicType, actions, afterMount, kea, key, path, props, reducers, selectors } from 'kea'
 
-import { LogsSparklineBreakdownBy } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator } from '~/types'
 
 import {
@@ -26,8 +25,6 @@ export const DEFAULT_LOGS_VIEWER_CONFIG: LogsViewerConfig = {
         filterGroup: { type: FilterLogicalOperator.And, values: [] },
     },
 }
-
-export const DEFAULT_SPARKLINE_BREAKDOWN_BY: LogsSparklineBreakdownBy = 'severity'
 
 export const DEFAULT_ORDER_BY: LogsOrderBy = 'latest'
 
@@ -66,7 +63,6 @@ export interface logsViewerConfigLogicValues {
     filters: LogsViewerFilters
     groupBys: LogsViewerGroupBy[]
     orderBy: LogsOrderBy
-    sparklineBreakdownBy: LogsSparklineBreakdownBy
     sparklineCollapsed: boolean
     viewMode: LogsViewerViewMode
 }
@@ -138,9 +134,6 @@ export interface logsViewerConfigLogicActions {
         orderBy: LogsOrderBy
         source: 'header' | 'toolbar'
     }
-    setSparklineBreakdownBy: (sparklineBreakdownBy: LogsSparklineBreakdownBy) => {
-        sparklineBreakdownBy: LogsSparklineBreakdownBy
-    }
     setViewMode: (viewMode: LogsViewerViewMode) => {
         viewMode: LogsViewerViewMode
     }
@@ -176,7 +169,6 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
             filter,
             value,
         }),
-        setSparklineBreakdownBy: (sparklineBreakdownBy: LogsSparklineBreakdownBy) => ({ sparklineBreakdownBy }),
         setOrderBy: (orderBy: LogsOrderBy, source: 'header' | 'toolbar' = 'toolbar') => ({ orderBy, source }),
         toggleSparklineCollapsed: true,
         setFacetRailCollapsed: (facetRailCollapsed: boolean) => ({ facetRailCollapsed }),
@@ -205,13 +197,6 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
                     ...state,
                     [filter]: value,
                 }),
-            },
-        ],
-        sparklineBreakdownBy: [
-            DEFAULT_SPARKLINE_BREAKDOWN_BY as LogsSparklineBreakdownBy,
-            { persist: true },
-            {
-                setSparklineBreakdownBy: (_, { sparklineBreakdownBy }) => sparklineBreakdownBy,
             },
         ],
         sparklineCollapsed: [

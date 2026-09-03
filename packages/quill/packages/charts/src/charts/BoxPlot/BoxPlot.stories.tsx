@@ -92,7 +92,12 @@ export const MultiSeriesGrouped: Story = {
         const theme = useReactiveTheme()
         return (
             <Stage>
-                <BoxPlot series={TWO_SERIES} labels={DAYS} theme={theme} config={{ showGrid: true }} />
+                <BoxPlot
+                    series={TWO_SERIES}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{ showGrid: true, legend: { show: true, position: 'top' } }}
+                />
             </Stage>
         )
     },

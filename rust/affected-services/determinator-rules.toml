@@ -104,8 +104,9 @@ mark-changed = []
 # runs against those changes.
 #
 # The merge queue needs the same edge to keep a harness change out of a lane
-# parallel to one of these services, so it is mirrored in RUNTIME_SPAWN_EDGES in
-# .github/scripts/trunk-impacted-targets.js. Change both; a test compares them.
+# parallel to one of these services. It gets it from here: the lane script
+# (.github/scripts/trunk-impacted-targets.js) takes this binary's affected set
+# as its rust:crate: answer, so this rule is the edge's only home.
 [[package-rule]]
 on-affected = [
     "personhog-replica",

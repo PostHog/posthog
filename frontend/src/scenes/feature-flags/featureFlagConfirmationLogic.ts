@@ -148,16 +148,14 @@ export function checkFeatureFlagConfirmation(
                 onCancel: onCancelModal,
             })
 
-        // Disabling can offer "Disable and archive" behind the disable-and-archive experiment.
-        // Deliberately below the confirmation gate: a flag with dependents, or a team that set up
-        // its own confirmation, gets that modal instead. Losing an experiment exposure beats
-        // archiving a flag others read from.
+        // Disabling offers "Disable and archive" alongside "Disable only". Deliberately below the
+        // confirmation gate: a flag with dependents, or a team that set up its own confirmation,
+        // gets that modal instead.
         if (!updatedFlag.active && onDisableAndArchive) {
             openFeatureFlagDisableDialog({
                 source: 'feature-flag-detail',
                 onDisable: onConfirm,
                 onDisableAndArchive,
-                openControlDialog: openStatusConfirmationModal,
             })
             return true
         }

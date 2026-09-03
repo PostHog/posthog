@@ -29,6 +29,7 @@ from temporalio.client import (
 from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import HogQLContext
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -268,20 +269,18 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     and on the worker side deserializes into `S3BatchExportInputs`, with any
     missing fields falling through to the defaults declared here.
 
+    Credentials and the provider endpoint are never carried here: the activity resolves them from
+    the linked Integration at run time (see `integration_id`).
+
     Attributes:
         bucket_name: The S3 bucket we are exporting to.
         region: The AWS region where the bucket is located.
         prefix: A prefix for the file name to be created in S3.
-        aws_access_key_id: Access key id used to authenticate with S3. Optional; integration-backed
-            exports resolve credentials from the linked Integration at run time (see `integration_id`),
-            while legacy exports carry them inline.
-        aws_secret_access_key: Secret access key used to authenticate with S3. See `aws_access_key_id`.
         compression: Compression algorithm to apply to exported files (e.g. "gzip", "brotli"), or None.
         file_format: File format of exported objects (e.g. "JSONLines", "Parquet"). Defaults to JSONLines.
         max_file_size_mb: The maximum file size in MB for each file to be uploaded.
         encryption: Server-side encryption algorithm to apply (e.g. "AES256", "aws:kms"), or None. AWS-only.
         kms_key_id: KMS key id to use when `encryption == "aws:kms"`, or None. AWS-only.
-        endpoint_url: Override endpoint for S3-compatible providers (e.g. MinIO, R2). None for AWS.
         use_virtual_style_addressing: Whether to use virtual-hosted-style
             addressing rather than path-style. None for AWS.
     """
@@ -289,14 +288,11 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     bucket_name: str
     region: str
     prefix: str
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = field(default=None, repr=False)
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
-    endpoint_url: str | None = None
     use_virtual_style_addressing: bool = False
 
 
@@ -304,16 +300,14 @@ class S3BatchExportInputs(BaseBatchExportInputs):
 class S3FamilyBaseInputs(BaseBatchExportInputs):
     """Shared fields for every S3-family destination.
 
-    Per-destination dataclasses extend this with provider-specific fields. Credentials are optional:
-    integration-backed exports resolve them from the linked Integration at run time (see
-    `integration_id`), while legacy exports carry them inline.
+    Per-destination dataclasses extend this with provider-specific fields. Credentials are never
+    carried here: the activity resolves them from the linked Integration at run time (see
+    `integration_id`).
     """
 
     bucket_name: str
     region: str
     prefix: str
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = field(default=None, repr=False)
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
@@ -327,16 +321,15 @@ class AwsS3BatchExportInputs(S3FamilyBaseInputs):
     kms_key_id: str | None = None
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class S3CompatibleBatchExportInputs(S3FamilyBaseInputs):
     """Inputs for a non-AWS S3-compatible batch export.
 
     Covers providers like DigitalOcean Spaces, Cloudflare R2, Hetzner, OVH, Backblaze, etc.
-    `endpoint_url` is resolved from the linked Integration at run time when `integration_id` is set,
-    otherwise carried inline (legacy).
+    `endpoint_url` lives on the linked Integration alongside the credentials, so it is resolved at
+    run time rather than configured per export.
     """
 
-    endpoint_url: str | None = None
     use_virtual_style_addressing: bool = False
 
 
@@ -400,6 +393,7 @@ class PostgresBatchExportInputs(BaseBatchExportInputs):
 
 
 IAMRole = str
+IntegrationID = int
 
 
 @dataclass(frozen=False)
@@ -417,27 +411,27 @@ class AWSCredentials:
         return self.expiration.isoformat()
 
 
-@dataclass
+@frozen
 class RedshiftCopyInputs:
     s3_bucket: str
     region_name: str
     s3_key_prefix: str
-    # Authorization role or credentials for Redshift to COPY data from bucket.
-    authorization: IAMRole | AWSCredentials
-    # S3 batch export credentials.
-    # TODO: Also support RBAC for S3 batch export, then we could take
-    # `IAMRole | AWSCredentials` here too.
-    bucket_credentials: AWSCredentials
+    # Authorization for Redshift to COPY data from the bucket: an IAM role ARN,
+    # inline credentials, or the id of a team-scoped aws-s3 integration.
+    authorization: IAMRole | AWSCredentials | IntegrationID
+    # Credentials used to stage files in the S3 bucket: inline credentials or
+    # the id of a team-scoped aws-s3 integration.
+    bucket_credentials: AWSCredentials | IntegrationID
 
 
 @dataclass(frozen=False, kw_only=True)
 class RedshiftBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Redshift export workflow."""
 
-    user: str
-    password: str = field(repr=False)
-    host: str
     database: str
+    user: str | None = None
+    password: str | None = field(default=None, repr=False)
+    host: str | None = None
     schema: str = "public"
     table_name: str = "events"
     port: int = 5439
@@ -459,17 +453,31 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
             else:
                 raise TypeError(f"Invalid type for copy inputs: '{type(self.copy_inputs)}'")
 
-            bucket_credentials = AWSCredentials(
-                aws_access_key_id=raw_inputs["bucket_credentials"]["aws_access_key_id"],
-                aws_secret_access_key=raw_inputs["bucket_credentials"]["aws_secret_access_key"],
-            )
+            # `BatchExportDestination.config` is an `EncryptedJSONField`, which stringifies scalar
+            # leaves on the decrypt round trip: an integration id saved as an int reads back as a
+            # numeric string, so both forms must be accepted here.
+            raw_bucket_credentials = raw_inputs["bucket_credentials"]
+            bucket_credentials: AWSCredentials | IntegrationID
+            if isinstance(raw_bucket_credentials, IntegrationID):
+                bucket_credentials = raw_bucket_credentials
+            elif isinstance(raw_bucket_credentials, str) and raw_bucket_credentials.isdigit():
+                bucket_credentials = IntegrationID(raw_bucket_credentials)
+            else:
+                bucket_credentials = AWSCredentials(
+                    aws_access_key_id=raw_bucket_credentials["aws_access_key_id"],
+                    aws_secret_access_key=raw_bucket_credentials["aws_secret_access_key"],
+                )
 
-            if isinstance(raw_inputs["authorization"], str):
-                authorization: IAMRole | AWSCredentials = raw_inputs["authorization"]
+            raw_authorization = raw_inputs["authorization"]
+            authorization: IAMRole | AWSCredentials | IntegrationID
+            if isinstance(raw_authorization, IntegrationID):
+                authorization = raw_authorization
+            elif isinstance(raw_authorization, str):
+                authorization = IntegrationID(raw_authorization) if raw_authorization.isdigit() else raw_authorization
             else:
                 authorization = AWSCredentials(
-                    aws_access_key_id=raw_inputs["authorization"]["aws_access_key_id"],
-                    aws_secret_access_key=raw_inputs["authorization"]["aws_secret_access_key"],
+                    aws_access_key_id=raw_authorization["aws_access_key_id"],
+                    aws_secret_access_key=raw_authorization["aws_secret_access_key"],
                 )
 
             self.copy_inputs = RedshiftCopyInputs(
@@ -596,6 +604,16 @@ def coerce_config_to_declared_types(destination_type: str, config: dict[str, typ
                 except ValueError:
                     pass
         coerced[key] = value
+
+    if destination_type == "Redshift" and isinstance(coerced.get("copy_inputs"), dict):
+        copy_inputs = {**coerced["copy_inputs"]}
+        # Integration ids nested in copy_inputs also read back as digit strings.
+        for key in ("authorization", "bucket_credentials"):
+            value = copy_inputs.get(key)
+            if isinstance(value, str) and value.isdigit():
+                copy_inputs[key] = int(value)
+        coerced["copy_inputs"] = copy_inputs
+
     return coerced
 
 

@@ -18,6 +18,8 @@ import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
+import gongIcon from 'public/services/gong.png'
+
 import { MeetingApi, MeetingParticipantApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { accountMeetingsLogic, NOT_LOADED, PAGE_SIZE } from './accountMeetingsLogic'
@@ -172,12 +174,29 @@ export function AccountMeetingsExpansion({ accountId }: { accountId: string }): 
         {
             title: 'Meeting',
             key: 'title',
-            render: (_, meeting) =>
-                meeting.title ? (
-                    <span className="font-medium line-clamp-1">{meeting.title}</span>
-                ) : (
-                    <span className="text-muted italic">Untitled meeting</span>
-                ),
+            render: (_, meeting) => (
+                <div className="flex items-center justify-between gap-2">
+                    {meeting.title ? (
+                        <span className="font-medium line-clamp-1">{meeting.title}</span>
+                    ) : (
+                        <span className="text-muted italic">Untitled meeting</span>
+                    )}
+                    {meeting.gong_url && (
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            to={meeting.gong_url}
+                            targetBlank
+                            sideIcon={<img src={gongIcon} alt="" className="size-4 object-contain" />}
+                            className="shrink-0"
+                            data-attr="open-meeting-in-gong"
+                            onClick={() => posthog.capture(AccountsEvents.GongCallOpened)} // [PostHog] Event: dynamic event name
+                        >
+                            Open in Gong
+                        </LemonButton>
+                    )}
+                </div>
+            ),
         },
         {
             title: 'When',

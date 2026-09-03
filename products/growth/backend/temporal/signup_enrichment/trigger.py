@@ -22,6 +22,7 @@ from temporalio.service import RPCError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
+from posthog.models.instance_setting import get_instance_setting
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import GenericEmails, get_instance_region
 
@@ -63,10 +64,10 @@ def start_signup_enrichment_workflow(
     # The flag alone gates dispatch. Deliberately no provider-key check here: the key lives
     # only on the workers, and a keyless worker fails loudly into the launch alert instead of
     # web pods silently never dispatching (also keeps the key off the public web fleet).
-    if not settings.GROWTH_SIGNUP_ENRICHMENT_ENABLED:
+    if not _enrichment_enabled():
         return
     # Cloud only — self-hosted has no Harmonic key or internal project to score against. The
-    # flag above is the real per-region toggle; it stays unset in EU until enabled there.
+    # instance setting above is the real per-region toggle.
     if get_instance_region() not in ("US", "EU"):
         return
 
@@ -127,6 +128,16 @@ def _dispatch_and_release(inputs: SignupEnrichmentInputs) -> None:
         _dispatch(inputs)
     finally:
         _dispatch_slots.release()
+
+
+def _enrichment_enabled() -> bool:
+    # Reading the instance setting hits the database on a cache miss, and signup must never fail
+    # or stall on it. A failed read means enrichment does not run for that signup.
+    try:
+        return bool(get_instance_setting("GROWTH_SIGNUP_ENRICHMENT_ENABLED"))
+    except Exception as e:
+        capture_exception(e)
+        return False
 
 
 def _geoip_country_code(ip_address: str | None) -> str | None:

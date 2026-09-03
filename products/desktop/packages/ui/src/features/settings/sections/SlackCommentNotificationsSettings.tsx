@@ -73,7 +73,7 @@ export function SlackCommentNotificationsSettings() {
   return (
     <SettingsSection
       label="Comment notifications"
-      description="Comment notifications can also reach you in Slack, so you hear about them when PostHog Code isn't open."
+      description="Comment notifications can also reach you in Slack, so you hear about them when PostHog Code isn't open"
     >
       <SettingsCard>
         <SettingsCardRow
@@ -81,11 +81,11 @@ export function SlackCommentNotificationsSettings() {
           description={
             linked
               ? `Linked to ${links?.[0]?.slack_team_name ?? "Slack"}`
-              : "Only needed when your Slack email differs from your PostHog email. Otherwise we find you by email."
+              : "Only needed when your Slack email differs from your PostHog email; otherwise we find you by email"
           }
         >
           {linked ? (
-            <span className="text-[12px] text-gray-10">Linked</span>
+            <span className="text-[12px] text-muted-foreground">Linked</span>
           ) : (
             <Button
               size="sm"

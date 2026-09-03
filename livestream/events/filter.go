@@ -83,6 +83,9 @@ type Subscription struct {
 	Geo     bool
 	Columns []string
 
+	// Transformations
+	PathCleaner *PathCleaner
+
 	// Channels
 	EventChan   chan interface{}
 	ShouldClose *atomic.Bool
@@ -131,10 +134,23 @@ func convertToResponseGeoEvent(event PostHogEvent) *ResponseGeoEvent {
 	}
 }
 
-func convertToResponsePostHogEvent(event PostHogEvent, teamId int, columns []string) *ResponsePostHogEvent {
+func convertToResponsePostHogEvent(
+	event PostHogEvent,
+	teamId int,
+	columns []string,
+	pathCleaner *PathCleaner,
+) *ResponsePostHogEvent {
 	var properties map[string]interface{}
 	if columns == nil {
 		properties = event.Properties
+		if pathCleaner != nil {
+			// About to inject a per-subscriber property; copy so the shared
+			// event map never carries one subscription's cleaning into another.
+			properties = make(map[string]interface{}, len(event.Properties)+1)
+			for k, v := range event.Properties {
+				properties[k] = v
+			}
+		}
 	} else {
 		properties = make(map[string]interface{})
 		for _, key := range columns {
@@ -149,6 +165,12 @@ func convertToResponsePostHogEvent(event PostHogEvent, teamId int, columns []str
 	for _, key := range []string{"$virt_is_bot", "$virt_traffic_type", "$virt_traffic_category", "$virt_bot_name"} {
 		if val, ok := event.Properties[key]; ok {
 			properties[key] = val
+		}
+	}
+
+	if pathCleaner != nil {
+		if pathname, ok := event.Properties["$pathname"].(string); ok {
+			properties["$virt_cleaned_pathname"] = pathCleaner.Clean(pathname)
 		}
 	}
 
@@ -356,7 +378,7 @@ func deliverEvent(event PostHogEvent, subs []Subscription) {
 				}
 			}
 		} else {
-			responseEvent := convertToResponsePostHogEvent(event, sub.TeamId, sub.Columns)
+			responseEvent := convertToResponsePostHogEvent(event, sub.TeamId, sub.Columns, sub.PathCleaner)
 
 			select {
 			case sub.EventChan <- *responseEvent:

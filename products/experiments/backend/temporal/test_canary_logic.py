@@ -11,6 +11,8 @@ from django.utils import timezone
 import requests
 from parameterized import parameterized
 
+from posthog.clickhouse.query_tagging import get_query_tags
+
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.canary_logic import (
@@ -420,6 +422,25 @@ class TestRunMetricCanary(BaseTest):
         modes = [call.args[2].value for call in mock_run.call_args_list]
         assert modes == ["precomputed", "precomputed", "direct"]
         assert len(result.runs) == 3
+
+    def test_run_tags_team_id_alongside_client_query_id(self):
+        metric = _funnel_metric()
+        experiment = self._experiment([metric])
+        seen = []
+
+        def fake_calculate():
+            tags = get_query_tags()
+            seen.append((tags.client_query_id, tags.team_id))
+            raise RuntimeError("stop after capturing tags")
+
+        with patch("products.experiments.backend.temporal.canary_logic.ExperimentQueryRunner") as runner_cls:
+            runner_cls.return_value.calculate.side_effect = fake_calculate
+            with pytest.raises(RuntimeError):
+                run_metric_canary_sync(self._target(experiment, metric["uuid"]))
+
+        client_query_id, team_id = seen[0]
+        assert client_query_id
+        assert team_id == experiment.team_id
 
     def test_query_failure_raises_for_temporal_retry(self):
         metric = _funnel_metric()

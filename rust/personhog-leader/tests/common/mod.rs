@@ -112,6 +112,7 @@ pub fn start_coordinator(
             // state under test.
             handoff_deadline: Duration::from_secs(86_400),
             warming_deadline: Duration::from_secs(86_400),
+            max_txn_ops: 128,
         },
         strategy,
         None,

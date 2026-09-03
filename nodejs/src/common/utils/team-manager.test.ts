@@ -1,9 +1,11 @@
+import { randomUUID } from 'crypto'
+
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import {
     createTeam,
-    getFirstTeam,
+    createTestTeamFixture,
+    getTeam,
     insertRow,
-    resetTestDatabase,
     updateOrganizationAvailableFeatures,
 } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
@@ -34,11 +36,15 @@ describe('TeamManager()', () => {
         jest.spyOn(Date, 'now').mockImplementation(() => now)
 
         hub = await createHub()
-        await resetTestDatabase()
 
         postgres = new PostgresRouter(defaultConfig)
         teamManager = new TeamManager(postgres)
-        const team = await getFirstTeam(hub.postgres)
+        const fixture = await createTestTeamFixture(hub.postgres, { cookieless_server_hash_mode: 2 })
+        const fixtureOrganizationId = fixture.organizationId
+        await updateOrganizationAvailableFeatures(hub.postgres, fixtureOrganizationId, [
+            { key: 'data_pipelines', name: 'Data Pipelines' },
+        ])
+        const team = (await getTeam(hub.postgres, fixture.team.id))!
         teamId = team.id
         teamToken = team.api_token
         organizationId = team.organization_id
@@ -53,10 +59,14 @@ describe('TeamManager()', () => {
         it('returns the team', async () => {
             const result = await teamManager.getTeam(teamId)
             // This one test is a snapshot to ensure the team object is stable
-            expect(forSnapshot(result)).toMatchInlineSnapshot(`
+            expect(
+                forSnapshot(result, {
+                    overrides: { api_token: '<TEAM_API_TOKEN>', id: '<TEAM_ID>', project_id: '<PROJECT_ID>' },
+                })
+            ).toMatchInlineSnapshot(`
                 {
                   "anonymize_ips": false,
-                  "api_token": "THIS IS NOT A TOKEN FOR TEAM 2",
+                  "api_token": "<TEAM_API_TOKEN>",
                   "available_features": [
                     "data_pipelines",
                   ],
@@ -64,7 +74,7 @@ describe('TeamManager()', () => {
                   "drop_events_older_than_seconds": null,
                   "extra_settings": null,
                   "heatmaps_opt_in": null,
-                  "id": 2,
+                  "id": "<TEAM_ID>",
                   "ingested_event": true,
                   "logs_settings": null,
                   "minimal_flag_called_events": false,
@@ -72,13 +82,13 @@ describe('TeamManager()', () => {
                   "organization_id": "<REPLACED-UUID-1>",
                   "person_display_name_properties": [],
                   "person_processing_opt_out": null,
-                  "project_id": 2,
+                  "project_id": "<PROJECT_ID>",
                   "secret_api_token": null,
                   "session_recording_opt_in": true,
                   "timezone": "UTC",
                   "uuid": "<REPLACED-UUID-0>",
                 }
-            `)
+                `)
         })
 
         it('returns null if the team does not exist', async () => {
@@ -271,7 +281,7 @@ describe('TeamManager()', () => {
     })
 
     describe('setTeamIngestedEvent()', () => {
-        const newTeamToken = 'token-for-a-team-with-no-events-yet'
+        let newTeamToken: string
         let newTeam: Team
 
         const readIngestedEvent = async (id: Team['id']): Promise<boolean> => {
@@ -285,6 +295,7 @@ describe('TeamManager()', () => {
         }
 
         beforeEach(async () => {
+            newTeamToken = randomUUID()
             await createTeam(postgres, organizationId, newTeamToken, { ingested_event: false })
             const loaded = await teamManager.getTeamByToken(newTeamToken)
             expect(loaded?.ingested_event).toBe(false)

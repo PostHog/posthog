@@ -653,11 +653,8 @@ export function PromptCode({ prompt }: { prompt: LLMPrompt }): JSX.Element {
             <PromptCodeSnippets prompt={prompt} />
 
             <LemonBanner type="info">
-                Each prompt fetch is charged as a Product analytics event. See the{' '}
-                <Link to="https://posthog.com/pricing" target="_blank">
-                    pricing page
-                </Link>
-                .
+                Each prompt fetch is captured as an event so you can track usage on the Usage tab. Prompt management is
+                free, so these events are not billed.
             </LemonBanner>
         </div>
     )

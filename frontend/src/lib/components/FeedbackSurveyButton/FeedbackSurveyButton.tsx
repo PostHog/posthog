@@ -1,10 +1,11 @@
-import posthog, { DisplaySurveyType } from 'posthog-js'
+import posthog, { DisplaySurveyType, type Properties } from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 export interface FeedbackSurveyButtonProps {
     surveyId: string
+    properties?: Properties
     'data-attr'?: string
 }
 
@@ -13,7 +14,11 @@ export interface FeedbackSurveyButtonProps {
  * The plain, iconless styling is the intended standard for in-app feedback buttons — new ones
  * should use this component rather than adding another variant.
  */
-export function FeedbackSurveyButton({ surveyId, 'data-attr': dataAttr }: FeedbackSurveyButtonProps): JSX.Element {
+export function FeedbackSurveyButton({
+    surveyId,
+    properties,
+    'data-attr': dataAttr,
+}: FeedbackSurveyButtonProps): JSX.Element {
     const [surveysLoaded, setSurveysLoaded] = useState(false)
 
     useEffect(
@@ -39,6 +44,7 @@ export function FeedbackSurveyButton({ surveyId, 'data-attr': dataAttr }: Feedba
                     displayType: DisplaySurveyType.Popover,
                     ignoreConditions: true,
                     ignoreDelay: true,
+                    properties,
                 })
             }
         >

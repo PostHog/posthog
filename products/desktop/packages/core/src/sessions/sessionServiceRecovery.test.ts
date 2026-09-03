@@ -45,6 +45,8 @@ function createHarness({ spyConnect = true } = {}) {
     getSessionByTaskId: (taskId: string) =>
       Object.values(sessions).find((s) => s.taskId === taskId),
     removeSession: vi.fn(),
+    setTaskStarting: vi.fn(),
+    clearTaskStarting: vi.fn(),
     updateSession: vi.fn(),
   };
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
@@ -73,7 +75,7 @@ function createHarness({ spyConnect = true } = {}) {
   const connectToTask = spyConnect
     ? vi.spyOn(service, "connectToTask").mockResolvedValue(undefined)
     : undefined;
-  return { service, sessions, connectToTask, log };
+  return { service, sessions, connectToTask, log, store };
 }
 
 function reconcile(
@@ -162,13 +164,21 @@ describe("SessionService run-less local task recovery", () => {
     expect(connectToTask).toHaveBeenCalledTimes(1);
   });
 
-  it("clears the in-flight mark when a connect starts", async () => {
-    const { service, sessions } = createHarness({ spyConnect: false });
+  it("keeps the starting marker while clearing the recovery in-flight mark", async () => {
+    const { service, sessions, store } = createHarness({ spyConnect: false });
     const task = makeTask();
-    sessions[`run-${task.id}`] = makeSession(task.id);
+    sessions[`run-${task.id}`] = {
+      ...makeSession(task.id),
+      status: "connecting",
+    };
     service.markTaskCreationInFlight(task.id);
+    vi.mocked(store.setTaskStarting).mockClear();
+    vi.mocked(store.clearTaskStarting).mockClear();
 
     await service.connectToTask({ task, repoPath: "/repo" });
+
+    expect(store.setTaskStarting).toHaveBeenCalledWith(task.id);
+    expect(store.clearTaskStarting).not.toHaveBeenCalled();
 
     const connectToTask = vi
       .spyOn(service, "connectToTask")

@@ -18,9 +18,10 @@ import { router, urlToAction } from 'kea-router'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import type { ProductSetupStatus } from 'lib/components/ProductEmptyState/types'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { isValidRelativeOrAbsoluteDate } from 'lib/utils/dateFilters'
+import { dateStringToDayJs, isValidRelativeOrAbsoluteDate } from 'lib/utils/dateFilters'
 import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -163,6 +164,7 @@ export interface aiObservabilitySharedLogicValues {
     }
     hasSentAiEvent: boolean | undefined
     hasSentAiEventLoading: boolean
+    instrumentationVerdictApplies: (windowDays: number | null) => boolean
     propertyFilters: AnyPropertyFilter[]
     savedDashboardDateFilter: {
         dateFrom: string | null
@@ -262,6 +264,14 @@ export interface aiObservabilitySharedLogicMeta {
             date_to: string | null | undefined
         }
         activeTab: (sceneKey: string | null) => AIObservabilityTabId
+        instrumentationVerdictApplies: (
+            propertyFilters: AnyPropertyFilter[],
+            dateFilter: {
+                dateFrom: string | null
+                dateTo: string | null
+            },
+            shouldFilterTestAccounts: boolean
+        ) => (windowDays: number | null) => boolean
     }
 }
 
@@ -490,6 +500,42 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 }
 
                 return 'dashboard'
+            },
+        ],
+
+        // Whether an instrumentation verdict graded over the last `windowDays` days can account
+        // for the rows the current view is showing.
+        //
+        // `searchQuery` is deliberately absent: it only reaches the traces query, so a term left
+        // over on the Traces tab would silence tabs whose contents it never touched.
+        instrumentationVerdictApplies: [
+            (s) => [s.propertyFilters, s.dateFilter, s.shouldFilterTestAccounts],
+            (
+                propertyFilters: AnyPropertyFilter[],
+                dateFilter: {
+                    dateFrom: string | null
+                    dateTo: string | null
+                },
+                shouldFilterTestAccounts: boolean
+            ): ((windowDays: number | null) => boolean) => {
+                return (windowDays: number | null) => {
+                    if (windowDays === null || propertyFilters.length > 0 || shouldFilterTestAccounts) {
+                        return false
+                    }
+                    // The verdict only ever looked at the window, so it cannot vouch for a range
+                    // starting before it. An unresolvable start ('all', or nothing at all) has no
+                    // lower bound, which reaches earlier than any window.
+                    //
+                    // Both sides are anchored to UTC's start of day, where `dateStringToDayJs`
+                    // anchors day-and-larger units, so a range of exactly the window's length,
+                    // '-30d' against 30 days, stays inside its own window whatever the browser's
+                    // timezone. Instants are compared directly because dayjs's timezone plugin
+                    // re-reads a `.tz()`-derived value through the browser's wall clock inside
+                    // `isBefore`, moving it by the local offset.
+                    const rangeStart = dateStringToDayJs(dateFilter.dateFrom)
+                    const windowStart = dayjs.utc().subtract(windowDays, 'day').startOf('day')
+                    return rangeStart !== null && rangeStart.valueOf() >= windowStart.valueOf()
+                }
             },
         ],
 

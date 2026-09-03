@@ -3,7 +3,7 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-from ..facade.enums import CheckRunStatus, SubjectType, SuiteRunStatus, SuiteRunTrigger
+from ..facade.enums import CheckRunStatus, CheckSeverity, SubjectType, SuiteRunStatus, SuiteRunTrigger
 
 
 class DataQualitySuiteRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -104,6 +104,30 @@ class DataQualityCheckRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
     check_type = models.CharField(max_length=32)
     check_fingerprint = models.CharField(max_length=64)
     column_name = models.CharField(max_length=400, blank=True)
+    # Null means "recorded before runs snapshotted this", never "same as the check has now": a
+    # definition can be edited after the fact, so borrowing the current values would misreport
+    # what actually ran.
+    check_config = models.JSONField(
+        null=True, blank=True, help_text="Canonical config this run executed. Null for runs recorded before snapshots."
+    )
+    check_severity = models.CharField(
+        max_length=16,
+        choices=[(s.value, s.value) for s in CheckSeverity],
+        null=True,
+        blank=True,
+        help_text="Severity this run was judged at. Null for runs recorded before snapshots.",
+    )
+    # Identities, not names: a deleted warehouse object frees its name for anyone to take, so a name
+    # recorded here would stop naming what the run read the moment someone reused it. Null means
+    # "recorded before runs pinned this"; an empty list means "read nothing beyond its subject".
+    referenced_subjects = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Subjects this run read besides its own, as {subject_type, subject_uuid} entries. "
+            "Null for runs recorded before references were pinned."
+        ),
+    )
 
     status = models.CharField(max_length=16, choices=[(s.value, s.value) for s in CheckRunStatus])
     failed_row_count = models.BigIntegerField(

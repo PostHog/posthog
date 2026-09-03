@@ -17,22 +17,11 @@ const getService = () =>
 
 export const workspaceServerRouter = router({
   getConnection: publicProcedure.output(connectionSchema).query(async () => {
-    const service = getService();
-    return service.getConnection() ?? service.start();
+    return getService().getOrStart();
   }),
 
   restart: publicProcedure.mutation(async () => {
     await getService().restart();
-  }),
-
-  onConnectionLost: publicProcedure.subscription(async function* (opts) {
-    const service = getService();
-    const iterable = service.toIterable(WorkspaceServerEvent.ConnectionLost, {
-      signal: opts.signal,
-    });
-    for await (const data of iterable) {
-      yield data;
-    }
   }),
 
   onStatusChanged: publicProcedure.subscription(async function* (opts) {

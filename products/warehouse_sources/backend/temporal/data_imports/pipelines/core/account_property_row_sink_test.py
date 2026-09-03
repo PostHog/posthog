@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.db import OperationalError
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -93,6 +94,24 @@ async def test_stages_only_columns_from_sources_with_a_present_key() -> None:
     assert to_thread.await_args.args[1].column_names == ["mrr", "organization_id"]
     expected_root = settings.BUCKET_URL.removeprefix("s3://").rstrip("/")
     assert to_thread.await_args.args[2].startswith(f"{expected_root}/account_property_sync/7/model_")
+
+
+@pytest.mark.asyncio
+async def test_should_run_retries_once_on_a_transient_db_connection_drop() -> None:
+    # A long-lived Temporal worker's pooled app-DB connection can go stale (pooler recycle,
+    # failover, deploy) between syncs. Without a retry, that one-off OperationalError would
+    # propagate and get treated as "no account-property mapping to sync" for the whole run
+    # instead of the transient blip it is.
+    sink = _sink()
+    projection = [
+        AccountPropertySourceProjection(key_column="organization_id", columns=frozenset({"organization_id", "mrr"}))
+    ]
+    resolver = MagicMock(side_effect=[OperationalError("server closed the connection unexpectedly"), projection])
+
+    with patch(f"{_MODULE}.account_property_projection_for", resolver):
+        assert await sink.should_run() is True
+
+    assert resolver.call_count == 2
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,7 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 
 import { MAX_REPLAYS, replayBatch } from './dlq-replay'
 import { REPLAY_COUNT_HEADER } from './image-batcher'
+import { CAPTURE_TIMESTAMP_HEADER } from './image-transport'
 
 function parked(
     ref: string,
@@ -87,6 +88,7 @@ describe('replayBatch', () => {
                 parked('ref-1', 'compressed-image', undefined, {
                     'content-type': 'image/png',
                     'content-encoding': 'gzip',
+                    [CAPTURE_TIMESTAMP_HEADER]: '1700000000000',
                 }),
             ],
             producer,
@@ -96,6 +98,7 @@ describe('replayBatch', () => {
         expect(produced[0].headers).toEqual({
             'content-type': 'image/png',
             'content-encoding': 'gzip',
+            [CAPTURE_TIMESTAMP_HEADER]: '1700000000000',
             [REPLAY_COUNT_HEADER]: '1',
         })
     })

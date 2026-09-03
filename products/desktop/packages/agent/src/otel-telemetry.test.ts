@@ -216,14 +216,6 @@ describe("OtelRunTelemetry", () => {
         },
       },
       {
-        name: "git_checkpoint",
-        entry: makeEntry("_posthog/git_checkpoint", {
-          branch: "posthog-code/fix",
-        }),
-        body: "git checkpoint",
-        attrs: { branch: "posthog-code/fix" },
-      },
-      {
         name: "branch_created",
         entry: makeEntry("_posthog/branch_created", { branch: "b1" }),
         body: "branch created",

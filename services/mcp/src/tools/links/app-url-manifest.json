@@ -419,11 +419,6 @@
         "params": ["id"],
         "scope": "project"
     },
-    "dashboardButtonTile": {
-        "template": "/dashboard/{id}/button-tiles/{buttonTileId}",
-        "params": ["id", "buttonTileId"],
-        "scope": "project"
-    },
     "dashboardSharing": {
         "template": "/dashboard/{id}/sharing",
         "params": ["id"],
@@ -444,9 +439,9 @@
         "params": ["templateId"],
         "scope": "project"
     },
-    "dashboardTextTile": {
-        "template": "/dashboard/{id}/text-tiles/{textTileId}",
-        "params": ["id", "textTileId"],
+    "dashboardTile": {
+        "template": "/dashboard/{id}/tiles/{tileId}",
+        "params": ["id", "tileId"],
         "scope": "project"
     },
     "dashboards": {
@@ -572,6 +567,11 @@
     "engineeringAnalyticsAuthor": {
         "template": "/engineering-analytics/authors/{handle}",
         "params": ["handle"],
+        "scope": "project"
+    },
+    "engineeringAnalyticsHealth": {
+        "template": "/engineering-analytics/health",
+        "params": [],
         "scope": "project"
     },
     "engineeringAnalyticsPullRequest": {
@@ -809,6 +809,11 @@
         "params": [],
         "scope": "project"
     },
+    "identityProviderConfig": {
+        "template": "/settings/organization-authentication/{feature}/{configId}",
+        "params": ["feature", "configId"],
+        "scope": "project"
+    },
     "inbox": {
         "template": "/inbox",
         "params": [],
@@ -824,6 +829,11 @@
         "params": ["tab", "reportId"],
         "scope": "project"
     },
+    "inboxRuns": {
+        "template": "/inbox/scouts/runs",
+        "params": [],
+        "scope": "project"
+    },
     "inboxScout": {
         "template": "/inbox/scouts/{skillName}",
         "params": ["skillName"],
@@ -831,6 +841,11 @@
     },
     "inboxScratchpad": {
         "template": "/inbox/scouts/scratchpad",
+        "params": [],
+        "scope": "project"
+    },
+    "inboxTriage": {
+        "template": "/inbox/reports/triage",
         "params": [],
         "scope": "project"
     },
@@ -1039,6 +1054,11 @@
         "params": [],
         "scope": "project"
     },
+    "mcpAnalytics": {
+        "template": "/mcp-analytics",
+        "params": [],
+        "scope": "project"
+    },
     "mcpAnalyticsActivity": {
         "template": "/mcp-analytics/activity",
         "params": [],
@@ -1051,6 +1071,11 @@
     },
     "mcpAnalyticsIntentClustering": {
         "template": "/mcp-analytics/intent-clustering",
+        "params": [],
+        "scope": "project"
+    },
+    "mcpAnalyticsMissingCapabilities": {
+        "template": "/mcp-analytics/missing-capabilities",
         "params": [],
         "scope": "project"
     },
@@ -1146,6 +1171,11 @@
     },
     "organizationBilling": {
         "template": "/organization/billing",
+        "params": [],
+        "scope": "global"
+    },
+    "organizationBillingRealTimeUsage": {
+        "template": "/organization/billing/real-time-usage",
         "params": [],
         "scope": "global"
     },
@@ -1289,26 +1319,6 @@
         "params": [],
         "scope": "project"
     },
-    "replayVisionAction": {
-        "template": "/replay-vision/actions/{actionId}",
-        "params": ["actionId"],
-        "scope": "project"
-    },
-    "replayVisionActionEdit": {
-        "template": "/replay-vision/actions/{actionId}/edit",
-        "params": ["actionId"],
-        "scope": "project"
-    },
-    "replayVisionActionNew": {
-        "template": "/replay-vision/{scannerId}/actions/new",
-        "params": ["scannerId"],
-        "scope": "project"
-    },
-    "replayVisionActionRun": {
-        "template": "/replay-vision/actions/{actionId}/runs/{runId}",
-        "params": ["actionId", "runId"],
-        "scope": "project"
-    },
     "replayVisionObservation": {
         "template": "/replay-vision/observations/{observationId}",
         "params": ["observationId"],
@@ -1326,6 +1336,11 @@
     },
     "replayVisionScannerDetails": {
         "template": "/replay-vision/{id}/details",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "replayVisionScannerOverview": {
+        "template": "/replay-vision/{id}/overview",
         "params": ["id"],
         "scope": "project"
     },
@@ -1634,6 +1649,11 @@
         "params": [],
         "scope": "project"
     },
+    "visualReviewFlakiness": {
+        "template": "/visual_review/repos/{repoId}/flakiness",
+        "params": ["repoId"],
+        "scope": "project"
+    },
     "visualReviewRepoRuns": {
         "template": "/visual_review/repos/{repoId}/runs",
         "params": ["repoId"],
@@ -1671,6 +1691,11 @@
     },
     "webAnalytics": {
         "template": "/web",
+        "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsAgents": {
+        "template": "/web/agents",
         "params": [],
         "scope": "project"
     },

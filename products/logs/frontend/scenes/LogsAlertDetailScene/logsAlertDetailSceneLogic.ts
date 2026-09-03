@@ -39,6 +39,7 @@ import {
 } from 'products/logs/frontend/generated/api.schemas'
 
 import type { LogsAlertFormType } from '../../components/LogsAlerting/logsAlertFormLogic'
+import type { LogsAlertConfigurationDetailApi } from '../../generated/api.schemas'
 
 export type LogsAlertDetailTab = 'configuration' | 'notifications' | 'history' | 'logs'
 const VALID_TABS: LogsAlertDetailTab[] = ['configuration', 'notifications', 'history', 'logs']
@@ -120,10 +121,10 @@ export interface logsAlertDetailSceneLogicActions {
         errorObject?: any
     }
     loadAlertSuccess: (
-        alert: LogsAlertConfigurationApi,
+        alert: LogsAlertConfigurationDetailApi,
         payload?: any
     ) => {
-        alert: LogsAlertConfigurationApi
+        alert: LogsAlertConfigurationDetailApi
         payload?: any
     }
     loadSparkline7d: () => any

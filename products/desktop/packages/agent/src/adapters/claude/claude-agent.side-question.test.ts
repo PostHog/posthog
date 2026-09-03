@@ -5,6 +5,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POSTHOG_METHODS } from "../../acp-extensions";
 import { Pushable } from "../../utils/streams";
+import { FALLBACK_MODEL } from "./session/models";
 
 type SdkMessage =
   | { type: "assistant"; message: { content: unknown[] } }
@@ -53,7 +54,11 @@ function makeAgent(): Agent {
 function installFakeSession(
   agent: Agent,
   sessionId: string,
-  overrides: Partial<{ modelId: string; sdkSessionId: string }> = {},
+  overrides: Partial<{
+    modelId: string;
+    sdkSessionId: string;
+    fallbackModel: string;
+  }> = {},
 ) {
   const abortController = new AbortController();
   const input = new Pushable();
@@ -69,6 +74,7 @@ function installFakeSession(
       sessionId,
       cwd: "/tmp/repo",
       model: "claude-sonnet-4-6",
+      fallbackModel: overrides.fallbackModel ?? FALLBACK_MODEL,
       mcpServers: {
         posthog: { type: "http", url: "https://example" },
       },
@@ -201,7 +207,23 @@ describe("ClaudeAcpAgent.extMethod side_question", () => {
 
     await agent.extMethod(POSTHOG_METHODS.SIDE_QUESTION, { question: "hm?" });
 
-    expect(lastQueryCall.options?.model).toContain("opus");
+    expect(lastQueryCall.options?.model).toBe("claude-opus-4-8");
+    expect(lastQueryCall.options?.fallbackModel).toBeUndefined();
+  });
+
+  it("preserves a caller-configured fallback model for the side question", async () => {
+    const agent = makeAgent();
+    installFakeSession(agent, "s-fallback", {
+      fallbackModel: "claude-fable-5",
+    });
+    nextQueryMessages = [
+      assistantText("yes"),
+      { type: "result", subtype: "success" },
+    ];
+
+    await agent.extMethod(POSTHOG_METHODS.SIDE_QUESTION, { question: "hm?" });
+
+    expect(lastQueryCall.options?.fallbackModel).toBe("claude-fable-5");
   });
 
   it("surfaces an error result subtype as a RequestError", async () => {

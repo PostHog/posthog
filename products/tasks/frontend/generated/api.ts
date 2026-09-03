@@ -17,7 +17,6 @@ import type {
     ChannelInstructionsWriteApi,
     ChannelStarWriteApi,
     ChannelWriteApi,
-    CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
     DesktopAccessResponseApi,
     DesktopBetaTermsAcceptanceDTOApi,
@@ -36,6 +35,8 @@ import type {
     LoopsTriggerCreateBodyTwo,
     ModelCatalogueResponseApi,
     OnboardingSessionApi,
+    OnboardingSessionTestApi,
+    OnboardingSessionTestResponseApi,
     PaginatedChannelDTOListApi,
     PaginatedChannelFeedMessageDTOListApi,
     PaginatedChannelInstructionsDTOListApi,
@@ -132,9 +133,12 @@ import type {
     TaskThreadMessageWriteApi,
     TaskUsageResponseApi,
     TaskWriteApi,
+    TasksAIRunPreferencesApi,
     TasksCommentsListParams,
     TasksCommentsRetrieveParams,
+    TasksConfigListParams,
     TasksListParams,
+    TasksMeConfigListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
     TasksRunsSessionLogsRetrieveParams,
@@ -142,9 +146,14 @@ import type {
     TasksSearchRetrieveParams,
     TasksSlackThreadContextRetrieveParams,
     TasksSummariesCreateParams,
+    TasksTeamConfigResponseApi,
     TasksThreadMessagesListParams,
+    TasksUserConfigResponseApi,
+    TeachingCanvasApi,
     WarmTaskRequestApi,
     WarmTaskResponseApi,
+    WarmTaskResumeRequestApi,
+    WarmTaskResumeResponseApi,
     WizardCloudRunDTOApi,
 } from './api.schemas'
 
@@ -153,8 +162,8 @@ export const getCodeInvitesCheckAccessRetrieveUrl = () => {
 }
 
 /**
- * Check whether the authenticated user has legacy PostHog Desktop access and Loops access.
- * @summary Check access
+ * Compatibility endpoint for released PostHog Desktop clients.
+ * @summary Check PostHog Desktop access
  */
 export const codeInvitesCheckAccessRetrieve = async (
     options?: RequestInit
@@ -162,26 +171,6 @@ export const codeInvitesCheckAccessRetrieve = async (
     return apiMutator<LegacyDesktopAccessResponseApi>(getCodeInvitesCheckAccessRetrieveUrl(), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getCodeInvitesRedeemCreateUrl = () => {
-    return `/api/code/invites/redeem/`
-}
-
-/**
- * Redeem a PostHog Desktop invite code to enable legacy access.
- * @summary Redeem invite code
- */
-export const codeInvitesRedeemCreate = async (
-    codeInviteRedeemRequestApi: CodeInviteRedeemRequestApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getCodeInvitesRedeemCreateUrl(), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(codeInviteRedeemRequestApi),
     })
 }
 
@@ -1155,6 +1144,27 @@ export const taskChannelsOnboardingSessionCreate = async (
     })
 }
 
+export const getTaskChannelsOnboardingSessionTestCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/onboarding_session_test/`
+}
+
+/**
+ * Feature-flagged test path that creates a repeatable session from explicit prompt-building inputs, in the requester's personal space.
+ * @summary Start a test first-run onboarding session
+ */
+export const taskChannelsOnboardingSessionTestCreate = async (
+    projectId: string,
+    onboardingSessionTestApi?: OnboardingSessionTestApi,
+    options?: RequestInit
+): Promise<OnboardingSessionTestResponseApi> => {
+    return apiMutator<OnboardingSessionTestResponseApi>(getTaskChannelsOnboardingSessionTestCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(onboardingSessionTestApi),
+    })
+}
+
 export const getTaskChannelsProvisionDefaultsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/task_channels/provision_defaults/`
 }
@@ -1168,6 +1178,24 @@ export const taskChannelsProvisionDefaultsCreate = async (
     options?: RequestInit
 ): Promise<ProvisionedChannelsApi> => {
     return apiMutator<ProvisionedChannelsApi>(getTaskChannelsProvisionDefaultsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getTaskChannelsTeachingCanvasTestCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/teaching_canvas_test/`
+}
+
+/**
+ * Feature-flagged test path that resolves or creates the teaching canvas in the requester's personal space.
+ * @summary Create the teaching canvas for testing
+ */
+export const taskChannelsTeachingCanvasTestCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TeachingCanvasApi> => {
+    return apiMutator<TeachingCanvasApi>(getTaskChannelsTeachingCanvasTestCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })
@@ -1221,7 +1249,7 @@ export const getTasksListUrl = (projectId: string, params?: TasksListParams) => 
 }
 
 /**
- * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.
+ * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task.
  * @summary List tasks
  */
 export const tasksList = async (
@@ -1584,6 +1612,28 @@ export const tasksUsageRetrieve = async (
     return apiMutator<TaskUsageResponseApi>(getTasksUsageRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksWarmResumeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/warm/`
+}
+
+/**
+ * Warm an idling successor for the task's latest terminal Run while the user composes the next message. The successor restores the prior snapshot when compatible and waits for the normal run endpoint to activate it. Best-effort: returns an empty body when warming is disabled, capped, or the task advanced to another Run.
+ * @summary Warm a resumed task sandbox
+ */
+export const tasksWarmResumeCreate = async (
+    projectId: string,
+    id: string,
+    warmTaskResumeRequestApi: WarmTaskResumeRequestApi,
+    options?: RequestInit
+): Promise<WarmTaskResumeResponseApi> => {
+    return apiMutator<WarmTaskResumeResponseApi>(getTasksWarmResumeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warmTaskResumeRequestApi),
     })
 }
 
@@ -1977,7 +2027,7 @@ export const getTasksRunsClearConversationCreateUrl = (projectId: string, taskId
 }
 
 /**
- * Record a `/clear` boundary in a finished run's log so the next run in the chain starts with an empty conversation. Its checkpoints, artifacts, and visible history are unaffected. Only for a finished run: an active one has an agent that owns the clear, so send `/clear` to it as an ordinary message instead.
+ * Record a `/clear` boundary in a finished run's log so the next run in the chain starts with an empty conversation. Its artifacts and visible history are unaffected. Only for a finished run: an active one has an agent that owns the clear, so send `/clear` to it as an ordinary message instead.
  * @summary Clear conversation history
  */
 export const tasksRunsClearConversationCreate = async (
@@ -2085,6 +2135,26 @@ export const tasksRunsPeersMessageCreate = async (
             body: JSON.stringify(taskRunPeerMessageRequestApi),
         }
     )
+}
+
+export const getTasksRunsPreviewRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/preview/`
+}
+
+/**
+ * Redirects to the PostHog dev stack running inside this run's sandbox. A fresh sandbox access token is minted on every request and carried only in the redirect target, so it is never persisted or returned in a response body. When the run has no preview, or its sandbox has stopped, this renders a short HTML page instead.
+ * @summary Open the dev stack preview for a task run
+ */
+export const tasksRunsPreviewRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsPreviewRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getTasksRunsRelayMessageCreateUrl = (projectId: string, taskId: string, id: string) => {
@@ -2239,6 +2309,8 @@ export const getTasksRunsStreamRetrieveUrl = (
  * Server-Sent Events stream of task run events. Events carry an `id:` line (a Redis stream id) usable as a resume cursor.
  *
  * The server caps each connection at 900 seconds: it emits `event: end` with `data: {"type": "rotated"}` and closes. This does NOT mean the run finished — reconnect with the `Last-Event-ID` header set to the last received event id to resume without gaps or duplicates. Only treat the stream as complete when the run itself reaches a terminal status.
+ *
+ * Resume guarantees cover mirrored events only: on runs where live mirroring is presence-gated, events produced while no viewer was connected are not in the live stream. Reload the run's session logs to recover the agent's output; run-state and progress frames are not in those logs, so refetch the run itself for its current state.
  *
  * `?start=latest` consumers must also carry `Last-Event-ID` across reconnects: reconnecting without it re-resolves to the then-current latest event, silently skipping anything published while disconnected.
  *
@@ -2549,6 +2621,56 @@ export const tasksThreadMessagesSendToAgentCreate = async (
     })
 }
 
+export const getTasksMeConfigListUrl = (projectId: string, params?: TasksMeConfigListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/@me/config/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/@me/config/`
+}
+
+/**
+ * Retrieve your per-project default AI run preferences, plus the resolved defaults a new run will use when no explicit runtime selection is sent (your preference over the project default).
+ */
+export const tasksMeConfigList = async (
+    projectId: string,
+    params?: TasksMeConfigListParams,
+    options?: RequestInit
+): Promise<TasksUserConfigResponseApi> => {
+    return apiMutator<TasksUserConfigResponseApi>(getTasksMeConfigListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksMeConfigCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/@me/config/`
+}
+
+/**
+ * Set your per-project default AI run preferences; they override the project default wholesale. Send all fields as null to clear and inherit the project default.
+ */
+export const tasksMeConfigCreate = async (
+    projectId: string,
+    tasksAIRunPreferencesApi?: TasksAIRunPreferencesApi,
+    options?: RequestInit
+): Promise<TasksUserConfigResponseApi> => {
+    return apiMutator<TasksUserConfigResponseApi>(getTasksMeConfigCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tasksAIRunPreferencesApi),
+    })
+}
+
 export const getTasksActiveWizardRunRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tasks/active_wizard_run/`
 }
@@ -2564,6 +2686,56 @@ export const tasksActiveWizardRunRetrieve = async (
     return apiMutator<WizardCloudRunDTOApi | void>(getTasksActiveWizardRunRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksConfigListUrl = (projectId: string, params?: TasksConfigListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/config/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/config/`
+}
+
+/**
+ * Retrieve the project-wide default AI run preferences for task runs.
+ */
+export const tasksConfigList = async (
+    projectId: string,
+    params?: TasksConfigListParams,
+    options?: RequestInit
+): Promise<TasksTeamConfigResponseApi> => {
+    return apiMutator<TasksTeamConfigResponseApi>(getTasksConfigListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksConfigCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/config/`
+}
+
+/**
+ * Set the project-wide default AI run preferences applied to task runs created without an explicit runtime selection. Send all fields as null to clear.
+ */
+export const tasksConfigCreate = async (
+    projectId: string,
+    tasksAIRunPreferencesApi?: TasksAIRunPreferencesApi,
+    options?: RequestInit
+): Promise<TasksTeamConfigResponseApi> => {
+    return apiMutator<TasksTeamConfigResponseApi>(getTasksConfigCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tasksAIRunPreferencesApi),
     })
 }
 
@@ -2737,7 +2909,7 @@ export const getTasksSummariesCreateUrl = (projectId: string, params?: TasksSumm
 }
 
 /**
- * Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, `updated_at`, and the latest run's `status` and `environment`.
+ * Returns summary for the requested tasks, including the creator ID and the latest run's ID, status, and environment.
  * @summary Fetch task summaries by ID
  */
 export const tasksSummariesCreate = async (
@@ -2759,7 +2931,7 @@ export const getTasksWarmCreateUrl = (projectId: string) => {
 }
 
 /**
- * Warm a full idling Run for a Code-app cloud task while the user composes: boot a sandbox, clone the repo, check out the branch, and start the agent, then idle awaiting the first message. On submit the normal create+run path transparently reuses and activates this Run; abandoned warms are reaped by the Run's inactivity timeout. Best-effort: returns an empty body when the feature flag is off, the warm pool is full, or the GitHub integration doesn't belong to the team.
+ * Warm a full idling Run for a cloud task while the user composes: boot a sandbox, clone the repo, check out the branch, and start the agent, then idle awaiting the first message. On submit the normal create+run path transparently reuses and activates this Run; abandoned warms are reaped by the Run's inactivity timeout. Best-effort: returns an empty body when the feature flag is off, the warm pool is full, or the GitHub integration doesn't belong to the team.
  * @summary Warm a task sandbox
  */
 export const tasksWarmCreate = async (

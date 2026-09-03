@@ -1,7 +1,7 @@
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { urls } from 'scenes/urls'
 
-export type VisualReviewTabKey = 'runs' | 'snapshots'
+export type VisualReviewTabKey = 'runs' | 'snapshots' | 'flakiness'
 
 // Top-level tab strip for a repo workspace. Both tabs are repo-scoped and
 // share the same `:repoId` segment, so this component is purely
@@ -29,6 +29,11 @@ export function VisualReviewTabs({
                     key: 'snapshots' satisfies VisualReviewTabKey,
                     label: 'Snapshots',
                     link: urls.visualReviewSnapshotOverview(repoId),
+                },
+                {
+                    key: 'flakiness' satisfies VisualReviewTabKey,
+                    label: 'Flakiness',
+                    link: urls.visualReviewFlakiness(repoId),
                 },
             ]}
         />

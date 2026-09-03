@@ -12,6 +12,7 @@ import type { Breakdown, CachedNewExperimentQueryResponse, ExperimentMetric } fr
 import { Experiment } from '~/types'
 import type { ExperimentIdType } from '~/types'
 
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import {
     experimentsMetricsRecalculationCreate,
     experimentsMetricsRecalculationLatestRetrieve,
@@ -19,10 +20,8 @@ import {
 } from 'products/experiments/frontend/generated/api'
 import type {
     ExperimentMetricsRecalculationApi,
-    TriggerEnumApi,
+    ExperimentMetricsRecalculationTriggerEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
-
-import { isLaunched } from './experimentsLogic'
 
 type ExperimentSavedMetric = {
     metadata: {
@@ -200,10 +199,12 @@ export interface experimentMetricsLogicActions {
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
+                | 'experiment_config_change'
                 | 'experiment_launch'
                 | 'experiment_stop'
                 | 'experiment_update'
                 | 'manual'
+                | 'metric_config_change'
                 | 'stale_refresh'
         }
     ) => {
@@ -221,10 +222,12 @@ export interface experimentMetricsLogicActions {
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
+                | 'experiment_config_change'
                 | 'experiment_launch'
                 | 'experiment_stop'
                 | 'experiment_update'
                 | 'manual'
+                | 'metric_config_change'
                 | 'stale_refresh'
                 | undefined
         }
@@ -257,8 +260,8 @@ export interface experimentMetricsLogicActions {
     setSecondaryMetricsResultsErrors: (errors: (unknown | null)[]) => {
         errors: unknown[]
     }
-    triggerRecalculation: (trigger?: TriggerEnumApi) => {
-        trigger: TriggerEnumApi
+    triggerRecalculation: (trigger?: ExperimentMetricsRecalculationTriggerEnumApi) => {
+        trigger: ExperimentMetricsRecalculationTriggerEnumApi
     }
 }
 
@@ -306,7 +309,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
     actions({
         setCurrentRecalculation: (recalculation: ExperimentMetricsRecalculationApi | null) => ({ recalculation }),
         loadLatestRecalculation: true,
-        triggerRecalculation: (trigger: TriggerEnumApi = 'manual') => ({ trigger }),
+        triggerRecalculation: (trigger: ExperimentMetricsRecalculationTriggerEnumApi = 'manual') => ({ trigger }),
         pollRecalculation: (recalculationId: string) => ({ recalculationId }),
         setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         setSecondaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
@@ -655,13 +658,15 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
 
                     /**
                      * We have no per-metric staleness signal, so a results + failures count short of the total
-                     * means a shared metric diverged: re-run to heal it.
+                     * means the run diverged: re-run to heal it. This recovery is generic (it also fires after a
+                     * reset and relaunch), so advance the window with experiment_config_change rather than reuse a
+                     * cutoff that may predate the new start_date.
                      */
                     if (
                         recalculation.status === RECALCULATION_STATUSES.completed &&
                         recalculation.completed_metrics + recalculation.failed_metrics < recalculation.total_metrics
                     ) {
-                        actions.triggerRecalculation('config_change')
+                        actions.triggerRecalculation('experiment_config_change')
                         return
                     }
                 } catch (error: any) {

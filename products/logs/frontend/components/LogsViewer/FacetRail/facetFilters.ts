@@ -18,8 +18,8 @@ import type { FacetSource } from './facets'
 
 /**
  * The property filter a selection is stored under: one type + key pair, holding both polarities. The
- * rail only ever names a `log` column or a `log_resource_attribute`, but the search bar reconciles
- * whatever type the picker produced, so the type stays open.
+ * rail names a `log` column, a `log_resource_attribute`, or (for custom facets) a `log_attribute`,
+ * but the search bar reconciles whatever type the picker produced, so the type stays open.
  */
 export interface FacetFilterTarget {
     key: string
@@ -95,9 +95,14 @@ export function filterValues(filter: { value?: PropertyFilterValue }): unknown[]
 
 /** The filterGroup property filter a facet's selection is stored in, derived from its source. */
 export function facetFilterTarget(source: FacetSource): FacetFilterTarget {
-    return source.type === 'column'
-        ? { key: source.logKey, type: PropertyFilterType.Log }
-        : { key: source.key, type: PropertyFilterType.LogResourceAttribute }
+    switch (source.type) {
+        case 'column':
+            return { key: source.logKey, type: PropertyFilterType.Log }
+        case 'attribute':
+            return { key: source.key, type: PropertyFilterType.LogAttribute }
+        case 'resourceAttribute':
+            return { key: source.key, type: PropertyFilterType.LogResourceAttribute }
+    }
 }
 
 /** A facet's selection, read from the exact (include) and is_not (exclude) filters it owns. */

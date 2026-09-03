@@ -1,8 +1,44 @@
 import type { NotificationTarget } from "@posthog/platform/notifications";
 
+interface ActiveRoute {
+  // routeId includes pathless layouts such as `_shell`, but fullPath matches the URL patterns below.
+  fullPath: string;
+  params: Record<string, string | undefined>;
+}
+
+export function resolveActiveNotificationTarget(
+  route: ActiveRoute | undefined,
+  openThreadTaskId: string | null | undefined,
+  threadPanelCollapsed: boolean,
+): NotificationTarget | undefined {
+  if (!route) return undefined;
+
+  switch (route.fullPath) {
+    case "/tasks/$taskId":
+    case "/spaces/$channelId/tasks/$taskId":
+      return route.params.taskId
+        ? { kind: "task", taskId: route.params.taskId }
+        : undefined;
+    case "/spaces/$channelId/dashboards/$dashboardId":
+      return route.params.channelId && route.params.dashboardId
+        ? {
+            kind: "canvas",
+            channelId: route.params.channelId,
+            dashboardId: route.params.dashboardId,
+          }
+        : undefined;
+    case "/spaces/$channelId/":
+      return openThreadTaskId && !threadPanelCollapsed
+        ? { kind: "task", taskId: openThreadTaskId }
+        : undefined;
+    default:
+      return undefined;
+  }
+}
+
 // Stable identity string for a target. A new kind is a compile error here (the
 // switch is exhaustive), so equality and key-based lookups stay in one place.
-export function targetKey(target: NotificationTarget): string {
+function targetKey(target: NotificationTarget): string {
   switch (target.kind) {
     case "task":
       return `task:${target.taskId}`;

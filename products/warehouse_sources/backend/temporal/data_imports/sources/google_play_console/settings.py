@@ -36,6 +36,10 @@ class MetricSetEndpoint:
     metrics: tuple[str, ...]
     dimensions: tuple[str, ...]
     description: str
+    # Days of history requested on a first sync. The vitals rate metric sets serve years of
+    # daily data, but the error backend serves only about the last two months, and it rejects
+    # a query that starts earlier with a bare `400 INVALID_ARGUMENT`.
+    history_days: int = METRIC_SET_HISTORY_DAYS
 
 
 @dataclass(frozen=True)
@@ -166,6 +170,10 @@ METRIC_SETS: dict[str, MetricSetEndpoint] = {
         metrics=("errorReportCount", "distinctUsers"),
         dimensions=("reportType", "versionCode"),
         description="Daily error report counts, broken out by report type and app version.",
+        # Error counts come from the same short-retention backend as error reports, not from
+        # the vitals store. The Play Console errors page offers at most the last 56 days, and
+        # a query that starts 180 days back is rejected with `400 INVALID_ARGUMENT`.
+        history_days=ERROR_HISTORY_DAYS,
     ),
 }
 

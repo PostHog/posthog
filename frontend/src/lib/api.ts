@@ -12,7 +12,6 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
-import { assertNotReadOnly } from 'lib/readOnlyGuard'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
@@ -197,6 +196,7 @@ import {
     SlackChannelType,
     SubscriptionType,
     Survey,
+    SurveyType,
     SurveyStatsResponse,
     TeamType,
     TwilioPhoneNumberType,
@@ -1729,6 +1729,10 @@ export class ApiRequest {
         return apiRequest
     }
 
+    public accountsTableQuery(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('accounts_table_query')
+    }
+
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
         const apiRequest = this.query(teamId).addPathComponent(queryId)
         if (showProgress) {
@@ -1945,7 +1949,7 @@ export class ApiRequest {
     }
 
     public messagingTemplates(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_templates')
+        return this.environmentsDetail().addPathComponent('messaging_templates')
     }
 
     public messagingTemplate(templateId: MessageTemplate['id']): ApiRequest {
@@ -1953,7 +1957,7 @@ export class ApiRequest {
     }
 
     public messagingCategories(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_categories')
+        return this.environmentsDetail().addPathComponent('messaging_categories')
     }
 
     public messagingCategory(categoryId: string): ApiRequest {
@@ -1989,29 +1993,23 @@ export class ApiRequest {
     }
 
     public messagingPreferences(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_preferences')
+        return this.environmentsDetail().addPathComponent('messaging_preferences')
     }
 
     public messagingPreferencesLink(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('generate_link')
+        return this.messagingPreferences().addPathComponent('generate_link')
     }
 
     public messagingPreferencesExportOptOutsCsv(): ApiRequest {
-        return this.environments()
-            .current()
-            .addPathComponent('messaging_preferences')
-            .addPathComponent('export_opt_outs_csv')
+        return this.messagingPreferences().addPathComponent('export_opt_outs_csv')
     }
 
     public messagingPreferencesBulkAddOptOuts(): ApiRequest {
-        return this.environments()
-            .current()
-            .addPathComponent('messaging_preferences')
-            .addPathComponent('bulk_add_opt_outs')
+        return this.messagingPreferences().addPathComponent('bulk_add_opt_outs')
     }
 
     public hogFlows(): ApiRequest {
-        return this.environments().current().addPathComponent('hog_flows')
+        return this.environmentsDetail().addPathComponent('hog_flows')
     }
 
     public hogFlow(hogFlowId: HogFlow['id']): ApiRequest {
@@ -2019,7 +2017,7 @@ export class ApiRequest {
     }
 
     public hogFlowTemplates(): ApiRequest {
-        return this.environments().current().addPathComponent('hog_flow_templates')
+        return this.environmentsDetail().addPathComponent('hog_flow_templates')
     }
 
     public hogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): ApiRequest {
@@ -2402,10 +2400,7 @@ const api = {
         ): Promise<CountedPaginatedResponse<ScheduledChangeType>> {
             return await new ApiRequest().featureFlagScheduledChanges(teamId, featureFlagId).get()
         },
-        async createScheduledChange(
-            teamId: TeamType['id'],
-            data: any
-        ): Promise<{ scheduled_change: ScheduledChangeType }> {
+        async createScheduledChange(teamId: TeamType['id'], data: any): Promise<ScheduledChangeType> {
             return await new ApiRequest().featureFlagCreateScheduledChange(teamId).create({ data })
         },
         async deleteScheduledChange(
@@ -3642,8 +3637,8 @@ const api = {
 
         async listForOrg(
             organizationId: OrganizationType['id'],
-            params: { limit?: number; offset?: number } = {}
-        ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user'>>> {
+            params: { limit?: number; offset?: number; search?: string } = {}
+        ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user' | 'level' | 'last_login'>>> {
             return await new ApiRequest()
                 .organizationMembersForAccount()
                 .withQueryString({ organization_id: organizationId, ...params })
@@ -4776,7 +4771,9 @@ const api = {
         },
         async update(
             notebookId: NotebookType['short_id'],
-            data: Partial<Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title' | '_create_in_folder'>>
+            data: Partial<
+                Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title' | 'variables' | '_create_in_folder'>
+            >
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
@@ -4924,6 +4921,7 @@ const api = {
                 node_id: string
                 code: string
                 refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
+                variables?: { name: string; type: 'string' | 'number' | 'boolean' | 'date'; value: unknown }[]
                 node_type?: 'hogql' | 'python'
                 output_name?: string
                 connection_id?: string | null
@@ -5053,7 +5051,8 @@ const api = {
             id: BatchExportConfiguration['id'],
             params: Record<string, any> = {}
         ): Promise<PaginatedResponse<RawBatchExportRun>> {
-            return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params)).get()
+            // Explode arrays, as the runs endpoint reads repeated parameters (`?status=Failed&status=Running`).
+            return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params, true)).get()
         },
         async createBackfill(
             id: BatchExportConfiguration['id'],
@@ -5189,6 +5188,8 @@ const api = {
             scout?: string
             /** Scout skill_name prefix — matches every scout in the family. */
             scout_prefix?: string
+            /** true returns only the filtered total: `results` is empty and no rows are serialized. */
+            count_only?: 'true' | 'false'
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
@@ -5207,7 +5208,7 @@ const api = {
         async reingest(id: SignalReport['id']): Promise<{ status: string; report_id: string }> {
             return await new ApiRequest().signalReport(id).withAction('reingest').create()
         },
-        // State transitions: suppress (dismiss) or snooze back to potential. Backend: `state` action.
+        // State transitions: suppress (dismiss), resolve, or snooze back to potential. Backend: `state` action.
         async setState(id: SignalReport['id'], data: SignalReportStateRequest): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).withAction('state').create({ data })
         },
@@ -5452,7 +5453,10 @@ const api = {
                 offset?: number
                 search?: string
                 archived?: boolean
+                created_by?: number
                 ids?: string
+                status?: 'draft' | 'running' | 'complete'
+                type?: SurveyType
             } = {
                 limit: SURVEY_PAGE_SIZE,
             }
@@ -6666,6 +6670,9 @@ const api = {
             search?: string
             status?: HogFlow['status']
             created_by?: string
+            type?: 'messaging' | 'automation'
+            /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
+            trigger?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {
@@ -6724,12 +6731,13 @@ const api = {
         },
         async getBatchTriggerBlastRadius(
             filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
-            dedupeKey?: 'email'
+            dedupeKey?: 'email',
+            sendsEmail?: boolean
         ): Promise<BlastRadiusApi> {
             return await new ApiRequest()
                 .hogFlows()
                 .withAction('user_blast_radius')
-                .create({ data: { filters, dedupe_key: dedupeKey ?? null } })
+                .create({ data: { filters, dedupe_key: dedupeKey ?? null, sends_email: sendsEmail ?? true } })
         },
         async createHogFlowBatchJob(
             hogFlowId: HogFlow['id'],
@@ -6852,7 +6860,12 @@ const api = {
             throw new Error(`Query kind mismatch: path kind "${pathKind}" does not match body kind "${bodyKind}".`)
         }
 
-        return await new ApiRequest().query(undefined, bodyKind).create({
+        const apiRequest =
+            bodyKind === NodeKind.AccountsTableQuery
+                ? new ApiRequest().accountsTableQuery()
+                : new ApiRequest().query(undefined, bodyKind)
+
+        return await apiRequest.create({
             ...queryOptions?.requestOptions,
             data: {
                 query,
@@ -7172,7 +7185,6 @@ const api = {
     ): Promise<T> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly(method, url)
         const isFormData = data instanceof FormData
 
         const response = await handleFetch(url, method, async () => {
@@ -7209,7 +7221,6 @@ const api = {
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly('POST', url)
         const isFormData = data instanceof FormData
 
         return await handleFetch(url, 'POST', async () =>
@@ -7231,7 +7242,6 @@ const api = {
     async delete(url: string): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly('DELETE', url)
         return await handleFetch(url, 'DELETE', async () =>
             fetch(url, {
                 method: 'DELETE',

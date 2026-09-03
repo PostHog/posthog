@@ -17,6 +17,7 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -307,6 +308,8 @@ function DailyReportLimit(): JSX.Element {
  * threshold) that can't live inside that card's single button/link wrapper.
  */
 export function SelfDrivingSection(): JSX.Element {
+    // The Settings tab wraps this in its own card; the legacy setup rail does not.
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const { teamConfig, teamConfigLoading, teamConfigUpdating, autostartEnabled, defaultAutostartPriority } =
         useValues(signalTeamConfigLogic)
     const { patchTeamConfig } = useActions(signalTeamConfigLogic)
@@ -319,7 +322,13 @@ export function SelfDrivingSection(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col rounded border border-primary bg-surface-primary overflow-hidden">
+        <div
+            className={
+                redesign
+                    ? '-mx-2.5 flex flex-col'
+                    : 'flex flex-col rounded border border-primary bg-surface-primary overflow-hidden'
+            }
+        >
             <div className="flex items-start gap-2 px-2.5 py-2">
                 <span className="flex size-7 shrink-0 items-center justify-center rounded bg-surface-secondary text-default [&_svg]:size-4">
                     <IconRocket />
@@ -338,7 +347,7 @@ export function SelfDrivingSection(): JSX.Element {
                 </div>
             </div>
 
-            <div className="border-t border-primary bg-surface-secondary">
+            <div className={redesign ? 'border-t border-primary' : 'border-t border-primary bg-surface-secondary'}>
                 {autostartEnabled ? (
                     <>
                         {/* Label above the control rather than beside it: the rail is narrow enough that a

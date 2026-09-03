@@ -50,10 +50,6 @@ export interface InstructionsContext {
      *  an MCP Apps host). Gates the CLI rendering section so it never reaches clients —
      *  like Claude Code — that can't mount the iframe. */
     renderUiEnabled?: boolean | undefined
-    /** Whether the governed-metrics catalog (`system.information_schema.metrics`) exists
-     *  for this org. Gates the metric-discovery section so flag-off renders never steer
-     *  the model at a table it can't query — and stay byte-identical. */
-    dataCatalogEnabled?: boolean | undefined
     /** Whether the notebook cell tools (`notebooks-add-cell` and friends) are
      *  advertised to this client. Gates the Python-in-a-notebook section so we never
      *  tell an agent to put its analysis in a cell type it can't create. */
@@ -79,10 +75,10 @@ export class InstructionsFormatter {
             [
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,
-                ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
+                METRIC_DISCOVERY,
                 RETRIEVING_DATA,
                 SCHEMA_WORKFLOW,
-                ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
+                CATALOG_TRUST_DISCOVERY,
                 ...this.artifactSections(ctx),
                 ENV_CONTEXT,
                 URL_PATTERNS,
@@ -136,15 +132,14 @@ export class InstructionsFormatter {
                 id: 'analytics',
                 kind: 'guide',
                 title: 'Analytics',
-                description: ctx.dataCatalogEnabled
-                    ? 'Query or analyze PostHog data; governed metrics, certified tables, and verified joins live in the catalog.'
-                    : 'Query or analyze PostHog data, metrics, and events.',
+                description:
+                    'Query or analyze PostHog data; governed metrics, certified tables, and verified joins live in the catalog.',
                 content: this.compose(
                     [
-                        ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
+                        METRIC_DISCOVERY,
                         RETRIEVING_DATA,
                         SCHEMA_WORKFLOW,
-                        ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
+                        CATALOG_TRUST_DISCOVERY,
                         ...this.artifactSections(ctx),
                         EXAMPLES,
                     ],
@@ -206,7 +201,7 @@ export class InstructionsFormatter {
             [
                 CLI_SYNTAX,
                 helpSection,
-                ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY_COMPACT] : []),
+                METRIC_DISCOVERY_COMPACT,
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
                 CLI_EXAMPLES_CLAUDE,
@@ -245,7 +240,7 @@ export class InstructionsFormatter {
     ): string {
         const sections = [
             CLI_SYNTAX,
-            ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
+            METRIC_DISCOVERY,
             CLI_SCHEMA_DRILLDOWN,
             CLI_DATA_DISCOVERY,
             CLI_EXAMPLES,
@@ -255,7 +250,7 @@ export class InstructionsFormatter {
             TOOL_SEARCH,
             RETRIEVING_DATA,
             SCHEMA_WORKFLOW,
-            ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
+            CATALOG_TRUST_DISCOVERY,
             ...this.artifactSections(ctx),
             ENV_CONTEXT,
             URL_PATTERNS,

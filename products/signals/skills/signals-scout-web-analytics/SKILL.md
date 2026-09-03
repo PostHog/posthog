@@ -2,9 +2,8 @@
 name: signals-scout-web-analytics
 description: >
   Signals scout for PostHog web traffic. Watches per-channel session volume, attribution
-  breakage, and landing-page health (bounce / 404 steps) against the site's own baseline, and
-  files each validated divergence as a report in the inbox. Per-page web vitals have their own
-  dedicated `signals-scout-web-vitals`.
+  breakage, and landing-page health (bounce and 404 steps) against the site's own baseline. Per-
+  page web vitals belong to `signals-scout-web-vitals`.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
   read-only analytics plus signal_scout_internal:write (for scratchpad) +

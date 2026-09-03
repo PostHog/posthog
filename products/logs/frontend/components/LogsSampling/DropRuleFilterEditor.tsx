@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { memo, useCallback, useId, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import { LemonDropdown } from '@posthog/lemon-ui'
 
@@ -129,6 +129,16 @@ function DropRuleFilterSearch({ logicKey }: { logicKey: string }): JSX.Element {
 function DropRuleAppliedFilters(): JSX.Element | null {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+    // Chips present on mount came from stored or seeded filters and already hold a complete
+    // value, so they must stay closed — otherwise every seeded chip stacks an editing popover
+    // over the form on first render. Only a chip that was just appended needs input, so track
+    // growth rather than a mount-time count, which would stop opening new chips once one of
+    // the seeded chips had been removed.
+    const previousValueCount = useRef(filterGroup.values.length)
+    const appendedIndex = filterGroup.values.length > previousValueCount.current ? filterGroup.values.length - 1 : -1
+    useEffect(() => {
+        previousValueCount.current = filterGroup.values.length
+    })
 
     if (filterGroup.values.length === 0) {
         return null
@@ -148,7 +158,7 @@ function DropRuleAppliedFilters(): JSX.Element | null {
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
-                        initiallyOpen={filterOrGroup.type !== PropertyFilterType.HogQL}
+                        initiallyOpen={index === appendedIndex && filterOrGroup.type !== PropertyFilterType.HogQL}
                     />
                 )
             })}

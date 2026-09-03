@@ -5,7 +5,7 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { logger } from '~/common/utils/logger'
 
 import { REPLAY_COUNT_HEADER } from './image-batcher'
-import { CONTENT_ENCODING_HEADER, CONTENT_TYPE_HEADER } from './image-transport'
+import { CAPTURE_TIMESTAMP_HEADER, CONTENT_ENCODING_HEADER, CONTENT_TYPE_HEADER } from './image-transport'
 import { ImageScrubConsumerMetrics } from './metrics'
 
 /**
@@ -63,6 +63,9 @@ export async function replayBatch(
                 ...(headers[CONTENT_TYPE_HEADER] ? { [CONTENT_TYPE_HEADER]: headers[CONTENT_TYPE_HEADER] } : {}),
                 ...(headers[CONTENT_ENCODING_HEADER]
                     ? { [CONTENT_ENCODING_HEADER]: headers[CONTENT_ENCODING_HEADER] }
+                    : {}),
+                ...(headers[CAPTURE_TIMESTAMP_HEADER]
+                    ? { [CAPTURE_TIMESTAMP_HEADER]: headers[CAPTURE_TIMESTAMP_HEADER] }
                     : {}),
                 [REPLAY_COUNT_HEADER]: String(replayCount + 1),
             },

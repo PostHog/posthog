@@ -31,7 +31,13 @@ from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import (
+    MCP_USER_AGENT_MARKER,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+    is_mcp_request,
+)
 from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration, OauthIntegration, posthog_connect_base_url
 from posthog.permissions import get_authenticator_scopes
 from posthog.rate_limit import PostHogConnectionForwardThrottle
@@ -152,10 +158,19 @@ def _forward_through_connection(
     *,
     query: dict[str, Any] | None = None,
     data: Any = None,
+    mcp_origin: bool = False,
 ) -> ForwardResult:
-    """Replay one request against the connected project, injecting the connection's token."""
+    """Replay one request against the connected project, injecting the connection's token.
+
+    Pass mcp_origin=True to stamp the outbound request with the MCP user agent, so the
+    target organization applies its MCP read-only policy to a write that an MCP client
+    started through this connection. A forward that did not start from an MCP request must
+    not be marked: the target organization restricts MCP, not connections."""
     token = _connection_access_token(integration)
     base = posthog_connect_base_url(integration.config.get("region"))
+    headers = {"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"}
+    if mcp_origin:
+        headers["User-Agent"] = f"posthog-connection; {MCP_USER_AGENT_MARKER}"
 
     raw = bytearray()
     timed_out = False
@@ -168,7 +183,7 @@ def _forward_through_connection(
                 f"{base}/{path}",
                 params=query or None,
                 json=data if method in _METHODS_WITH_BODY else None,
-                headers={"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"},
+                headers=headers,
                 timeout=CONNECTION_FORWARD_TIMEOUT_SECONDS,
                 # A compromised/misconfigured target must not be able to 30x us into resending the
                 # bearer token to another origin.
@@ -317,6 +332,7 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             _validate_target_path(payload["path"]),
             query=payload.get("query"),
             data=payload.get("data"),
+            mcp_origin=is_mcp_request(request),
         )
         body = {"status": result.status, "data": result.data}
         # A failure on this side is mirrored as the outer status too, so a caller that only reads the

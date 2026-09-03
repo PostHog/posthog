@@ -112,7 +112,7 @@ class EndpointCrudService:
                     current_version=1,
                     derived_from_insight=data.derived_from_insight,
                 )
-                EndpointVersion.objects.create(
+                version = EndpointVersion.objects.create(
                     endpoint=endpoint,
                     team=self.team,
                     version=1,
@@ -127,6 +127,13 @@ class EndpointCrudService:
                     created_by=self.user,
                     columns=columns,
                 )
+                if data.is_materialized is True:
+                    self.materialization.enable_materialization(
+                        endpoint,
+                        version,
+                        version.data_freshness_seconds,
+                        bucket_overrides=data.bucket_overrides,
+                    )
 
             apply_tags(endpoint, data.tags)
 
@@ -151,7 +158,7 @@ class EndpointCrudService:
 
             return endpoint
 
-        except ValidationError:
+        except (APIException, ValidationError):
             raise
         except Exception as e:
             capture_exception(

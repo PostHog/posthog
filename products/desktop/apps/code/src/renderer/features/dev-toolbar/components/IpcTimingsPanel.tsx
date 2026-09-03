@@ -212,7 +212,7 @@ function StatChip({
       ? "text-(--red-11) bg-(--red-3)"
       : tone === "amber"
         ? "text-(--amber-11) bg-(--amber-3)"
-        : "text-(--gray-11) bg-(--gray-3)";
+        : "text-muted-foreground bg-fill-hover";
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[10px] ${color}`}

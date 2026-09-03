@@ -13,7 +13,11 @@ from typing import TYPE_CHECKING
 
 from posthog.utils import str_to_bool
 
-from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCConfig, IngestMode, ManagementMode
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import (
+    CDCConfig,
+    ManagementMode,
+    parse_ingest_mode,
+)
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -38,9 +42,7 @@ class PostgresCDCConfig(CDCConfig):
         management_mode: ManagementMode = (
             "self_managed" if ji.get("cdc_management_mode") == "self_managed" else "posthog"
         )
-        # Anything unrecognized reads as legacy: an unknown value must not route a source onto a
-        # path it was never flipped to.
-        ingest_mode: IngestMode = "buffered" if ji.get("cdc_ingest_mode") == "buffered" else "legacy"
+        ingest_mode = parse_ingest_mode(ji)
         return cls(
             enabled=str_to_bool(ji.get("cdc_enabled", False)),
             slot_name=ji.get("cdc_slot_name") or "",

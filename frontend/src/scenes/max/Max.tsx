@@ -28,6 +28,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SidePanelTab } from '~/types'
 
 import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import { DebugLogsMenu } from 'products/posthog_ai/frontend/api/primitives'
 
 import { AiFirstMaxInstance } from './components/AiFirstMaxInstance'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
@@ -225,6 +226,9 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         <IconShare className="text-tertiary size-3 group-hover:text-primary z-10" />
                     </ButtonPrimitive>
                 )}
+                {/* The new view is the runner (always sandbox); legacy view only shows debug rows on a
+                    sandbox conversation, so the menu stays hidden on LangGraph threads. */}
+                {(isNewView || conversation?.agent_runtime === 'sandbox') && <DebugLogsMenu variant="primitive" />}
                 <PhaiViewToggle variant="primitive" />
                 <Link
                     buttonProps={{

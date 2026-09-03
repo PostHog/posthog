@@ -8,9 +8,10 @@ from typing import Any, Union, cast
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
-from django.db.models import Count, F, Max, OuterRef, QuerySet, Subquery
+from django.db.models import Count, F, Max, QuerySet
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
+from django.utils.functional import SimpleLazyObject
 from django.utils.text import slugify
 from django.utils.timezone import now
 
@@ -168,8 +169,17 @@ from products.dashboards.backend.facade.api import (
     update_insight_dashboard_membership,
 )
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
-from products.product_analytics.backend.facade.api import map_stale_to_latest, plan_test_account_filter_update
-from products.product_analytics.backend.facade.models import Insight, InsightVariable, InsightViewed
+from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
+from products.product_analytics.backend.facade.api import (
+    insight_variables_for_team,
+    map_stale_to_latest,
+    recent_viewers_by_insight,
+    recently_viewed_insights,
+    record_insight_view,
+    record_insight_views,
+    with_last_viewed_at,
+)
+from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
@@ -178,6 +188,7 @@ from products.product_analytics.backend.presentation.insight_suggestions import 
     get_insight_analysis,
     get_insight_suggestions,
 )
+from products.product_analytics.backend.presentation.insight_write_validation import validate_insight_write
 
 from common.hogvm.python.utils import HogVMException
 
@@ -726,6 +737,16 @@ class InsightSerializer(InsightBasicSerializer):
         ):
             raise PermissionDenied("Creating or updating insights with legacy filters is not available for this user.")
 
+        validate_insight_write(
+            query=query,
+            filters=attrs.get("filters"),
+            # A write that omits `query` keeps the stored one, which is still what renders.
+            unchanged_query=None if "query" in attrs else getattr(self.instance, "query", None),
+            team=self.context["get_team"](),
+            user=self.context["request"].user,
+            request=self.context["request"],
+        )
+
         new_dashboard_ids = attrs.get("dashboards")
         if new_dashboard_ids is not None:
             team = self.context["get_team"]()
@@ -827,7 +848,7 @@ class InsightSerializer(InsightBasicSerializer):
             **validated_data,
         )
 
-        InsightViewed.objects.create(team_id=team_id, user=request.user, insight=insight, last_viewed_at=now())
+        record_insight_view(insight_id=insight.pk, team_id=team_id, user_id=request.user.pk)
 
         if placement is not None:
             for dashboard in placement.create_tiles(insight):
@@ -1512,7 +1533,16 @@ class MCPInsightSerializer(InsightSerializer):
         # Already-wrapped node → use as-is
         for wrapped_cls in (schema.DataVisualizationNode, schema.InsightVizNode):
             try:
-                return wrapped_cls.model_validate(value).model_dump(exclude_none=True, mode="json")
+                wrapped_node = wrapped_cls.model_validate(value)
+                normalized_query = wrapped_node.model_dump(exclude_none=True, mode="json")
+                if isinstance(wrapped_node, schema.DataVisualizationNode):
+                    box_plot = wrapped_node.chartSettings.boxPlot if wrapped_node.chartSettings else None
+                    if box_plot is not None:
+                        normalized_box_plot = normalized_query.setdefault("chartSettings", {}).setdefault("boxPlot", {})
+                        for field in ("xAxisColumn", "seriesColumn"):
+                            if field in box_plot.model_fields_set and getattr(box_plot, field) is None:
+                                normalized_box_plot[field] = None
+                return normalized_query
             except PydanticValidationError:
                 pass
 
@@ -1833,7 +1863,9 @@ class InsightViewSet(
             # Sharing-token API refreshes authenticate as the shared-link viewer; expose it under
             # the same context key the /shared/ page render uses (SharingViewerPageViewSet).
             context["shared_link_user"] = self.request.user
-        context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
+        # Deferred: every insight and dashboard response carries this, but only payloads that
+        # hold variables read it, so resolving it eagerly costs a query on every list request.
+        context["insight_variables"] = SimpleLazyObject(lambda: insight_variables_for_team(self.team.pk))
         context["compute_surface"] = (
             ComputeSurface.INSIGHT_LIST if self.action == "list" else ComputeSurface.INSIGHT_DETAIL
         )
@@ -1886,26 +1918,13 @@ class InsightViewSet(
 
         if self.action == "list":
             queryset = queryset.prefetch_related("tagged_items__tag")
-            last_viewed_at = (
-                InsightViewed.objects.filter(insight=OuterRef("pk"))
-                .order_by("-last_viewed_at")
-                .values("last_viewed_at")[:1]
-            )
-            queryset = queryset.annotate(last_viewed_at=Subquery(last_viewed_at))
+            queryset = with_last_viewed_at(queryset)
             queryset = self._filter_request(self.request, queryset)
 
         return self.order_queryset(queryset)
 
     def safely_get_object(self, queryset: QuerySet) -> Insight | None:
-        lookup_value = self.kwargs[self.lookup_field]
-        if isinstance(lookup_value, str) and lookup_value.isdigit():
-            # A numeric lookup is ambiguous: usually it's a primary key, but a small number of
-            # legacy rows have numeric-only short_ids. Try pk first (preserving existing behavior)
-            # and fall back to short_id so those legacy insights stay retrievable.
-            pk_match = queryset.filter(pk=int(lookup_value)).first()
-            if pk_match is not None:
-                return pk_match
-        return queryset.filter(short_id=lookup_value).first()
+        return resolve_insight_by_id_or_short_id(queryset, self.kwargs[self.lookup_field])
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         return drop_similar_when_exact_exists(super().filter_queryset(queryset))
@@ -1930,18 +1949,7 @@ class InsightViewSet(
         """
         Returns basic details about the last 5 insights viewed by this user. Most recently viewed first.
         """
-        insight_queryset = (
-            InsightViewed.objects.filter(team=self.team, user=cast(User, request.user))
-            .select_related("insight")
-            .exclude(insight__deleted=True)
-            .only("insight", "last_viewed_at")
-        )
-
-        recently_viewed = []
-        for rv in insight_queryset.order_by("-last_viewed_at")[:5]:
-            insight = rv.insight
-            insight.last_viewed_at = rv.last_viewed_at
-            recently_viewed.append(insight)
+        recently_viewed = recently_viewed_insights(team_id=self.team.pk, user_id=cast(User, request.user).pk, limit=5)
 
         response = InsightBasicSerializer(recently_viewed, many=True)
         return Response(data=response.data, status=status.HTTP_200_OK)
@@ -2005,23 +2013,12 @@ class InsightViewSet(
         insights = list(queryset)
 
         # Batch fetch viewers once to avoid N+1 queries
-        all_viewers = (
-            InsightViewed.objects.filter(
-                team=self.team,
-                insight_id__in=[insight.pk for insight in insights],
-                last_viewed_at__gte=cutoff_date,
-                user__isnull=False,
-            )
-            .select_related("user")
-            .order_by("insight_id", "-last_viewed_at")
+        viewers_by_insight = recent_viewers_by_insight(
+            team_id=self.team.pk,
+            insight_ids=[insight.pk for insight in insights],
+            since=cutoff_date,
+            max_per_insight=3,
         )
-
-        viewers_by_insight: dict[int, list] = {}
-        for viewer in all_viewers:
-            iid = viewer.insight_id
-            bucket = viewers_by_insight.setdefault(iid, [])
-            if len(bucket) < 3:
-                bucket.append(viewer.user)
 
         for insight in insights:
             insight.viewers = viewers_by_insight.get(insight.pk, [])
@@ -2532,7 +2529,8 @@ When set, the specified dashboard's filters and date range override will be appl
         description=(
             "Record that the current user has just viewed one or more insights. "
             "Submitted ids that do not belong to the current project or that point at deleted insights "
-            "are silently dropped. Returns 201 on success regardless of how many ids were retained."
+            "are silently dropped, as are views from impersonated staff-support sessions. "
+            "Returns 201 on success regardless of how many ids were retained."
         ),
     )
     @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
@@ -2541,6 +2539,11 @@ When set, the specified dashboard's filters and date range override will be appl
         Update insight view timestamps in bulk.
         Expects: {"insight_ids": [1, 2, 3, ...]}
         """
+        # Views during staff impersonation aren't the team's own activity - skip the write
+        # so support sessions don't bump the team-facing "Last viewed" column.
+        if is_impersonated(request):
+            return Response(status=status.HTTP_201_CREATED)
+
         insight_ids: list[int] = request.validated_data["insight_ids"]
 
         visible_insight_ids = list(
@@ -2551,23 +2554,11 @@ When set, the specified dashboard's filters and date range override will be appl
             ).values_list("id", flat=True)
         )
 
-        if visible_insight_ids:
-            viewed_at = now()
-            user = cast(User, request.user)
-            InsightViewed.objects.bulk_create(
-                [
-                    InsightViewed(
-                        team=self.team,
-                        user=user,
-                        insight_id=insight_id,
-                        last_viewed_at=viewed_at,
-                    )
-                    for insight_id in visible_insight_ids
-                ],
-                update_conflicts=True,
-                unique_fields=["team", "user", "insight"],
-                update_fields=["last_viewed_at"],
-            )
+        record_insight_views(
+            team_id=self.team.pk,
+            user_id=cast(User, request.user).pk,
+            last_viewed_at_by_insight_id=dict.fromkeys(visible_insight_ids, now()),
+        )
 
         return Response(status=status.HTTP_201_CREATED)
 

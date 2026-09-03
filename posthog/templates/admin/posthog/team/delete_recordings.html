@@ -1,8 +1,7 @@
 {% extends "admin/base_site.html" %}
 {% load i18n %}
-
 {% block extrastyle %}{{ block.super }}
-<style>
+    <style>
     :root {
         --dr-danger-bg: #fef2f2;
         --dr-danger-border: #fca5a5;
@@ -270,184 +269,205 @@
         color: var(--body-quiet-color);
         font-style: italic;
     }
-</style>
+    </style>
 {% endblock %}
-
 {% block content %}
-<span id="delete-recordings-meta" data-team-id="{{ team.pk }}" data-team-name="{{ team.name }}" hidden></span>
-
-<p><a href="{% url 'admin:posthog_team_change' team.pk %}">&larr; Back to team</a></p>
-
-<h2>Delete session recordings</h2>
-<p class="warning-banner">This action permanently deletes session recording data and cannot be undone.</p>
-
-<!-- Workflow Status -->
-<div class="workflow-section">
-    <div class="section-header">
-        <h3>Recent deletion workflows</h3>
-        <button class="refresh-btn" id="poll-toggle" title="Start auto-refresh">&#9654;</button>
+    <span id="delete-recordings-meta"
+          data-team-id="{{ team.pk }}"
+          data-team-name="{{ team.name }}"
+          hidden></span>
+    <p><a href="{% url 'admin:posthog_team_change' team.pk %}">&larr; Back to team</a></p>
+    <h2>Delete session recordings</h2>
+    <p class="warning-banner">This action permanently deletes session recording data and cannot be undone.</p>
+    <!-- Workflow Status -->
+    <div class="workflow-section">
+        <div class="section-header">
+            <h3>Recent deletion workflows</h3>
+            <button class="refresh-btn" id="poll-toggle" title="Start auto-refresh">&#9654;</button>
+        </div>
+        <p>Previously triggered deletion workflows for this team.</p>
+        <div id="workflows-container">{% include "admin/posthog/team/_delete_recordings_workflows.html" %}</div>
     </div>
-    <p>Previously triggered deletion workflows for this team.</p>
-    <div id="workflows-container">
-        {% include "admin/posthog/team/_delete_recordings_workflows.html" %}
+    <!-- Delete by Person -->
+    <div class="workflow-section">
+        <h3>Delete by person</h3>
+        <p>Delete all recordings associated with one or more person distinct IDs.</p>
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="workflow_type" value="person">
+            <div class="form-row">
+                <label for="distinct_ids_person">Distinct IDs (one per line)</label>
+                <textarea id="distinct_ids_person"
+                          name="distinct_ids"
+                          required
+                          placeholder="user@example.com&#10;another-user-id"></textarea>
+            </div>
+            <div class="checkbox-row">
+                <label>
+                    <input type="checkbox" name="dry_run" checked>
+                    Dry run: preview which recordings would be deleted without actually deleting them
+                </label>
+            </div>
+            <div class="form-row">
+                <label for="reason_person">Reason</label>
+                <input type="text"
+                       id="reason_person"
+                       name="reason"
+                       required
+                       placeholder="e.g. GDPR deletion request #1234">
+            </div>
+            <div class="submit-row">
+                <input type="submit"
+                       class="btn-danger"
+                       value="Delete recordings for person(s)">
+            </div>
+        </form>
     </div>
-</div>
-
-<!-- Delete by Person -->
-<div class="workflow-section">
-    <h3>Delete by person</h3>
-    <p>Delete all recordings associated with one or more person distinct IDs.</p>
-    <form method="post">
-        {% csrf_token %}
-        <input type="hidden" name="workflow_type" value="person">
-
-        <div class="form-row">
-            <label for="distinct_ids_person">Distinct IDs (one per line)</label>
-            <textarea id="distinct_ids_person" name="distinct_ids" required placeholder="user@example.com&#10;another-user-id"></textarea>
-        </div>
-
-        <div class="checkbox-row">
-            <label>
-                <input type="checkbox" name="dry_run" checked>
-                Dry run: preview which recordings would be deleted without actually deleting them
-            </label>
-        </div>
-
-        <div class="form-row">
-            <label for="reason_person">Reason</label>
-            <input type="text" id="reason_person" name="reason" required placeholder="e.g. GDPR deletion request #1234">
-        </div>
-
-        <div class="submit-row">
-            <input type="submit" class="btn-danger" value="Delete recordings for person(s)">
-        </div>
-    </form>
-</div>
-
-<!-- Delete by Team -->
-<div class="workflow-section">
-    <h3>Delete all recordings for team</h3>
-    <p class="danger-note">This will delete <strong>every</strong> recording for this team. Use with extreme caution.</p>
-    <form method="post">
-        {% csrf_token %}
-        <input type="hidden" name="workflow_type" value="team">
-
-        <div class="checkbox-row">
-            <label>
-                <input type="checkbox" name="dry_run" checked>
-                Dry run: preview which recordings would be deleted without actually deleting them
-            </label>
-        </div>
-
-        <div class="form-row">
-            <label for="reason_team">Reason</label>
-            <input type="text" id="reason_team" name="reason" required placeholder="e.g. Team data deletion request">
-        </div>
-
-        <div class="submit-row">
-            <input type="submit" class="btn-danger" value="Delete all team recordings">
-        </div>
-    </form>
-</div>
-
-<!-- Delete by Filters -->
-<div class="workflow-section">
-    <h3>Delete by filters</h3>
-    <p>Delete recordings matching specific criteria. At least one filter is required.</p>
-    <form method="post">
-        {% csrf_token %}
-        <input type="hidden" name="workflow_type" value="filters">
-
-        <div class="filter-grid">
-            <div class="form-row">
-                <label for="date_from">Date from</label>
-                <input type="text" id="date_from" name="date_from" placeholder="e.g. -30d or 2024-01-01" style="max-width: none;">
-                <p class="help-text">Relative (-7d, -30d) or absolute (YYYY-MM-DD)</p>
+    <!-- Delete by Team -->
+    <div class="workflow-section">
+        <h3>Delete all recordings for team</h3>
+        <p class="danger-note">This will delete <strong>every</strong> recording for this team. Use with extreme caution.</p>
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="workflow_type" value="team">
+            <div class="checkbox-row">
+                <label>
+                    <input type="checkbox" name="dry_run" checked>
+                    Dry run: preview which recordings would be deleted without actually deleting them
+                </label>
             </div>
-
             <div class="form-row">
-                <label for="date_to">Date to</label>
-                <input type="text" id="date_to" name="date_to" placeholder="e.g. -7d or 2024-01-31" style="max-width: none;">
-                <p class="help-text">Leave empty for "now"</p>
+                <label for="reason_team">Reason</label>
+                <input type="text"
+                       id="reason_team"
+                       name="reason"
+                       required
+                       placeholder="e.g. Team data deletion request">
             </div>
-
+            <div class="submit-row">
+                <input type="submit" class="btn-danger" value="Delete all team recordings">
+            </div>
+        </form>
+    </div>
+    <!-- Delete by Filters -->
+    <div class="workflow-section">
+        <h3>Delete by filters</h3>
+        <p>Delete recordings matching specific criteria. At least one filter is required.</p>
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="workflow_type" value="filters">
+            <div class="filter-grid">
+                <div class="form-row">
+                    <label for="date_from">Date from</label>
+                    <input type="text"
+                           id="date_from"
+                           name="date_from"
+                           placeholder="e.g. -30d or 2024-01-01"
+                           style="max-width: none">
+                    <p class="help-text">Relative (-7d, -30d) or absolute (YYYY-MM-DD)</p>
+                </div>
+                <div class="form-row">
+                    <label for="date_to">Date to</label>
+                    <input type="text"
+                           id="date_to"
+                           name="date_to"
+                           placeholder="e.g. -7d or 2024-01-31"
+                           style="max-width: none">
+                    <p class="help-text">Leave empty for "now"</p>
+                </div>
+                <div class="form-row">
+                    <label for="duration_min">Min duration (seconds)</label>
+                    <input type="number"
+                           id="duration_min"
+                           name="duration_min"
+                           min="0"
+                           placeholder="0"
+                           style="max-width: none">
+                </div>
+                <div class="form-row">
+                    <label for="duration_max">Max duration (seconds)</label>
+                    <input type="number"
+                           id="duration_max"
+                           name="duration_max"
+                           min="0"
+                           placeholder="5"
+                           style="max-width: none">
+                    <p class="help-text">Useful for filtering out bot sessions</p>
+                </div>
+            </div>
             <div class="form-row">
-                <label for="duration_min">Min duration (seconds)</label>
-                <input type="number" id="duration_min" name="duration_min" min="0" placeholder="0" style="max-width: none;">
+                <label for="person_uuid">Person UUID</label>
+                <input type="text"
+                       id="person_uuid"
+                       name="person_uuid"
+                       placeholder="01234567-89ab-cdef-0123-456789abcdef"
+                       style="max-width: 400px">
+                <p class="help-text">Restrict deletion to recordings from a specific person</p>
             </div>
-
             <div class="form-row">
-                <label for="duration_max">Max duration (seconds)</label>
-                <input type="number" id="duration_max" name="duration_max" min="0" placeholder="5" style="max-width: none;">
-                <p class="help-text">Useful for filtering out bot sessions</p>
+                <label for="platform">Platform</label>
+                <select id="platform" name="platform">
+                    <option value="">Any platform</option>
+                    <option value="web">Web</option>
+                    <option value="mobile">Mobile</option>
+                </select>
             </div>
-        </div>
-
-        <div class="form-row">
-            <label for="person_uuid">Person UUID</label>
-            <input type="text" id="person_uuid" name="person_uuid" placeholder="01234567-89ab-cdef-0123-456789abcdef" style="max-width: 400px;">
-            <p class="help-text">Restrict deletion to recordings from a specific person</p>
-        </div>
-
-        <div class="form-row">
-            <label for="platform">Platform</label>
-            <select id="platform" name="platform">
-                <option value="">Any platform</option>
-                <option value="web">Web</option>
-                <option value="mobile">Mobile</option>
-            </select>
-        </div>
-
-        <div class="checkbox-row">
-            <label>
-                <input type="checkbox" name="dry_run" checked>
-                Dry run: preview which recordings would be deleted without actually deleting them
-            </label>
-        </div>
-
-        <div class="form-row">
-            <label for="reason_filters">Reason</label>
-            <input type="text" id="reason_filters" name="reason" required placeholder="e.g. Cleanup old bot sessions">
-        </div>
-
-        <div class="submit-row">
-            <input type="submit" class="btn-danger" value="Delete recordings by filters">
-        </div>
-    </form>
-</div>
-
-<!-- Delete by Session IDs -->
-<div class="workflow-section">
-    <h3>Delete by session IDs</h3>
-    <p>Upload a CSV file with session IDs to delete. The first column is used; a <code>session_id</code> header row is automatically skipped.</p>
-    <form method="post" enctype="multipart/form-data">
-        {% csrf_token %}
-        <input type="hidden" name="workflow_type" value="session_ids">
-
-        <div class="form-row">
-            <label for="session_ids_file">CSV file</label>
-            <input type="file" id="session_ids_file" name="session_ids_file" accept=".csv" required>
-        </div>
-
-        <div class="checkbox-row">
-            <label>
-                <input type="checkbox" name="dry_run" checked>
-                Dry run: preview which recordings would be deleted without actually deleting them
-            </label>
-        </div>
-
-        <div class="form-row">
-            <label for="reason_session_ids">Reason</label>
-            <input type="text" id="reason_session_ids" name="reason" required placeholder="e.g. Targeted cleanup of bot sessions">
-        </div>
-
-        <div class="submit-row">
-            <input type="submit" class="btn-danger" value="Delete recordings by session IDs">
-        </div>
-    </form>
-</div>
-
-<script nonce="{{ request.csp_nonce }}">
+            <div class="checkbox-row">
+                <label>
+                    <input type="checkbox" name="dry_run" checked>
+                    Dry run: preview which recordings would be deleted without actually deleting them
+                </label>
+            </div>
+            <div class="form-row">
+                <label for="reason_filters">Reason</label>
+                <input type="text"
+                       id="reason_filters"
+                       name="reason"
+                       required
+                       placeholder="e.g. Cleanup old bot sessions">
+            </div>
+            <div class="submit-row">
+                <input type="submit" class="btn-danger" value="Delete recordings by filters">
+            </div>
+        </form>
+    </div>
+    <!-- Delete by Session IDs -->
+    <div class="workflow-section">
+        <h3>Delete by session IDs</h3>
+        <p>Upload a CSV file with session IDs to delete. The first column is used; a <code>session_id</code> header row is automatically skipped.</p>
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            <input type="hidden" name="workflow_type" value="session_ids">
+            <div class="form-row">
+                <label for="session_ids_file">CSV file</label>
+                <input type="file"
+                       id="session_ids_file"
+                       name="session_ids_file"
+                       accept=".csv"
+                       required>
+            </div>
+            <div class="checkbox-row">
+                <label>
+                    <input type="checkbox" name="dry_run" checked>
+                    Dry run: preview which recordings would be deleted without actually deleting them
+                </label>
+            </div>
+            <div class="form-row">
+                <label for="reason_session_ids">Reason</label>
+                <input type="text"
+                       id="reason_session_ids"
+                       name="reason"
+                       required
+                       placeholder="e.g. Targeted cleanup of bot sessions">
+            </div>
+            <div class="submit-row">
+                <input type="submit"
+                       class="btn-danger"
+                       value="Delete recordings by session IDs">
+            </div>
+        </form>
+    </div>
+    <script nonce="{{ request.csp_nonce }}">
 // Confirmation guards, in their own IIFE and first in the file so that nothing else on this page
 // can throw and silently leave the delete forms unguarded.
 (function() {
@@ -598,5 +618,5 @@
     });
     start();
 })();
-</script>
+    </script>
 {% endblock %}

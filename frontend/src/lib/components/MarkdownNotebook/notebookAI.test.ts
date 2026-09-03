@@ -152,15 +152,41 @@ describe('notebookAI', () => {
         })
     })
 
-    it('rebases the streamed AI response range after deleting an earlier generated block', () => {
+    it.each([
+        {
+            change: 'deleting an earlier generated block',
+            previousMarkdown: '# Notebook\n\nFirst paragraph\n\nSecond paragraph\n\nThird paragraph still writing',
+            nextMarkdown: '# Notebook\n\nSecond paragraph\n\nThird paragraph still writing',
+            responseNodeIndex: 3,
+            responseNodeCount: 3,
+            expectedRange: { responseNodeIndex: 2, responseNodeCount: 2 },
+        },
+        {
+            change: 'editing the retained question before the response',
+            previousMarkdown: '# Notebook\n\n**Avery:** What is PostHog?\n\nAnswer still writing',
+            nextMarkdown: '# Notebook\n\n**Avery:** What does PostHog do?\n\nAnswer still writing',
+            responseNodeIndex: 2,
+            responseNodeCount: 1,
+            expectedRange: { responseNodeIndex: 2, responseNodeCount: 1 },
+        },
+        {
+            change: 'inserting a response-equivalent block before the active response',
+            previousMarkdown: '# Notebook\n\n**Avery:** What is PostHog?\n\nAnswer still writing\n\nAfter the answer',
+            nextMarkdown:
+                '# Notebook\n\n**Avery:** What does PostHog do?\n\nAnswer still writing\n\nAnswer still writing\n\nAfter the answer',
+            responseNodeIndex: 2,
+            responseNodeCount: 1,
+            expectedRange: { responseNodeIndex: 3, responseNodeCount: 1 },
+        },
+    ])('rebases the streamed AI response range after $change', (testCase) => {
         expect(
             rebaseNotebookAIResponseRange(
-                '# Notebook\n\nFirst paragraph\n\nSecond paragraph\n\nThird paragraph still writing',
-                '# Notebook\n\nSecond paragraph\n\nThird paragraph still writing',
-                3,
-                3
+                testCase.previousMarkdown,
+                testCase.nextMarkdown,
+                testCase.responseNodeIndex,
+                testCase.responseNodeCount
             )
-        ).toEqual({ responseNodeIndex: 2, responseNodeCount: 2 })
+        ).toEqual(testCase.expectedRange)
     })
 
     it('replaces the active streamed block when the AI has only written one block so far', () => {

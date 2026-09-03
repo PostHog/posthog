@@ -25,6 +25,7 @@ import {
 
 import { Task, TaskRun } from '../../../types/taskTypes'
 import { TaskDebugLogsMenu } from './TaskDebugLogsMenu'
+import { TaskDebugLogsPanelToggle } from './TaskDebugLogsPanelToggle'
 import { TaskPanelSkeleton, TaskRunMetadataSkeleton } from './taskDetailSkeletons'
 import { TaskErrorBanner } from './TaskErrorBanner'
 import { TaskRunMetadata } from './TaskRunMetadata'
@@ -110,6 +111,8 @@ export function TaskRunSceneShell({
                         </ScenePanelInfoSection>
 
                         <ScenePanelDivider />
+
+                        <TaskDebugLogsPanelToggle />
 
                         <ScenePanelActionsSection>
                             <ButtonPrimitive menuItem variant="danger" onClick={onArchive}>

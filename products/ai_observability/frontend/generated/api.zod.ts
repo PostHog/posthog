@@ -10,6 +10,34 @@
 import * as zod from 'zod'
 
 /**
+ * Mark a check as not applicable to this project.
+ */
+export const AiObservabilityInstrumentationChecklistDismissCreateBody = /* @__PURE__ */ zod.object({
+    check: zod
+        .enum(['sessions', 'tool_calls', 'user_identity', 'trace_structure'])
+        .describe(
+            '\* `sessions` - sessions\n\* `tool_calls` - tool_calls\n\* `user_identity` - user_identity\n\* `trace_structure` - trace_structure'
+        )
+        .describe(
+            'Key of the check to dismiss or restore.\n\n\* `sessions` - sessions\n\* `tool_calls` - tool_calls\n\* `user_identity` - user_identity\n\* `trace_structure` - trace_structure'
+        ),
+})
+
+/**
+ * Bring a dismissed check back into grading.
+ */
+export const AiObservabilityInstrumentationChecklistRestoreCreateBody = /* @__PURE__ */ zod.object({
+    check: zod
+        .enum(['sessions', 'tool_calls', 'user_identity', 'trace_structure'])
+        .describe(
+            '\* `sessions` - sessions\n\* `tool_calls` - tool_calls\n\* `user_identity` - user_identity\n\* `trace_structure` - trace_structure'
+        )
+        .describe(
+            'Key of the check to dismiss or restore.\n\n\* `sessions` - sessions\n\* `tool_calls` - tool_calls\n\* `user_identity` - user_identity\n\* `trace_structure` - trace_structure'
+        ),
+})
+
+/**
  * Create an item and its first immutable version. An identical client item ID retry returns the existing item. A different payload or an archived match returns a conflict.
  */
 export const datasetItemsCreateBodyClientItemIdMax = 255
@@ -906,7 +934,10 @@ export const LlmAnalyticsClusteringJobsCreateBody = /* @__PURE__ */ zod.object({
     analysis_level: zod
         .enum(['trace', 'generation', 'evaluation'])
         .describe('\* `trace` - trace\n\* `generation` - generation\n\* `evaluation` - evaluation'),
-    event_filters: zod.unknown().optional(),
+    event_filters: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .optional()
+        .describe('PostHog property filters that scope this clustering job. Empty array means no filters.'),
     enabled: zod.boolean().optional(),
 })
 
@@ -920,7 +951,10 @@ export const LlmAnalyticsClusteringJobsUpdateBody = /* @__PURE__ */ zod.object({
     analysis_level: zod
         .enum(['trace', 'generation', 'evaluation'])
         .describe('\* `trace` - trace\n\* `generation` - generation\n\* `evaluation` - evaluation'),
-    event_filters: zod.unknown().optional(),
+    event_filters: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .optional()
+        .describe('PostHog property filters that scope this clustering job. Empty array means no filters.'),
     enabled: zod.boolean().optional(),
 })
 
@@ -935,7 +969,10 @@ export const LlmAnalyticsClusteringJobsPartialUpdateBody = /* @__PURE__ */ zod.o
         .enum(['trace', 'generation', 'evaluation'])
         .optional()
         .describe('\* `trace` - trace\n\* `generation` - generation\n\* `evaluation` - evaluation'),
-    event_filters: zod.unknown().optional(),
+    event_filters: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .optional()
+        .describe('PostHog property filters that scope this clustering job. Empty array means no filters.'),
     enabled: zod.boolean().optional(),
 })
 

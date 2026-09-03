@@ -8,7 +8,7 @@ import type { GroupType } from '@/api/client'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { MCP_INSTRUCTIONS_CHAR_BUDGET, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
+import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
 import { buildActiveEnvironmentContextPrompt, buildToolDomainsCompact, type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
 import { getToolCategory, getToolDefinitions } from '@/tools/toolDefinitions'
@@ -117,25 +117,21 @@ describe('InstructionsFormatter prompt snapshots', () => {
     })
 
     // claude.ai never surfaces server `instructions`, so the exec command reference is the
-    // only always-visible catalog-steering surface. The compact metrics/trust one-liner must
-    // render there when the data-catalog flag is on and stay absent when it's off — otherwise
-    // skill-less claude.ai clients get zero catalog routing. The flag-off case is covered by
-    // the snapshot above; this locks the gating in both directions.
-    it('renders the compact metrics/trust one-liner for claude.ai only when the data-catalog flag is on', () => {
-        const buildClaudeChatReference = (dataCatalogEnabled: boolean): string => {
-            const state = {
-                allTools: STATIC_TOOLS.map(({ name }) => ({ name })),
-                clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI' }),
-                toolFeatureFlags: dataCatalogEnabled ? { [PRODUCT_DATA_CATALOG_FLAG]: true } : {},
-                renderUiEnabled: STATIC_CTX.renderUiEnabled,
-                metadata: STATIC_CTX.metadata,
-                groupTypes: STATIC_CTX.groupTypes,
-            } as unknown as ResolvedState
-            return new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)
-        }
+    // only always-visible catalog-steering surface: without the compact metrics/trust
+    // one-liner, skill-less claude.ai clients get zero catalog routing.
+    it('renders the compact metrics/trust one-liner for claude.ai', () => {
+        const state = {
+            allTools: STATIC_TOOLS.map(({ name }) => ({ name })),
+            clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI' }),
+            toolFeatureFlags: {},
+            renderUiEnabled: STATIC_CTX.renderUiEnabled,
+            metadata: STATIC_CTX.metadata,
+            groupTypes: STATIC_CTX.groupTypes,
+        } as unknown as ResolvedState
 
-        expect(buildClaudeChatReference(true)).toContain('Metrics & SQL trust')
-        expect(buildClaudeChatReference(false)).not.toContain('Metrics & SQL trust')
+        expect(new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)).toContain(
+            'Metrics & SQL trust'
+        )
     })
 
     // `notebooks-add-cell` is flag-gated, so the Python-in-a-notebook guidance has to
@@ -220,9 +216,7 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const state = {
             allTools: Object.keys(getToolDefinitions()).map((name) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }),
-            // Data catalog on: the analytics learn-topic description is longer with
-            // the flag, and topic descriptions are inlined in the command reference.
-            toolFeatureFlags: { [PRODUCT_DATA_CATALOG_FLAG]: true },
+            toolFeatureFlags: {},
             renderUiEnabled: true,
             metadata: worstCaseMetadata,
             metadataCompact: worstCaseMetadataCompact,
@@ -270,9 +264,12 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const domains = domainsIn(rendered)
 
         expect(rendered.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
-        // Domains past the old cutoff point, i.e. the ones a truncated payload lost.
-        for (const domain of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflows']) {
-            expect(domains).toContain(domain)
+        // Families past the old cutoff point must remain searchable after the index compacts.
+        const toolNames = Object.keys(getToolDefinitions())
+        for (const family of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflows']) {
+            const familyTools = toolNames.filter((name) => name.startsWith(family))
+            expect(familyTools.length).toBeGreaterThan(0)
+            expect(familyTools.every((name) => domains.some((domain) => name.startsWith(domain)))).toBe(true)
         }
     })
 

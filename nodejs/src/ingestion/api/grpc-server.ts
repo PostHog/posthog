@@ -18,6 +18,7 @@ import {
 import { logger } from '~/common/utils/logger'
 import { FeedResult } from '~/ingestion/framework/batching-pipeline'
 
+import { AcceptedBatch, batchAccepted, batchFailed, batchProcessed, batchReleased } from './batch-metrics'
 import { FeedOrderSentinel } from './feed-order-sentinel'
 import { SerializedKafkaMessage } from './types'
 
@@ -346,6 +347,12 @@ export class WorkerIngestServer {
     private readonly drainTimeoutMs: number
     private sessionCount = 0
     private readonly slots: FifoSlots
+    /**
+     * Fed sub-batches by `streamId:seq`, for the shared in-flight accounting the
+     * processor autoscaler reads. Kept off StreamState so a batch whose stream
+     * died mid-processing is still released when it settles.
+     */
+    private readonly acceptedBatches = new Map<string, AcceptedBatch>()
 
     constructor(
         private options: WorkerIngestServerOptions,
@@ -540,15 +547,36 @@ export class WorkerIngestServer {
             try {
                 await completed.settled
             } catch (error) {
+                this.releaseAccepted(completed, 'failed')
                 this.slots.release()
                 this.fatal(error instanceof Error ? error : new Error(String(error)))
                 return
             }
             // The batch's admission slot frees only once its side effects are
             // durably done, matching the HTTP path's response barrier.
+            this.releaseAccepted(completed, 'ok')
             this.slots.release()
             this.ackCompleted(completed)
         })()
+    }
+
+    private acceptedKey(streamId: number, seq: number): string {
+        return `${streamId}:${seq}`
+    }
+
+    private releaseAccepted(completed: CompletedSubBatch, outcome: 'ok' | 'failed'): void {
+        const key = this.acceptedKey(completed.streamId, completed.seq)
+        const accepted = this.acceptedBatches.get(key)
+        if (!accepted) {
+            return
+        }
+        this.acceptedBatches.delete(key)
+        if (outcome === 'ok') {
+            batchProcessed(accepted)
+        } else {
+            batchFailed()
+        }
+        batchReleased(accepted)
     }
 
     private ackCompleted(completed: CompletedSubBatch): void {
@@ -732,6 +760,7 @@ export class WorkerIngestServer {
                         const result = await this.feedGuarded(stream, seq, serialized)
                         if (result.ok) {
                             feedAccepted = true
+                            this.acceptedBatches.set(this.acceptedKey(stream.id, seq), batchAccepted(serialized.length))
                             break
                         }
                         if (result.kind === 'at_capacity') {

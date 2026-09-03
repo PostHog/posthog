@@ -49,6 +49,20 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _BINARY_CHECK_SIZE = 8192
 _MAX_SKILL_DESCRIPTION_LENGTH = 1024
 _ALLOWED_SUBDIRS = {"references", "scripts"}
+# Skills authored in PostHog/context-mill. Every shipping consumer unzips this
+# repo's skills first and then unzips the context-mill release on top, so a
+# same-named skill here is overwritten instead of shipped — a failure that is
+# silent without this check, because the copy still builds and still publishes.
+OMNIBUS_SKILL_NAMES = frozenset(
+    {
+        "instrument-integration",
+        "instrument-product-analytics",
+        "instrument-feature-flags",
+        "instrument-error-tracking",
+        "instrument-llm-analytics",
+        "instrument-logs",
+    }
+)
 
 # Tool/skill reference linting: skills must only reference MCP tools and skills that exist.
 # The valid tool names come from the checked-in MCP schema registries (kept in sync with the
@@ -266,6 +280,62 @@ def _assert_text_file(file_path: Path) -> None:
         )
 
 
+_MARKDOWN_LINK_RE = re.compile(r"\]\(([^)\s]+)\)")
+
+
+def _check_reference_links(entry: Path, repo_root: Path) -> list[str]:
+    """Find markdown links to references/ or scripts/ files that will not exist in the built bundle.
+
+    A skill ships its SKILL.md, references/, and scripts/ files, and the build strips the .j2 suffix
+    from every rendered template. So a link to `references/x.md` resolves when the source holds either
+    `references/x.md` or `references/x.md.j2`, but a link to `references/x.md.j2` never resolves,
+    because the bundle only has the stripped `references/x.md`.
+    """
+    skill_dir = entry.parent
+    bundle: set[str] = set()
+    for subdir_name in sorted(_ALLOWED_SUBDIRS):
+        subdir = skill_dir / subdir_name
+        if not subdir.is_dir():
+            continue
+        for root, dirs, filenames in os.walk(subdir):
+            dirs[:] = sorted(dirs)
+            for filename in sorted(filenames):
+                # The build strips .j2 when it renders a template, so record the shipped path.
+                rel = str((Path(root) / filename).relative_to(skill_dir))
+                bundle.add(rel.removesuffix(".j2"))
+
+    # Only the SKILL.md entry point is scanned. Reference files link to each other with paths
+    # relative to the skill root, which do not resolve from inside references/, and their code
+    # snippets hold `](...)` fragments that are not links.
+    errors: list[str] = []
+    text = entry.read_text()
+    source_label = str(entry.relative_to(repo_root))
+    for match in _MARKDOWN_LINK_RE.finditer(text):
+        target = match.group(1).split("#", 1)[0].split("?", 1)[0]
+        if not target or "://" in target or target.startswith("mailto:"):
+            continue
+        resolved = (skill_dir / target).resolve()
+        try:
+            rel_to_skill = resolved.relative_to(skill_dir.resolve())
+        except ValueError:
+            continue  # Link points outside the skill; not part of the bundle.
+        if not rel_to_skill.parts or rel_to_skill.parts[0] not in _ALLOWED_SUBDIRS:
+            continue  # Only references/ and scripts/ files ship in the bundle.
+        if resolved.is_dir():
+            continue  # A directory ships through its files.
+        if str(rel_to_skill) not in bundle:
+            line, _col = _line_col(text, match.start(1))
+            hint = (
+                "Link to the built '.md' path, not the '.md.j2' template."
+                if target.endswith(".j2")
+                else "No file of that name ships in the skill."
+            )
+            errors.append(
+                f"Broken reference link in {source_label}:{line}: '{target}' does not resolve to a bundled file. {hint}"
+            )
+    return errors
+
+
 class SkillFrontmatter(BaseModel):
     name: str
     description: str = Field(max_length=_MAX_SKILL_DESCRIPTION_LENGTH)
@@ -335,6 +405,24 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     return metadata, body
 
 
+def _unrendered_skill_name(skill: DiscoveredSkill) -> str:
+    """Return the entry point's raw frontmatter ``name``, or the path name.
+
+    Not the shipped name. ``SkillBuilder.build_skill`` writes each skill to
+    ``dist/skills/<name>`` using the *rendered* frontmatter ``name``, and the lint
+    runs without rendering, so a Jinja name such as ``instrument-{{ 'logs' }}``
+    comes back here verbatim. ``build_skill`` checks the rendered name against
+    ``OMNIBUS_SKILL_NAMES`` (see ``display_name`` there), which is what catches a
+    templated reserved name; this function only gives the lint an earlier, cheaper
+    shot at the plain case.
+    """
+    try:
+        metadata, _ = parse_frontmatter(skill.source_file.read_text())
+    except (OSError, yaml.YAMLError):
+        return skill.name
+    return metadata.get("name") or skill.name
+
+
 class SkillDiscoverer:
     """Discovers skill source files from products/*/skills/."""
 
@@ -398,12 +486,14 @@ class SkillRenderer:
         from products.posthog_ai.scripts.hogql_example import render_hogql_example
         from products.posthog_ai.scripts.hogql_functions import hogql_functions
         from products.posthog_ai.scripts.pydantic_schema import pydantic_schema
+        from products.posthog_ai.scripts.schema_columns import schema_columns
 
         self.env = _create_jinja_env(
             pydantic_schema=pydantic_schema,
             render_hogql_example=render_hogql_example,
             hogql_functions=hogql_functions,
             audit_constants=audit_constants,
+            schema_columns=schema_columns,
         )
 
     def render(self, source_file: Path) -> str:
@@ -492,6 +582,16 @@ class SkillBuilder:
         else:
             display_name = skill.name
             description = f"Skill: {skill.name}"
+
+        # lint_all reads the raw frontmatter, so a name that only becomes an
+        # omnibus name after rendering slips past it. Here the name is rendered,
+        # so catch that case before it builds into a context-mill-owned directory.
+        if display_name in OMNIBUS_SKILL_NAMES:
+            raise ValueError(
+                f"'{display_name}' is owned by PostHog/context-mill, which every consumer "
+                f"overlays on top of this repo's skills, so a copy here is overwritten "
+                f"rather than shipped. Remove {source} and change the context-mill source instead."
+            )
 
         return SkillResource(
             name=display_name,
@@ -586,6 +686,15 @@ class SkillBuilder:
             else:
                 seen[skill.name] = skill
 
+            unrendered_name = _unrendered_skill_name(skill)
+            if unrendered_name in OMNIBUS_SKILL_NAMES:
+                errors.append(
+                    f"'{unrendered_name}' is owned by PostHog/context-mill, which every consumer "
+                    f"overlays on top of this repo's skills, so a copy here is overwritten "
+                    f"rather than shipped. Remove {skill.source_file.relative_to(self.repo_root)} "
+                    f"and change the context-mill source instead."
+                )
+
         tool_names = _load_mcp_tool_names(self.repo_root)
         if tool_names is None:
             print("WARNING: MCP schema registries not found; skipping tool reference checks.", file=sys.stderr)
@@ -611,6 +720,9 @@ class SkillBuilder:
 
         for skill in skills:
             lint_files = self._collect_lint_files(skill)
+
+            if skill.depth == 1:
+                errors.extend(_check_reference_links(skill.source_file, self.repo_root))
 
             for file_path in lint_files:
                 source_label = str(file_path.relative_to(self.repo_root))

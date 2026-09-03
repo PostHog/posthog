@@ -42,6 +42,7 @@ import type { HeatmapPreflightResponseApi } from 'products/web_analytics/fronten
 import {
     ReplayIframeData,
     getStoredRecordingBackground,
+    isUsableHeatmapUrl,
     removeReplayIframeDataFromLocalStorage,
 } from '../replayIframeData'
 
@@ -499,7 +500,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             false,
             {
                 setReplayIframeData: (_, { replayIframeData }) =>
-                    !!replayIframeData?.url?.trim().length && !!replayIframeData?.html.trim().length,
+                    isUsableHeatmapUrl(replayIframeData?.url) && !!replayIframeData?.html.trim().length,
             },
         ],
         replayIframeData: [
@@ -651,18 +652,18 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
     listeners(({ actions, props, values, cache, selectors }) => ({
         setDisplayUrl: ({ url }, _, __, previousState) => {
-            // Don't clobber a separately edited data URL when the page URL changes.
-            if (!values.userTouchedDataUrl) {
+            const previousDisplayUrl = selectors.displayUrl(previousState)
+            const dataUrlWasFollowingDisplayUrl = selectors.dataUrl(previousState) === previousDisplayUrl
+
+            if (!values.userTouchedDataUrl && dataUrlWasFollowingDisplayUrl) {
                 actions.setDataUrl(url?.trim() ?? null)
             }
-            // the iframe loads displayUrl, so only an actual change produces a load
-            // event; arming on anything else leaves a timer nothing can cancel
-            if (url?.trim().length && url !== selectors.displayUrl(previousState)) {
+            if (url?.trim().length && url !== previousDisplayUrl) {
                 actions.startTrackingLoading()
             }
         },
         setReplayIframeData: ({ replayIframeData }) => {
-            if (replayIframeData && replayIframeData.url) {
+            if (isUsableHeatmapUrl(replayIframeData?.url)) {
                 actions.setHref(replayIframeData.url)
                 // Auto-detect match type for replay data URLs too
                 const isPattern = isUrlPattern(replayIframeData.url)
@@ -698,18 +699,22 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         onIframeLoad: () => {
             actions.stopTrackingLoading()
 
-            // it should be impossible to load an iframe without a dataUrl
-            // right?!
-            const url = values.dataUrl ?? ''
-            actions.setHref(url)
-
-            // Ensure match type is set correctly when iframe loads
-            const isPattern = isUrlPattern(url)
-            actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
+            // The recording background path has no dataUrl; its href comes from the snapshot. Setting
+            // href to an empty string here would blank the query and leave the heatmap loading forever.
+            const url = values.dataUrl?.trim()
+            if (url) {
+                actions.setHref(url)
+                actions.setHrefMatchType(isUrlPattern(url) ? 'pattern' : 'exact')
+            } else if (!values.hasValidReplayIframeData) {
+                // No page URL and no recording snapshot: clear the stale href so a previous page's
+                // heatmap does not repaint over the page now in the frame.
+                actions.setHref('')
+                actions.setHrefMatchType('exact')
+            }
 
             actions.loadHeatmap()
             posthog.capture('in-app heatmap iframe loaded', {
-                inapp_heatmap_page_url_visited: values.dataUrl,
+                inapp_heatmap_page_url_visited: values.dataUrl ?? values.replayIframeData?.url,
                 inapp_heatmap_filters: values.heatmapFilters,
                 inapp_heatmap_color_palette: values.heatmapColorPalette,
                 inapp_heatmap_fixed_position_mode: values.heatmapFixedPositionMode,

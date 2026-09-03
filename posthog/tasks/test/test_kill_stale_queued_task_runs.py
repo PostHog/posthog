@@ -117,11 +117,11 @@ class TestKillStaleQueuedTaskRuns(TestCase):
 
     def test_leaves_re_queued_run_with_old_created_at_alone(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
-        # prepare_for_cloud_handoff re-queues an existing run without resetting
+        # prepare_for_cloud_resume re-queues an existing run without resetting
         # created_at. A staleness check keyed on created_at would mistakenly mark
         # the freshly re-queued run as FAILED; updated_at (auto_now) protects it.
         run = self._make_run(TaskRun.Status.COMPLETED, datetime.timedelta(hours=48))
-        run.prepare_for_cloud_handoff()
+        run.prepare_for_cloud_resume()
 
         kill_stale_queued_task_runs()
 

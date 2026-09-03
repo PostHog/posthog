@@ -3,12 +3,18 @@ from datetime import UTC, datetime, timedelta
 import unittest.mock
 from posthog.test.base import APIBaseTest
 
+from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
+from products.workflows.backend.api.hog_flow import (
+    HOG_FLOW_RUN_IDEMPOTENCY_IN_PROGRESS,
+    _hog_flow_run_idempotency_cache_key,
+)
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -515,3 +521,193 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
         assert response.status_code == 200
         assert str(schedule.id) in response.json()["failed"]
         assert len(response.json()["processed"]) == 0
+
+
+@unittest.mock.patch("products.workflows.backend.api.hog_flow.create_hog_flow_scheduled_invocation")
+class TestHogFlowRun(APIBaseTest):
+    def _create_workflow(self, workflow_status="active", trigger_type="schedule", variables=None):
+        return HogFlow.objects.create(
+            team=self.team,
+            name="Test Run Workflow",
+            status=workflow_status,
+            trigger={"type": trigger_type},
+            actions=[],
+            variables=variables or [],
+        )
+
+    def _run_url(self, workflow_id):
+        return f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/run/"
+
+    def _mock_success(self, mock_invocation, invocation_id="abc-123"):
+        mock_response = unittest.mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "queued", "invocation_id": invocation_id}
+        # Clear a prior side_effect (e.g. from a failure simulated earlier in the same test) —
+        # Mock prioritizes side_effect over return_value, so a stale one would keep raising.
+        mock_invocation.side_effect = None
+        mock_invocation.return_value = mock_response
+
+    def test_run_queues_invocation(self, mock_invocation):
+        self._mock_success(mock_invocation)
+        workflow = self._create_workflow()
+
+        response = self.client.post(self._run_url(workflow.id))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"status": "queued", "invocation_id": "abc-123"}
+        mock_invocation.assert_called_once_with(team_id=self.team.id, hog_flow_id=str(workflow.id), variables={})
+
+    def test_run_merges_variable_defaults_and_overrides(self, mock_invocation):
+        # Guards the same variable-resolution contract the scheduler applies in
+        # internal_process_due_schedules: run-now must not silently drop a workflow's default
+        # variables just because the caller only wants to override one of them.
+        self._mock_success(mock_invocation)
+        workflow = self._create_workflow(
+            variables=[{"key": "greeting", "default": "Hello"}, {"key": "name", "default": "World"}]
+        )
+
+        response = self.client.post(self._run_url(workflow.id), {"variables": {"name": "Overridden"}}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_invocation.assert_called_once_with(
+            team_id=self.team.id,
+            hog_flow_id=str(workflow.id),
+            variables={"greeting": "Hello", "name": "Overridden"},
+        )
+
+    def test_run_rejects_non_schedule_trigger(self, mock_invocation):
+        workflow = self._create_workflow(trigger_type="batch")
+
+        response = self.client.post(self._run_url(workflow.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_invocation.assert_not_called()
+
+    def test_run_rejects_inactive_workflow(self, mock_invocation):
+        workflow = self._create_workflow(workflow_status="draft")
+
+        response = self.client.post(self._run_url(workflow.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_invocation.assert_not_called()
+
+    def test_run_surfaces_cdp_error(self, mock_invocation):
+        mock_response = unittest.mock.MagicMock()
+        mock_response.status_code = 502
+        mock_response.text = "bad gateway"
+        mock_invocation.return_value = mock_response
+        workflow = self._create_workflow()
+
+        response = self.client.post(self._run_url(workflow.id))
+
+        assert response.status_code == 502
+
+    def test_run_accepts_null_variable_override(self, mock_invocation):
+        # A null override must reach dispatch as None, not be rejected by the child field —
+        # matches the schedule path, which stores raw JSON and applies no such restriction.
+        self._mock_success(mock_invocation)
+        workflow = self._create_workflow(variables=[{"key": "greeting", "default": "Hello"}])
+
+        response = self.client.post(self._run_url(workflow.id), {"variables": {"greeting": None}}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_invocation.assert_called_once_with(
+            team_id=self.team.id, hog_flow_id=str(workflow.id), variables={"greeting": None}
+        )
+
+    def test_run_rejects_oversized_variable_overrides(self, mock_invocation):
+        workflow = self._create_workflow()
+
+        response = self.client.post(self._run_url(workflow.id), {"variables": {"blob": "x" * 6000}}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_invocation.assert_not_called()
+
+    def test_run_wraps_connection_error_as_502(self, mock_invocation):
+        mock_invocation.side_effect = requests.ConnectionError("boom")
+        workflow = self._create_workflow()
+
+        response = self.client.post(self._run_url(workflow.id))
+
+        assert response.status_code == 502
+
+    def test_run_read_timeout_keeps_idempotency_reservation(self, mock_invocation):
+        # CDP may already have queued the invocation when the read times out, so a retry
+        # under the same key must not dispatch a second one — it should see the reservation
+        # still held and get a 409, not a fresh call to CDP.
+        mock_invocation.side_effect = requests.exceptions.ReadTimeout("boom")
+        workflow = self._create_workflow()
+
+        first = self.client.post(self._run_url(workflow.id), HTTP_IDEMPOTENCY_KEY="timeout-key")
+        assert first.status_code == 504
+
+        second = self.client.post(self._run_url(workflow.id), HTTP_IDEMPOTENCY_KEY="timeout-key")
+        assert second.status_code == 409
+        mock_invocation.assert_called_once()
+
+    def test_run_connection_error_releases_idempotency_reservation(self, mock_invocation):
+        # Unlike a read timeout, a connection error means CDP never saw the request, so a
+        # retry under the same key must be free to dispatch.
+        mock_invocation.side_effect = requests.ConnectionError("boom")
+        workflow = self._create_workflow()
+
+        failed = self.client.post(self._run_url(workflow.id), HTTP_IDEMPOTENCY_KEY="conn-error-key")
+        assert failed.status_code == 502
+
+        self._mock_success(mock_invocation)
+        retried = self.client.post(self._run_url(workflow.id), HTTP_IDEMPOTENCY_KEY="conn-error-key")
+        assert retried.status_code == status.HTTP_200_OK
+        assert mock_invocation.call_count == 2
+
+    def test_run_with_idempotency_key_dispatches_once(self, mock_invocation):
+        self._mock_success(mock_invocation)
+        workflow = self._create_workflow()
+
+        first = self.client.post(self._run_url(workflow.id), HTTP_IDEMPOTENCY_KEY="retry-key-1")
+        second = self.client.post(self._run_url(workflow.id), HTTP_IDEMPOTENCY_KEY="retry-key-1")
+
+        assert first.status_code == status.HTTP_200_OK
+        assert second.status_code == status.HTTP_200_OK
+        assert second.json() == first.json()
+        mock_invocation.assert_called_once()
+
+    def test_run_with_different_idempotency_keys_dispatches_twice(self, mock_invocation):
+        self._mock_success(mock_invocation)
+        workflow = self._create_workflow()
+
+        self.client.post(self._run_url(workflow.id), HTTP_IDEMPOTENCY_KEY="retry-key-a")
+        self.client.post(self._run_url(workflow.id), HTTP_IDEMPOTENCY_KEY="retry-key-b")
+
+        assert mock_invocation.call_count == 2
+
+    def test_run_rejects_concurrent_call_with_same_idempotency_key(self, mock_invocation):
+        # Simulates a request already in flight: the reservation is in place, but the first
+        # call hasn't stored a result yet.
+        self._mock_success(mock_invocation)
+        workflow = self._create_workflow()
+
+        cache_key = _hog_flow_run_idempotency_cache_key(self.team.id, str(workflow.id), "in-flight-key")
+        cache.set(cache_key, HOG_FLOW_RUN_IDEMPOTENCY_IN_PROGRESS, timeout=60)
+        self.addCleanup(cache.delete, cache_key)
+
+        response = self.client.post(self._run_url(workflow.id), HTTP_IDEMPOTENCY_KEY="in-flight-key")
+
+        assert response.status_code == 409
+        mock_invocation.assert_not_called()
+
+    def test_run_releases_idempotency_reservation_on_cdp_error(self, mock_invocation):
+        # A failed first attempt must not permanently block retries under the same key.
+        mock_response = unittest.mock.MagicMock()
+        mock_response.status_code = 502
+        mock_response.text = "bad gateway"
+        mock_invocation.return_value = mock_response
+        workflow = self._create_workflow()
+
+        failed = self.client.post(self._run_url(workflow.id), HTTP_IDEMPOTENCY_KEY="retry-key-2")
+        assert failed.status_code == 502
+
+        self._mock_success(mock_invocation)
+        retried = self.client.post(self._run_url(workflow.id), HTTP_IDEMPOTENCY_KEY="retry-key-2")
+
+        assert retried.status_code == status.HTTP_200_OK
+        assert mock_invocation.call_count == 2

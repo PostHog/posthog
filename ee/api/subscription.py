@@ -37,10 +37,11 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
+from posthog.models.integration import Integration, SlackIntegration
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.scopes import APIScopeObject
+from posthog.security.url_validation import is_microsoft_teams_webhook_url
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
@@ -61,6 +62,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     sanitize_prompt,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -72,6 +74,7 @@ from products.product_analytics.backend.facade.models import Insight
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
+from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, TEAMS_WEBHOOK_URL_MASKED_ERROR
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
@@ -253,6 +256,20 @@ class AIPromptConfigSerializer(serializers.Serializer):
     )
 
 
+class DeliveryConfigSerializer(serializers.Serializer):
+    """Typed view over the Subscription.delivery_config JSON blob."""
+
+    post_all_insights_in_main_message = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Slack only: when true, upload all insight images together in the main Slack message "
+            "instead of posting the first image in the main message and the rest as threaded replies. "
+            "Defaults to false."
+        ),
+    )
+
+
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
@@ -260,6 +277,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         "target_value",
         "target_type",
         "integration_id",
+        "delivery_config",
         "prompt",
         "insight_id",
         "dashboard_id",
@@ -298,6 +316,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "Configuration for AI report subscriptions (analysis window, future knobs). Only valid "
             "when resource_type is 'ai_prompt'. Replaced wholesale on writes."
         ),
+    )
+    delivery_config = DeliveryConfigSerializer(
+        required=False,
+        help_text="Per-delivery rendering options. Each option documents which delivery targets it applies to.",
     )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
@@ -345,6 +367,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "send_test_now",
             "summary_enabled",
             "summary_prompt_guide",
+            "delivery_config",
         ]
         read_only_fields = [
             "id",
@@ -364,9 +387,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             },
             "dashboard": {"help_text": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."},
             "insight": {"help_text": "Insight ID to subscribe to (mutually exclusive with dashboard on create)."},
-            "target_type": {"help_text": "Delivery channel: email or slack."},
+            "target_type": {"help_text": "Delivery channel: email, slack, or teams."},
             "target_value": {
-                "help_text": "Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack."
+                "help_text": (
+                    "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, "
+                    "or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as "
+                    "its host, because the URL authorizes a post to the channel by itself. On update, omit the "
+                    "field to keep the stored URL, or send a full URL to replace it."
+                )
             },
             "frequency": {"help_text": "How often to deliver: daily, weekly, monthly, or yearly."},
             "interval": {
@@ -384,7 +412,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 "help_text": "Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last)."
             },
             "count": {"help_text": "Total number of deliveries before the subscription stops. Null for unlimited."},
-            "start_date": {"help_text": "When to start delivering (ISO 8601 datetime)."},
+            "start_date": {
+                "help_text": (
+                    "When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in "
+                    "the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted "
+                    "for backward compatibility, but delivery happens during the next cycle instead of at that exact minute."
+                )
+            },
             "until_date": {"help_text": "When to stop delivering (ISO 8601 datetime). Null for indefinite."},
             "title": {"help_text": "Human-readable name for this subscription."},
             "deleted": {"help_text": "Set to true to soft-delete. Subscriptions cannot be hard-deleted."},
@@ -445,8 +479,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if target_type and target_type not in (
             Subscription.SubscriptionTarget.EMAIL,
             Subscription.SubscriptionTarget.SLACK,
+            Subscription.SubscriptionTarget.TEAMS,
         ):
-            raise ValidationError({"target_type": ["AI subscriptions only support email or slack delivery."]})
+            raise ValidationError({"target_type": ["AI subscriptions only support email, slack, or teams delivery."]})
         # Gates fire on create only; existing AI subs stay editable.
         if existing is None:
             gate_reason = _ai_create_gate_reason(self.context["get_organization"](), self._caller_distinct_id())
@@ -515,6 +550,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         self._validate_dashboard_export_subscription(attrs)
 
         target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
+        if (
+            self.instance
+            and self.instance.target_type == Subscription.SubscriptionTarget.TEAMS
+            and target_type != Subscription.SubscriptionTarget.TEAMS
+            and "target_value" not in attrs
+        ):
+            raise ValidationError(
+                {"target_value": ["A new target value is required when changing from Microsoft Teams."]}
+            )
         # Use explicit-key check for integration_id so a deliberate `null` in the PATCH
         # body falls through to the validation below — `or` would silently coalesce
         # to the stale instance value and pass `validate_re_enable` with the wrong id.
@@ -523,6 +567,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if "integration_id" in attrs
             else (self.instance.integration_id if self.instance else None)
         )
+        effective_delivery_config = (
+            attrs["delivery_config"]
+            if "delivery_config" in attrs
+            else (self.instance.delivery_config if self.instance else None)
+        ) or {}
 
         # Reject re-enables of subscriptions whose delivery prerequisite is still
         # permanently broken — otherwise the next delivery would just auto-disable
@@ -567,6 +616,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 raise ValidationError({"start_date": [f"{base}."]})
             raise ValidationError(f"{base}.")
 
+        if target_type == Subscription.SubscriptionTarget.TEAMS:
+            submitted = (attrs.get("target_value") or "").strip()
+            if self.instance and submitted and submitted == self.instance.recipient_label:
+                raise ValidationError({"target_value": [TEAMS_WEBHOOK_URL_MASKED_ERROR]})
+            target_value = submitted or (self.instance.target_value if self.instance else "")
+            if not is_microsoft_teams_webhook_url(target_value):
+                raise ValidationError({"target_value": [TEAMS_WEBHOOK_URL_ERROR]})
+
         if target_type == Subscription.SubscriptionTarget.SLACK:
             if not integration_id:
                 raise ValidationError({"integration_id": ["A Slack integration is required for Slack subscriptions."]})
@@ -578,6 +635,25 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
             if integration.kind != "slack":
                 raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
+            if effective_delivery_config.get("post_all_insights_in_main_message") and SlackIntegration(
+                integration
+            ).missing_scopes({"files:write"}):
+                raise ValidationError(
+                    {
+                        "delivery_config": [
+                            "Posting all insights in the main message requires the Slack files:write permission. "
+                            "Reconnect Slack to grant it."
+                        ]
+                    }
+                )
+
+        if (
+            effective_delivery_config.get("post_all_insights_in_main_message")
+            and target_type != Subscription.SubscriptionTarget.SLACK
+        ):
+            raise ValidationError(
+                {"delivery_config": ["post_all_insights_in_main_message is only supported for Slack subscriptions."]}
+            )
 
         # Only gate non-empty writes to `summary_prompt_guide`. Clearing (empty string)
         # and field-absent PATCHes always pass through so users aren't stuck with a value
@@ -796,6 +872,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     ]
                 }
             )
+
+    def to_representation(self, instance: Subscription) -> dict:
+        data = super().to_representation(instance)
+        if instance.target_type == Subscription.SubscriptionTarget.TEAMS:
+            data["target_value"] = instance.recipient_label
+        return data
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Subscription:
         request = self.context["request"]
@@ -1113,7 +1195,7 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
                 enum=[m.value for m in Subscription.SubscriptionTarget],
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by delivery channel (email or Slack).",
+                description="Filter by delivery channel: email, Slack, or Microsoft Teams.",
             ),
             OpenApiParameter(
                 name="insight",
@@ -1426,6 +1508,12 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         return Response(status=status.HTTP_202_ACCEPTED)
 
 
+class AIReportChartSerializer(serializers.Serializer):
+    export_asset_id = serializers.IntegerField(help_text="Id of the rendered PNG export backing this chart.")
+    title = serializers.CharField(help_text="Chart caption, taken from the plan step it illustrates.")
+    step_index = serializers.IntegerField(help_text="Index of the plan step this chart came from.")
+
+
 class AIReportQueryDiagnosticSerializer(serializers.Serializer):
     # Per-step query diagnostics persisted alongside the report markdown. Query-derived (the generated
     # HogQL is here), so it is scrubbed for callers without query access — never shipped to recipients.
@@ -1460,6 +1548,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
         "change_summary": None,
         "ai_report": None,
         "ai_report_diagnostics": None,
+        "ai_report_charts": None,
     }
 
     ai_report = serializers.SerializerMethodField(
@@ -1467,6 +1556,9 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
     )
     ai_report_diagnostics = serializers.SerializerMethodField(
         help_text="Per-step query diagnostics (generated HogQL + failure type) for this report. Null for non-AI deliveries or runs without persisted diagnostics."
+    )
+    ai_report_charts = serializers.SerializerMethodField(
+        help_text="Charts rendered for this report, in the order they were delivered. Empty when the report had no charts. Null for non-AI deliveries and for deliveries recorded before charts existed."
     )
     ai_report_prompt = serializers.SerializerMethodField(
         help_text="The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries."
@@ -1494,6 +1586,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "change_summary",
             "ai_report",
             "ai_report_diagnostics",
+            "ai_report_charts",
             "ai_report_prompt",
         ]
         read_only_fields = fields
@@ -1504,8 +1597,13 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "idempotency_key": {"help_text": "Dedupes activity retries for the same logical run."},
             "trigger_type": {"help_text": "Why the run started (e.g. scheduled, manual, subscription update)."},
             "scheduled_at": {"help_text": "Planned send time when applicable."},
-            "target_type": {"help_text": "Channel snapshot at send time (email or slack)."},
-            "target_value": {"help_text": "Destination snapshot at send time (emails, channel id, URL)."},
+            "target_type": {"help_text": "Channel snapshot at send time: email, slack, or teams."},
+            "target_value": {
+                "help_text": (
+                    "Destination snapshot at send time: the email list, the Slack channel id, or the "
+                    "host of the Microsoft Teams webhook. The webhook URL itself is never returned."
+                )
+            },
             "exported_asset_ids": {"help_text": "ExportedAsset ids generated for this send."},
             "content_snapshot": {
                 "help_text": (
@@ -1547,6 +1645,14 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
         diagnostics = snapshot.get(AI_REPORT_DIAGNOSTICS_KEY)
         return diagnostics if isinstance(diagnostics, list) else None
 
+    @extend_schema_field(AIReportChartSerializer(many=True, allow_null=True))
+    def get_ai_report_charts(self, delivery: SubscriptionDelivery) -> Optional[list[dict]]:
+        snapshot = delivery.content_snapshot
+        if not isinstance(snapshot, dict):
+            return None
+        charts = snapshot.get(AI_REPORT_CHARTS_KEY)
+        return charts if isinstance(charts, list) else None
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         # The viewset sets this flag when an AI prompt delivery is read by a caller without query
@@ -1564,11 +1670,18 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             AI_REPORT_SNAPSHOT_KEY in snapshot
             or AI_REPORT_PROMPT_SNAPSHOT_KEY in snapshot
             or AI_REPORT_DIAGNOSTICS_KEY in snapshot
+            or AI_REPORT_CHARTS_KEY in snapshot
         ):
             data["content_snapshot"] = {
                 key: value
                 for key, value in snapshot.items()
-                if key not in (AI_REPORT_SNAPSHOT_KEY, AI_REPORT_PROMPT_SNAPSHOT_KEY, AI_REPORT_DIAGNOSTICS_KEY)
+                if key
+                not in (
+                    AI_REPORT_SNAPSHOT_KEY,
+                    AI_REPORT_PROMPT_SNAPSHOT_KEY,
+                    AI_REPORT_DIAGNOSTICS_KEY,
+                    AI_REPORT_CHARTS_KEY,
+                )
             }
         return data
 

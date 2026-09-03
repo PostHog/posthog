@@ -32,4 +32,30 @@ database "posthog" {
       remote_table    = "trace_spans"
     }
   }
+
+  # Local mirrors prod's value/count compression on the metrics ingest chain
+  # (roles/logs/metrics); dev deliberately stays codec-free.
+  patch_table "metrics" {
+    modify_column "value" {
+      type  = "Float64"
+      codec = "Gorilla(8)"
+    }
+    modify_column "count" {
+      type    = "UInt64"
+      default = "1"
+      codec   = "T64"
+    }
+  }
+
+  patch_table "metrics1" {
+    modify_column "value" {
+      type  = "Float64"
+      codec = "Gorilla(8)"
+    }
+    modify_column "count" {
+      type    = "UInt64"
+      default = "1"
+      codec   = "T64"
+    }
+  }
 }

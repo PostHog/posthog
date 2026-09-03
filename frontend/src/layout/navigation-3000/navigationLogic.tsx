@@ -843,7 +843,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   identifier: 'MCPAnalytics',
                                   label: 'MCP analytics',
                                   icon: <IconLlmAnalytics />,
-                                  to: urls.mcpAnalyticsDashboard(),
+                                  to: urls.mcpAnalytics(),
                                   tooltipDocLink: 'https://posthog.com/docs/mcp-analytics/installation',
                               }
                             : null,

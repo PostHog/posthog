@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   computeBulkPinDirection,
   computeOrderedVisibleTaskIds,
+  computeOrderedVisibleTasks,
   computePriorTaskIds,
   computeRangeSelection,
   dedupeTaskIds,
@@ -106,6 +107,35 @@ describe("computeOrderedVisibleTaskIds", () => {
       new Set(["g2"]),
     );
     expect(ids).toEqual(["a"]);
+  });
+
+  it("uses every rendered project row instead of the flat slice", () => {
+    const tasks = computeOrderedVisibleTasks(
+      {
+        pinnedTasks: [makeTaskData("p1")],
+        flatTasks: [makeTaskData("first-project-only")],
+        groupedTasks: [
+          {
+            id: "g1",
+            name: "g1",
+            tasks: [makeTaskData("first-project-only")],
+          },
+          {
+            id: "g2",
+            name: "g2",
+            tasks: [makeTaskData("second-project")],
+          },
+        ],
+      },
+      "by-project",
+      new Set(),
+    );
+
+    expect(tasks.map((task) => task.id)).toEqual([
+      "p1",
+      "first-project-only",
+      "second-project",
+    ]);
   });
 });
 

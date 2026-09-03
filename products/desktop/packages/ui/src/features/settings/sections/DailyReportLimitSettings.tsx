@@ -73,7 +73,7 @@ export function DailyReportLimitSettings({
   };
 
   return (
-    <div className="flex flex-col gap-2 border-(--gray-5) border-t border-dashed pt-3">
+    <div className="flex flex-col gap-2 border-border border-t border-dashed pt-3">
       <div className="flex flex-col gap-1">
         <Text className="font-medium text-(--gray-12) text-sm">
           Daily report limit

@@ -122,6 +122,8 @@ async def _reap_observations(temporal: Client, rows: list[dict[str, Any]]) -> in
         scanner_type = snapshot.get("scanner_type") or "unknown"
         if await database_sync_to_async(_mark_orphaned, thread_sensitive=False)(row["id"], scanner_type):
             reaped += 1
+        # The SDK throttles the RPCs, so per-row is cheap.
+        activity.heartbeat({"phase": "observations_reaping", "reaped": reaped})
     logger.info(
         "replay_vision.reap_orphaned_observations",
         scanned=len(rows),
@@ -139,6 +141,7 @@ async def _reap_evaluations(temporal: Client, rows: list[dict[str, Any]]) -> int
     for row in reapable:
         if await database_sync_to_async(_fail_evaluation, thread_sensitive=False)(row["id"]):
             reaped += 1
+        activity.heartbeat({"phase": "evaluations_reaping", "reaped": reaped})
     logger.info("replay_vision.reap_stuck_evaluations", scanned=len(rows), reaped=reaped)
     return reaped
 

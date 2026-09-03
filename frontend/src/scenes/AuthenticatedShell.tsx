@@ -18,7 +18,6 @@ import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
-import { SelfReadOnlyNotice } from '~/layout/navigation/SelfReadOnlyNotice'
 
 import { sceneLogic } from './sceneLogic'
 
@@ -41,7 +40,6 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 <GlobalShortcuts />
                 <Command />
                 <ImpersonationNotice />
-                <SelfReadOnlyNotice />
                 <WizardSyncFab />
                 {/* Separate from the FAB: the FAB stands down while an inline panel shows the run,
                     but the doc dialog must be able to open from any surface. */}

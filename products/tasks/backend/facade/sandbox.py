@@ -16,6 +16,7 @@ from products.tasks.backend.exceptions import (
     SandboxTimeoutError,
 )
 from products.tasks.backend.logic.services.sandbox import (
+    ExecutionResult,
     SandboxBase,
     SandboxClass,
     SandboxConfig,
@@ -28,6 +29,7 @@ from products.tasks.backend.logic.services.sandbox import (
 )
 
 __all__ = [
+    "ExecutionResult",
     "SandboxBase",
     "SandboxCleanupError",
     "SandboxClass",

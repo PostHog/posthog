@@ -103,6 +103,8 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'task_model',
         'task_repository',
         'task_mcp_installations',
+        'signals_scout',
+        'task_skills',
     ]),
     key: z.string(),
     label: z.string(),
@@ -190,9 +192,10 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         key_property: z.string().optional(),
     }),
     z.object({
-        type: z.literal('slack-message'),
+        type: z.literal('internal-event'),
         filters: z.object({
-            // Message properties only, channel included — see the trigger registry entry
+            source: z.literal('internal-events'),
+            events: z.array(z.any()).min(1),
             properties: z.array(z.any()).optional(),
         }),
     }),

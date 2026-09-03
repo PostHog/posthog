@@ -327,6 +327,24 @@ class TestPrepareAlert:
         assert check.error is not None
         assert result.reason in check.error["message"]
 
+    async def test_auto_disable_email_alert_when_email_is_unavailable(self, alert_with_user) -> None:
+        with patch("posthog.temporal.alerts.activities.is_email_available", return_value=False):
+            env = ActivityEnvironment()
+            result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert_with_user.id)))
+
+        assert result.action == PrepareAction.AUTO_DISABLE
+        assert (
+            result.reason
+            == "Email delivery is unavailable on this instance. Configure email before re-enabling this alert."
+        )
+
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed.enabled is False
+        assert refreshed.state == AlertState.ERRORED
+
+        check = await sync_to_async(AlertCheck.objects.get)(alert_configuration=refreshed)
+        assert check.error == {"message": result.reason, "code": "email_unavailable"}
+
     async def test_evaluate_for_valid_alert(self, alert) -> None:
         env = ActivityEnvironment()
         result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert.id)))
