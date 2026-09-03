@@ -5076,6 +5076,10 @@ snapshots:
         hash: v1.k794b7964.c9bdafae1ad47e45cba8bc136bc1f911fcd38d3f3adc0109c73c608fc7aff1a7.JQQcVBlkdE7zlG0B9V18hFYCe7DRINlSu1YhOXTSNFg
     products-alerts-shared-components--preview--light:
         hash: v1.k794b7964.b50bab9d45811f65807b4a8f70d7699e3a6622fe934fa972694fc2d96461041e.HFAHjicDLcs7EPMZlhlcmW4_mb6B-V9zulQ9sqcf6Js
+    products-alerts-shared-components--preview-breakdown--dark:
+        hash: v1.k794b7964.aff80ff28ac505a67d825f095688d9f424cb3d885052e8ef1064f7efd0fae2ae.zyQl0OgEH3hLa51zt2hYN0sPd-50XwnwddfpOzMa3Po
+    products-alerts-shared-components--preview-breakdown--light:
+        hash: v1.k794b7964.e1839b06a48fc951fa0d80007250480e0070d5c4c8de140dcc94623372c66a85.Ws7QP_xjYLQHx5zUmIIrDyPZUEgTi8VaBsbXqvhQhxc
     products-alerts-shared-components--preview-log-scale--dark:
         hash: v1.k794b7964.906c1930c0e5ceee290a929d4ba68eb4ff58ce08f6e89f89474ada2fff12505d.U1FElozFVhx4UwEdkRh8KkkZQl-n3074MGTZtdFD5Z4
     products-alerts-shared-components--preview-log-scale--light:
