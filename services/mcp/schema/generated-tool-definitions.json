@@ -5073,20 +5073,6 @@
             "readOnlyHint": true
         }
     },
-    "feature-flags-versions-retrieve": {
-        "description": "Reconstruct one feature flag as it was at a given version, so an earlier definition can be compared against the current one before a rollback. The response carries the release conditions, variants and payloads (`filters`), the `active` and `deleted` state, the flag's other settings, and the reconstruction metadata `is_historical`, `version_timestamp` and `modified_by`. Use `feature-flag-get-definition` for the current state and `feature-flags-activity-retrieve` to see which versions exist. Three failures are expected and not retryable: 400 when the flag stores encrypted payloads, which are never returned from history; 404 when the flag ID or the version number does not exist; 422 when the activity log no longer holds enough history to rebuild that version.",
-        "category": "Feature flags",
-        "feature": "flags",
-        "summary": "Get a feature flag at an earlier version",
-        "title": "Get a feature flag at an earlier version",
-        "required_scopes": ["feature_flag:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "feature-request-product-areas-create": {
         "description": "Create a product area for categorizing Customer analytics feature requests. Manager access to Customer analytics is required. Provide a unique `name` and optional `display_order`. Lower display orders appear first. New areas are active by default.",
         "category": "Customer analytics",

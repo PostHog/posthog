@@ -663,40 +663,6 @@ const featureFlagsUserBlastRadiusCreate = (): ToolBase<
     },
 })
 
-const FeatureFlagsVersionsRetrieveSchema = () => {
-    const FeatureFlagsVersionsRetrieveParams = orvalSchemas.FeatureFlagsVersionsRetrieveParams()
-    return FeatureFlagsVersionsRetrieveParams.omit({ project_id: true }).extend({
-        id: z.preprocess(
-            castStringToInt,
-            FeatureFlagsVersionsRetrieveParams.shape['id'].describe(
-                'Numeric ID of the feature flag to reconstruct. Not the string key used in code.'
-            )
-        ),
-        version_number: z.preprocess(
-            castStringToInt,
-            FeatureFlagsVersionsRetrieveParams.shape['version_number'].describe(
-                "Version to reconstruct, counting up from 1. The flag's current `version` field is the highest available; asking for it returns the live definition with `is_historical` false."
-            )
-        ),
-    })
-}
-
-const featureFlagsVersionsRetrieve = (): ToolBase<
-    ReturnType<typeof FeatureFlagsVersionsRetrieveSchema>,
-    Schemas.FeatureFlagVersionResponse
-> => ({
-    name: 'feature-flags-versions-retrieve',
-    schema: FeatureFlagsVersionsRetrieveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagsVersionsRetrieveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.FeatureFlagVersionResponse>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/versions/${encodeURIComponent(String(params.version_number))}/`,
-        })
-        return result
-    },
-})
-
 const ScheduledChangesCreateSchema = () => {
     const ScheduledChangesCreateBody = orvalSchemas.ScheduledChangesCreateBody()
     return ScheduledChangesCreateBody
@@ -958,7 +924,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-flags-status-retrieve': featureFlagsStatusRetrieve,
     'feature-flags-test-evaluation-create': featureFlagsTestEvaluationCreate,
     'feature-flags-user-blast-radius-create': featureFlagsUserBlastRadiusCreate,
-    'feature-flags-versions-retrieve': featureFlagsVersionsRetrieve,
     'scheduled-changes-create': scheduledChangesCreate,
     'scheduled-changes-delete': scheduledChangesDelete,
     'scheduled-changes-get': scheduledChangesGet,
