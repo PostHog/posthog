@@ -575,6 +575,23 @@ const SPEND_TYPE_VALUES = new Set<string>(SPEND_TYPES.map((option) => option.val
 export const filterSpendUsageTypes = (usageTypes: string[] | undefined): string[] =>
     usageTypes?.filter((usageType) => SPEND_TYPE_VALUES.has(usageType)) ?? []
 
+// kea-router hands back a plain string when the encoded team_ids value does not parse into an array.
+// Only accept an array of finite numbers so the rest of the scene never sees a bad value.
+export const sanitizeTeamIds = (teamIds: unknown): number[] =>
+    Array.isArray(teamIds) ? teamIds.map(Number).filter((id) => !isNaN(id)) : []
+
+// Every project selected means the same as "All projects", so drop the param to keep the URL small.
+// A large organization can select hundreds of projects, which would otherwise write a huge, shareable URL.
+export const teamIdsForUrl = (teamIds: number[] | undefined, teamOptions: { key: string }[]): number[] => {
+    if (teamIds && teamOptions.length > 0 && teamIds.length >= teamOptions.length) {
+        const selected = new Set(teamIds.map(String))
+        if (teamOptions.every((option) => selected.has(option.key))) {
+            return []
+        }
+    }
+    return teamIds ?? []
+}
+
 export const isAddonVisible = (
     product: BillingProductV2Type,
     addon: BillingProductV2AddonType,

@@ -22,7 +22,9 @@ import type { BillingPeriod, BillingType } from '../../types'
 import {
     buildTrackingProperties,
     calculateBillingPeriodMarkers,
+    sanitizeTeamIds,
     syncBillingSearchParams,
+    teamIdsForUrl,
     updateBillingSearchParams,
 } from './billing-utils'
 import { billingLogic } from './billingLogic'
@@ -577,7 +579,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                 updateBillingSearchParams(
                     params,
                     'team_ids',
-                    values.filters.team_ids,
+                    teamIdsForUrl(values.filters.team_ids, values.teamOptions),
                     DEFAULT_BILLING_USAGE_FILTERS.team_ids
                 )
                 updateBillingSearchParams(
@@ -629,8 +631,11 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             if (params.usage_types && !equal(params.usage_types, values.filters.usage_types)) {
                 filtersFromUrl.usage_types = params.usage_types
             }
-            if (params.team_ids && !equal(params.team_ids, values.filters.team_ids)) {
-                filtersFromUrl.team_ids = params.team_ids
+            if (params.team_ids) {
+                const teamIds = sanitizeTeamIds(params.team_ids)
+                if (!equal(params.team_ids, teamIds) || !equal(teamIds, values.filters.team_ids)) {
+                    filtersFromUrl.team_ids = teamIds
+                }
             }
             if (params.breakdowns && !equal(params.breakdowns, values.filters.breakdowns)) {
                 filtersFromUrl.breakdowns = params.breakdowns

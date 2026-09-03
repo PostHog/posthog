@@ -116,7 +116,7 @@ export function BillingUsage(): JSX.Element {
                             displayMode="count"
                             bulkActions="select-and-clear-all"
                             className="w-50 h-10"
-                            value={(filters.team_ids || []).map(String)}
+                            value={(Array.isArray(filters.team_ids) ? filters.team_ids : []).map(String)}
                             onChange={(value) => setFilters({ team_ids: value.map(Number).filter((n) => !isNaN(n)) })}
                             placeholder="All projects"
                             options={teamOptions}
