@@ -67,6 +67,7 @@ from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.facade.compute_pricing import (
     COMPUTE_PRESETS,
     DEFAULT_COMPUTE_PRESET_KEY,
+    ComputeShape,
     find_matching_preset,
     get_compute_rates,
 )
@@ -1324,8 +1325,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # A running sandbox keeps the shape it started with, so price that rather than the
         # notebook's configuration. They differ between a resize and the restart that applies it.
         is_live = status in (KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING)
-        priced_cpu_cores, priced_memory_gb = self._priced_shape(
-            runtime if is_live else None, cpu_cores, sandbox_config.memory_gb
+        priced = self._priced_shape(
+            runtime if is_live else None,
+            ComputeShape(cpu_cores=cpu_cores, memory_gb=sandbox_config.memory_gb),
         )
         payload = {
             "backend": backend,
@@ -1352,8 +1354,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             "memory_gb": sandbox_config.memory_gb,
             "disk_size_gb": sandbox_config.disk_size_gb,
             "idle_timeout_seconds": sandbox_config.ttl_seconds,
-            "hourly_price": get_compute_rates().hourly_price(cpu_cores=priced_cpu_cores, memory_gb=priced_memory_gb),
-            "preset_key": self._preset_key_for(priced_cpu_cores, priced_memory_gb),
+            "hourly_price": get_compute_rates().hourly_price(cpu_cores=priced.cpu_cores, memory_gb=priced.memory_gb),
+            "preset_key": self._preset_key_for(priced.cpu_cores, priced.memory_gb),
         }
         return Response(NotebookKernelStatusResponseSerializer(payload).data)
 
@@ -1412,11 +1414,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # Compare the desired shape against what the running sandbox was provisioned with, not just
         # this request's change, so a retry after a failed restart still triggers one. Fall back to
         # the pre-write config when no runtime has recorded a shape.
-        running_cpu_cores, running_memory_gb = self._priced_shape(
-            live_runtime, shape_before.cpu_cores, shape_before.memory_gb
+        running = self._priced_shape(
+            live_runtime,
+            ComputeShape(cpu_cores=shape_before.cpu_cores, memory_gb=shape_before.memory_gb),
         )
         shape_changed = (
-            abs(running_cpu_cores - configured.cpu_cores) > 1e-6 or abs(running_memory_gb - configured.memory_gb) > 1e-6
+            abs(running.cpu_cores - configured.cpu_cores) > 1e-6 or abs(running.memory_gb - configured.memory_gb) > 1e-6
         )
 
         # Restart on a resize so the quoted price describes the sandbox that is actually running.
@@ -1446,8 +1449,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             .order_by("-last_used_at")
             .first()
         )
-        priced_cpu_cores, priced_memory_gb = self._priced_shape(
-            priced_runtime, configured.cpu_cores, configured.memory_gb
+        priced = self._priced_shape(
+            priced_runtime,
+            ComputeShape(cpu_cores=configured.cpu_cores, memory_gb=configured.memory_gb),
         )
         config_payload = {
             "cpu_cores": notebook.kernel_cpu_cores,
@@ -1455,22 +1459,20 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             "idle_timeout_seconds": notebook.kernel_idle_timeout_seconds,
             "restarted": restarted,
             "restart_required": kernel_is_live and not restarted,
-            "hourly_price": get_compute_rates().hourly_price(cpu_cores=priced_cpu_cores, memory_gb=priced_memory_gb),
-            "preset_key": self._preset_key_for(priced_cpu_cores, priced_memory_gb),
+            "hourly_price": get_compute_rates().hourly_price(cpu_cores=priced.cpu_cores, memory_gb=priced.memory_gb),
+            "preset_key": self._preset_key_for(priced.cpu_cores, priced.memory_gb),
         }
         return Response(NotebookKernelConfigResponseSerializer(config_payload).data)
 
-    def _priced_shape(
-        self, runtime: KernelRuntime | None, fallback_cpu_cores: float, fallback_memory_gb: float
-    ) -> tuple[float, float]:
+    def _priced_shape(self, runtime: KernelRuntime | None, fallback: ComputeShape) -> ComputeShape:
         """The shape hourly_price describes: what a live sandbox runs, else what the next one gets.
 
         Both kernel endpoints price through this so the field means one thing. A runtime from
         before the shape was recorded reads as unknown and falls back.
         """
         if runtime and runtime.provisioned_cpu_cores is not None and runtime.provisioned_memory_gb is not None:
-            return runtime.provisioned_cpu_cores, runtime.provisioned_memory_gb
-        return fallback_cpu_cores, fallback_memory_gb
+            return ComputeShape(cpu_cores=runtime.provisioned_cpu_cores, memory_gb=runtime.provisioned_memory_gb)
+        return fallback
 
     def _sandbox_is_running(self, notebook: Notebook, user: Any, runtime: KernelRuntime) -> bool:
         """Whether the runtime row still has a sandbox behind it, the check kernel_status makes."""

@@ -9,6 +9,7 @@ this package, so the rate table stays in `compute_pricing` and is re-exported he
 from ..compute_pricing import (
     COMPUTE_PRESETS as COMPUTE_PRESETS,
     DEFAULT_COMPUTE_PRESET_KEY as DEFAULT_COMPUTE_PRESET_KEY,
+    ComputeShape as ComputeShape,
     find_matching_preset as find_matching_preset,
     get_compute_rates as get_compute_rates,
 )
