@@ -458,7 +458,8 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
 # event wholesale, which for a Slack trigger can be a private channel's message content.
 # `end_run_when_done` gates the sandbox's `finish` tool for workflow runs; a key this
 # filter drops never reaches the agent server, so the gate would silently do nothing.
-_TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override"})
+# `store_skills` is the acting user's skills-store listing, so it is for their sandbox only.
+_TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override", "store_skills"})
 
 
 def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = False) -> dict:
