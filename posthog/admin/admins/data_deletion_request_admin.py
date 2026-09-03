@@ -48,6 +48,8 @@ PERSON_REMOVAL_FIELDS = (
     "person_drop_recordings",
 )
 
+UNSUPPORTED_REQUEST_TYPES = (RequestType.PERSON_REMOVAL, RequestType.PROPERTY_REMOVAL)
+
 # Requests can only be edited while draft or pending. Once approved (or later), the
 # criteria are locked — operators must explicitly "revert to draft" to change them.
 EDITABLE_STATUSES = {RequestStatus.DRAFT, RequestStatus.PENDING}
@@ -219,8 +221,11 @@ class DataDeletionRequestForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         request_type = self.fields.get("request_type")
         if isinstance(request_type, forms.ChoiceField):
+            current_type = getattr(self.instance, "request_type", None)
             request_type.choices = [
-                (value, label) for value, label in RequestType.choices if value != RequestType.PERSON_REMOVAL
+                (value, label)
+                for value, label in RequestType.choices
+                if value not in UNSUPPORTED_REQUEST_TYPES or value == current_type
             ]
 
 

@@ -1,20 +1,25 @@
 import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconChevronDown, IconNotebook } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { IconChevronDown, IconInfo, IconLogomark, IconNotebook } from '@posthog/icons'
+import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { LemonMenuItem, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
+import { AccessControlLevel } from '~/types'
+
+import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
+import { BUILT_IN_SUMMARY_LABEL, dockObservations, isUnsuccessfulScan } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
-import { VisionDocsLink } from './DocsLink'
+import { VisionDocsLink, visionDocsUrl } from './DocsLink'
 import { ObservationDockCard } from './ObservationCard'
 
 const COLLAPSED_HEIGHT = 44
@@ -31,18 +36,61 @@ export function ObservationsDock(): JSX.Element | null {
     return <ObservationsDockContent sessionId={sessionRecordingId} />
 }
 
-/** One-click summary: an inline summarizer scan, so it needs no saved scanner. */
+/** Runs whichever summarizer `resolveSummarizer` settles on, and lets the user pick another. */
 function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { summarizing } = useValues(logic)
-    const { summarize } = useActions(logic)
+    const { summarizing, defaultSummarizer, summarizerScanners } = useValues(logic)
+    const { summarize, summarizeWith } = useActions(logic)
     const { quota } = useValues(visionQuotaLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
     const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
-    // An inline scan mints a scanner, so the endpoint holds it to scanner-editor access. Without this the
-    // button looks available to a viewer and answers 403.
-    const accessDisabledReason = getReplayVisionEditDisabledReason()
+    // `loading` only disables the button itself. The caret and the menu rows are their own buttons, so
+    // without this a second summarizer is one click away mid-run, and it spends the quota again.
+    const inFlightDisabledReason = summarizing ? 'A summary is already running' : null
+    // Both paths are scanner writes: an inline scan mints a scanner, and `observe` is a write action on
+    // the scanner it runs. Each also exposes recording contents, so both need recording read as well.
+    const builtInDisabledReason = inFlightDisabledReason ?? getReplayVisionEditDisabledReason() ?? quotaDisabledReason
+    // Object-level, so a scanner this user cannot edit is disabled rather than answering with a 403.
+    const scannerDisabledReason = (scanner: ReplayScannerApi): string | null | undefined =>
+        inFlightDisabledReason ??
+        getReplayVisionEditDisabledReason(scanner.user_access_level as AccessControlLevel | null) ??
+        quotaDisabledReason
+    // Nobody could tell which summarizer the button used, so it says so.
+    const label = defaultSummarizer ? `Summarize with ${defaultSummarizer.name}` : 'Summarize this recording'
+    const summarizerTooltip = defaultSummarizer
+        ? `Runs your "${defaultSummarizer.name}" scanner on this recording.`
+        : 'Writes a summary using a built-in prompt.'
+
+    const menuItems: LemonMenuItem[] = [
+        ...summarizerScanners.map((scanner) => ({
+            key: scanner.id,
+            label: scanner.name,
+            active: scanner.id === defaultSummarizer?.id,
+            disabledReason: scannerDisabledReason(scanner),
+            onClick: () => summarizeWith(scanner.id),
+            'data-attr': 'vision-summarize-pick-scanner',
+        })),
+        {
+            key: 'built-in',
+            // Every other row is a scanner the team owns and can open. This one is PostHog's, so it
+            // carries the logomark and says so, rather than reading as a scanner they cannot find.
+            label: (
+                <span className="flex items-center justify-between gap-2 w-full">
+                    <span className="truncate">{BUILT_IN_SUMMARY_LABEL}</span>
+                    <span className="flex items-center gap-1.5 text-xs shrink-0">
+                        <IconLogomark className="text-base text-primary" />
+                        <span className="text-muted">Built in</span>
+                    </span>
+                </span>
+            ),
+            tooltip: 'Uses a built-in prompt. Nothing is saved to your scanners, so there is nothing to open or edit.',
+            active: !defaultSummarizer,
+            disabledReason: builtInDisabledReason,
+            onClick: () => summarizeWith(null),
+            'data-attr': 'vision-summarize-pick-built-in',
+        },
+    ]
 
     const button = (
         <LemonButton
@@ -52,11 +100,25 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
             loading={summarizing}
             // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.
             onClick={() => (dataProcessingAccepted ? summarize() : setConsentRequested(true))}
-            disabledReason={accessDisabledReason ?? quotaDisabledReason}
-            tooltip={quotaTooltip ?? 'Write a summary of what happened in this recording'}
+            disabledReason={defaultSummarizer ? scannerDisabledReason(defaultSummarizer) : builtInDisabledReason}
+            tooltip={quotaTooltip ?? summarizerTooltip}
             data-attr="vision-summarize-recording"
+            data-ph-capture-attribute-summarizer={defaultSummarizer ? 'configured' : 'built-in'}
+            // The dropdown is the only way to reach a second summarizer, so it appears once one exists.
+            sideAction={
+                summarizerScanners.length > 0 && dataProcessingAccepted
+                    ? {
+                          icon: <IconChevronDown />,
+                          dropdown: { placement: 'bottom-end', overlay: <LemonMenuOverlay items={menuItems} /> },
+                          divider: false,
+                          disabledReason: inFlightDisabledReason,
+                          'aria-label': 'Choose a summarizer',
+                          'data-attr': 'vision-summarize-choose',
+                      }
+                    : null
+            }
         >
-            {dataProcessingAccepted ? 'Summarize this recording' : 'Allow AI analysis and summarize'}
+            <span className="truncate">{dataProcessingAccepted ? label : 'Allow AI analysis and summarize'}</span>
         </LemonButton>
     )
 
@@ -82,6 +144,34 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
     )
 }
 
+/**
+ * The dock sits on every standard replay player, so it reaches people who have never heard of Replay
+ * vision and meet the summarize button with no idea what it is or what it will spend.
+ */
+function SummarizeExplainer(): JSX.Element {
+    return (
+        <Tooltip
+            placement="bottom"
+            // Base UI opens tooltips on hover only, which leaves this unreachable on a touch device.
+            openOnClick
+            title={
+                <>
+                    <p className="mb-1">Replay vision uses AI to watch recordings for you.</p>
+                    <p className="mb-0">
+                        Summarizing writes up what the user did in this session, so you can read it instead of watching
+                        it.
+                    </p>
+                </>
+            }
+            docLink={`${visionDocsUrl()}?utm_medium=in-product&utm_campaign=summarize-explainer`}
+        >
+            <span className="inline-flex items-center text-muted" data-attr="vision-summarize-info">
+                <IconInfo />
+            </span>
+        </Tooltip>
+    )
+}
+
 function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { observations, observationsLoading, dockOpen, retryingObservationIds } = useValues(logic)
@@ -101,9 +191,11 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
     }
     const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerProps))
 
-    // Scanner observations live in the sidebar's Observations tab; the dock only surfaces summaries
-    const summaries = observations.filter((o) => o.scanner_snapshot?.scanner_type === 'summarizer')
-    const hasContent = summaries.length > 0 || observationsLoading
+    const shown = dockObservations(observations)
+    // Collapsed, the dock is one bar with a caret, so a scan that left no result would sit behind it
+    // unseen. The count says there is something to open for; the card inside says which scan and why.
+    const unsuccessfulCount = shown.filter(isUnsuccessfulScan).length
+    const hasContent = shown.length > 0 || observationsLoading
     const expandedHeight = Math.max(
         MIN_EXPANDED_HEIGHT,
         Math.min(MAX_EXPANDED_HEIGHT, desiredSize ?? DEFAULT_EXPANDED_HEIGHT)
@@ -121,25 +213,35 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
             {dockOpen && <Resizer {...resizerProps} />}
             <div className="flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0">
                 <SummarizeButton sessionId={sessionId} />
+                <SummarizeExplainer />
                 {hasContent && (
-                    <LemonButton
-                        className="ml-auto"
-                        size="small"
-                        icon={<IconChevronDown className={dockOpen ? 'rotate-180' : ''} />}
-                        onClick={() => setDockOpen(!dockOpen)}
-                        tooltip={dockOpen ? 'Collapse' : 'Expand'}
-                        aria-label={dockOpen ? 'Collapse summary' : 'Expand summary'}
-                        data-attr="vision-dock-toggle"
-                    />
+                    <div className="ml-auto flex items-center gap-2 min-w-0">
+                        {!dockOpen && unsuccessfulCount > 0 && (
+                            <span className="text-muted text-xs truncate" data-attr="vision-dock-no-result-count">
+                                No result from {unsuccessfulCount} {unsuccessfulCount === 1 ? 'scan' : 'scans'}
+                            </span>
+                        )}
+                        <LemonButton
+                            size="small"
+                            icon={<IconChevronDown className={dockOpen ? 'rotate-180' : ''} />}
+                            onClick={() => setDockOpen(!dockOpen)}
+                            tooltip={dockOpen ? 'Collapse' : 'Expand'}
+                            aria-label={dockOpen ? 'Collapse summary' : 'Expand summary'}
+                            data-attr="vision-dock-toggle"
+                            // This click also sets the auto-expand preference, so which way it went is
+                            // the signal for whether people keep summaries open by default.
+                            data-ph-capture-attribute-dock-action={dockOpen ? 'collapse' : 'expand'}
+                        />
+                    </div>
                 )}
             </div>
             {dockOpen && (
                 <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-2">
-                    {observationsLoading && summaries.length === 0 ? (
+                    {observationsLoading && shown.length === 0 ? (
                         <div className="flex items-center gap-2 text-muted py-4">
                             <Spinner /> Loading summaries…
                         </div>
-                    ) : summaries.length === 0 ? (
+                    ) : shown.length === 0 ? (
                         <div className="text-muted text-sm py-4">
                             No summary yet. Summarize this recording to generate one.{' '}
                             <VisionDocsLink page="observations" dataAttr="vision-empty-docs-link-dock">
@@ -147,7 +249,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                             </VisionDocsLink>
                         </div>
                     ) : (
-                        summaries.map((observation) => (
+                        shown.map((observation) => (
                             <ObservationDockCard
                                 key={observation.id}
                                 observation={observation}

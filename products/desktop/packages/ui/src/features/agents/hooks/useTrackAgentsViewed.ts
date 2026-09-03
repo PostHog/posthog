@@ -22,7 +22,7 @@ export interface TrackAgentsViewedInput {
 }
 
 /**
- * Fires `AGENTS_VIEWED` once per visit to the `/code/agents` configuration page,
+ * Fires `AGENTS_VIEWED` once per visit to the `/agents` configuration page,
  * after the responder/integration/autonomy data settles, with the state the user
  * sees on load. Mirrors `useTrackInboxViewed`; mounted from `ConfigureAgentsSection`
  * where the data already lives, so it fires once and survives re-renders.

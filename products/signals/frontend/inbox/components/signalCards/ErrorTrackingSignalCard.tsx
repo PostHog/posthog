@@ -1,7 +1,7 @@
 import { BindLogic, useValues } from 'kea'
 
-import { IconExternal, IconTrending } from '@posthog/icons'
-import { LemonSkeleton, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
+import { IconExternal } from '@posthog/icons'
+import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import type { SignalNode } from 'scenes/debug/signals/types'
@@ -25,18 +25,6 @@ export function isErrorTrackingExtra(value: unknown): value is Record<string, un
     }
     const extra = value as Record<string, unknown>
     return typeof extra.fingerprint === 'string'
-}
-
-interface SourceTypeBadge {
-    label: string
-    type: LemonTagType
-    icon?: JSX.Element
-}
-
-const SOURCE_TYPE_BADGES: Record<InboxErrorTrackingIssueSourceType, SourceTypeBadge> = {
-    issue_created: { label: 'New issue', type: 'primary' },
-    issue_reopened: { label: 'Reopened', type: 'warning' },
-    issue_spiking: { label: 'Spiking', type: 'danger', icon: <IconTrending /> },
 }
 
 function asSourceType(sourceType: string): InboxErrorTrackingIssueSourceType {
@@ -95,7 +83,6 @@ function ErrorTrackingSignalCardBody({
 export function ErrorTrackingSignalCard({ signal }: SignalCardProps): JSX.Element {
     const fingerprint = isErrorTrackingExtra(signal.extra) ? signal.extra.fingerprint : ''
     const sourceType = asSourceType(signal.source_type)
-    const badge = SOURCE_TYPE_BADGES[sourceType]
 
     const logicProps: InboxErrorTrackingIssueLogicProps = {
         issueId: signal.source_id,
@@ -104,16 +91,12 @@ export function ErrorTrackingSignalCard({ signal }: SignalCardProps): JSX.Elemen
     }
 
     return (
-        <SignalCardShell
-            signal={signal}
-            rightSlot={
-                <LemonTag type={badge.type} size="small" icon={badge.icon}>
-                    {badge.label}
-                </LemonTag>
-            }
-        >
+        <SignalCardShell signal={signal}>
             {signal.content && (
-                <LemonMarkdown className="text-sm text-secondary mb-2" disableImages>
+                // The signal content ends with the issue's full stack trace in a code fence, which
+                // is written for the report LLM rather than for display, so cap it to keep it from
+                // swallowing the evidence rail. The View issue link carries the full trace.
+                <LemonMarkdown className="text-sm text-secondary mb-2" disableImages codeMaxLines={3}>
                     {signal.content}
                 </LemonMarkdown>
             )}

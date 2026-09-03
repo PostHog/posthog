@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from posthog.event_usage import report_user_action
@@ -33,6 +34,7 @@ def check_count_limit(
     key: str,
     current_count: int,
     user: "User | None" = None,
+    resource_properties: Mapping[str, str | int] | None = None,
 ) -> None:
     """Emit a ``resource limit hit`` PostHog event when a team's next create
     would put them at or above the catalog threshold for ``key``.
@@ -52,17 +54,21 @@ def check_count_limit(
         return
 
     if user is not None:
+        properties: dict[str, str | int | bool] = {
+            "limit_key": key,
+            "limit": limit,
+            "current_count": current_count,
+            "crossing_threshold": current_count + 1 == limit,
+            "team_id": team.id,
+            "organization_id": str(team.organization_id),
+        }
+        if resource_properties:
+            properties.update(resource_properties)
+
         report_user_action(
             user,
             "resource limit hit",
-            {
-                "limit_key": key,
-                "limit": limit,
-                "current_count": current_count,
-                "crossing_threshold": current_count + 1 == limit,
-                "team_id": team.id,
-                "organization_id": str(team.organization_id),
-            },
+            properties,
             team=team,
             organization=team.organization,
         )

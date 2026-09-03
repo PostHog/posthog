@@ -1,13 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconChevronDown, IconGithub } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { GitHubInstallRequestsBanner } from 'lib/integrations/GitHubInstallRequestsBanner'
+import { githubInstallRequestsLogic } from 'lib/integrations/githubInstallRequestsLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import type { IntegrationConnectSurface } from 'lib/integrations/utils'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -18,9 +21,17 @@ import { Integration, useIntegrations } from './Integration'
 
 export function GithubIntegration({
     next,
+    centered = false,
     connectSurface,
+    connectText = 'Connect account',
+    emphasizeConnect = false,
+    showPersonalConnectionHelp = true,
 }: {
     next?: string
+    centered?: boolean
+    connectText?: string
+    emphasizeConnect?: boolean
+    showPersonalConnectionHelp?: boolean
     /**
      * Where this card is rendered, reported as the `surface` on `integration_connect_clicked`.
      * Omit it only on the OAuth landing page, which reports every kind's connect click itself —
@@ -31,14 +42,19 @@ export function GithubIntegration({
     const { currentTeam } = useValues(teamLogic)
     const { linkedGithubInstallationLoading, githubAvailableInstallations, githubPersonalConnected } =
         useValues(integrationsLogic)
-    const { linkExistingGithubInstallation, loadGithubAvailableInstallations } = useActions(integrationsLogic)
+    const { linkExistingGithubInstallation, loadGithubAvailableInstallations, startPolling, stopPolling } =
+        useActions(integrationsLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+    const { hasPendingInstallRequests } = useValues(githubInstallRequestsLogic)
     const githubIntegrations = useIntegrations('github')
 
     // integrationsLogic is a singleton mounted from dozens of unrelated surfaces, so this fetch
-    // hangs off the GitHub setup UI instead of the shared integrations load.
+    // hangs off the GitHub setup UI instead of the shared integrations load. Polling is likewise
+    // scoped to the settings surface: an uninstall on GitHub should show up while someone is looking.
     useOnMountEffect(() => {
         loadGithubAvailableInstallations()
+        startPolling()
+        return () => stopPolling()
     })
 
     const settingsPath = next ?? urls.settings('environment-integrations')
@@ -51,6 +67,7 @@ export function GithubIntegration({
     const isConnected = githubIntegrations.length > 0
     const canLinkExisting = !isConnected && installations.length > 0
     const multipleInstallations = installations.length > 1
+    const installRequestInProgress = hasPendingInstallRequests
 
     // Silent without `connectSurface`, because the only card rendered without one sits on the OAuth
     // landing page, which already reports every kind's connect click for itself.
@@ -61,10 +78,15 @@ export function GithubIntegration({
     }
 
     return (
-        <Integration kind="github">
+        <Integration kind="github" centered={centered}>
             {/* w-full because Integration drops its children into a bare flex row, which would
                 otherwise size the banner to its longest word. */}
             <div className="flex flex-col gap-y-4 w-full">
+                <GitHubInstallRequestsBanner
+                    finishConnectingUrl={authorizationUrl}
+                    onFinishConnecting={() => reportConnect('install_approved_banner')}
+                    variant={emphasizeConnect ? 'onboarding' : 'default'}
+                />
                 {/* An install GitHub already has is the exception, not a second way to connect, so it
                     reads as an aside with its own action rather than a button competing with the one
                     below. */}
@@ -84,11 +106,14 @@ export function GithubIntegration({
                             <GitHubInstallationLink
                                 installations={installations}
                                 loading={linkedGithubInstallationLoading}
+                                emphasizeInstallation={emphasizeConnect}
                                 onLink={(installationId) => {
                                     // Reusing an existing install never leaves PostHog, so it's a
                                     // connect that skips GitHub entirely — worth separating from the
-                                    // clicks that redirect out.
-                                    reportConnect('settings_link_existing')
+                                    // clicks that redirect out. Falls back to `connectSurface` like
+                                    // every other button here, instead of a fixed literal, so the
+                                    // surface still says where the click happened.
+                                    reportConnect(connectSurface === 'settings' ? 'settings_link_existing' : undefined)
                                     linkExistingGithubInstallation(installationId)
                                 }}
                                 projectName={currentTeam?.name}
@@ -96,32 +121,55 @@ export function GithubIntegration({
                         </div>
                     </LemonBanner>
                 )}
-                <div className="flex flex-wrap gap-2">
-                    {/* This leaves PostHog entirely, and a GitHub App installs at most once per
-                        account, so GitHub offers install where it's missing and configure where it
-                        isn't. "Connect account" matches the Linear and Jira cards, which name the
-                        third party's container. */}
-                    <LemonButton
-                        type="secondary"
-                        disableClientSideRouting
-                        to={authorizationUrl}
-                        onClick={() => reportConnect(isConnected ? 'settings_manage' : undefined)}
-                    >
-                        {isConnected ? 'Manage on GitHub' : 'Connect account'}
-                    </LemonButton>
-                </div>
+                {installRequestInProgress ? null : emphasizeConnect && !isConnected ? (
+                    <div className="flex w-full flex-col items-center gap-4">
+                        <div className="flex flex-wrap justify-center gap-2">
+                            <LemonButton
+                                type={canLinkExisting ? 'secondary' : 'primary'}
+                                icon={<IconGithub />}
+                                disableClientSideRouting
+                                to={authorizationUrl}
+                                onClick={() => reportConnect()}
+                            >
+                                {canLinkExisting ? 'Connect a different organization or repository' : connectText}
+                            </LemonButton>
+                        </div>
+                        <p className="m-0 max-w-[520px] text-center text-[13px] text-tertiary">
+                            PostHog uses GitHub to create reports and pull requests based on your code. After connecting
+                            GitHub, you can run Wizard in the background to complete setup.
+                        </p>
+                    </div>
+                ) : (
+                    <div className={cn('flex flex-wrap gap-2', centered && 'justify-center')}>
+                        {/* This leaves PostHog entirely, and a GitHub App installs at most once per
+                            account, so GitHub offers install where it's missing and configure where it
+                            isn't. "Connect account" matches the Linear and Jira cards, which name the
+                            third party's container. */}
+                        <LemonButton
+                            type="secondary"
+                            disableClientSideRouting
+                            to={authorizationUrl}
+                            onClick={() => reportConnect(isConnected ? 'settings_manage' : undefined)}
+                        >
+                            {isConnected ? 'Manage on GitHub' : connectText}
+                        </LemonButton>
+                    </div>
+                )}
                 {isConnected && (
-                    <p className="text-secondary text-xs mb-0">
+                    <p className={cn('text-secondary text-xs mb-0', centered && 'text-center')}>
                         Add the PostHog app to another GitHub account, or change which repositories it can see.
                     </p>
                 )}
-                {!isConnected && installations.length === 0 && githubPersonalConnected === false && (
-                    <p className="text-secondary text-xs mb-0">
-                        Already installed the PostHog GitHub App but don't see it here? Connect your GitHub account
-                        under <Link to={urls.settings('user-personal-integrations')}>Personal integrations</Link> so
-                        PostHog can find it.
-                    </p>
-                )}
+                {showPersonalConnectionHelp &&
+                    !isConnected &&
+                    installations.length === 0 &&
+                    githubPersonalConnected === false && (
+                        <p className={cn('text-secondary text-xs mb-0', centered && 'text-center')}>
+                            Already installed the PostHog GitHub App but don't see it here? Connect your GitHub account
+                            under <Link to={urls.settings('user-personal-integrations')}>Personal integrations</Link> so
+                            PostHog can find it.
+                        </p>
+                    )}
             </div>
         </Integration>
     )
@@ -138,12 +186,14 @@ export function GitHubInstallationLink({
     loading,
     onLink,
     projectName,
+    emphasizeInstallation = false,
 }: {
     installations: GitHubAvailableInstallationApi[]
     loading: boolean
     onLink: (installationId?: string) => void
     /** Named on the button, so it's clear which project the install lands in. */
     projectName?: string
+    emphasizeInstallation?: boolean
 }): JSX.Element | null {
     if (installations.length === 0) {
         return null
@@ -154,12 +204,14 @@ export function GitHubInstallationLink({
         // backend to auto-resolve from a sibling project, which an orphan installation has none of.
         return (
             <LemonButton
-                type="secondary"
+                type={emphasizeInstallation ? 'primary' : 'secondary'}
                 size="small"
                 loading={loading}
                 onClick={() => onLink(installations[0].installation_id)}
             >
-                Connect to {projectName ?? 'this project'}
+                {emphasizeInstallation
+                    ? `Connect ${accountLabel(installations[0])}`
+                    : `Connect to ${projectName ?? 'this project'}`}
             </LemonButton>
         )
     }
@@ -173,8 +225,13 @@ export function GitHubInstallationLink({
                 onClick: () => onLink(installation.installation_id),
             }))}
         >
-            <LemonButton type="secondary" size="small" loading={loading} sideIcon={<IconChevronDown />}>
-                Choose an account
+            <LemonButton
+                type={emphasizeInstallation ? 'primary' : 'secondary'}
+                size="small"
+                loading={loading}
+                sideIcon={<IconChevronDown />}
+            >
+                {emphasizeInstallation ? 'Choose an existing installation' : 'Choose an account'}
             </LemonButton>
         </LemonMenu>
     )

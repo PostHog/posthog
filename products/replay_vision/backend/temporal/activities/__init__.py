@@ -1,9 +1,6 @@
 from products.replay_vision.backend.temporal.activities.advance_scanner_watermark import (
     advance_scanner_watermark_activity,
 )
-from products.replay_vision.backend.temporal.activities.auto_materialize import (
-    auto_materialize_scanner_properties_activity,
-)
 from products.replay_vision.backend.temporal.activities.backfill import (
     advance_backfill_cursor_activity,
     delete_backfill_schedule_activity,
@@ -48,9 +45,6 @@ from products.replay_vision.backend.temporal.activities.reap_childless_inline_sc
 from products.replay_vision.backend.temporal.activities.reap_orphaned_observations import (
     reap_orphaned_observations_activity,
 )
-from products.replay_vision.backend.temporal.activities.reap_stuck_vision_action_runs import (
-    reap_stuck_vision_action_runs_activity,
-)
 from products.replay_vision.backend.temporal.activities.reconciler_activities import (
     delete_scanner_schedule_activity,
     list_enabled_scanners_activity,
@@ -68,7 +62,6 @@ from products.replay_vision.backend.temporal.activities.upload_video_to_gemini i
 __all__ = [
     "advance_backfill_cursor_activity",
     "advance_scanner_watermark_activity",
-    "auto_materialize_scanner_properties_activity",
     "delete_backfill_schedule_activity",
     "find_backfill_candidates_activity",
     "pause_backfill_schedule_activity",
@@ -100,7 +93,6 @@ __all__ = [
     "mark_observation_succeeded_activity",
     "reap_childless_inline_scanners_activity",
     "reap_orphaned_observations_activity",
-    "reap_stuck_vision_action_runs_activity",
     "record_evaluation_result_activity",
     "refresh_scanner_estimate_activity",
     "select_evaluation_sessions_activity",

@@ -3,41 +3,23 @@ import {
   PencilSimpleIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
-import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-  Heading,
-  Skeleton,
-  Text,
-} from "@posthog/quill";
+import { Button, Heading, Skeleton, Text } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
-import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { ChannelFeedView } from "@posthog/ui/features/canvas/components/ChannelFeedView";
 import { FeedQueryHighlight } from "@posthog/ui/features/canvas/components/FeedQueryInput";
-import { TaskFeedModal } from "@posthog/ui/features/canvas/components/TaskFeedModal";
+import { SavedSearchSwitcher } from "@posthog/ui/features/canvas/components/SavedSearchSwitcher";
 import { useProjectTaskFeed } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
+import { useSavedSearchActions } from "@posthog/ui/features/canvas/hooks/useSavedSearchActions";
 import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
-import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
 import type { ThreadPanelTab } from "@posthog/ui/features/canvas/stores/threadPanelStore";
 import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
-import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
-import { toast } from "@posthog/ui/primitives/toast";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
-import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect } from "react";
 
 export function TaskFeedHome({ feedId }: { feedId: string }) {
-  const navigate = useNavigate();
   const feed = useProjectTaskFeed(feedId);
-  const removeFeed = useTaskFeedsStore((s) => s.removeFeed);
   const {
     canRetry,
     error,
@@ -49,8 +31,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
     refetch,
     tasks,
   } = useTaskFeedResults(feed?.query);
-  const [editOpen, setEditOpen] = useState(false);
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const { openEdit, requestDelete, dialogs } = useSavedSearchActions(feed);
 
   const trackedFeedId = feed?.id;
   useEffect(() => {
@@ -61,13 +42,6 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
       feed_id: trackedFeedId,
     });
   }, [trackedFeedId]);
-
-  useSetHeaderContent(
-    useMemo(
-      () => <ChannelBreadcrumb channelName={feed?.name ?? "Feed"} />,
-      [feed?.name],
-    ),
-  );
 
   const handleOpenTask = useCallback((task: Task) => {
     void openTask(task, { channelId: task.channel ?? undefined });
@@ -81,18 +55,6 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
     [handleOpenTask],
   );
 
-  const handleDelete = useCallback(() => {
-    if (!feed) return;
-    removeFeed(feed.id);
-    track(ANALYTICS_EVENTS.TASK_FEED_ACTION, {
-      action_type: "delete",
-      surface: "feed_home",
-      feed_id: feed.id,
-    });
-    toast.success("Saved search deleted");
-    void navigate({ to: "/website" });
-  }, [feed, removeFeed, navigate]);
-
   if (!feed) {
     return (
       <div className="flex h-full min-w-0 flex-col items-center justify-center gap-2 bg-gray-1 px-4 text-center">
@@ -105,6 +67,8 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
       </div>
     );
   }
+
+  const resultCount = tasks.length;
 
   const queryBar = (
     <div className="mb-2 flex w-full items-center gap-2 rounded-xl border border-(--gray-4) bg-(--gray-2) px-4 py-3">
@@ -129,7 +93,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
           ) : (
             <span className="shrink-0 text-muted-foreground text-xs">
               {isComplete
-                ? `${tasks.length} ${tasks.length === 1 ? "task" : "tasks"}`
+                ? `${resultCount} ${resultCount === 1 ? "task" : "tasks"}`
                 : "Partial results"}
             </span>
           )}
@@ -157,31 +121,40 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
           </span>
         ))}
       </div>
-      <Button
-        variant="outline"
-        size="xs"
-        onClick={() => setEditOpen(true)}
-        aria-label="Edit saved search"
-      >
-        <PencilSimpleIcon size={12} />
-        Edit
-      </Button>
-      <Button
-        variant="outline"
-        size="xs"
-        onClick={() => setConfirmDeleteOpen(true)}
-        aria-label="Delete saved search…"
-      >
-        <TrashIcon size={12} />
-        Delete…
-      </Button>
+    </div>
+  );
+
+  const header = (
+    <div className="mb-2 flex min-w-0 items-center gap-2">
+      <SavedSearchSwitcher currentFeedId={feedId} className="min-w-0 flex-1" />
+      <div className="ml-auto flex shrink-0 items-center gap-1">
+        <Button
+          variant="outline"
+          size="xs"
+          onClick={openEdit}
+          aria-label="Edit saved search"
+        >
+          <PencilSimpleIcon size={12} />
+          Edit
+        </Button>
+        <Button
+          variant="outline"
+          size="xs"
+          onClick={requestDelete}
+          aria-label="Delete saved search…"
+        >
+          <TrashIcon size={12} />
+          Delete…
+        </Button>
+      </div>
     </div>
   );
 
   const intro = (
     <div>
+      {header}
       {queryBar}
-      {!isLoading && !error && isComplete && tasks.length === 0 && (
+      {!isLoading && !error && isComplete && resultCount === 0 && (
         <div className="flex flex-col items-center gap-1 px-4 py-16 text-center">
           <Text className="font-medium">No tasks match this saved search</Text>
           <Text className="text-muted-foreground text-sm">
@@ -204,30 +177,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
           onOpenThread={handleOpenThread}
         />
       </div>
-      <TaskFeedModal open={editOpen} onOpenChange={setEditOpen} feed={feed} />
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-        <AlertDialogContent className="max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete saved search?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Delete <span className="font-medium">{feed.name}</span>? You
-              cannot undo this action.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogClose
-              render={
-                <Button variant="outline" size="sm">
-                  Cancel
-                </Button>
-              }
-            />
-            <Button variant="destructive" size="sm" onClick={handleDelete}>
-              Delete
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {dialogs}
     </div>
   );
 }

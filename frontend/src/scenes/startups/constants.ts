@@ -6,6 +6,10 @@ import freeEmailDomains from 'free-email-domains'
 // which enforces the same block server-side.
 export const PUBLIC_EMAIL_DOMAINS: ReadonlySet<string> = new Set(freeEmailDomains.map((d) => d.toLowerCase()))
 
+// Matches YC founder verification links, e.g. https://www.ycombinator.com/verify/db9imrf5u1kaxib5
+// Keep in sync with the billing repo at billing/utils/startups.py, which enforces the same check server-side
+export const YC_VERIFICATION_URL_REGEX = /^(?:https?:\/\/)?(?:www\.)?ycombinator\.com\/verify\/([A-Za-z0-9]+)\/?$/
+
 export const RAISED_OPTIONS = [
     { label: 'Bootstrapped', value: '0' },
     { label: 'Under $100k', value: '99999' },

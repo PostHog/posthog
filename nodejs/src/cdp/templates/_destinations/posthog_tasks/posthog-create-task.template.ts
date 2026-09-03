@@ -20,7 +20,7 @@ if (empty(inputs.prompt)) {
   throw Error('Instructions are required')
 }
 
-let payload := { 'prompt': inputs.prompt }
+let payload := { 'prompt': inputs.prompt, 'event': event }
 
 if (not empty(inputs.title)) {
   payload.title := inputs.title
@@ -41,12 +41,28 @@ if (not empty(inputs.connectors)) {
   payload.connectors := inputs.connectors
 }
 
+if (not empty(inputs.skills)) {
+  payload.skills := inputs.skills
+}
+
 if (not empty(inputs.posthog_mcp_scopes)) {
   payload.posthog_mcp_scopes := inputs.posthog_mcp_scopes
 }
 
 if (not empty(inputs.max_parallel_tasks)) {
   payload.max_parallel_tasks := inputs.max_parallel_tasks
+}
+
+if (inputs.reply_in_slack_thread != false and event.event == '$slack_message_received' and not empty(event.properties.channel) and not empty(event.properties.ts)) {
+  payload.slack_context := {
+    'integration_id': event.properties.integration_id,
+    'channel': event.properties.channel,
+    'thread_ts': event.properties.thread_ts ?? event.properties.ts,
+    'message_ts': event.properties.ts,
+    'slack_user_id': event.properties.user ?? '',
+    'slack_team_id': event.properties.slack_team_id ?? '',
+    'is_ext_shared_channel': event.properties.is_ext_shared_channel ?? false
+  }
 }
 
 let response := postHogCreateTask(payload)
@@ -103,7 +119,16 @@ return response.body
             secret: false,
             required: false,
             description:
-                'Connectors from the MCP store the agent can use. Team-shared connections and the workflow creator’s own connections are available.',
+                'MCP servers the agent can use. Only servers shared with everyone in this project can be selected.',
+        },
+        {
+            key: 'skills',
+            type: 'task_skills',
+            label: 'Skills',
+            secret: false,
+            required: false,
+            description:
+                'Skills from your project’s skills store. The agent gets a short summary of each one and reads the full skill when it needs it. Always the latest saved version.',
         },
         {
             key: 'posthog_mcp_scopes',
@@ -126,7 +151,22 @@ return response.body
             required: false,
             default: 5,
             description:
-                'New runs are skipped while this many tasks from this workflow are still running. Protects against a burst of trigger events starting too many agents at once.',
+                'New runs are skipped while this many tasks from this workflow are still running. Protects against a burst of trigger events starting too many agents at once. Daily limits on how many tasks a workflow and project can create also apply.',
+        },
+        {
+            // Only meaningful on a Slack-triggered workflow; the builder hides it for other
+            // triggers, and the hog code above no-ops when the trigger event isn't a Slack message.
+            // Off, the backend sees no slack_context and ends the run when the agent finishes;
+            // on, the run stays open for its idle window so the thread reply can relay.
+            key: 'reply_in_slack_thread',
+            type: 'boolean',
+            label: 'Reply in the Slack thread',
+            secret: false,
+            required: false,
+            default: true,
+            templating: false,
+            description:
+                'The agent posts its updates as replies in the Slack thread that started this workflow. Replies in that thread are sent to the agent. The run stays open for about 2 minutes after the agent finishes so replies can reach it.',
         },
         {
             // The engine treats a 4xx as a step failure before the code above runs, unless the

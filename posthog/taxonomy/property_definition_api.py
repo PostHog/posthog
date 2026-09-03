@@ -3,9 +3,8 @@ import uuid
 import dataclasses
 from typing import Any, Optional, Self, Union, cast
 
-from django.db import DEFAULT_DB_ALIAS, OperationalError, connections, models, router, transaction
+from django.db import DEFAULT_DB_ALIAS, OperationalError, connections, router, transaction
 from django.db.models import Manager, QuerySet
-from django.db.models.functions import Coalesce
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 
@@ -31,7 +30,10 @@ from posthog.taxonomy.taxonomy import (
     CORE_FILTER_DEFINITIONS_BY_GROUP,
     PROPERTY_NAME_ALIASES,
     PROPERTY_NAME_ALIASES_BY_TYPE,
+    QUERY_DEPRECATED_EVENT_PROPERTIES,
 )
+
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 tracer = trace.get_tracer(__name__)
 
@@ -501,9 +503,6 @@ ALWAYS_EXCLUDED_EVENT_PROPERTIES = set(
     [
         # distinct_id is set in properties by some libraries, but not consistently, so we shouldn't allow users to filter on it
         "distinct_id",
-        # used for updating properties
-        "$set",
-        "$set_once",
         # posthog-js used to send it on events and shouldn't have, now it confuses users
         "$initial_referrer",
         "$initial_referring_domain",
@@ -513,6 +512,7 @@ ALWAYS_EXCLUDED_EVENT_PROPERTIES = set(
         "$group_key",
         "$group_set",
     ]
+    + list(QUERY_DEPRECATED_EVENT_PROPERTIES)
     + [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)]
     # The $session_entry_X event properties should never be used, the corresponding session property should be used instead.
     # These were added as a workaround for the CDP not supporting true session properties yet.
@@ -724,7 +724,7 @@ class PropertyDefinitionViewSet(
                 QueryContext(
                     project_id=self.project_id,
                     table=(
-                        "ee_enterprisepropertydefinition FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id"
+                        "posthog_propertydefinition LEFT JOIN ee_enterprisepropertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id"
                         if EE_AVAILABLE
                         else "posthog_propertydefinition"
                     ),
@@ -813,9 +813,7 @@ class PropertyDefinitionViewSet(
         except ValueError:
             raise Http404("Property definition not found.")
         non_enterprise_property = get_object_or_404(
-            PropertyDefinition.objects.alias(
-                effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-            ),
+            PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()),
             id=id,
             effective_project_id=self.project_id,
         )
@@ -823,9 +821,7 @@ class PropertyDefinitionViewSet(
             from ee.models.property_definition import EnterprisePropertyDefinition
 
             enterprise_property = (
-                EnterprisePropertyDefinition.objects.alias(
-                    effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-                )
+                EnterprisePropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
                 .filter(id=id, effective_project_id=self.project_id)
                 .first()
             )
@@ -980,9 +976,7 @@ class PropertyDefinitionViewSet(
         serializer.is_valid(raise_exception=True)
 
         event_names = serializer.validated_data["event_names"]
-        matches = EventProperty.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
+        matches = EventProperty.objects.alias(effective_project_id=effective_project_id_expr()).filter(
             effective_project_id=self.project_id,
             event__in=event_names,
             property=serializer.validated_data["property_name"],

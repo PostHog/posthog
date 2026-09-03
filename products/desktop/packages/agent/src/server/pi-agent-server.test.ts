@@ -78,6 +78,80 @@ describe("PiAgentServer", () => {
     expect(shutdown).toHaveBeenCalledOnce();
   });
 
+  it("emits RTK savings for a cloud Pi run", async () => {
+    const enqueue = vi.fn();
+    const server = new PiAgentServer(
+      config({
+        model: "claude-opus-4-6",
+        resolveRtkSavings: async () => ({
+          totalCommands: 3,
+          inputTokens: 1_000,
+          outputTokens: 400,
+          tokensSaved: 600,
+        }),
+      }),
+    ) as unknown as {
+      eventStreamSender: { enqueue: typeof enqueue };
+      emitRtkSavings(): Promise<void>;
+    };
+    server.eventStreamSender = { enqueue };
+
+    await server.emitRtkSavings();
+
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notification: expect.objectContaining({
+          method: "_posthog/rtk_savings",
+          params: expect.objectContaining({
+            runtime_adapter: "pi",
+            model: "claude-opus-4-6",
+            cumulative_commands: 3,
+            cumulative_tokens_saved: 600,
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("emits RTK savings before stopping after a fatal error", async () => {
+    const enqueue = vi.fn();
+    const stop = vi.fn(async () => {});
+    const updateTaskRun = vi.fn(async () => {});
+    const server = new PiAgentServer(
+      config({
+        resolveRtkSavings: async () => ({
+          totalCommands: 1,
+          inputTokens: 100,
+          outputTokens: 50,
+          tokensSaved: 50,
+        }),
+      }),
+    ) as unknown as {
+      broadcast: ReturnType<typeof vi.fn>;
+      syncTaskSession: ReturnType<typeof vi.fn>;
+      flushConversationLog: ReturnType<typeof vi.fn>;
+      eventStreamSender: { enqueue: typeof enqueue; stop: typeof stop };
+      posthogAPI: { updateTaskRun: typeof updateTaskRun };
+      reportFatalError(error: unknown): Promise<void>;
+    };
+    server.broadcast = vi.fn();
+    server.syncTaskSession = vi.fn(async () => {});
+    server.flushConversationLog = vi.fn(async () => {});
+    server.eventStreamSender = { enqueue, stop };
+    server.posthogAPI = { updateTaskRun };
+
+    await server.reportFatalError(new Error("failure"));
+
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notification: expect.objectContaining({
+          method: "_posthog/rtk_savings",
+        }),
+      }),
+    );
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
   it.each([
     ["task", { task_id: "task-2", run_id: "run-1", team_id: 1 }],
     ["run", { task_id: "task-1", run_id: "run-2", team_id: 1 }],
@@ -111,7 +185,11 @@ describe("PiAgentServer", () => {
       timestamp: 1,
       content: [{ type: "text", text: "hello" }],
     });
-    server.handleEvent({ type: "turn_completed", timestamp: 2 });
+    server.handleEvent({
+      type: "turn_completed",
+      timestamp: 2,
+      totalTokens: 1_234,
+    });
     await server.logFlushQueue;
 
     expect(appendTaskRunLog).toHaveBeenCalledWith("task-1", "run-1", [
@@ -133,6 +211,7 @@ describe("PiAgentServer", () => {
         event: {
           type: "turn_completed",
           timestamp: 2,
+          totalTokens: 1_234,
           sourceId: expect.any(String),
         },
       },
@@ -194,6 +273,65 @@ describe("PiAgentServer", () => {
     expect(respondMcpToolPermission).toHaveBeenCalledWith(
       "request-1",
       "allow_always",
+    );
+  });
+
+  it("persists extension requests and sends responses without waiting for RPC output", async () => {
+    const appendTaskRunLog = vi.fn(
+      async (_taskId: string, _runId: string, _entries: unknown[]) => ({}),
+    );
+    const respondToExtensionUI = vi.fn(async () => {});
+    const server = new PiAgentServer(config()) as unknown as {
+      posthogAPI: { appendTaskRunLog: typeof appendTaskRunLog };
+      session: unknown;
+      handleExtensionEvent(event: Record<string, unknown>): void;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+      logFlushQueue: Promise<void>;
+    };
+    server.posthogAPI.appendTaskRunLog = appendTaskRunLog;
+    server.session = {
+      runtime: { client: { respondToExtensionUI } },
+    };
+    const request = {
+      type: "extension_ui_request",
+      id: "confirm-1",
+      method: "confirm",
+      title: "Continue?",
+      message: "Proceed?",
+    };
+    const response = {
+      type: "extension_ui_response",
+      id: "confirm-1",
+      confirmed: true,
+    };
+
+    server.handleExtensionEvent(request);
+    await server.logFlushQueue;
+    await server.executeCommand("pi/rpc", { command: response });
+    await server.logFlushQueue;
+
+    expect(respondToExtensionUI).toHaveBeenCalledWith(response);
+    const persistedEntries = appendTaskRunLog.mock.calls.flatMap(
+      ([, , entries]) => entries,
+    );
+    expect(persistedEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "pi_extension_event",
+          notification: expect.objectContaining({
+            params: expect.objectContaining(request),
+          }),
+        }),
+        expect.objectContaining({
+          type: "pi_extension_event",
+          notification: expect.objectContaining({
+            params: expect.objectContaining(response),
+          }),
+        }),
+      ]),
     );
   });
 
@@ -397,7 +535,7 @@ describe("PiAgentServer", () => {
     await rm(repositoryPath, { recursive: true });
   });
 
-  it("aborts the streaming run and re-prompts when a steer arrives", async () => {
+  it("steers the streaming run in place instead of aborting it", async () => {
     const sendCommand = vi.fn(async (_command: Record<string, unknown>) => ({
       success: true,
     }));
@@ -425,25 +563,27 @@ describe("PiAgentServer", () => {
       },
     };
 
-    await server.executeCommand("user_message", {
+    const result = await server.executeCommand("user_message", {
       content: "stop, do this instead",
       messageId: "message-1",
       steer: true,
     });
 
-    expect(order).toEqual(["abort", "sendCommand"]);
+    expect(result).toMatchObject({ steered: true });
+    expect(order).toEqual(["sendCommand"]);
+    expect(abort).not.toHaveBeenCalled();
     expect(sendCommand).toHaveBeenCalledTimes(1);
     expect(sendCommand).toHaveBeenCalledWith({
       id: "message-1",
-      type: "prompt",
+      type: "steer",
       message: "stop, do this instead",
       images: [],
     });
   });
 
-  it("queues a steer that pi rejects because another run took the idle slot", async () => {
+  it("queues a steer that pi refuses while the run is still streaming", async () => {
     const sendCommand = vi.fn(async (command: Record<string, unknown>) => {
-      if (command.type === "prompt") {
+      if (command.type === "steer") {
         return { success: false, error: "Agent is already processing." };
       }
       return { success: true };
@@ -478,11 +618,12 @@ describe("PiAgentServer", () => {
       images: [],
     });
     expect(result).toMatchObject({ success: true });
+    expect(result).not.toHaveProperty("steered");
   });
 
-  it("declines a steer whose re-prompt fails while pi stays idle so the host redelivers", async () => {
+  it("declines a steer pi refuses while it stays idle so the host redelivers", async () => {
     const sendCommand = vi.fn(async (command: Record<string, unknown>) => {
-      if (command.type === "prompt") {
+      if (command.type === "steer") {
         return {
           success: false,
           error: "Cannot submit a prompt while compaction is in progress.",
@@ -520,11 +661,53 @@ describe("PiAgentServer", () => {
     expect(sendCommand).toHaveBeenCalledTimes(1);
     expect(sendCommand).toHaveBeenCalledWith({
       id: "message-4",
+      type: "steer",
+      message: "stop, do this instead",
+      images: [],
+    });
+    expect(result).toMatchObject({
+      success: false,
+      steered: false,
+      reason: "pi_delivery_failed",
+    });
+  });
+
+  it("sends a steer that arrives while pi is idle as a prompt, without asking for redelivery", async () => {
+    const sendCommand = vi.fn(async (_command: Record<string, unknown>) => ({
+      success: true,
+    }));
+    const abort = vi.fn(async () => {});
+    const server = new PiAgentServer(config()) as unknown as {
+      session: unknown;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+    };
+    server.session = {
+      runtime: {
+        client: {
+          getState: vi.fn(async () => ({ isStreaming: false })),
+          abort,
+        },
+        sendCommand,
+      },
+    };
+
+    const result = await server.executeCommand("user_message", {
+      content: "stop, do this instead",
+      messageId: "message-5",
+      steer: true,
+    });
+
+    expect(abort).not.toHaveBeenCalled();
+    expect(sendCommand).toHaveBeenCalledWith({
+      id: "message-5",
       type: "prompt",
       message: "stop, do this instead",
       images: [],
     });
-    expect(result).toMatchObject({ success: false });
+    expect(result).not.toHaveProperty("steered");
   });
 
   it("queues a mid-turn message that is not a steer instead of aborting", async () => {
@@ -549,11 +732,12 @@ describe("PiAgentServer", () => {
       },
     };
 
-    await server.executeCommand("user_message", {
+    const result = await server.executeCommand("user_message", {
       content: "when you are done, also update the docs",
       messageId: "message-2",
     });
 
+    expect(result).not.toHaveProperty("steered");
     expect(abort).not.toHaveBeenCalled();
     expect(sendCommand).toHaveBeenCalledWith({
       id: "message-2",

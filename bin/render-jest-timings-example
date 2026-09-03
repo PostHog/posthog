@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Print the checked-in Jest timing report example. Pass --write to refresh its golden Markdown.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+FIXTURE="$REPO_ROOT/.github/scripts/fixtures/jest-timings-example.json"
+GOLDEN="$REPO_ROOT/.github/scripts/fixtures/jest-timings-example.md"
+
+if [[ "${1:-}" == "--write" ]]; then
+    "$SCRIPT_DIR/report-jest-timings" --timings "$FIXTURE" --markdown > "$GOLDEN"
+    echo "Updated $GOLDEN"
+    exit 0
+fi
+
+exec "$SCRIPT_DIR/report-jest-timings" --timings "$FIXTURE" --markdown "$@"

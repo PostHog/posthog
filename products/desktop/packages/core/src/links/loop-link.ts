@@ -16,7 +16,7 @@ export const LoopLinkEvent = {
 } as const;
 
 export interface LoopLinkPayload {
-  /** Loop id, matching the `/code/loops/$loopId` route param. */
+  /** Loop id, matching the `/loops/$loopId` route param. */
   loopId: string;
 }
 

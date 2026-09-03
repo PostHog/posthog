@@ -20,14 +20,12 @@ from posthog.hogql.database.database import Database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.models import Team, User
-from posthog.ph_client import feature_enabled_or_false
+from posthog.models import User
 from posthog.rbac.query_access import assert_user_can_read_query
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.data_modeling.backend.facade.api import get_declared_target, resume_nodes, suspension_state
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
@@ -155,21 +153,6 @@ _READ_DENIED = "Reading data models requires data warehouse read access."
 # - posthog/temporal/data_modeling/workflows/execute_dag.py (_get_edge_lookup, _get_downstream_lookup)
 # - products/data_modeling/backend/graph.py (Graph) — shared in-memory graph used by list endpoint
 # the temporal workflow and lineage API should migrate to Graph
-
-
-def _is_v2_backend_enabled(user: User, team: Team) -> bool:
-    return feature_enabled_or_false(
-        "data-modeling-backend-v2",
-        str(user.distinct_id),
-        groups={
-            "organization": str(team.organization_id),
-            "project": str(team.id),
-        },
-        group_properties={
-            "organization": {"id": str(team.organization_id)},
-            "project": {"id": str(team.id)},
-        },
-    )
 
 
 def _get_upstream_nodes(node: Node, include_tables: bool = False) -> set[str]:
@@ -337,43 +320,18 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # for exactly the nodes that need it most.
         resume_nodes(Node.objects.filter(team_id=self.team_id, id__in=node_ids), by="manual_run")
 
-        if _is_v2_backend_enabled(cast(User, req.user), self.team):
-            inputs: ExecuteDAGInputs | RunWorkflowInputs = ExecuteDAGInputs(
-                team_id=self.team_id,
-                dag_id=str(node.dag_id),
-                node_ids=list(node_ids),
-            )
-            workflow_name = "data-modeling-execute-dag"
-            workflow_id = f"execute-dag-{uuid4()}"
-        else:
-            # v1 workflow is frozen — do not extend this branch.
-            # v2 lives at posthog/temporal/data_modeling/workflows/. Teams are
-            # being migrated off v1 via the `_is_v2_backend_enabled` flag.
-            saved_query_ids = list(
-                # nosemgrep: idor-lookup-without-team (node_ids from prior team-scoped graph traversal)
-                Node.objects.filter(
-                    id__in=node_ids,
-                    saved_query_id__isnull=False,
-                ).values_list("saved_query_id", flat=True)
-            )
-            selectors = [
-                Selector(
-                    label=str(sq_id),
-                    ancestors="ALL" if direction == "upstream" else 0,
-                    descendants="ALL" if direction == "downstream" else 0,
-                )
-                for sq_id in saved_query_ids
-            ]
-            inputs = RunWorkflowInputs(team_id=self.team_id, select=selectors)
-            workflow_name = "data-modeling-run"
-            workflow_id = f"data-modeling-run-{node.dag_id}-{uuid4()}"
+        inputs = ExecuteDAGInputs(
+            team_id=self.team_id,
+            dag_id=str(node.dag_id),
+            node_ids=list(node_ids),
+        )
 
         temporal = sync_connect()
         asyncio.run(
             temporal.start_workflow(
-                workflow_name,
+                "data-modeling-execute-dag",
                 asdict(inputs),
-                id=workflow_id,
+                id=f"execute-dag-{uuid4()}",
                 task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
                 retry_policy=RetryPolicy(
                     initial_interval=timedelta(seconds=10),
@@ -470,7 +428,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if node.saved_query is not None:
             assert_user_can_read_query(node.saved_query.query, self.team_id, cast(User, req.user))
 
-        start_node_materialization(node, is_v2=_is_v2_backend_enabled(cast(User, req.user), self.team))
+        start_node_materialization(node)
 
         return response.Response(status=status.HTTP_200_OK)
 

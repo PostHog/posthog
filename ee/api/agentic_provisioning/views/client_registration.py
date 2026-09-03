@@ -9,9 +9,9 @@ individually so a broken setup names its own cause instead of surfacing as a bar
 Deliberately unauthenticated: a partner that has not registered yet has no credential to
 present, so requiring one would make the endpoint useless for the case it exists to serve.
 What that exposes is bounded on two counts. The only URL a caller can make us dereference is
-the one it is claiming as its own client_id, which goes through the same SSRF validation, DNS
-check and blocklist as any other CIMD fetch, and it is rate limited per client_id, per IP and
-per domain because the fetch is synchronous. The capabilities that registration grants come
+the one it is claiming as its own client_id, which goes through the same SSRF validation and
+DNS check as any other CIMD fetch, and it is rate limited per client_id, per IP and per domain
+because the fetch is synchronous. The capabilities that registration grants come
 from the fetched document declaring the opt-in, never from the request, so the caller decides
 which client_id we look at and nothing else. Without that, sending a third party's client_id
 would be enough to conscript its OAuth client into a provisioning partner, since a CIMD
@@ -29,9 +29,7 @@ from posthog.api.oauth.cimd import (
     CIMDFetchError,
     CIMDValidationError,
     fetch_and_upsert_cimd_application,
-    get_application_by_client_id,
     is_cimd_client_id,
-    is_cimd_url_blocked,
 )
 from posthog.api.oauth.client_assertion import ClientAssertionError, describe_jwks, verify_client_assertion
 from posthog.models.oauth import OAuthApplication
@@ -75,7 +73,7 @@ class ClientRegistrationView(ProvisioningAPIView):
         )
         return Response(
             {
-                "client_id": app.effective_client_id,
+                "client_id": app.client_id,
                 "registered": True,
                 "client_type": app.client_type,
                 "token_endpoint_auth_method": app.token_endpoint_auth_method.value,
@@ -110,21 +108,17 @@ class ClientRegistrationView(ProvisioningAPIView):
             # A non-CIMD client_id has no document to fetch, so it can only have been
             # registered by a PostHog admin.
             try:
-                admin_registered = get_application_by_client_id(client_id)
+                admin_registered = OAuthApplication.objects.get(client_id=client_id)
             except OAuthApplication.DoesNotExist:
                 _record(checks, "client_exists", False, "No client is registered with this client_id")
                 return None
             _record(checks, "client_exists", True, "Registered by a PostHog admin")
             return self._require_partner(admin_registered, checks)
 
-        if is_cimd_url_blocked(client_id):
-            _record(checks, "metadata_document", False, "This client_id has been blocked")
-            return None
-
         # An already-registered client keeps working when its document is momentarily
         # unreachable, so a failed re-fetch is reported as one failed check rather than
         # suppressing every other diagnostic the caller came for.
-        existing = OAuthApplication.objects.filter(cimd_metadata_url=client_id).first()
+        existing = OAuthApplication.objects.filter(client_id=client_id).first()
         try:
             # A CIMD client that has never been used for provisioning carries no provisioning
             # config yet, and this is the call that gives it one, so the rest of the namespace

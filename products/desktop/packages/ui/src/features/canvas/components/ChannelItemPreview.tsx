@@ -7,7 +7,6 @@ import {
   Item,
   ItemActions,
   ItemContent,
-  ItemDescription,
   ItemGroup,
   ItemSeparator,
   ItemTitle,
@@ -16,16 +15,17 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import { formatRelativeTimeShort } from "@posthog/shared";
+import { formatAbsoluteDateTime, formatRelativeAge } from "@posthog/shared";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import {
   TaskRowMenuList,
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
+import { channelItemAuthor } from "@posthog/ui/features/canvas/hooks/useChannelItemFacts";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useLatestTurnMessage } from "@posthog/ui/features/canvas/hooks/useLatestTurnMessage";
-import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { getOriginProductMeta } from "@posthog/ui/features/sidebar/components/items/TaskIcon";
 import { TaskDotMark } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
 import {
   type TaskBadge,
@@ -34,6 +34,8 @@ import {
   taskBadges,
   taskDot,
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import { CopyButton } from "@posthog/ui/primitives/CopyButton";
+import { FactLabel, FactList } from "@posthog/ui/primitives/FactList";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { type ReactNode, useEffect } from "react";
 
@@ -67,18 +69,13 @@ function previewGlyph(item: ChannelItemModel, dot: TaskDot | null): ReactNode {
   return <TaskDotMark dot={dot} />;
 }
 
-function authorLabel(item: ChannelItemModel): string | null {
-  if (item.authorUser) return userDisplayName(item.authorUser);
-  return item.authorName;
-}
-
 /**
  * Who made it, as the avatar alone. The name is worth a line of the card only
  * where the avatar can't carry it, so it goes to the label and a tooltip
  * instead of a row of its own.
  */
 function AuthorAvatar({ item }: { item: ChannelItemModel }) {
-  const author = authorLabel(item);
+  const author = channelItemAuthor(item);
   if (!author) return null;
   const label = `Created by ${author}`;
   return (
@@ -160,6 +157,83 @@ function Badge({ badge: { Icon, label, tone, url } }: { badge: TaskBadge }) {
 }
 
 /**
+ * The branch's value cell: the name, and the one thing a reader wants from a
+ * branch name — it, in their clipboard. Truncated rather than wrapped, because
+ * the button has to stay at the end of the line.
+ */
+function BranchLine({ branch }: { branch: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-1">
+      <span className="truncate" title={branch}>
+        {branch}
+      </span>
+      <CopyButton
+        bare
+        confirm="tooltip"
+        text={branch}
+        label="Copy branch name"
+      />
+    </span>
+  );
+}
+
+/**
+ * What the card can state plainly: where the session's work sits, when it last
+ * moved, who filed it, and what it wants. Facts a reader looks up belong in one
+ * column rather than scattered between a badge row and a sentence.
+ */
+function ItemFacts({
+  item,
+  source,
+  status,
+}: {
+  item: ChannelItemModel;
+  /** The origin badge, relabeled: the row's column already says "Source". */
+  source: TaskBadge | undefined;
+  /** The PR's state, which is what a reader means by a session's status here. */
+  status: TaskBadge | undefined;
+}) {
+  const repository = item.repository?.label;
+  return (
+    <FactList>
+      {repository && (
+        <>
+          <FactLabel>Repo</FactLabel>
+          <span className="truncate" title={repository}>
+            {repository}
+          </span>
+        </>
+      )}
+      {item.branch && (
+        <>
+          <FactLabel>Branch</FactLabel>
+          <BranchLine branch={item.branch} />
+        </>
+      )}
+      <FactLabel>Updated</FactLabel>
+      {/* The exact moment behind the phrase, the same way a row carries it. */}
+      <span title={formatAbsoluteDateTime(item.ts)}>
+        {formatRelativeAge(item.ts)}
+      </span>
+      {source && (
+        <>
+          <FactLabel>Source</FactLabel>
+          {/* Still a badge, because Slack's is a link back to the thread. */}
+          <Badge badge={source} />
+        </>
+      )}
+      {status && (
+        <>
+          <FactLabel>Status</FactLabel>
+          {/* Still a badge: the PR's state carries its colour, and it opens. */}
+          <Badge badge={status} />
+        </>
+      )}
+    </FactList>
+  );
+}
+
+/**
  * What the row's marks mean, in words: the dot's own label, the last thing the
  * agent said, then the badges'.
  *
@@ -178,10 +252,13 @@ function ItemSignals({
   badges,
   message,
 }: {
-  dot: TaskDot;
+  dot: TaskDot | null;
   badges: TaskBadge[];
   message: string | null;
 }) {
+  // A canvas has no state, nothing said and nothing to link: the separator
+  // alone would promise a block that isn't there.
+  if (!dot && badges.length === 0 && !message) return null;
   return (
     <>
       <ItemSeparator className="my-0" />
@@ -190,20 +267,23 @@ function ItemSignals({
           line of its own and out past the card's edge. */}
       <Item size="xs" className="flex-nowrap items-start p-2">
         <ItemContent className="min-w-0 gap-1.5">
-          <span className="text-xs">{dot.label}</span>
-          {message && (
-            // Three lines: enough for the agent's closing sentence, short of
-            // turning the card into a transcript you have to read.
-            <p className="line-clamp-3 break-words text-muted-foreground text-xs leading-snug">
-              {message}
-            </p>
-          )}
+          {/* What the row's dot says, in words. Above the message, like the
+              badges: the agent's own words are the longest thing here, so
+              anything under them reads as part of the transcript. */}
+          {dot && <span className="text-xs">{dot.label}</span>}
           {badges.length > 0 && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               {badges.map((badge) => (
                 <Badge key={badge.key} badge={badge} />
               ))}
             </div>
+          )}
+          {message && (
+            // Three lines: enough for the agent's closing sentence, short of
+            // turning the card into a transcript you have to read.
+            <p className="line-clamp-3 break-words text-muted-foreground text-xs leading-snug">
+              {message}
+            </p>
           )}
         </ItemContent>
       </Item>
@@ -239,38 +319,42 @@ export function ChannelItemPreview({
   const status = useChannelTaskStatus(item);
   const message = useLatestTurnMessage(item.task);
   const dot = status ? taskDot(status) : null;
+  const badges = status ? taskBadges(status) : [];
+  // The origin moves up into the facts, where a labeled column already says
+  // what it is; the badge keeps its glyph and its link.
+  const origin = badges.find((badge) => badge.key === "origin");
+  const originMeta = getOriginProductMeta(status?.originProduct);
+  const source =
+    origin && originMeta ? { ...origin, label: originMeta.label } : undefined;
+  // The PR's state is what "status" means in a labeled column; the dot's own
+  // wording is about the session and stays with the agent's words below.
+  const pullRequest = badges.find((badge) => badge.key === "pr");
 
   return (
     <ItemGroup className="gap-0!">
       <Item size="xs" className="flex-nowrap p-2">
-        <ItemContent className="min-w-0">
-          {/* No gutter: the mark is one glyph on one line, and a column for it
-              indents everything under it for the whole height of the card. */}
-          <ItemTitle className="flex items-baseline gap-2 break-words">
-            <span className="flex size-4 shrink-0 translate-y-0.5 items-center justify-center">
+        <ItemContent className="min-w-0 gap-2">
+          <ItemTitle className="wrap-break-word flex items-start gap-2">
+            <span className="flex h-[1lh] w-4 shrink-0 items-center justify-center">
               {previewGlyph(item, dot)}
             </span>
-            <span className="min-w-0">{item.title}</span>
+            <span className="min-w-0 font-bold">{item.title}</span>
           </ItemTitle>
-          <ItemDescription>
-            {item.kind === "canvas" ? "Canvas" : "Task"} · updated{" "}
-            {formatRelativeTimeShort(item.ts)}
-          </ItemDescription>
+          <div className="pl-6">
+            <ItemFacts item={item} source={source} status={pullRequest} />
+          </div>
         </ItemContent>
-        {/* Who made it rides on the identity row rather than taking a row of
-            its own — the card is a glance, and a line of chrome for a name is
-            a line the agent's own words could have had. Top-aligned: it belongs
-            to the title, not to the block of text under it. */}
         <ItemActions className="self-start">
           <AuthorAvatar item={item} />
         </ItemActions>
       </Item>
-      {dot && status && (
-        <ItemSignals dot={dot} badges={taskBadges(status)} message={message} />
-      )}
-      {/* The row's actions live here now: a row at rest shows its status, and
-          the card is already the surface you're pointing at when you want to do
-          something to it. */}
+      <ItemSignals
+        dot={dot}
+        badges={badges.filter(
+          (badge) => badge !== origin && badge !== pullRequest,
+        )}
+        message={message}
+      />
       <ItemSeparator className="my-0" />
       <div className="p-1">
         <TaskRowMenuList

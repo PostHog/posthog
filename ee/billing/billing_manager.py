@@ -3,11 +3,12 @@ import json
 import time
 import hashlib
 from datetime import UTC, datetime, timedelta
-from enum import Enum
-from typing import Any, Optional, cast
+from enum import Enum, StrEnum
+from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import F
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -19,6 +20,7 @@ from requests import JSONDecodeError
 from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
@@ -45,6 +47,30 @@ BILLING_TIMESERIES_REQUEST_TIMEOUT = (5, 30)
 # Marks tokens minted by the billing alerts evaluation job; billing recognizes this claim
 # on its read-only billing status path for tokens without a user role.
 BILLING_ALERTS_EVALUATION_SERVICE_ACTION = "billing_alerts_evaluation"
+
+
+StartupProgramLabel = Literal["Startup", "YC"]
+
+
+class PrepaidCreditState(StrEnum):
+    NONE = "none"
+    PENDING = "pending"
+    ACTIVE = "active"
+    EXHAUSTED = "exhausted"
+    EXPIRED = "expired"
+
+
+class FundingStatusUnavailable(Exception):
+    pass
+
+
+_FUNDING_STATUS_UNAVAILABLE_CACHE_VALUE = "__funding_status_unavailable__"
+
+
+@frozen
+class OrganizationFundingStatus:
+    startup_program_label: StartupProgramLabel | None
+    prepaid_credit_state: PrepaidCreditState
 
 
 class BillingAPIErrorCodes(Enum):
@@ -198,6 +224,31 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 
             raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", response)
         except JSONDecodeError:
             raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.text)
+
+
+def _parse_funding_status(data: object) -> OrganizationFundingStatus:
+    if not isinstance(data, dict):
+        raise FundingStatusUnavailable("Billing returned an invalid funding status response")
+
+    if "startup_program_label" not in data:
+        raise FundingStatusUnavailable("Billing returned an invalid startup program label")
+    raw_startup_program_label = data.get("startup_program_label")
+    if raw_startup_program_label not in (None, "Startup", "YC"):
+        raise FundingStatusUnavailable("Billing returned an invalid startup program label")
+    startup_program_label = cast(StartupProgramLabel | None, raw_startup_program_label)
+
+    raw_prepaid_credit_state = data.get("prepaid_credit_state")
+    if not isinstance(raw_prepaid_credit_state, str):
+        raise FundingStatusUnavailable("Billing returned an invalid prepaid credit state")
+    try:
+        prepaid_credit_state = PrepaidCreditState(raw_prepaid_credit_state)
+    except ValueError as error:
+        raise FundingStatusUnavailable("Billing returned an invalid prepaid credit state") from error
+
+    return OrganizationFundingStatus(
+        startup_program_label=startup_program_label,
+        prepaid_credit_state=prepaid_credit_state,
+    )
 
 
 class BillingManager:
@@ -391,6 +442,44 @@ class BillingManager:
         )
 
         handle_billing_service_error(res)
+
+    def get_funding_status(self, organization: Organization) -> OrganizationFundingStatus:
+        cache_key = f"organization_funding_status:{organization.id}"
+        try:
+            cached_status = cache.get(cache_key)
+        except Exception:
+            logger.warning("funding_status_cache_read_failed", exc_info=True)
+            cached_status = None
+
+        if cached_status == _FUNDING_STATUS_UNAVAILABLE_CACHE_VALUE:
+            raise FundingStatusUnavailable("Could not resolve organization funding status")
+        if cached_status is not None:
+            return _parse_funding_status(cached_status)
+
+        try:
+            response = requests.get(
+                f"{BILLING_SERVICE_URL}/api/billing/funding-status/",
+                headers=self.get_auth_headers(organization),
+                timeout=5,
+            )
+            handle_billing_service_error(response, valid_codes=(200,))
+            raw_status = response.json()
+            funding_status = _parse_funding_status(raw_status)
+        except Exception as error:
+            try:
+                cache.set(cache_key, _FUNDING_STATUS_UNAVAILABLE_CACHE_VALUE, timeout=5)
+            except Exception:
+                logger.warning("funding_status_failure_cache_write_failed", exc_info=True)
+            if isinstance(error, FundingStatusUnavailable):
+                raise
+            raise FundingStatusUnavailable("Could not resolve organization funding status") from error
+
+        try:
+            cache.set(cache_key, raw_status, timeout=30)
+        except Exception:
+            logger.warning("funding_status_cache_write_failed", exc_info=True)
+
+        return funding_status
 
     def _get_default_billing_response(self, organization: Organization | None) -> dict[str, Any]:
         products = self.get_default_products(organization)

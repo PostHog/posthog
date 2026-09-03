@@ -6,7 +6,7 @@ import type {
   SessionConfigSelectOption,
   SessionConfigSelectOptions,
 } from "@agentclientprotocol/sdk";
-import type { Adapter } from "./adapter";
+import type { Adapter, ModelAccess } from "./adapter";
 import type { SkillButtonId } from "./analytics-events";
 import type { TaskRunArtifact, TaskRunStatus } from "./domain-types";
 import type { ExecutionMode } from "./exec-types";
@@ -77,6 +77,8 @@ export interface AgentSession {
   processedLineCount?: number;
   framework?: "claude";
   adapter?: Adapter;
+  codexModelAccess?: ModelAccess;
+  claudeModelAccess?: ModelAccess;
   model?: string;
   executionMode?: ExecutionMode;
   reasoningLevel?: string;
@@ -96,6 +98,12 @@ export interface AgentSession {
    * record a conversation-cleared boundary they would ignore on resume.
    */
   conversationClear?: boolean;
+  /**
+   * Adapter's negotiated side-question capability (`_meta.posthog.sideQuestion`
+   * from initialize). True means the adapter can answer a one-shot "/btw"
+   * question forked off the live transcript without touching the conversation.
+   */
+  sideQuestion?: boolean;
   pendingPermissions: Map<string, PermissionRequest>;
   pausedDurationMs: number;
   messageQueue: QueuedMessage[];
@@ -115,7 +123,6 @@ export interface AgentSession {
   cloudErrorMessage?: string | null;
   initialPrompt?: ContentBlock[];
   cloudBranch?: string | null;
-  handoffInProgress?: boolean;
   stopRequested?: boolean;
   optimisticItems: OptimisticItem[];
   contextUsed?: number;
@@ -277,4 +284,23 @@ export function sessionSupportsNativeSteer(
   if (session.steering === "native") return true;
   if (session.isCloud) return false;
   return session.steering == null && session.adapter === "claude";
+}
+
+/**
+ * Whether the session can answer a one-shot "/btw" side question (a
+ * single-turn, tool-less query forked off the live transcript). Decided by the
+ * adapter's negotiated `sideQuestion` capability where one was negotiated.
+ *
+ * Cloud runs never complete the ACP `initialize` handshake with this client, so
+ * the capability is inferred from the adapter instead: the sandbox runs the same
+ * `@posthog/agent` build, and the fork happens there against its own transcript.
+ * A sandbox predating the `side_question` command rejects it, which surfaces as
+ * an error on the card rather than a missing command.
+ */
+export function sessionSupportsSideQuestion(
+  session: Pick<AgentSession, "isCloud" | "sideQuestion" | "adapter">,
+): boolean {
+  if (session.sideQuestion === true) return true;
+  if (session.sideQuestion === false) return false;
+  return session.adapter === "claude";
 }

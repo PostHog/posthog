@@ -163,7 +163,7 @@ export class PersonMergeService {
                 // The counter is the rollout's drop-rate signal; the warning is debounced by
                 // the standard limiter so a long-held claim cannot flood the warnings topic.
                 mergeClaimDroppedCounter.labels({ call: this.context.event.event }).inc()
-                await emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
                     type: 'merge_race_condition',
                     details: {
                         distinctId: this.context.distinctId,
@@ -174,12 +174,12 @@ export class PersonMergeService {
                         targetPersonDistinctId: this.context.distinctId,
                     },
                     pipelineStep: 'person-merge',
-                })
+                }).then(() => undefined)
                 logger.warn('🤔', 'merge dropped: person claimed by a concurrent lifecycle operation', {
                     team_id: this.context.team.id,
                     distinctId: this.context.distinctId,
                 })
-                return mergeSuccess(undefined, Promise.resolve(), true)
+                return mergeSuccess(undefined, warningAck, true)
             }
             captureException(e, {
                 tags: { team_id: this.context.team.id, pipeline_step: 'processPersonsStep' },
@@ -218,7 +218,7 @@ export class PersonMergeService {
             return mergeSuccess(undefined, Promise.resolve(), true)
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
-            await emitIngestionWarning(this.context.outputs, teamId, {
+            const warningAck = emitIngestionWarning(this.context.outputs, teamId, {
                 type: 'cannot_merge_with_illegal_distinct_id',
                 details: {
                     illegalDistinctId: mergeIntoDistinctId,
@@ -228,11 +228,11 @@ export class PersonMergeService {
                 },
                 pipelineStep: 'person-merge',
                 alwaysSend: true,
-            })
-            return mergeSuccess(undefined, Promise.resolve(), true)
+            }).then(() => undefined)
+            return mergeSuccess(undefined, warningAck, true)
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
-            await emitIngestionWarning(this.context.outputs, teamId, {
+            const warningAck = emitIngestionWarning(this.context.outputs, teamId, {
                 type: 'cannot_merge_with_illegal_distinct_id',
                 details: {
                     illegalDistinctId: otherPersonDistinctId,
@@ -242,8 +242,8 @@ export class PersonMergeService {
                 },
                 pipelineStep: 'person-merge',
                 alwaysSend: true,
-            })
-            return mergeSuccess(undefined, Promise.resolve(), true)
+            }).then(() => undefined)
+            return mergeSuccess(undefined, warningAck, true)
         }
 
         const result = await promiseRetry(
@@ -513,19 +513,24 @@ export class PersonMergeService {
         const mergeSources: InternalPerson[] = []
         const seenSourceIds = new Set<string>([target.id])
         const missingPairs: MergeFoldPair[] = []
+        // Warning produces are awaited at batch end through the result's kafkaAck,
+        // not here, so a plan full of refused pairs does not serialize round-trips.
+        const warningAcks: Promise<boolean>[] = []
         for (const pair of pairsToFold) {
             if (isDistinctIdIllegal(pair.anonDistinctId)) {
-                await emitIngestionWarning(this.context.outputs, teamId, {
-                    type: 'cannot_merge_with_illegal_distinct_id',
-                    details: {
-                        illegalDistinctId: pair.anonDistinctId,
-                        otherDistinctId: plan.targetDistinctId,
-                        distinctId: plan.targetDistinctId,
-                        eventUuid: pair.eventUuid,
-                    },
-                    pipelineStep: 'person-merge',
-                    alwaysSend: true,
-                })
+                warningAcks.push(
+                    emitIngestionWarning(this.context.outputs, teamId, {
+                        type: 'cannot_merge_with_illegal_distinct_id',
+                        details: {
+                            illegalDistinctId: pair.anonDistinctId,
+                            otherDistinctId: plan.targetDistinctId,
+                            distinctId: plan.targetDistinctId,
+                            eventUuid: pair.eventUuid,
+                        },
+                        pipelineStep: 'person-merge',
+                        alwaysSend: true,
+                    })
+                )
                 continue
             }
             const source = sourceByDistinctId.get(pair.anonDistinctId)
@@ -539,29 +544,32 @@ export class PersonMergeService {
             if (source.is_identified) {
                 // $identify never merges an already-identified source. One
                 // warning per folded pair (pairs are deduped), not per event.
-                await emitIngestionWarning(this.context.outputs, teamId, {
-                    type: 'cannot_merge_already_identified',
-                    details: {
-                        sourcePersonDistinctId: pair.anonDistinctId,
-                        targetPersonDistinctId: plan.targetDistinctId,
-                        distinctId: plan.targetDistinctId,
-                        eventUuid: pair.eventUuid,
-                        personId: target.uuid,
-                        otherPersonId: source.uuid,
-                    },
-                    pipelineStep: 'person-merge',
-                    alwaysSend: true,
-                })
+                warningAcks.push(
+                    emitIngestionWarning(this.context.outputs, teamId, {
+                        type: 'cannot_merge_already_identified',
+                        details: {
+                            sourcePersonDistinctId: pair.anonDistinctId,
+                            targetPersonDistinctId: plan.targetDistinctId,
+                            distinctId: plan.targetDistinctId,
+                            eventUuid: pair.eventUuid,
+                            personId: target.uuid,
+                            otherPersonId: source.uuid,
+                        },
+                        pipelineStep: 'person-merge',
+                        alwaysSend: true,
+                    })
+                )
                 continue
             }
             seenSourceIds.add(source.id)
             mergeSources.push(source)
         }
+        const warningsAck = Promise.all(warningAcks).then(() => undefined)
 
         if (mergeSources.length === 0 && missingPairs.length === 0) {
             plan.status = 'executed'
             plan.mergedPerson = target
-            return mergeSuccess(target, Promise.resolve(), true)
+            return mergeSuccess(target, warningsAck, true)
         }
 
         // Sequential property precedence: each pair merges source properties
@@ -677,7 +685,7 @@ export class PersonMergeService {
         mergeFoldExecutedCounter.inc()
         mergeFoldSizeHistogram.observe(plan.pairs.length)
 
-        const kafkaAck = this.context.produceMessages(kafkaMessages)
+        const kafkaAck = Promise.all([this.context.produceMessages(kafkaMessages), warningsAck]).then(() => undefined)
         for (const source of mergeSources) {
             // Same fire-and-forget contract as executeTransaction.
             void this.context.producePersonMergeEvent(source, mergedPerson).catch(() => {})
@@ -701,7 +709,7 @@ export class PersonMergeService {
 
         // If merge isn't allowed, we will ignore it, log an ingestion warning and return success with original person
         if (!mergeAllowed) {
-            await emitIngestionWarning(this.context.outputs, this.context.team.id, {
+            const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
                 type: 'cannot_merge_already_identified',
                 details: {
                     sourcePersonDistinctId: otherPersonDistinctId,
@@ -713,11 +721,11 @@ export class PersonMergeService {
                 },
                 pipelineStep: 'person-merge',
                 alwaysSend: true,
-            })
+            }).then(() => undefined)
             logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call', {
                 team_id: this.context.team.id,
             })
-            return mergeSuccess(mergeInto, Promise.resolve(), true)
+            return mergeSuccess(mergeInto, warningAck, true)
         }
 
         // How the merge works:
@@ -761,7 +769,7 @@ export class PersonMergeService {
 
         // Handle specific error types
         if (result.error instanceof PersonMergeRaceConditionError) {
-            await emitIngestionWarning(this.context.outputs, this.context.team.id, {
+            const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
                 type: 'merge_race_condition',
                 details: {
                     sourcePersonDistinctId: otherPersonDistinctId,
@@ -773,11 +781,11 @@ export class PersonMergeService {
                 },
                 pipelineStep: 'person-merge',
                 alwaysSend: true,
-            })
+            }).then(() => undefined)
             logger.warn('🤔', 'merge race condition detected, too many concurrent merges', {
                 team_id: this.context.team.id,
             })
-            return mergeSuccess(mergeInto, Promise.resolve(), true)
+            return mergeSuccess(mergeInto, warningAck, true)
         }
 
         // For other errors (PersonMergeLimitExceededError, etc.), return the error result

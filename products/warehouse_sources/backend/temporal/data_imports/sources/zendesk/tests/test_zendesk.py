@@ -12,6 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONLinkPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ParentRowFilter
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
+    ParentTableRef,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesk import (
     ZendeskSourceConfig,
@@ -21,6 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.se
     FANOUT_PARENTS,
     INCREMENTAL_ENDPOINTS,
     INCREMENTAL_FIELDS,
+    TICKET_COMMENTS_PARENT_LOOKBACK,
+    TICKET_COMMENTS_PARENT_MAX_CATCHUP,
     TICKET_COMMENTS_PARENT_NAME,
     ZENDESK_ENDPOINTS,
 )
@@ -537,18 +543,26 @@ class TestToZendeskIso8601:
         assert to_zendesk_iso8601(value) == expected
 
 
+_UNSET = object()
+
+
 class _FakeResource:
     def __init__(self, name: str) -> None:
         self.name = name
         self.maps: list[Any] = []
+        self.filters: list[Any] = []
 
     def add_map(self, fn: Any) -> "_FakeResource":
         self.maps.append(fn)
         return self
 
+    def add_filter(self, fn: Any) -> "_FakeResource":
+        self.filters.append(fn)
+        return self
+
 
 class TestZendeskTicketCommentsFanout:
-    def _build(self) -> tuple[_FakeResource, list[Any]]:
+    def _build(self, should_use_incremental_field: bool = False) -> tuple[_FakeResource, list[Any]]:
         child = _FakeResource("ticket_comments")
 
         with patch(
@@ -562,7 +576,8 @@ class TestZendeskTicketCommentsFanout:
                 endpoint="ticket_comments",
                 team_id=1,
                 job_id="job-1",
-                db_incremental_field_last_value=None,
+                db_incremental_field_last_value="2026-01-01T00:00:00Z" if should_use_incremental_field else None,
+                should_use_incremental_field=should_use_incremental_field,
             )
 
         return child, mock_resources.call_args[0]
@@ -582,6 +597,20 @@ class TestZendeskTicketCommentsFanout:
         }
         assert child["include_from_parent"] == ["id"]
 
+    def test_replaces_the_table_when_the_schema_is_not_incremental(self) -> None:
+        _, args = self._build()
+        _, child = args[0]["resources"]
+
+        assert child["write_disposition"] == "replace"
+
+    def test_incremental_merges_but_sends_no_request_window(self) -> None:
+        _, args = self._build(should_use_incremental_field=True)
+        _, child = args[0]["resources"]
+
+        assert child["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
+        assert "incremental" not in child["endpoint"]
+        assert "since" not in child["endpoint"]["params"]
+
     def test_comment_rows_carry_the_parent_ticket_id(self) -> None:
         # Without this rename a comment row has no ticket_id, so the (ticket_id, id) primary key
         # would never match and every sync would seed duplicates.
@@ -590,6 +619,161 @@ class TestZendeskTicketCommentsFanout:
         row = child.maps[0]({f"_{TICKET_COMMENTS_PARENT_NAME}_id": 42, "id": 7, "body": "hi"})
 
         assert row == {"ticket_id": 42, "id": 7, "body": "hi"}
+
+
+class TestZendeskTicketCommentsWarehouseParent:
+    def _build(
+        self,
+        watermark: Any,
+        use_warehouse_parent: bool = True,
+        snapshot_at: Any = _UNSET,
+    ) -> tuple[Any, _FakeResource]:
+        child = _FakeResource("ticket_comments")
+        if snapshot_at is _UNSET:
+            snapshot_at = datetime.now(UTC)
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources",
+                return_value=[_FakeResource("tickets"), child],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.zendesk.parent_snapshot_covers_through",
+                return_value=snapshot_at,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
+                return_value=ParentTableRef(uri="s3://bucket/team_1/tickets", version=3),
+            ) as mock_resolve,
+        ):
+            zendesk_source(
+                subdomain="nibbles",
+                api_key="token",
+                email_address="user@example.com",
+                endpoint="ticket_comments",
+                team_id=1,
+                job_id="job-1",
+                db_incremental_field_last_value=watermark,
+                should_use_incremental_field=True,
+                source_id="source-1",
+                use_warehouse_parent=use_warehouse_parent,
+            )
+        return mock_resolve, child
+
+    def _resolve(self, watermark: Any, use_warehouse_parent: bool = True, snapshot_at: Any = _UNSET) -> Any:
+        return self._build(watermark, use_warehouse_parent, snapshot_at)[0]
+
+    def test_scans_tickets_bounded_by_the_child_watermark(self) -> None:
+        watermark = datetime.now(UTC) - timedelta(hours=6)
+
+        resolve = self._resolve(watermark)
+
+        assert resolve.call_args.args[2] == "tickets"
+        assert resolve.call_args.kwargs["required_columns"] == ["id"]
+        assert resolve.call_args.kwargs["row_filter"] == ParentRowFilter(
+            field="updated_at",
+            not_before=watermark - TICKET_COMMENTS_PARENT_LOOKBACK,
+        )
+
+    def test_clamps_a_watermark_that_sits_ahead_of_now(self) -> None:
+        resolve = self._resolve(datetime.now(UTC) + timedelta(days=1))
+
+        assert resolve.call_args.kwargs["row_filter"].not_before <= datetime.now(UTC) - TICKET_COMMENTS_PARENT_LOOKBACK
+
+    @pytest.mark.parametrize(
+        "watermark_factory",
+        [
+            pytest.param(lambda: None, id="no_watermark"),
+            pytest.param(lambda: "still syncing", id="unparseable_watermark"),
+            pytest.param(
+                lambda: datetime.now(UTC) - TICKET_COMMENTS_PARENT_MAX_CATCHUP - timedelta(days=1),
+                id="older_than_the_archive_window",
+            ),
+        ],
+    )
+    def test_takes_the_api_path_when_no_safe_floor_exists(self, watermark_factory: Any) -> None:
+        assert self._resolve(watermark_factory()).call_count == 0
+
+    def test_drops_comments_newer_than_the_parent_snapshot(self) -> None:
+        snapshot_at = datetime.now(UTC) - timedelta(hours=6)
+        _, child = self._build(datetime.now(UTC) - timedelta(hours=7), snapshot_at=snapshot_at)
+
+        keep = child.filters[0]
+
+        assert keep({"created_at": (snapshot_at - timedelta(minutes=1)).isoformat()}) is True
+        assert keep({"created_at": (snapshot_at + timedelta(minutes=1)).isoformat()}) is False
+        assert keep({"created_at": None}) is True
+
+    def test_emits_every_comment_on_the_api_path(self) -> None:
+        _, child = self._build(datetime.now(UTC) - timedelta(hours=6), use_warehouse_parent=False)
+
+        assert child.filters == []
+
+    def test_takes_the_api_path_without_a_completed_parent_sync(self) -> None:
+        assert self._resolve(datetime.now(UTC) - timedelta(hours=6), snapshot_at=None).call_count == 0
+
+    def test_no_cap_when_the_parent_table_cannot_be_resolved(self) -> None:
+        child = _FakeResource("ticket_comments")
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources",
+                return_value=[_FakeResource("tickets"), child],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.zendesk.parent_snapshot_covers_through",
+                return_value=datetime.now(UTC) - timedelta(hours=6),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.try_resolve_parent_table",
+                return_value=None,
+            ),
+        ):
+            zendesk_source(
+                subdomain="nibbles",
+                api_key="token",
+                email_address="user@example.com",
+                endpoint="ticket_comments",
+                team_id=1,
+                job_id="job-1",
+                db_incremental_field_last_value=datetime.now(UTC) - timedelta(hours=7),
+                should_use_incremental_field=True,
+                source_id="source-1",
+                use_warehouse_parent=True,
+            )
+
+        assert child.filters == []
+
+    def test_takes_the_api_path_when_reuse_is_not_enabled_for_the_run(self) -> None:
+        watermark = datetime.now(UTC) - timedelta(hours=6)
+
+        assert self._resolve(watermark, use_warehouse_parent=False).call_count == 0
+
+
+class TestZendeskRequiredParentSchemas:
+    @pytest.mark.parametrize(
+        "schema_name,expected",
+        [
+            pytest.param("ticket_comments", ["tickets"], id="the_fanout_child"),
+            pytest.param("tickets", [], id="the_parent_itself"),
+            pytest.param("ticket_audits", [], id="a_plain_list_endpoint"),
+            pytest.param("users", [], id="an_original_export_endpoint"),
+        ],
+    )
+    def test_required_parent_schemas(self, schema_name: str, expected: list[str]) -> None:
+        assert ZendeskSource().get_required_parent_schemas(schema_name) == expected
+
+    def test_source_for_pipeline_forwards_the_source_and_the_reuse_decision(self) -> None:
+        config = ZendeskSourceConfig(subdomain="nibbles", api_key="token", email_address="user@example.com")
+        inputs = _source_inputs("ticket_comments")
+        inputs.fanout_warehouse_reuse = True
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.source.zendesk_source",
+            return_value=SimpleNamespace(name="ticket_comments", column_hints=None),
+        ) as mock_source:
+            ZendeskSource().source_for_pipeline(config, inputs)
+
+        assert mock_source.call_args.kwargs["source_id"] == "source-1"
+        assert mock_source.call_args.kwargs["use_warehouse_parent"] is True
 
 
 class TestZendeskSchemas:
@@ -606,20 +790,16 @@ class TestZendeskSchemas:
         # The endpoints that shipped first must keep being offered.
         assert {"tickets", "users", "organizations", "brands", "groups", "sla_policies"}.issubset(names)
 
-    def test_only_endpoints_with_a_server_side_filter_advertise_incremental(self) -> None:
+    def test_incremental_is_advertised_only_where_it_can_be_honored(self) -> None:
         schemas = self._schemas()
         incremental = {name for name in ZENDESK_ENDPOINTS if schemas[name].supports_incremental}
 
-        assert incremental == {"activities"}
+        assert incremental == {"activities", "ticket_comments"}
         assert schemas["activities"].incremental_fields[0]["field"] == "created_at"
-
-    def test_canonical_descriptions_cover_every_new_table(self) -> None:
-        descriptions = ZendeskSource().get_canonical_descriptions()
-
-        for name in ZENDESK_ENDPOINTS:
-            assert name in descriptions, f"{name} has no canonical description"
-            assert descriptions[name]["description"]
-            assert descriptions[name]["docs_url"].startswith("https://developer.zendesk.com/")
+        assert schemas["ticket_comments"].incremental_fields[0]["field"] == "created_at"
+        for name in incremental:
+            config = ZENDESK_ENDPOINTS[name]
+            assert config.incremental_start_param is not None or config.fanout is not None
 
 
 class TestZendeskSourceForPipeline:

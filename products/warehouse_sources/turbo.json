@@ -22,6 +22,7 @@
                 "backend/temporal/data_imports/sources/salesforce/**",
                 "backend/temporal/data_imports/sources/snowflake/**",
                 "backend/temporal/data_imports/sources/stripe/**",
+                "backend/temporal/data_imports/sources/trino/**",
                 "!backend/temporal/data_imports/sources/common/rest_source/**",
                 "!backend/temporal/data_imports/sources/common/test/**",
                 "!backend/temporal/data_imports/sources/common/sql/tests/**",
@@ -33,7 +34,8 @@
                 "!backend/temporal/data_imports/sources/redshift/tests/**",
                 "!backend/temporal/data_imports/sources/salesforce/test/**",
                 "!backend/temporal/data_imports/sources/snowflake/tests/**",
-                "!backend/temporal/data_imports/sources/stripe/tests/**"
+                "!backend/temporal/data_imports/sources/stripe/tests/**",
+                "!backend/temporal/data_imports/sources/trino/tests/**"
             ],
             "outputs": [],
             "cache": true

@@ -389,7 +389,7 @@ export function SidePanelSupport(): JSX.Element {
                                 <LemonButton
                                     type="secondary"
                                     status="alt"
-                                    to="https://posthog.com/roadmap"
+                                    to="https://posthog.com/roadmap?idea=new"
                                     icon={<IconFeatures />}
                                     targetBlank
                                 >

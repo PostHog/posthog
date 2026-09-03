@@ -297,6 +297,60 @@ def test_format_ownership_individual_only(ownership: dict, summary: str, expecte
     assert "NOT on the owning team" not in out
 
 
+@pytest.mark.parametrize(
+    "trigger, expected",
+    [
+        ("label", "this repo reviews on request only"),
+        ("all", "this repo reviews every pull request automatically"),
+        ("self_driving", "dispatched from a self-driving Inbox implementation run"),
+    ],
+)
+def test_prompt_states_why_the_review_was_asked_for(trigger: str, expected: str) -> None:
+    # A requested review and an automatic one used to reach the reviewer identically, so it could
+    # not tell whether anyone wanted a verdict on this PR. The line is TRUSTED context, so it has to
+    # sit above the untrusted PR content where an author cannot forge or contradict it.
+    reviewer = Reviewer(Path("."))
+    cl = {
+        "tier": "T1-agent",
+        "t1_subclass": "",
+        "breadth": "narrow",
+        "commit_type": "fix",
+        "familiarity": None,
+        "ownership": {},
+        "assurance": None,
+        "review_trigger": trigger,
+    }
+    prompt = reviewer._build_review_prompt(_pr(), cl, {"gate_verdict": "PENDING", "gates": []}, Path("/tmp/d.patch"))
+
+    assert expected in prompt
+    # rindex: the anti-injection notice at the top quotes the marker text, so the real delimiter is
+    # the last occurrence.
+    assert prompt.index("Invocation:") < prompt.rindex("--- BEGIN UNTRUSTED CONTENT ---")
+
+
+def test_prompt_omits_the_invocation_line_without_a_trigger() -> None:
+    # A local review_pr.py run has no trigger to report, and its prompt must stay byte-identical to
+    # what it was before the hosted runtime started sending one.
+    reviewer = Reviewer(Path("."))
+    base = {
+        "tier": "T1-agent",
+        "t1_subclass": "",
+        "breadth": "narrow",
+        "commit_type": "fix",
+        "familiarity": None,
+        "ownership": {},
+        "assurance": None,
+    }
+
+    def prompt_with(cl_extra: dict) -> str:
+        return reviewer._build_review_prompt(
+            _pr(), {**base, **cl_extra}, {"gate_verdict": "PENDING", "gates": []}, Path("/tmp/d.patch")
+        )
+
+    assert prompt_with({}) == prompt_with({"review_trigger": ""})
+    assert "Invocation:" not in prompt_with({})
+
+
 def test_prompt_provenance_renders_only_for_self_driving_runs() -> None:
     # The Action never sets the flag, so its prompts must stay byte-identical (absent and False both
     # render nothing); a self-driving run gets the TRUSTED provenance block that replaces the

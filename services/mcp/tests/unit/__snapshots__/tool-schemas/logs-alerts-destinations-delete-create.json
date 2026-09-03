@@ -6,7 +6,6 @@
             "items": {
                 "type": "string"
             },
-            "maxItems": 4,
             "minItems": 1,
             "type": "array"
         },

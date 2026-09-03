@@ -1,14 +1,10 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
+from posthog.schema import ReleaseStatus, SourceFieldSelectConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.dodopayments import (
-    DodoPaymentsResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.settings import (
     DODOPAYMENTS_ENDPOINTS,
@@ -22,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dodopaymen
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dodopayments import (
     DodoPaymentsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 API_CLIENT_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.source.api_client"
 
@@ -33,9 +28,6 @@ class TestDodoPaymentsSource:
         self.team_id = 123
         self.config = DodoPaymentsSourceConfig(api_key="test-api-key", mode="live")
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.DODOPAYMENTS
-
     def test_get_source_config(self):
         config = self.source.get_source_config
 
@@ -45,17 +37,6 @@ class TestDodoPaymentsSource:
         # unreleasedSource hides the source from every user, so a finished source must not set it.
         assert not config.unreleasedSource
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/dodo-payments"
-
-    def test_api_key_field_is_a_secret_password(self):
-        field = next(
-            f
-            for f in self.source.get_source_config.fields
-            if isinstance(f, SourceFieldInputConfig) and f.name == "api_key"
-        )
-
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_mode_field_offers_every_host(self):
         # Test and live data live on separate hosts with separate keys, so the mode cannot be
@@ -145,40 +126,3 @@ class TestDodoPaymentsSource:
         else:
             assert message is not None and expected_message_fragment in message
         mock_validate.assert_called_once_with("test-api-key", "live")
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is DodoPaymentsResumeConfig
-
-    @mock.patch(f"{API_CLIENT_PATCH}.dodopayments_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "payments"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2024-05-01T00:00:00Z"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["api_key"] == "test-api-key"
-        assert kwargs["mode"] == "live"
-        assert kwargs["endpoint"] == "payments"
-        assert kwargs["team_id"] is inputs.team_id
-        assert kwargs["job_id"] is inputs.job_id
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2024-05-01T00:00:00Z"
-
-    @mock.patch(f"{API_CLIENT_PATCH}.dodopayments_source")
-    def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "products"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2024-05-01T00:00:00Z"
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None

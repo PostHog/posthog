@@ -3121,10 +3121,10 @@ async fn stuck_handoff_defers_only_its_own_partition() {
 }
 
 /// Concurrent planners can both read a partition as unpinned and plan it;
-/// handoff creation is guarded create-if-absent so the second plan's txn
-/// fails whole instead of replacing the first handoff and orphaning its
-/// acks. The losing plan's writes — including its innocent assignments —
-/// must not land either: it was computed against a stale snapshot.
+/// handoff creation is guarded create-if-absent so the second plan
+/// cannot replace the first handoff and orphan its acks. Atomicity is
+/// per partition: the losing plan's uncontested writes still land, and
+/// only the contested partition stands down.
 #[tokio::test]
 async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
     use personhog_coordination::types::{
@@ -3147,7 +3147,7 @@ async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
         new_owner_address: None,
     };
     assert!(store
-        .create_assignments_and_handoffs(&[], std::slice::from_ref(&first), &[])
+        .create_assignments_and_handoffs(&[], std::slice::from_ref(&first), &[], 128)
         .await
         .unwrap());
 
@@ -3173,17 +3173,19 @@ async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
         advertise_address: None,
     };
     assert!(!store
-        .create_assignments_and_handoffs(&[stable], &[competing], &[])
+        .create_assignments_and_handoffs(&[stable], &[competing], &[], 128)
         .await
         .unwrap());
 
-    // The in-flight handoff survives with its original identity, and the
-    // losing plan's assignment never landed.
+    // The in-flight handoff survives with its original identity; the
+    // losing plan's uncontested assignment landed on its own.
     let handoffs = store.list_handoffs().await.unwrap();
     assert_eq!(handoffs.len(), 1);
     assert_eq!(handoffs[0].handoff_id, "first");
     assert_eq!(handoffs[0].new_owner, "writer-1");
-    assert!(store.list_assignments().await.unwrap().is_empty());
+    let assignments = store.list_assignments().await.unwrap();
+    assert_eq!(assignments.len(), 1);
+    assert_eq!(assignments[0].partition, 1);
 }
 
 /// The reviewer's stale-plan scenario at the store level: a plan whose
@@ -3221,7 +3223,7 @@ async fn stale_plan_is_rejected_when_the_assignment_moved() {
 
     // The world the stale planner reads: partition 0 owned by A.
     assert!(store
-        .create_assignments_and_handoffs(&[assignment("pod-a")], &[], &[])
+        .create_assignments_and_handoffs(&[assignment("pod-a")], &[], &[], 128)
         .await
         .unwrap());
     let snapshot = store.list_assignments_with_mod_revisions().await.unwrap();
@@ -3230,7 +3232,7 @@ async fn stale_plan_is_rejected_when_the_assignment_moved() {
     // Concurrently, a full move to B lands: by the time the stale plan's
     // txn arrives, the handoff key is gone and only the assignment moved.
     assert!(store
-        .create_assignments_and_handoffs(&[assignment("pod-b")], &[], &[])
+        .create_assignments_and_handoffs(&[assignment("pod-b")], &[], &[], 128)
         .await
         .unwrap());
 
@@ -3244,6 +3246,7 @@ async fn stale_plan_is_rejected_when_the_assignment_moved() {
                 partition: 0,
                 mod_revision: stale_revision,
             }],
+            128,
         )
         .await
         .unwrap();
@@ -3265,6 +3268,7 @@ async fn stale_plan_is_rejected_when_the_assignment_moved() {
                 partition: 0,
                 mod_revision: *fresh_revision,
             }],
+            128
         )
         .await
         .unwrap());
@@ -3276,8 +3280,8 @@ async fn stale_plan_is_rejected_when_the_assignment_moved() {
 /// A fresh-partition handoff asserts the assignment is still absent: if
 /// one appeared since the snapshot (the partition got born through a
 /// concurrent handoff's completion), the plan's old_owner: None is a lie
-/// and the plan must be rejected — and one stale precondition rejects the
-/// whole plan, valid handoffs included.
+/// and that partition must be rejected — alone: a stale precondition
+/// stands down its own partition, not the plan's valid handoffs.
 #[tokio::test]
 async fn fresh_plan_is_rejected_when_an_assignment_appeared() {
     use personhog_coordination::types::{
@@ -3311,13 +3315,15 @@ async fn fresh_plan_is_rejected_when_an_assignment_appeared() {
             }],
             &[],
             &[],
+            128
         )
         .await
         .unwrap());
 
     // The plan carries one stale fresh-handoff (partition 0) and one
-    // genuinely fresh one (partition 1): all-or-nothing rejection.
-    let rejected = store
+    // genuinely fresh one (partition 1): the stale partition stands
+    // down alone, the innocent one applies.
+    let all_applied = store
         .create_assignments_and_handoffs(
             &[],
             &[fresh_handoff(0, "stale"), fresh_handoff(1, "innocent")],
@@ -3325,22 +3331,15 @@ async fn fresh_plan_is_rejected_when_an_assignment_appeared() {
                 AssignmentPrecondition::Absent { partition: 0 },
                 AssignmentPrecondition::Absent { partition: 1 },
             ],
+            128,
         )
         .await
         .unwrap();
-    assert!(!rejected);
-    assert!(store.list_handoffs().await.unwrap().is_empty());
-
-    // Replanned against reality, partition 1 alone applies.
-    assert!(store
-        .create_assignments_and_handoffs(
-            &[],
-            &[fresh_handoff(1, "replanned")],
-            &[AssignmentPrecondition::Absent { partition: 1 }],
-        )
-        .await
-        .unwrap());
-    assert_eq!(store.list_handoffs().await.unwrap().len(), 1);
+    assert!(!all_applied);
+    let handoffs = store.list_handoffs().await.unwrap();
+    assert_eq!(handoffs.len(), 1);
+    assert_eq!(handoffs[0].partition, 1);
+    assert_eq!(handoffs[0].handoff_id, "innocent");
 }
 
 /// The rebalance must never write assignment records — handoff completion

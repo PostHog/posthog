@@ -3,14 +3,10 @@ from posthog.test.base import APIBaseTest
 from posthog.schema import DateRange, WebOverviewQuery
 
 from posthog.constants import AvailableFeature
-from posthog.rbac.user_access_control import UserAccessControlError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.models.access_control import AccessControl
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 class TestWebAnalyticsRBAC(APIBaseTest):

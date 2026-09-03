@@ -1,18 +1,15 @@
-import { Link } from '@posthog/lemon-ui'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 function ServerSideWarning(): JSX.Element {
     return (
-        <div className="warning">
-            <p>
-                <b>Warning:</b> Server side experiment metrics require you to manually send the feature flag
-                information.{' '}
-                <Link to="https://posthog.com/docs/experiments/adding-experiment-code" target="_blank">
-                    See this tutorial for more information.
-                </Link>
-            </p>
-        </div>
+        <LemonBanner type="warning" className="mt-2">
+            Server-side experiment metrics require you to manually send the feature flag information.{' '}
+            <Link to="https://posthog.com/docs/experiments/adding-experiment-code" target="_blank">
+                See this tutorial for more information.
+            </Link>
+        </LemonBanner>
     )
 }
 
@@ -24,7 +21,7 @@ interface SnippetProps {
 export function AndroidSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.Kotlin} wrap>
+            <CodeSnippet language={Language.Kotlin} wrap compact>
                 {`if (PostHog.getFeatureFlag("${flagKey}") == "${variant}") {
     // do something
 } else {
@@ -39,7 +36,7 @@ export function AndroidSnippet({ flagKey, variant }: SnippetProps): JSX.Element 
 export function IOSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.Swift} wrap>
+            <CodeSnippet language={Language.Swift} wrap compact>
                 {`if (PostHogSDK.shared.getFeatureFlag("${flagKey}") as? String == "${variant}") {
     // do something
 } else {
@@ -54,10 +51,10 @@ export function IOSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
 export function NodeJSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.JavaScript} wrap>
+            <CodeSnippet language={Language.JavaScript} wrap compact>
                 {`const experimentFlagValue = await client.getFeatureFlag('${flagKey}', 'user distinct id')
 
-if (experimentFlagValue === '${variant}' ) {
+if (experimentFlagValue === '${variant}') {
     // Do something differently for this user
 } else {
     // It's a good idea to let control variant always be the default behaviour,
@@ -72,7 +69,7 @@ if (experimentFlagValue === '${variant}' ) {
 export function JSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <div>
-            <CodeSnippet language={Language.JavaScript} wrap>
+            <CodeSnippet language={Language.JavaScript} wrap compact>
                 {`if (posthog.getFeatureFlag('${flagKey}') === '${variant}') {
     // Do something differently for this user
 } else {
@@ -80,10 +77,8 @@ export function JSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     // so if something goes wrong with flag evaluation, you don't break your app.
 }`}
             </CodeSnippet>
-            <div className="mt-4 mb-1">
-                <b>Test that it works</b>
-            </div>
-            <CodeSnippet language={Language.JavaScript} wrap>
+            <h3 className="text-sm font-medium mt-4 mb-1">Test that it works</h3>
+            <CodeSnippet language={Language.JavaScript} wrap compact>
                 {`posthog.featureFlags.overrideFeatureFlags({ flags: {'${flagKey}': '${variant}'} })`}
             </CodeSnippet>
         </div>
@@ -93,7 +88,7 @@ export function JSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
 export function ReactSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.JavaScript} wrap>
+            <CodeSnippet language={Language.JavaScript} wrap compact>
                 {`// You can either use the useFeatureFlagVariantKey hook,
 // or you can use the feature flags component - https://posthog.com/docs/libraries/react#feature-flags-react-component
 
@@ -130,7 +125,7 @@ posthog.featureFlags.overrideFeatureFlags({ flags: {'${flagKey}': '${variant}'} 
 export function RNSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.JavaScript} wrap>
+            <CodeSnippet language={Language.JavaScript} wrap compact>
                 {`if (posthog.getFeatureFlag('${flagKey}') === '${variant}') {
     // Do something differently for this user
 } else {
@@ -145,7 +140,7 @@ export function RNSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
 export function PHPSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.PHP} wrap>
+            <CodeSnippet language={Language.PHP} wrap compact>
                 {`if (PostHog::getFeatureFlag('${flagKey}', 'user distinct id') == '${variant}') {
     // Do something differently for this user
 } else {
@@ -161,15 +156,15 @@ export function PHPSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
 export function GolangSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.Go} wrap>
+            <CodeSnippet language={Language.Go} wrap compact>
                 {`experimentFlagValue, err := client.GetFeatureFlag(posthog.FeatureFlagPayload{
-    Key:        '${flagKey}',
+    Key:        ${JSON.stringify(flagKey)},
     DistinctId: "distinct-id",
 })
 if err != nil {
     // Handle error (e.g. capture error and fallback to default behaviour)
 }
-if experimentFlagValue == '${variant}' {
+if experimentFlagValue == ${JSON.stringify(variant)} {
     // Do something differently for this user
 } else {
     // It's a good idea to let control variant always be the default behaviour,
@@ -188,14 +183,13 @@ export function FlutterSnippet({ flagKey, variant }: SnippetProps): JSX.Element 
 
     return (
         <>
-            <CodeSnippet language={Language.Dart} wrap>
+            <CodeSnippet language={Language.Dart} wrap compact>
                 {`if (${clientSuffix}${flagFunction}('${flagKey}')${variantSuffix}) {
   // Do something differently for this user
 } else {
   // It's a good idea to let control variant always be the default behaviour,
   // so if something goes wrong with flag evaluation, you don't break your app.
-}
-            `}
+}`}
             </CodeSnippet>
         </>
     )
@@ -204,17 +198,15 @@ export function FlutterSnippet({ flagKey, variant }: SnippetProps): JSX.Element 
 export function RubySnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.Ruby} wrap>
+            <CodeSnippet language={Language.Ruby} wrap compact>
                 {`experimentFlagValue = posthog.get_feature_flag('${flagKey}', 'user distinct id')
-
 
 if experimentFlagValue == '${variant}'
     # Do something differently for this user
 else
     # It's a good idea to let control variant always be the default behaviour,
     # so if something goes wrong with flag evaluation, you don't break your app.
-end
-`}
+end`}
             </CodeSnippet>
             <ServerSideWarning />
         </>
@@ -224,15 +216,15 @@ end
 export function PythonSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.Python} wrap>
-                {`experiment_flag_value = posthog.get_feature_flag("${flagKey}", "user_distinct_id"):
+            <CodeSnippet language={Language.Python} wrap compact>
+                {`experiment_flag_value = posthog.get_feature_flag("${flagKey}", "user_distinct_id")
 
 if experiment_flag_value == '${variant}':
     # Do something differently for this user
 else:
     # It's a good idea to let control variant always be the default behaviour,
     # so if something goes wrong with flag evaluation, you don't break your app.
-`}
+    pass`}
             </CodeSnippet>
             <ServerSideWarning />
         </>
@@ -242,15 +234,14 @@ else:
 export function JavaSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.Java} wrap>
+            <CodeSnippet language={Language.Java} wrap compact>
                 {`Object flagValue = postHog.getFeatureFlag("user distinct id", "${flagKey}");
 if ("${variant}".equals(flagValue)) {
     // Do something differently for this user
 } else {
     // It's a good idea to let control variant always be the default behaviour,
     // so if something goes wrong with flag evaluation, you don't break your app.
-}
-`}
+}`}
             </CodeSnippet>
             <ServerSideWarning />
         </>
@@ -263,7 +254,7 @@ export interface PromptSnippetProps {
 
 export function PromptExperimentPythonSnippet({ flagKey }: PromptSnippetProps): JSX.Element {
     return (
-        <CodeSnippet language={Language.Python} wrap>
+        <CodeSnippet language={Language.Python} wrap compact>
             {`import json
 import os
 
@@ -318,7 +309,7 @@ print(response.choices[0].message.content)
 
 export function PromptExperimentJSSnippet({ flagKey }: PromptSnippetProps): JSX.Element {
     return (
-        <CodeSnippet language={Language.TypeScript} wrap>
+        <CodeSnippet language={Language.TypeScript} wrap compact>
             {`import { PostHog } from 'posthog-node'
 import { OpenAI } from '@posthog/ai/openai'
 import { Prompts } from '@posthog/ai/prompts'
@@ -372,7 +363,7 @@ console.log(response.choices[0].message.content)
 
 export function PromptExperimentAgentPromptSnippet({ flagKey }: PromptSnippetProps): JSX.Element {
     return (
-        <CodeSnippet language={Language.Text} wrap>
+        <CodeSnippet language={Language.Text} wrap compact>
             {`Wire up a PostHog prompt experiment in this project.
 
 Context

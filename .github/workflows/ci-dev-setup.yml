@@ -22,6 +22,9 @@ jobs:
     flox-dev-setup:
         runs-on: ubuntu-24.04
         timeout-minutes: 30
+        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
 
         steps:
             - name: Checkout code
@@ -60,7 +63,13 @@ jobs:
 
             - name: Check lockfile consistency
               run: |
-                  if ! git diff --exit-code -- uv.lock pnpm-lock.yaml; then
+                  # git diff cannot see an untracked file, so a deletion would
+                  # otherwise pass: flox activate just regenerates it untracked.
+                  if ! git ls-files --error-unmatch .flox/env/manifest.lock > /dev/null 2>&1; then
+                    echo "::error::.flox/env/manifest.lock must stay tracked. Untracked, every fresh clone resolves against the catalog again, which needs a FloxHub account."
+                    exit 1
+                  fi
+                  if ! git diff --exit-code -- uv.lock pnpm-lock.yaml .flox/env/manifest.lock; then
                     echo "::error::Lockfiles were modified by flox activate. Please commit the updated lockfiles."
                     exit 1
                   fi

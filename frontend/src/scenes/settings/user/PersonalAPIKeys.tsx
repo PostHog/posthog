@@ -19,7 +19,6 @@ import {
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
@@ -187,7 +186,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                     </div>
 
                     <LemonField name="scopes">
-                        {({ error }) => (
+                        {() => (
                             <>
                                 <p className="mb-0">
                                     Personal API keys are scoped to limit what actions they are able to do. We highly
@@ -198,12 +197,6 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                     Your personal API key can never take actions for which your account is missing
                                     permissions.
                                 </p>
-
-                                {error && (
-                                    <div className="text-danger flex items-center gap-1 text-sm">
-                                        <IconErrorOutline className="text-xl" /> {error}
-                                    </div>
-                                )}
 
                                 {allAccessSelected ? (
                                     <LemonBanner

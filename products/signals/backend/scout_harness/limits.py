@@ -88,6 +88,9 @@ COORDINATOR_INTERVAL_MINUTES = 30
 # else stamp jitter makes it skip every other tick (a 60-min scout runs every 2h).
 DUE_GRACE_SECONDS = 60
 
+DISPATCH_SMEAR_SECONDS = 600
+DISPATCH_BATCH_INTERVAL_SECONDS = 60
+
 
 def dispatch_ticks_per_interval(run_interval_minutes: int) -> int:
     """The scout's dispatch period, as a count of coordinator ticks.
@@ -133,6 +136,23 @@ def interval_runs_in_tolerance_window(interval_minutes: int) -> int:
 # than its healthy schedule, which trades at most one lease per day for recovery within a day
 # rather than up to a full (possibly 30-day) interval after the underlying cause is fixed.
 AUTO_PAUSE_PROBE_INTERVAL_S = 24 * 60 * 60
+
+# How a run was dispatched, carried on `RunSignalsScoutInput.triggered_by` and stamped onto
+# `SignalScoutRun.metadata` for anything but the schedule (absence means "schedule", matching how
+# the rest of that blob omits default-path keys). Only `schedule` failures feed the failure-streak
+# breaker — the threshold is sized on the schedule's cadence, so off-schedule runs must not count.
+TRIGGERED_BY_SCHEDULE = "schedule"
+TRIGGERED_BY_MANUAL = "manual"
+TRIGGERED_BY_WORKFLOW = "workflow"
+
+# Minimum gap between two workflow-triggered runs of the same (team, skill), enforced scout-side.
+# The workflow layer has its own first line of defence (trigger masking), but that lives in
+# customer-editable config, so this backstop deliberately does not trust it: an event trigger on a
+# high-volume event would otherwise fire hundreds of times an hour. 30 minutes is the floor the
+# system already applies to `run_interval_minutes` for the same worker-pool reason, and it bounds
+# the workflow path at 48 runs/day/skill regardless of how the workflow is configured. Suppressed
+# fires are dropped, not queued — there is deliberately no trailing-edge coalescing.
+WORKFLOW_RUN_COOLDOWN_S = 30 * 60
 
 # Per-team ceiling on ENABLED scout configs — the per-team cost cap. Each enabled scout
 # is a recurring LLM sandbox run, so this bounds what one team can switch on. Set high so

@@ -536,7 +536,11 @@ export const tableViewLogic = kea<tableViewLogicType>([
             lemonToast.success(`View "${newViewForm.name}" saved`)
         },
 
-        submitNewViewFormFailure: (error) => {
+        submitNewViewFormFailure: ({ error }) => {
+            // Kea-forms emits this when client validation fails; fields already show errors.
+            if (error instanceof Error && error.message === 'Validation Failed') {
+                return
+            }
             posthog.captureException(error)
             lemonToast.error('Error creating view')
         },

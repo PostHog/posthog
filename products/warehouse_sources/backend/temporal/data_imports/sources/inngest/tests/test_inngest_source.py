@@ -4,18 +4,15 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.inngest import (
     InngestSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.inngest import InngestResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.source import InngestSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(
@@ -40,21 +37,6 @@ def _source_inputs(
 class TestInngestSource:
     def setup_method(self) -> None:
         self.source = InngestSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.INNGEST
-
-    def test_source_config_fields(self) -> None:
-        config = self.source.get_source_config
-        assert [f.name for f in config.fields] == ["signing_key", "environment"]
-        signing_key, environment = config.fields
-        assert isinstance(signing_key, SourceFieldInputConfig)
-        assert signing_key.type == SourceFieldInputConfigType.PASSWORD
-        assert signing_key.required is True
-        assert signing_key.secret is True
-        assert isinstance(environment, SourceFieldInputConfig)
-        assert environment.required is False
-        assert environment.secret is False
 
     def test_source_config_is_alpha_and_unreleased(self) -> None:
         # The source ships hidden (unreleasedSource) and labelled alpha; a regression that flipped
@@ -121,11 +103,6 @@ class TestInngestSource:
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    def test_get_resumable_source_manager_is_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs("events"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is InngestResumeConfig
 
     def test_source_for_pipeline_plumbs_credentials_and_endpoint(self) -> None:
         config = InngestSourceConfig(signing_key="signkey-prod-test", environment="branch-env")

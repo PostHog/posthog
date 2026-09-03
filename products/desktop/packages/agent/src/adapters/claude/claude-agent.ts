@@ -41,6 +41,7 @@ import {
   type Options,
   type Query,
   query,
+  type SDKMessage,
   type SDKUserMessage,
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -51,6 +52,8 @@ import {
   isMethod,
   POSTHOG_METHODS,
   POSTHOG_NOTIFICATIONS,
+  type SteerDeclineCause,
+  steerDeclined,
 } from "../../acp-extensions";
 import {
   createEnrichment,
@@ -65,7 +68,7 @@ import {
   POSTHOG_PRODUCTS,
   type PostHogProductId,
 } from "../../posthog-products";
-import type { PostHogAPIConfig } from "../../types";
+import type { ContextWikiEnv, PostHogAPIConfig } from "../../types";
 import { text } from "../../utils/acp-content";
 import {
   isCloudRun,
@@ -106,6 +109,7 @@ import {
   taskStateToPlanEntries,
 } from "./conversion/task-state";
 import type { EnrichedReadCache } from "./hooks";
+import type { MachineClaudeAuth } from "./machine-auth";
 import { createLocalToolsMcpServer } from "./mcp/local-tools";
 import {
   clearMcpToolMetadataCache,
@@ -126,16 +130,15 @@ import {
   CONTEXT_WINDOW_1M_BETA,
   CONTEXT_WINDOW_200K_TOKENS,
   DEFAULT_EFFORT,
-  DEFAULT_MODEL,
   fastModeStateEnabled,
   getContextWindowOptions,
   getEffortOptions,
+  rerootedModelOptions,
   resolveEffortForModel,
   resolveModelPreference,
   supports1MContext,
   supportsFastMode,
   supportsMcpInjection,
-  toSdkModelId,
 } from "./session/models";
 import {
   buildSessionOptions,
@@ -146,6 +149,11 @@ import {
   toSdkEffort,
 } from "./session/options";
 import { SettingsManager } from "./session/settings";
+import {
+  buildSideQuestionPrompt,
+  collectSideQuestionAnswer,
+  SIDE_QUESTION_TIMEOUT_MS,
+} from "./side-question";
 import {
   CODE_EXECUTION_MODES,
   type CodeExecutionMode,
@@ -238,13 +246,13 @@ function confirmConsumedSteers(turn: Turn): void {
 }
 
 /** Report every steer left on a finishing turn as undelivered so callers redeliver it. */
-function declinePendingSteers(turn: Turn): void {
+function declinePendingSteers(turn: Turn, cause: SteerDeclineCause): void {
   if (turn.steerTimer) {
     clearTimeout(turn.steerTimer);
     turn.steerTimer = undefined;
   }
   for (const steer of turn.pendingSteers.values()) {
-    steer.settle(false);
+    steer.settle(false, cause);
   }
   turn.pendingSteers.clear();
 }
@@ -335,9 +343,16 @@ export interface ClaudeAcpAgentOptions {
   posthogApiConfig?: PostHogAPIConfig;
   /** Explicit gateway config — avoids global process.env mutation across concurrent sessions. */
   gatewayEnv?: GatewayEnv;
+  machineAuth?: MachineClaudeAuth;
+  /** Per-session context wiki mount — avoids global process.env mutation across concurrent sessions. */
+  contextWiki?: ContextWikiEnv;
 }
 
 export class ClaudeAcpAgent extends BaseAcpAgent {
+  protected override usesMachineAuth(): boolean {
+    return !!this.options?.machineAuth;
+  }
+
   readonly adapterName = "claude";
   declare session: Session;
   toolUseCache: ToolUseCache;
@@ -351,6 +366,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private options?: ClaudeAcpAgentOptions;
   private enrichment?: Enrichment;
   private enrichedReadCache: EnrichedReadCache = new Map();
+  /**
+   * The in-flight side question's controller, so a newer question can abort it.
+   * Bounds concurrent forks off the transcript to one.
+   */
+  private sideQuestionAbort: AbortController | null = null;
 
   constructor(client: AgentSideConnection, options?: ClaudeAcpAgentOptions) {
     super(client);
@@ -368,6 +388,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
   override async closeSession(): Promise<void> {
     try {
+      // A /btw fork runs on its own controller that the base close path never
+      // touches, so without this an in-flight side question keeps streaming
+      // (and burning tokens) until its own timeout fires after the session is
+      // gone.
+      this.sideQuestionAbort?.abort();
       await super.closeSession();
     } finally {
       this.enrichment?.dispose();
@@ -409,6 +434,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             // retire, so the clear has to look unavailable rather than silently
             // not take.
             conversationClear: true,
+            sideQuestion: true,
           },
           claudeCode: {
             promptQueueing: true,
@@ -557,11 +583,14 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     userMessage.uuid = promptUuid;
     const isLocalOnlyCommand = !!command && LOCAL_ONLY_COMMANDS.has(command);
 
-    if (this.session.clearing) {
-      // A /clear is swapping the SDK query underneath. Wait for it to settle
-      // so this prompt lands on the fresh input stream, not the retired one
-      // (a failed clear sets queryClosed, which the check below rejects).
-      await this.session.clearing;
+    if (this.session.querySwap) {
+      // A /clear or refreshSession is swapping the SDK query underneath. Wait
+      // for it to settle so this prompt lands on the fresh input stream, not
+      // the retired one (a failed swap sets queryClosed, which the check
+      // below rejects). Not the last gate: the awaits before enqueue (slash
+      // commands, pre-prompt local-tools) leave this prompt off turnQueue, so
+      // a swap can still start there and must be re-checked before enqueue.
+      await this.session.querySwap;
     }
 
     if (command && !isLocalOnlyCommand) {
@@ -576,7 +605,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       this.session.activeTurn !== null || this.session.turnQueue.length > 0;
 
     const isSteer = isSteerMeta(params._meta);
-    if (hasInFlightTurns && isSteer) {
+    if (hasInFlightTurns && isSteer && !this.session.compacting) {
       // Fold into the running turn (promptToClaude tagged it priority:"now");
       // the benign end_turn is ignored by clients, which key off _meta.steer.
       const owner =
@@ -585,15 +614,19 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       // Decline before pushing, so the message is redelivered rather than also
       // applied by a later turn.
       if (!owner) {
-        return { stopReason: "end_turn", _meta: { steer: false } };
+        return steerDeclined("no_owner_turn");
       }
       // Only a declined steer is redelivered, so acking on submission loses any
       // steer the SDK never folds in. Wait for the model to act on it instead.
       const ack = new Promise<PromptResponse>((resolve) => {
         owner.pendingSteers.set(promptUuid, {
           consumed: false,
-          settle: (reachedModel) =>
-            resolve({ stopReason: "end_turn", _meta: { steer: reachedModel } }),
+          settle: (reachedModel, cause) =>
+            resolve(
+              reachedModel
+                ? { stopReason: "end_turn", _meta: { steer: true } }
+                : steerDeclined(cause ?? "turn_ended_first"),
+            ),
         });
       });
       this.session.input.push(userMessage);
@@ -601,7 +634,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       return ack;
     }
     if (isSteer) {
-      return { stopReason: "end_turn", _meta: { steer: false } };
+      return steerDeclined(
+        this.session.compacting ? "compacting" : "no_in_flight_turn",
+      );
     }
 
     if (!hasInFlightTurns && !isLocalOnlyCommand) {
@@ -625,6 +660,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       isLocalOnlyCommand,
       commandName: command,
       broadcast: () => this.broadcastUserMessage(params),
+      pendingInput: userMessage,
       settled: false,
       resolve: () => {},
       reject: () => {},
@@ -634,10 +670,79 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       turn.reject = reject;
     });
 
+    if (this.session.querySwap) {
+      // A swap started during this method's pre-enqueue awaits (the prompt is
+      // not yet on turnQueue, so the entry-point refusals don't see it); fail
+      // before enqueue rather than push the turn into a retiring stream.
+      turn.reject(RequestError.internalError(undefined, SESSION_ENDED_MESSAGE));
+      return response;
+    }
+    if (this.session.queryClosed) {
+      turn.reject(RequestError.internalError(undefined, SESSION_ENDED_MESSAGE));
+      return response;
+    }
+
     this.session.turnQueue.push(turn);
-    this.session.input.push(userMessage);
+    this.dispatchQueuedInput(this.session);
     this.ensureConsumer(params.sessionId);
     return response;
+  }
+
+  private dispatchQueuedInput(session: Session): void {
+    if (session.queryClosed) {
+      return;
+    }
+    if (session.activeTurn && !session.activeTurn.settled) {
+      return;
+    }
+    const head = session.turnQueue.find((turn) => !turn.settled);
+    if (!head?.pendingInput) {
+      return;
+    }
+    const input = head.pendingInput;
+    head.pendingInput = undefined;
+    head.dispatchedAt = performance.now();
+    session.input.push(input);
+  }
+
+  /** Time the window between handing a prompt to the SDK and the SDK's first
+   *  emission for it. Nothing crosses the wire during that window, so without
+   *  this line a slow first turn cannot be attributed after the fact: the log
+   *  names both how long the wait was and which message ended it, which
+   *  separates pre-model setup (a `commands_changed` skill rescan, for
+   *  example) from the model call itself. */
+  private timeFirstSdkMessage(
+    session: Session,
+    sessionId: string,
+    message: SDKMessage,
+  ): void {
+    const turn =
+      session.activeTurn ?? session.turnQueue.find((t) => !t.settled);
+    if (turn?.dispatchedAt === undefined || turn.firstMessageTimed) {
+      return;
+    }
+    turn.firstMessageTimed = true;
+    this.logger.debug("First SDK message after prompt dispatch", {
+      sessionId,
+      waitMs: Math.max(0, Math.round(performance.now() - turn.dispatchedAt)),
+      messageType: message.type,
+      messageSubtype: (message as { subtype?: string }).subtype,
+    });
+  }
+
+  /** Time to the first assistant message, which is the first output a person
+   *  sees. Reported once per turn so a slow turn splits into the wait before
+   *  the model answered and the tool work after it. */
+  private timeFirstModelOutput(session: Session, sessionId: string): void {
+    const turn = session.activeTurn;
+    if (turn?.dispatchedAt === undefined || turn.firstOutputTimed) {
+      return;
+    }
+    turn.firstOutputTimed = true;
+    this.logger.debug("First model output after prompt dispatch", {
+      sessionId,
+      waitMs: Math.max(0, Math.round(performance.now() - turn.dispatchedAt)),
+    });
   }
 
   private ensureConsumer(sessionId: string): void {
@@ -704,13 +809,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       cache_read_input_tokens: 0,
       cache_creation_input_tokens: 0,
     };
-    // Tracks whether we're inside a compaction. The SDK emits the terminal
-    // `status` (compact_result success/failed) twice for a single failed
-    // compaction, and the two messages are indistinguishable, so we report the
-    // outcome only while a compaction is in progress, then clear this. A fresh
-    // `compacting` status sets it again, so every distinct compaction (e.g.
-    // repeated auto-compactions in a long turn) is still shown.
-    let compactionInProgress = false;
     let stopReason: PromptResponse["stopReason"] = "end_turn";
 
     // Read live: model switches reset session.lastContextWindowSize.
@@ -781,7 +879,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         cache_read_input_tokens: 0,
         cache_creation_input_tokens: 0,
       };
-      compactionInProgress = false;
+      session.compacting = false;
       stopReason = "end_turn";
       // sessionResources is intentionally NOT reset — the products list
       // accumulates across the whole session and is deduped, not per-turn.
@@ -833,13 +931,17 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         return;
       }
       turn.settled = true;
-      declinePendingSteers(turn);
+      declinePendingSteers(
+        turn,
+        session.cancelled ? "cancelled" : "turn_ended_first",
+      );
       if (session.forceCancelTimer) {
         clearTimeout(session.forceCancelTimer);
         session.forceCancelTimer = undefined;
       }
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
+      this.dispatchQueuedInput(session);
       turn.resolve(result);
     };
 
@@ -854,10 +956,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         return;
       }
       turn.settled = true;
-      declinePendingSteers(turn);
+      declinePendingSteers(turn, "turn_failed");
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
       this.toolUseStreamCache.clear();
+      this.dispatchQueuedInput(session);
       turn.reject(error);
     };
 
@@ -879,7 +982,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       for (const turn of turns) {
         if (!turn.settled) {
           turn.settled = true;
-          declinePendingSteers(turn);
+          declinePendingSteers(turn, "turn_failed");
           turn.reject(error);
         }
       }
@@ -924,7 +1027,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           for (const queued of [...session.turnQueue]) {
             if (!queued.settled) {
               queued.settled = true;
-              declinePendingSteers(queued);
+              declinePendingSteers(
+                queued,
+                session.cancelled ? "cancelled" : "turn_failed",
+              );
               queued.reject(
                 RequestError.internalError(undefined, SESSION_ENDED_MESSAGE),
               );
@@ -934,6 +1040,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           this.closeQueryStream(session);
           return;
         }
+
+        this.timeFirstSdkMessage(session, sessionId, message);
 
         if (
           session.emitRawSDKMessages &&
@@ -995,18 +1103,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               // The SDK signals manual `/compact` completion with a status
               // message carrying `compact_result`, not the `compact_boundary`
               // message (which only fires when there's content to compact).
-              // Gate the user-facing outcome on `compactionInProgress` to
+              // Gate the user-facing outcome on `session.compacting` to
               // dedupe the duplicate terminal status the SDK emits for failed
               // compactions.
               if (message.status === "compacting") {
-                compactionInProgress = true;
+                session.compacting = true;
                 // Fall through to handleSystemMessage so the COMPACTING
                 // extNotification still fires.
               } else if (
                 message.compact_result === "success" &&
-                compactionInProgress
+                session.compacting
               ) {
-                compactionInProgress = false;
+                session.compacting = false;
                 await this.client.sessionUpdate({
                   sessionId,
                   update: {
@@ -1031,9 +1139,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 break;
               } else if (
                 message.compact_result === "failed" &&
-                compactionInProgress
+                session.compacting
               ) {
-                compactionInProgress = false;
+                session.compacting = false;
                 // A failed compaction never emits a `compact_boundary`, so emit a
                 // structured failure status: the renderer clears the "Compacting…"
                 // spinner and reports the outcome as its own status row (a separator
@@ -1088,8 +1196,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   },
                 });
                 head.settled = true;
-                declinePendingSteers(head);
+                declinePendingSteers(head, "turn_failed");
                 session.turnQueue = session.turnQueue.filter((t) => t !== head);
+                this.dispatchQueuedInput(session);
                 head.resolve({ stopReason: "end_turn" });
                 break;
               }
@@ -1406,6 +1515,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             }
 
             if (message.type === "assistant") {
+              this.timeFirstModelOutput(session, sessionId);
               // Subagent output is a separate model context, so it is no
               // evidence the steer reached this turn's model.
               if (session.activeTurn && message.parent_tool_use_id === null) {
@@ -1558,28 +1668,32 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     if (session.queryClosed) {
       return;
     }
-    if (session.clearing) {
-      // A /clear is swapping the SDK query: there is no turn to cancel, and
-      // interrupting the half-initialized replacement would corrupt the swap.
-      // A wedged clear self-limits: retireQuery's interrupt() and the new
-      // query's init are both time-bounded (see retireQuery, performClear).
-      this.logger.debug("Ignoring cancel while a /clear is in progress", {
+    if (session.querySwap) {
+      // A /clear or refreshSession is swapping the SDK query: there is no turn
+      // to cancel, and interrupting the half-initialized replacement would
+      // corrupt the swap. A wedged swap self-limits: retireQuery's interrupt()
+      // and the new query's init are both time-bounded (see retireQuery,
+      // performClear).
+      this.logger.debug("Ignoring cancel while a query swap is in progress", {
         sessionId: this.sessionId,
       });
       return;
     }
     session.cancelled = true;
 
-    // Settle not-yet-echoed turns immediately; the SDK still runs their
-    // pushed messages, so count the echo-less results they owe as orphans.
+    // Settle not-yet-echoed turns immediately; the SDK still runs the messages
+    // already pushed, so count the echo-less results those owe as orphans.
     for (const turn of [...session.turnQueue]) {
       if (turn === session.activeTurn || turn.settled) {
         continue;
       }
       turn.settled = true;
-      declinePendingSteers(turn);
+      declinePendingSteers(turn, "cancelled");
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
-      session.pendingOrphanResults += 1;
+      if (!turn.pendingInput) {
+        session.pendingOrphanResults += 1;
+      }
+      turn.pendingInput = undefined;
       turn.resolve(this.cancelledResponse());
     }
 
@@ -1626,10 +1740,24 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     method: string,
     params: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    if (!isMethod(method, POSTHOG_METHODS.REFRESH_SESSION)) {
-      throw RequestError.methodNotFound(method);
+    if (isMethod(method, POSTHOG_METHODS.SIDE_QUESTION)) {
+      if (typeof params.question !== "string" || !params.question.trim()) {
+        throw new RequestError(
+          -32602,
+          "side_question requires a non-empty question",
+        );
+      }
+      return await this.answerSideQuestion(params.question);
     }
+    if (isMethod(method, POSTHOG_METHODS.REFRESH_SESSION)) {
+      return await this.handleRefreshSession(params);
+    }
+    throw RequestError.methodNotFound(method);
+  }
 
+  private async handleRefreshSession(
+    params: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
     // Trust boundary: refresh is only safe when the caller is trusted infra
     // (e.g. the sandbox agent-server). Do not route this method from
     // untrusted clients — parseMcpServers does no URL/command validation.
@@ -1687,6 +1815,30 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   }
 
   /**
+   * Claim the session's query-swap slot, run `fn`, and release the slot when
+   * it settles. The claim is synchronous — `fn` must run synchronously up to
+   * its own first await — so the flag is visible before any other ACP handler
+   * can interleave (handlers are not serialized). Waiters only need
+   * settlement, so the stored promise never rejects; a failure still surfaces
+   * through the returned promise.
+   */
+  private async withQuerySwap<T>(
+    session: Session,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const swap = fn();
+    session.querySwap = swap.then(
+      () => undefined,
+      () => undefined,
+    );
+    try {
+      return await swap;
+    } finally {
+      session.querySwap = undefined;
+    }
+  }
+
+  /**
    * `/clear` — drop the conversation and start over in place.
    *
    * The SDK's own /clear is not forwarded (see UPSTREAM.md "Hide /clear");
@@ -1703,11 +1855,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     if (session.queryClosed) {
       throw RequestError.internalError(undefined, SESSION_ENDED_MESSAGE);
     }
-    // A second /clear mid-swap would race the same session fields
+    // A second swap mid-swap would race the same session fields
     // (query/input/abortController) and orphan a live SDK query; a clear
     // mid-turn would rip the query out from under the active prompt.
-    const refusal = session.clearing
-      ? "A conversation clear is already in progress."
+    const refusal = session.querySwap
+      ? "A session refresh or conversation clear is already in progress. Wait for it to finish and try again."
       : session.activeTurn !== null || session.turnQueue.length > 0
         ? "Cannot clear the conversation while a turn is in progress. Wait for it to finish (or cancel it) and try again."
         : null;
@@ -1722,25 +1874,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       return { stopReason: "end_turn" };
     }
 
-    // Claim the session synchronously, before the first await: ACP handlers
-    // are not serialized, so a prompt/cancel/second clear can arrive at any
-    // await point of the swap. They key off this flag (see Session.clearing).
-    // performClear runs synchronously up to its first await, so the claim is
-    // visible before any other handler can interleave. Waiters only need
-    // settlement; a failure still surfaces through the returned promise.
-    const clear = this.performClear(params, session);
-    session.clearing = clear.then(
-      () => undefined,
-      () => undefined,
+    return this.withQuerySwap(session, () =>
+      this.performClear(params, session),
     );
-    try {
-      return await clear;
-    } finally {
-      session.clearing = undefined;
-    }
   }
 
-  /** Body of {@link clearConversation}; only runs holding `session.clearing`. */
   private async performClear(
     params: PromptRequest,
     session: Session,
@@ -1783,7 +1921,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController: newAbortController,
         // `rest.model` is the creation-time value; the user may have switched
         // models since, so re-root the new Query on the live session model.
-        ...(session.modelId && { model: toSdkModelId(session.modelId) }),
+        ...rerootedModelOptions(
+          session.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const newInput = new Pushable<SDKUserMessage>();
@@ -1879,13 +2021,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     session.taskState.clear();
     this.toolUseStreamCache.clear();
     this.emittedToolCalls.clear();
-    // Nothing from before the boundary should be able to reach the fresh
-    // session: reset the plan/notification state ExitPlanMode falls back
-    // to when its tool input omits an explicit plan, so a stale (possibly
-    // repo-injected) pre-clear plan can't resurface after approval.
+    // Nothing from before the boundary should reach the fresh session.
     session.notificationHistory.length = 0;
     session.lastPlanFilePath = undefined;
-    session.lastPlanContent = undefined;
     this.fileContentCache = {};
 
     // Only broadcast (and thus persist) the "/clear" prompt once the new
@@ -1948,14 +2086,120 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     return { stopReason: "end_turn" };
   }
 
-  private async refreshSession(
+  /**
+   * Answers a "/btw" side question by forking the live session's transcript
+   * into a one-shot, tool-less, single-turn query. Strictly non-mutating:
+   * the fork gets its own SDK session id and AbortController, and nothing on
+   * `this.session` is touched, so the main conversation (including an
+   * in-flight turn) never sees the exchange.
+   *
+   * A newer question supersedes an in-flight one: the card shows only the
+   * latest, so answering a question it has already replaced burns tokens on
+   * a result the stale-answer guard would discard anyway.
+   */
+  private async answerSideQuestion(
+    question: string,
+  ): Promise<{ answer: string }> {
+    this.sideQuestionAbort?.abort();
+
+    const abortController = new AbortController();
+    this.sideQuestionAbort = abortController;
+    try {
+      // Drop `sessionId` (identity comes from `resume`), `hooks` (they close
+      // over live-session caches and task state), and `outputFormat` (a
+      // structured task run stores a json_schema here that would force the
+      // plain-text answer into the task's unrelated shape).
+      const {
+        sessionId: _sessionId,
+        hooks: _hooks,
+        outputFormat: _outputFormat,
+        ...rest
+      } = this.session.queryOptions;
+      const options: Options = {
+        ...rest,
+        // Fork the current SDK session, not the stable ACP id. `/clear` swaps
+        // `sdkSessionId` to a fresh session and deletes the pre-clear
+        // transcript, so `this.sessionId` would resume a retired one.
+        resume: this.session.sdkSessionId,
+        forkSession: true,
+        maxTurns: 1,
+        // Belt and braces: remove the toolset entirely and deny anything
+        // that slips through; the prompt wrapper also says "no tools".
+        tools: [],
+        allowedTools: [],
+        canUseTool: async () => ({
+          behavior: "deny",
+          message: "Tools are unavailable while answering a side question.",
+          interrupt: false,
+        }),
+        // Never reuse in-process MCP instances ("Already connected to a
+        // transport"); the fork has no tools, so it needs no servers.
+        mcpServers: {},
+        // `mcpServers: {}` alone only drops the servers passed in code — the
+        // CLI would still merge `.mcp.json`, user settings, and plugin/agent
+        // frontmatter servers back in.
+        strictMcpConfig: true,
+        // A side question is an isolated read of the transcript, so nothing
+        // the repo can write should get to run for it. `settingSources: []`
+        // keeps `.claude/settings*.json` (and the hooks they declare) off the
+        // fork, and plugins and agents ship their own hooks and skills.
+        settingSources: [],
+        plugins: [],
+        agents: {},
+        abortController,
+        // `rest.model` is the creation-time value; the user may have
+        // switched models since, so answer on the live session model.
+        ...rerootedModelOptions(
+          this.session.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
+      };
+
+      const oneShot = query({
+        prompt: buildSideQuestionPrompt(question),
+        options,
+      });
+
+      const answer = await withTimeout(
+        collectSideQuestionAnswer(oneShot),
+        SIDE_QUESTION_TIMEOUT_MS,
+      );
+
+      if (answer.result === "timeout") {
+        throw new RequestError(
+          -32603,
+          `Side question timed out after ${SIDE_QUESTION_TIMEOUT_MS}ms`,
+        );
+      }
+      if (!answer.value) {
+        throw new RequestError(-32603, "Side question produced no answer");
+      }
+      return { answer: answer.value };
+    } catch (error) {
+      if (error instanceof RequestError) throw error;
+      // A brand-new session has no transcript on disk yet, so `resume` has
+      // nothing to fork; surface that case clearly.
+      throw new RequestError(
+        -32603,
+        `Side question failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      abortController.abort();
+      if (this.sideQuestionAbort === abortController) {
+        this.sideQuestionAbort = null;
+      }
+    }
+  }
+
+  private refreshSession(
     mcpServers: Record<string, McpServerConfig>,
   ): Promise<void> {
     const prev = this.session;
-    if (prev.clearing) {
+    if (prev.querySwap) {
       throw new RequestError(
         -32002,
-        "Cannot refresh session while a conversation clear is in progress",
+        "Cannot refresh session while a query swap (refresh or /clear) is in progress",
       );
     }
     if (prev.activeTurn !== null || prev.turnQueue.length > 0) {
@@ -1971,59 +2215,91 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       );
     }
 
+    return this.withQuerySwap(prev, () =>
+      this.performRefresh(prev, mcpServers),
+    );
+  }
+
+  /** Body of {@link refreshSession}; see {@link withQuerySwap} for the claim
+   *  contract. */
+  private async performRefresh(
+    prev: Session,
+    mcpServers: Record<string, McpServerConfig>,
+  ): Promise<void> {
     this.logger.info("Refreshing session with fresh MCP servers", {
       serverCount: Object.keys(mcpServers).length,
       sessionId: this.sessionId,
     });
 
-    await this.retireQuery(prev);
+    // Declared outside the try so the catch can tear down a half-built
+    // replacement; assigned inside, where retireQuery also runs so a failure
+    // anywhere in the swap gets the same close-out (mirrors performClear).
+    let newQuery: Query | undefined;
+    let newAbortController: AbortController | undefined;
+    try {
+      await this.retireQuery(prev);
 
-    // Reuse every option from the running session; swap mcpServers, re-root
-    // identity on `resume` instead of `sessionId`, and give the new Query a
-    // fresh AbortController.
-    const newAbortController = new AbortController();
-    const { sessionId: _drop, ...rest } = prev.queryOptions;
+      // Reuse every option from the running session; swap mcpServers, re-root
+      // identity on `resume` instead of `sessionId`, and give the new Query a
+      // fresh AbortController.
+      newAbortController = new AbortController();
+      const { sessionId: _drop, ...rest } = prev.queryOptions;
 
-    // Rebuild the in-process ("sdk") server fresh; reusing the prior instance
-    // throws "Already connected to a transport" and drops the signed-commit tools.
-    const freshInProcess = prev.buildInProcessMcpServers();
-    if (Object.keys(freshInProcess).length > 0) {
-      this.logger.info("Rebuilt in-process MCP servers on refresh", {
-        sessionId: this.sessionId,
-        servers: Object.keys(freshInProcess),
-      });
-    }
+      // Rebuild the in-process ("sdk") server fresh; reusing the prior instance
+      // throws "Already connected to a transport" and drops the signed-commit tools.
+      const freshInProcess = prev.buildInProcessMcpServers();
+      if (Object.keys(freshInProcess).length > 0) {
+        this.logger.info("Rebuilt in-process MCP servers on refresh", {
+          sessionId: this.sessionId,
+          servers: Object.keys(freshInProcess),
+        });
+      }
 
-    const newOptions: Options = {
-      ...rest,
-      mcpServers: { ...mcpServers, ...freshInProcess },
-      resume: prev.sdkSessionId,
-      forkSession: false,
-      abortController: newAbortController,
-      // `rest.model` is the creation-time value; the user may have switched
-      // models since, so re-root the new Query on the live session model.
-      ...(prev.modelId && { model: toSdkModelId(prev.modelId) }),
-    };
+      const newOptions: Options = {
+        ...rest,
+        mcpServers: { ...mcpServers, ...freshInProcess },
+        resume: prev.sdkSessionId,
+        forkSession: false,
+        abortController: newAbortController,
+        // `rest.model` is the creation-time value; the user may have switched
+        // models since, so re-root the new Query on the live session model.
+        ...rerootedModelOptions(
+          prev.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
+      };
 
-    const newInput = new Pushable<SDKUserMessage>();
-    const newQuery = query({ prompt: newInput, options: newOptions });
+      const newInput = new Pushable<SDKUserMessage>();
+      newQuery = query({ prompt: newInput, options: newOptions });
 
-    prev.query = newQuery;
-    prev.input = newInput;
-    prev.queryOptions = newOptions;
-    prev.abortController = newAbortController;
+      prev.query = newQuery;
+      prev.input = newInput;
+      prev.queryOptions = newOptions;
+      prev.abortController = newAbortController;
 
-    const result = await withTimeout(
-      newQuery.initializationResult(),
-      SESSION_VALIDATION_TIMEOUT_MS,
-    );
-    if (result.result === "timeout") {
-      this.terminateQuery(newQuery, newAbortController);
-      throw new RequestError(
-        -32603,
-        `Session refresh timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
-        { sessionId: this.sessionId },
+      const result = await withTimeout(
+        newQuery.initializationResult(),
+        SESSION_VALIDATION_TIMEOUT_MS,
       );
+      if (result.result === "timeout") {
+        throw new Error(
+          `Session refresh timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
+        );
+      }
+    } catch (error) {
+      // The old query is already retired and the new one is unproven, so any
+      // failure here — retireQuery, timeout, or SDK init rejection — leaves
+      // the session unusable. Tear down any replacement that was allocated
+      // and close the session out (same as performClear) rather than leaving
+      // it half-swapped: queryClosed gates every later prompt into
+      // SESSION_ENDED.
+      if (newQuery && newAbortController) {
+        this.terminateQuery(newQuery, newAbortController);
+      }
+      prev.queryClosed = true;
+      const message = error instanceof Error ? error.message : String(error);
+      throw new RequestError(-32603, message, { sessionId: this.sessionId });
     }
 
     this.refreshMcpMetadata(newQuery);
@@ -2161,8 +2437,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         },
       });
     } else if (params.configId === "model") {
-      const sdkModelId = toSdkModelId(resolvedValue);
-      await this.session.query.setModel(sdkModelId);
+      await this.session.query.setModel(resolvedValue);
       this.session.modelId = resolvedValue;
       this.session.lastContextWindowSize =
         this.getContextWindowForModel(resolvedValue);
@@ -2256,6 +2531,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     );
     if (modeId === "plan" && previousMode !== "plan") {
       this.session.modeBeforePlan = previousMode;
+      // A new planning cycle must not resolve against the prior cycle's plan
+      // file. Left set, an ExitPlanMode before this cycle's first plan write
+      // reads the old file, which passes validation and gets approved.
+      this.session.lastPlanFilePath = undefined;
     }
     try {
       await this.session.query.setPermissionMode(
@@ -2379,7 +2658,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const input = new Pushable<SDKUserMessage>();
 
-    const settingsManager = new SettingsManager(cwd);
+    const settingsManager = new SettingsManager(
+      cwd,
+      !!this.options?.machineAuth,
+    );
     await settingsManager.initialize();
 
     // The session's explicit pick outranks the shared claude settings file:
@@ -2399,6 +2681,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const baseBranch = meta?.baseBranch;
     const environment = meta?.environment;
     const channelMode = meta?.channelMode;
+    const taskOriginProduct =
+      typeof meta?.taskOriginProduct === "string"
+        ? meta.taskOriginProduct
+        : undefined;
+    const endRunWhenDone = meta?.endRunWhenDone === true;
     const spokenNarration = resolveSpokenNarration(meta);
     const bedrockGatewayVariant = resolveBedrockGatewayVariant(meta);
     const requestFinish = this.buildRequestFinish(taskId, meta?.taskRunId);
@@ -2421,6 +2708,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           spokenNarration,
           background: meta?.mode === "background",
           peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
+          taskOriginProduct,
+          endRunWhenDone,
         },
       );
       return server ? { [LOCAL_TOOLS_MCP_NAME]: server } : {};
@@ -2443,6 +2732,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const systemPrompt = buildSystemPrompt(meta?.systemPrompt, {
       spokenNarration,
+      contextWikiPath: this.options?.contextWiki?.path,
     });
 
     if (meta?.mcpToolApprovals) {
@@ -2512,7 +2802,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       taskState,
       getCurrentModelId: () => this.session?.modelId,
       gatewayEnv: this.options?.gatewayEnv,
+      machineAuth: this.options?.machineAuth,
       bedrockGatewayVariant,
+      contextWiki: this.options?.contextWiki,
       onTaskStateChange: async () => {
         await this.client.sessionUpdate({
           sessionId,
@@ -2711,14 +3003,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         ? CONTEXT_WINDOW_200K_TOKENS
         : this.getContextWindowForModel(resolvedModelId);
 
-    const resolvedSdkModel = toSdkModelId(resolvedModelId);
-
-    // New sessions start with options.model = DEFAULT_MODEL, so only a
-    // non-default pick needs a setModel call. Resumed sessions always need
-    // it: the SDK does not carry the model across resume and would silently
-    // run its default otherwise.
-    if (isResume || resolvedSdkModel !== DEFAULT_MODEL) {
-      await this.session.query.setModel(resolvedSdkModel);
+    if (isResume || resolvedModelId !== options.model) {
+      await this.session.query.setModel(resolvedModelId);
     }
 
     // Keep thinking enabled by default for effort-capable models (see
@@ -2811,6 +3097,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         this.session.queryOptions.permissionMode = toSdkPermissionMode(newMode);
         if (newMode === "plan" && previousMode !== "plan") {
           this.session.modeBeforePlan = previousMode;
+          // Same reason as applySessionMode: a new cycle must not inherit the
+          // prior cycle's plan file.
+          this.session.lastPlanFilePath = undefined;
         }
       }
       await this.updateConfigOption("mode", newMode);

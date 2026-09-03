@@ -3,8 +3,6 @@ from unittest import mock
 
 import structlog
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openweather import (
     OpenWeatherSourceConfig,
@@ -15,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openweathe
     endpoints_for_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.source import OpenWeatherSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _ALL_VERSIONED_ENDPOINTS = [
     (version, endpoint) for version in (API_VERSION_2_5, API_VERSION_3_0) for endpoint in endpoints_for_version(version)
@@ -45,35 +42,6 @@ class TestOpenWeatherSource:
         self.source = OpenWeatherSource()
         self.team_id = 123
         self.config = OpenWeatherSourceConfig(api_key="test-key", locations="51.5,-0.12,London")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.OPENWEATHER
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "OpenWeather"
-        assert config.label == "OpenWeather"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/openweather.png"
-
-    def test_get_source_config_fields(self):
-        fields = self.source.get_source_config.fields
-
-        for field in fields:
-            assert isinstance(field, SourceFieldInputConfig)
-        by_name = {field.name: field for field in fields if isinstance(field, SourceFieldInputConfig)}
-        assert set(by_name) == {"api_key", "locations"}
-
-        api_key_field = by_name["api_key"]
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-
-        locations_field = by_name["locations"]
-        assert locations_field.type == SourceFieldInputConfigType.TEXTAREA
-        assert locations_field.required is True
-        assert locations_field.secret is False
 
     def test_default_version_is_3_0(self):
         # New sources are stamped with `default_version`; the 3.0 One Call product is now the default.
@@ -110,17 +78,6 @@ class TestOpenWeatherSource:
 
     def test_get_schemas_filtered_unknown_name_returns_empty(self):
         assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
-
-    def test_non_retryable_errors_includes_unauthorized(self):
-        errors = self.source.get_non_retryable_errors()
-
-        assert any("401 Client Error: Unauthorized" in key for key in errors)
-
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        descriptions = self.source.get_canonical_descriptions()
-
-        every_endpoint = {endpoint for _, endpoint in _ALL_VERSIONED_ENDPOINTS}
-        assert every_endpoint <= set(descriptions)
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

@@ -268,13 +268,14 @@ describe("TaskArtifactsList", () => {
     expect(screen.getByText("report.md")).toBeInTheDocument();
     expect(screen.getByText("Checkout funnel")).toBeInTheDocument();
     expect(
-      screen.getByText(/^Insight · Product analytics · Referenced 2 times/),
+      screen.getByText(/^Insight · Referenced 2 times/),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByText("Checkout funnel"));
     expect(mocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
       runId: "run-1",
       artifactId: "phref-1",
       name: "Checkout funnel",
+      objectKind: "insight",
     });
     expect(
       screen.queryByRole("button", { name: "Download Checkout funnel" }),

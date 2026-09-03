@@ -35,6 +35,7 @@ describe('customPropertyTypes', () => {
         expect(labelForDisplayType('currency')).toBe('Currency')
         expect(labelForDisplayType('datetime')).toBe('Date & time')
         expect(labelForDisplayType('text')).toBe('Text')
+        expect(labelForDisplayType('link')).toBe('Link')
         expect(labelForDisplayType('boolean')).toBe('True / false')
     })
 

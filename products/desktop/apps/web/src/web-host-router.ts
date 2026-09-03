@@ -17,6 +17,7 @@ import {
   type CloudRegion,
   getCloudUrlFromRegion,
   tabsSnapshotSchema,
+  tabViewStateSchema,
 } from "@posthog/shared";
 import { getAuthenticatedClient } from "@posthog/ui/features/auth/authClientImperative";
 import { z } from "zod";
@@ -152,6 +153,13 @@ const agentStubRouter = router({
         auth.getState().currentProjectId ?? undefined,
       );
     }),
+  // Unreachable in practice: the UI gates "/btw" on sessionSupportsSideQuestion,
+  // which is false for cloud sessions. Present so SessionTrpc stays satisfied.
+  sideQuestion: publicProcedure
+    .input(z.object({ sessionId: z.string(), question: z.string() }))
+    .mutation(() => {
+      throw new Error("Side questions require a local session");
+    }),
   // Model/mode/effort options for the task-input preview + cloud run creation
   // (a cloud run requires a model). Real: fetched from the CORS-open PostHog LLM
   // gateway, same logic the desktop main process runs (see web-agent-config.ts).
@@ -160,10 +168,15 @@ const agentStubRouter = router({
       z.object({
         apiHost: z.string(),
         adapter: z.enum(["claude", "codex"]).default("claude"),
+        allHarnessModels: z.boolean().optional(),
       }),
     )
     .query(({ input }) =>
-      getWebPreviewConfigOptions(input.apiHost, input.adapter),
+      getWebPreviewConfigOptions(
+        input.apiHost,
+        input.adapter,
+        input.allHarnessModels,
+      ),
     ),
 });
 
@@ -416,7 +429,10 @@ const logsStubRouter = router({
 // a REAL implementation, not a stub — the "+" (new tab), close, reorder, and
 // in-tab navigation all persist and fan out to the renderer mirror via
 // onSnapshotChange, exactly as on desktop (with a single window).
-const tabTargetFields = {
+/** Where a tab is, plus the route-derived label/icon cache. */
+const tabLocationFields = {
+  href: z.string().nullable().default(null),
+  viewState: tabViewStateSchema.nullable().default(null),
   dashboardId: z.string().nullable().default(null),
   taskId: z.string().nullable().default(null),
   channelId: z.string().nullable().default(null),
@@ -430,38 +446,50 @@ const browserTabsRouter = router({
   getPrimaryWindowId: publicProcedure
     .output(z.string())
     .query(() => webBrowserTabsStore.getPrimaryWindowId()),
-  openOrFocus: publicProcedure
+  reset: publicProcedure
+    .output(tabsSnapshotSchema)
+    .mutation(() => webBrowserTabsStore.reset()),
+  openTab: publicProcedure
     .input(
       z.object({
         windowId: z.string(),
-        ...tabTargetFields,
+        ...tabLocationFields,
         tabId: z.string().optional(),
       }),
     )
     .output(tabsSnapshotSchema)
-    .mutation(({ input }) => webBrowserTabsStore.openOrFocus(input)),
-  newBlankTab: publicProcedure
-    .input(z.object({ windowId: z.string(), tabId: z.string().optional() }))
-    .output(tabsSnapshotSchema)
-    .mutation(({ input }) => webBrowserTabsStore.newBlankTab(input)),
+    .mutation(({ input }) => webBrowserTabsStore.openTab(input)),
   setTabTarget: publicProcedure
-    .input(z.object({ tabId: z.string(), ...tabTargetFields }))
+    .input(
+      z.object({
+        tabId: z.string(),
+        ...tabLocationFields,
+        activate: z.boolean().optional(),
+      }),
+    )
     .output(tabsSnapshotSchema)
     .mutation(({ input }) => webBrowserTabsStore.setTabTarget(input)),
   close: publicProcedure
-    .input(z.object({ tabId: z.string() }))
+    .input(z.object({ tabId: z.string(), newTabId: z.string() }))
     .output(tabsSnapshotSchema)
-    .mutation(({ input }) => webBrowserTabsStore.close(input.tabId)),
+    .mutation(({ input }) =>
+      webBrowserTabsStore.close(input.tabId, input.newTabId),
+    ),
   closeMany: publicProcedure
     .input(
       z.object({
         tabIds: z.array(z.string()),
+        newTabId: z.string(),
         focusTabId: z.string().nullable().default(null),
       }),
     )
     .output(tabsSnapshotSchema)
     .mutation(({ input }) =>
-      webBrowserTabsStore.closeMany(input.tabIds, input.focusTabId),
+      webBrowserTabsStore.closeMany(
+        input.tabIds,
+        input.newTabId,
+        input.focusTabId,
+      ),
     ),
   setOrder: publicProcedure
     .input(z.object({ windowId: z.string(), tabIds: z.array(z.string()) }))
@@ -506,5 +534,3 @@ export const webHostRouter = router({
   slackIntegration: slackIntegrationRouter,
   workspace: workspaceStubRouter,
 });
-
-export type WebHostRouter = typeof webHostRouter;

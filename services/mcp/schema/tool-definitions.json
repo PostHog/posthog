@@ -287,10 +287,10 @@
         }
     },
     "notebooks-create-markdown": {
-        "description": "Create a notebook for deep, step-by-step data analysis: query PostHog and connected data warehouse data with SQL (HogQL), or analyze with Python code. SQL and Python cells can also read and query dataframes fetched or created by upstream cells in the notebook. Run a cell, read its result, decide the next step; add markdown cells to explain and summarize findings, and embed saved insights. Give it a title and optionally an initial markdown body. Returns the notebook_id to use with notebooks-add-cell.",
+        "description": "Create a notebook for deep, step-by-step data analysis: query PostHog and connected data warehouse data with SQL (HogQL), or analyze with Python code. SQL and Python cells can also read and query dataframes fetched or created by upstream cells in the notebook. Run a cell, read its result, decide the next step; add markdown cells to explain and summarize findings, and embed saved insights. Give it a title and optionally an initial markdown body. Returns the notebook_id to use with notebooks-add-cell. This is the default artifact for an analysis with a narrative — a deep dive, a one-off investigation, a 'why did X change' — where the reader needs the reasoning and caveats, not just a number; a dashboard is for metrics tracked repeatedly over time. Reach for a notebook without being asked whenever the work needs Python, so the code, its output, and its errors are visible to the user next to the result instead of running where they can't see them.",
         "category": "Notebooks",
         "feature": "notebooks",
-        "summary": "Create a markdown notebook for executable cells.",
+        "summary": "Create a markdown notebook for deep-dive analysis with SQL and Python cells.",
         "title": "Create markdown notebook",
         "required_scopes": ["notebook:write"],
         "feature_flag": "revamped-py-notebooks",
@@ -302,7 +302,7 @@
         }
     },
     "notebooks-add-cell": {
-        "description": "Add a cell to a markdown notebook. SQL and Python cells run immediately: the call waits up to ~45s and returns the result — columns, a capped row preview, stdout/stderr (a Python cell's logs and tracebacks), and error — so you can look at the output and decide the next step (fix, or proceed). If the status comes back 'running', poll notebooks-run-cell-result with the run_id. A cell that reads other cells' dataframes references them by dataframe_name; those cells must have completed a run first, so add cells in dependency order. SQL cells are always HogQL: queries against PostHog or data warehouse tables run on ClickHouse, and a SQL cell that references a Python-created dataframe runs on the notebook's local engine automatically — any local dataframe is queryable by name, same syntax. The first Python cell can take longer while the notebook's sandbox kernel starts. component cells add other node types: Query, Image, Embed, Latex, FeatureFlag, Survey, Experiment, Person, Cohort, Recording, RecordingPlaylist. Pass a short title on every cell you add, describing what that cell shows — it renders in the cell header and is what a reader skims instead of the code.",
+        "description": "Add a cell to a markdown notebook. SQL and Python cells run immediately: the call waits up to ~45s and returns the result — columns, a capped row preview, stdout/stderr (a Python cell's logs and tracebacks), and error — so you can look at the output and decide the next step (fix, or proceed). If the status comes back 'running', poll notebooks-run-cell-result with the run_id. A cell that reads other cells' dataframes references them by dataframe_name; those cells must have completed a run first, so add cells in dependency order. SQL cells are always HogQL: queries against PostHog or data warehouse tables run on ClickHouse, and a SQL cell that references a Python-created dataframe runs on the notebook's local engine automatically — any local dataframe is queryable by name, same syntax. The first Python cell can take longer while the notebook's sandbox kernel starts. Run analysis Python here rather than in a runtime the user can't see — dataframe work, statistics, clustering, forecasting, plotting — so the code and its output stay visible and re-runnable beside the result; the sandbox has pandas, numpy, scipy, scikit-learn, and matplotlib. component cells add other node types: Query, Image, Embed, Latex, FeatureFlag, Survey, Experiment, Person, Cohort, Recording, RecordingPlaylist. Pass a short title on every cell you add, describing what that cell shows — it renders in the cell header and is what a reader skims instead of the code. A notebook holds at most 50 cells; past that the call fails, so start a new notebook rather than retrying.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Add a cell to a notebook; SQL/Python cells run immediately.",
@@ -430,6 +430,20 @@
             "readOnlyHint": true
         }
     },
+    "event-definition-create": {
+        "description": "Create an event definition for an event that has not been ingested yet. Use this to define the event name, description, tags, verified state, and hidden state before the first event arrives. Fails if a definition with the same name already exists (use event-definition-update instead). Use exact event name like 'user_signed_up'.",
+        "category": "Events & properties",
+        "feature": "events",
+        "summary": "Create an event definition.",
+        "title": "Create event definition",
+        "required_scopes": ["event_definition:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "event-definition-update": {
         "description": "Update event definition metadata. Can update description, tags, mark status as verified or hidden. Use exact event name like '$pageview' or 'user_signed_up'.",
         "category": "Events & properties",
@@ -515,7 +529,7 @@
         }
     },
     "survey-get": {
-        "description": "Get a specific survey by ID. Returns the survey configuration including questions, targeting, and scheduling details.",
+        "description": "Get a specific survey by ID. Returns its questions, targeting flag — including current property targeting rules under targeting_flag.filters — and scheduling details. To change targeting, use targeting_flag_filters with survey-update.",
         "category": "Surveys",
         "summary": "Get a specific survey by ID.",
         "required_scopes": ["survey:read"],
@@ -740,7 +754,7 @@
         }
     },
     "workflows-blast-radius": {
-        "description": "Count how many users a batch workflow's audience matches (person/cohort, not event behavior). Always run this BEFORE run-batch / schedule-create. Then STOP and get the user's explicit confirmation: tell them the exact count and that running will send real messages to that many people. Do not proceed to run-batch / schedule-create until they say yes. The response's confirm_token signs the sized audience - pass it to workflows-run-batch along with the acknowledged count; it expires in 15 minutes and goes stale if the audience filters change.",
+        "description": "Count how many users a batch workflow's audience matches (person/cohort, not event behavior). Always run this BEFORE run-batch, and before schedule-create on a workflow with a 'batch' trigger. Then STOP and get the user's explicit confirmation: tell them the exact count and that running will send real messages to that many people. Do not proceed until they say yes. A 'schedule' trigger has no audience, so skip this and call schedule-create directly. The response's confirm_token signs the sized audience - pass it to workflows-run-batch along with the acknowledged count; it expires in 15 minutes and goes stale if the audience filters change.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Size workflow audience",
@@ -768,7 +782,7 @@
         }
     },
     "workflows-schedule-create": {
-        "description": "Attach a recurring RRULE schedule to a batch workflow so it re-broadcasts to its trigger audience on a cadence (iCalendar RRULE, e.g. 'FREQ=WEEKLY;BYDAY=MO'; at most one occurrence per hour). Only valid on workflows with a 'batch' trigger, and the workflow must already be active (workflows-enable first). Every firing sends real messages: run workflows-blast-radius, STOP and get the user's explicit confirmation of the count, then pass both acknowledged_affected_count and the confirm_token from that same preview — the API rejects the call without a fresh token (15-minute expiry, stale if the audience filters change). For a one-off send use workflows-run-batch; to change an existing schedule use workflows-update-schedule (schedule IDs appear in workflows-get's 'schedules').",
+        "description": "Attach a recurring RRULE schedule to a workflow with a 'batch' or 'schedule' trigger (iCalendar RRULE, e.g. 'FREQ=WEEKLY;BYDAY=MO'; at most one occurrence per hour). A 'schedule' trigger runs once per occurrence with no audience: pass rrule, starts_at and timezone and you are done. A 'batch' trigger re-broadcasts to its trigger audience on every firing, so the workflow must already be active (workflows-enable first) and you must run workflows-blast-radius, STOP and get the user's explicit confirmation of the count, then pass both acknowledged_affected_count and the confirm_token from that same preview — the API rejects a batch schedule without a fresh token (15-minute expiry, stale if the audience filters change). For a one-off send use workflows-run-batch; to change an existing schedule use workflows-update-schedule (schedule IDs appear in workflows-get's 'schedules').",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Schedule workflow runs",

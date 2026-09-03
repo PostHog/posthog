@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { useInboxSignalsFilterStore } from "./inboxSignalsFilterStore";
+import {
+  hasActiveInboxFilters,
+  useInboxSignalsFilterStore,
+} from "./inboxSignalsFilterStore";
 
 describe("inboxSignalsFilterStore", () => {
   beforeEach(() => {
@@ -10,6 +13,8 @@ describe("inboxSignalsFilterStore", () => {
       searchQuery: "",
       sourceProductFilter: [],
       priorityFilter: [],
+      reportStateFilter: ["review_and_merge", "needs_decision"],
+      prFilter: "all",
     });
   });
 
@@ -20,6 +25,10 @@ describe("inboxSignalsFilterStore", () => {
     expect(state.searchQuery).toBe("");
     expect(state.sourceProductFilter).toEqual([]);
     expect(state.priorityFilter).toEqual([]);
+    expect(state.reportStateFilter).toEqual([
+      "review_and_merge",
+      "needs_decision",
+    ]);
   });
 
   it("setSort updates field and direction", () => {
@@ -123,6 +132,7 @@ describe("inboxSignalsFilterStore", () => {
     store.setSearchQuery("hello");
     store.toggleSourceProduct("github");
     store.setPriorityFilter(["P0", "P1"]);
+    store.toggleReportState("resolved");
 
     useInboxSignalsFilterStore.getState().resetFilters();
 
@@ -130,6 +140,10 @@ describe("inboxSignalsFilterStore", () => {
     expect(state.searchQuery).toBe("");
     expect(state.sourceProductFilter).toEqual([]);
     expect(state.priorityFilter).toEqual([]);
+    expect(state.reportStateFilter).toEqual([
+      "review_and_merge",
+      "needs_decision",
+    ]);
   });
 
   it("resetFilters preserves sort preferences", () => {
@@ -142,7 +156,76 @@ describe("inboxSignalsFilterStore", () => {
     expect(state.sortDirection).toBe("asc");
   });
 
-  it("migrates pre-v2 localStorage by dropping the dead filter slots", () => {
+  it.each([
+    ["no filters", () => {}, false],
+    [
+      "a search query",
+      (s: ReturnType<typeof useInboxSignalsFilterStore.getState>) =>
+        s.setSearchQuery("login"),
+      true,
+    ],
+    [
+      "a whitespace-only search query",
+      (s: ReturnType<typeof useInboxSignalsFilterStore.getState>) =>
+        s.setSearchQuery("   "),
+      false,
+    ],
+    [
+      "a source filter",
+      (s: ReturnType<typeof useInboxSignalsFilterStore.getState>) =>
+        s.toggleSourceProduct("github"),
+      true,
+    ],
+    [
+      "a priority filter",
+      (s: ReturnType<typeof useInboxSignalsFilterStore.getState>) =>
+        s.setPriorityFilter(["P0"]),
+      true,
+    ],
+    [
+      "a PR filter",
+      (s: ReturnType<typeof useInboxSignalsFilterStore.getState>) =>
+        s.setPrFilter("with_pr"),
+      true,
+    ],
+    // Sort only reorders the list, so it must not read as an active filter.
+    [
+      "only a non-default sort",
+      (s: ReturnType<typeof useInboxSignalsFilterStore.getState>) =>
+        s.setSort("created_at", "asc"),
+      false,
+    ],
+  ] as const)(
+    "hasActiveInboxFilters is %s -> %s",
+    (_label, apply, expected) => {
+      apply(useInboxSignalsFilterStore.getState());
+      expect(hasActiveInboxFilters(useInboxSignalsFilterStore.getState())).toBe(
+        expected,
+      );
+    },
+  );
+
+  it("treats a changed report state selection as an active report filter", () => {
+    useInboxSignalsFilterStore.getState().toggleReportState("resolved");
+
+    expect(
+      hasActiveInboxFilters(useInboxSignalsFilterStore.getState(), {
+        includeReportStateFilter: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("ignores a saved source filter when the surface hides that control", () => {
+    useInboxSignalsFilterStore.getState().toggleSourceProduct("github");
+
+    expect(
+      hasActiveInboxFilters(useInboxSignalsFilterStore.getState(), {
+        includeSourceFilter: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("migrates old localStorage by dropping dead slots and adding report states", () => {
     localStorage.setItem(
       "inbox-signals-filter-storage",
       JSON.stringify({
@@ -165,6 +248,10 @@ describe("inboxSignalsFilterStore", () => {
     expect(state.sortField).toBe("created_at");
     expect(state.priorityFilter).toEqual(["P1"]);
     expect(state.sourceProductFilter).toEqual(["github"]);
+    expect(state.reportStateFilter).toEqual([
+      "review_and_merge",
+      "needs_decision",
+    ]);
     expect(
       (state as unknown as Record<string, unknown>).statusFilter,
     ).toBeUndefined();

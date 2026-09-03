@@ -83,6 +83,7 @@ Delete it; the version history has it if it's needed again. Commented-out code i
 Write comments the way you'd write technical documentation: explicit and precise. State the reasoning so the reader does not have to infer it. Length is not a target in either direction: don't clip a comment to look terse, and don't pad it to look thorough. Say what needs saying and stop.
 
 - **Be explicit and technical.** State the cause and effect. Name the actual conditions, values, and consequences. A reader should not have to reconstruct your reasoning from a hint.
+- **Use mostly ASD-STE100 Simplified Technical English.** Use active voice, simple tenses, one idea per sentence, and consistent terms.
 - **Let length follow the content.** One line is fine when one line covers it; use more when the reasoning needs more. Neither brevity nor length is the goal.
 - **No em-dash.** The tell to avoid is the clipped two-part phrase joined by a dash, like `# do the thing — it's faster`. Use a real connective instead ("because", "so that", "which means", "to avoid").
 - **Explain why, not what.** The what is in the code; the why usually is not.

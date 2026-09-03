@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
@@ -152,13 +153,14 @@ class GetSandboxForRepositoryInput:
     context: TaskProcessingContext
 
 
-@dataclass
+@frozen
 class GetSandboxForRepositoryOutput:
     sandbox_id: str
     sandbox_url: str
     connect_token: str | None
     used_snapshot: bool
     should_create_snapshot: bool
+    jwt_kid: str | None = None
     agent_server_launched: bool = False
     boot_path: str = "classic"
     image_source: str | None = None
@@ -167,6 +169,10 @@ class GetSandboxForRepositoryOutput:
     clone_ms: int | None = None
     checkout_ms: int | None = None
     launch_ms: int | None = None
+    agent_prepare_ms: int | None = None
+    agent_invoke_ms: int | None = None
+    dev_stack_preview_sized: bool = False
+    agent_shadow_launched: bool = False
 
 
 @activity.defn
@@ -272,7 +278,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         # can be rebuilt from logs even when the filesystem snapshot has expired.
         if run_state.resume_from_run_id:
             environment_variables["POSTHOG_RESUME_RUN_ID"] = run_state.resume_from_run_id
-        elif run_state.handoff_resumed:
+        elif run_state.same_run_resume:
             environment_variables["POSTHOG_RESUME_RUN_ID"] = str(ctx.run_id)
 
         # Check for resume snapshot (takes priority over integration-level snapshots)

@@ -3,7 +3,32 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
-from products.approvals.backend.models import Approval, ApprovalPolicy, ChangeRequest
+from products.access_control.backend.models.role import Role
+from products.approvals.backend.models import Approval, ApprovalPolicy, ChangeRequest, ChangeRequestState
+
+
+class ChangeRequestSummarySerializer(serializers.ModelSerializer):
+    """Minimal read-only ChangeRequest shape for embedding on resources gated by an approval,
+    e.g. the scheduled change that carries it. Exposes just enough to show the approval state
+    and link to the change request."""
+
+    id = serializers.UUIDField(
+        read_only=True,
+        help_text="ID of the approval change request. Use it to link to the change request in the UI.",
+    )
+    state = serializers.ChoiceField(
+        choices=ChangeRequestState.choices,
+        read_only=True,
+        help_text=(
+            "Current approval state: 'pending' (awaiting approval), 'approved' (awaiting application), "
+            "'applied', 'rejected', 'expired', or 'failed'."
+        ),
+    )
+
+    class Meta:
+        model = ChangeRequest
+        fields = ["id", "state"]
+        read_only_fields = ["id", "state"]
 
 
 class ChangeRequestSerializer(serializers.ModelSerializer):
@@ -96,7 +121,7 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
         approver_roles = policy.get("roles", [])
         if approver_roles:
             try:
-                from ee.models.rbac.role import RoleMembership
+                from products.access_control.backend.models.role import RoleMembership
 
                 # Coerce both sides to strings: role IDs come back from the policy snapshot as JSON strings
                 # but RoleMembership.role_id is a UUID, so a raw set intersection always misses.
@@ -229,11 +254,6 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
     def validate_bypass_roles(self, value):
         if not value:
             return value
-
-        try:
-            from ee.models.rbac.role import Role
-        except ImportError:
-            raise serializers.ValidationError("RBAC roles are not available")
 
         if self.instance:
             # Update: get organization from existing policy

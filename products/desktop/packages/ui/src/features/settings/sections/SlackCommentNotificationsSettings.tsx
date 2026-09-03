@@ -1,6 +1,10 @@
-import { Button, Switch, Text } from "@posthog/quill";
+import { Button, Switch } from "@posthog/quill";
 import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
-import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
+import {
+  SettingsCard,
+  SettingsCardRow,
+  SettingsSection,
+} from "@posthog/ui/features/settings/components/SettingsCard";
 import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMutation";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -67,54 +71,48 @@ export function SlackCommentNotificationsSettings() {
   );
 
   return (
-    <div className="flex flex-col border-(--gray-5) border-t border-dashed pt-3">
-      <Text size="sm" weight="medium" className="mb-1 block">
-        Comment notifications
-      </Text>
-      <Text size="xs" variant="muted" className="mb-1 block">
-        Comment notifications can also reach you in Slack, so you hear about
-        them when PostHog Code isn't open.
-      </Text>
+    <SettingsSection
+      label="Comment notifications"
+      description="Comment notifications can also reach you in Slack, so you hear about them when PostHog Code isn't open"
+    >
+      <SettingsCard>
+        <SettingsCardRow
+          label="Slack account"
+          description={
+            linked
+              ? `Linked to ${links?.[0]?.slack_team_name ?? "Slack"}`
+              : "Only needed when your Slack email differs from your PostHog email; otherwise we find you by email"
+          }
+        >
+          {linked ? (
+            <span className="text-[12px] text-muted-foreground">Linked</span>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              loading={connecting}
+              disabled={linksLoading}
+              onClick={() => connect()}
+            >
+              Link Slack account
+            </Button>
+          )}
+        </SettingsCardRow>
 
-      <SettingRow
-        label="Slack account"
-        description={
-          linked
-            ? `Linked to ${links?.[0]?.slack_team_name ?? "Slack"}`
-            : "Only needed when your Slack email differs from your PostHog email. Otherwise we find you by email."
-        }
-      >
-        {linked ? (
-          <Text size="xs" variant="muted">
-            Linked
-          </Text>
-        ) : (
-          <Button
-            size="xs"
-            loading={connecting}
-            disabled={linksLoading}
-            onClick={() => connect()}
-          >
-            Link Slack account
-          </Button>
-        )}
-      </SettingRow>
-
-      <SettingRow
-        label="Slack DMs for comments"
-        description="Get a direct message when someone mentions you, replies to your comment, or comments on something you own"
-        noBorder
-      >
-        <div className="flex items-center gap-2">
+        <SettingsCardRow
+          label="Slack DMs for comments"
+          description="Get a direct message when someone mentions you, replies to your comment, or comments on something you own"
+        >
           {/* Deliberately not gated on a link: an unlinked recipient is matched to Slack by
               email, so gating here would hide a path that works. */}
           <Switch
+            size="sm"
             checked={enabled}
             onCheckedChange={(next) => mutate(next)}
             disabled={isLoading || isPending}
           />
-        </div>
-      </SettingRow>
-    </div>
+        </SettingsCardRow>
+      </SettingsCard>
+    </SettingsSection>
   );
 }

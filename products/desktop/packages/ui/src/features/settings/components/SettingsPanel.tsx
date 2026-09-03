@@ -7,17 +7,15 @@ import {
   Cube,
   DiscordLogo,
   Folder,
+  Gauge,
   GearSix,
   GithubLogo,
   Keyboard,
   Lightbulb,
   Lightning,
-  MagnifyingGlass,
   Palette,
   Plugs,
   Robot,
-  SidebarSimple,
-  SignOut,
   SlackLogo,
   Terminal,
   TrafficSignal,
@@ -29,9 +27,7 @@ import { BILLING_FLAG } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
-import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useQuickAskAvailable } from "@posthog/ui/features/quick-ask/useQuickAskAvailable";
 import { SettingsPageContent } from "@posthog/ui/features/settings/components/SettingsPageContent";
@@ -46,6 +42,7 @@ import {
   SETTINGS_PAGE_LABELS,
   type SettingsCategory,
 } from "@posthog/ui/features/settings/types";
+import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import * as nav from "@posthog/ui/router/navigationBridge";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
@@ -73,14 +70,16 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
       { id: "general", icon: <GearSix size={16} /> },
       { id: "notifications", icon: <Bell size={16} /> },
       { id: "personalization", icon: <Palette size={16} /> },
-      { id: "sidebar", icon: <SidebarSimple size={16} /> },
       { id: "shortcuts", icon: <Keyboard size={16} /> },
       { id: "quick-ask", icon: <Lightning size={16} /> },
     ],
   },
   {
     label: "Account",
-    items: [{ id: "plan-usage", icon: <CreditCard size={16} /> }],
+    items: [
+      { id: "plan-usage", icon: <CreditCard size={16} /> },
+      { id: "cost-management", icon: <Gauge size={16} /> },
+    ],
   },
   {
     label: "Code",
@@ -121,7 +120,7 @@ export interface SettingsPanelProps {
   /**
    * Override the active category. Defaults to the `$category` URL param
    * (which is what every in-app entry point uses). Provided for the
-   * pre-router `AiApprovalScreen` shell where RouterProvider isn't mounted.
+   * pre-router `ConsentScreen` shell where RouterProvider isn't mounted.
    */
   activeCategory?: SettingsCategory;
   /** Override the close handler. Defaults to router history back. */
@@ -148,10 +147,7 @@ export function SettingsPanel({
   const client = useOptionalAuthenticatedClient();
   const { data: user } = useCurrentUser({ client });
   const billingEnabled = useFeatureFlag(BILLING_FLAG);
-  // The channels layout's nav is fixed, so the Sidebar page can't do anything.
-  const channelsLayout = useChannelsLayout();
   const { localWorkspaces } = useHostCapabilities();
-  const logoutMutation = useLogoutMutation();
   const quickAskAvailable = useQuickAskAvailable();
 
   const spendAnalysisEnabled = useSpendAnalysisEnabled();
@@ -159,7 +155,6 @@ export function SettingsPanel({
     billingEnabled,
     spendAnalysisEnabled,
     localWorkspaces,
-    channelsLayout,
     quickAskAvailable,
   });
   const sidebarGroups = SIDEBAR_GROUPS.map((group) => ({
@@ -193,15 +188,12 @@ export function SettingsPanel({
   )?.icon;
 
   return (
-    <div
-      className="flex h-full w-full bg-(--color-background)"
-      data-page="settings"
-    >
-      <div className="flex h-full w-[256px] shrink-0 flex-col border-gray-6 border-r">
-        <div className="drag h-[36px] shrink-0 border-b border-b-(--gray-6)" />
+    <div className="flex h-full w-full bg-background" data-page="settings">
+      <div className="flex h-full w-[256px] shrink-0 flex-col border-border border-r bg-chrome">
+        <div className="drag h-[36px] shrink-0 border-b border-b-border" />
 
         {isAuthenticated && user && (
-          <div className="flex items-center gap-3 border-b border-b-(--gray-5) px-3 py-3">
+          <div className="flex h-14 items-center gap-3 border-b border-b-border px-3">
             <UserAvatar user={user} />
             <div className="flex min-w-0 flex-col">
               <span className="truncate font-medium text-sm">{user.email}</span>
@@ -211,7 +203,7 @@ export function SettingsPanel({
 
         <button
           type="button"
-          className="mt-2 flex cursor-pointer items-center gap-2 border-0 bg-transparent px-3 py-2 text-left text-[13px] text-gray-11 transition-colors hover:bg-gray-3"
+          className="mt-2 flex cursor-pointer items-center gap-2 border-0 bg-transparent px-3 py-2 text-left text-[13px] text-foreground transition-colors hover:bg-fill-hover"
           onClick={close}
         >
           <ArrowLeft size={14} />
@@ -230,7 +222,7 @@ export function SettingsPanel({
           }}
         />
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
           {searchQuery.trim() ? (
             <SettingsSearchResults
               results={searchResults}
@@ -243,7 +235,7 @@ export function SettingsPanel({
             <div className="flex flex-col gap-3 py-2">
               {sidebarGroups.map((group) => (
                 <div key={group.label}>
-                  <MenuLabel className="px-3 pb-1 text-gray-9">
+                  <MenuLabel className="px-3 pb-1 text-muted-foreground">
                     {group.label}
                   </MenuLabel>
                   {group.items.map((item) => {
@@ -264,23 +256,14 @@ export function SettingsPanel({
         </div>
 
         {isAuthenticated && (
-          <button
-            type="button"
-            disabled={logoutMutation.isPending}
-            className="flex cursor-pointer items-center gap-2 border-0 border-gray-5 border-t bg-transparent px-3 py-2.5 text-left font-mono text-[12px] text-gray-9 transition-colors hover:bg-gray-3 hover:text-gray-11 disabled:pointer-events-none disabled:opacity-50"
-            onClick={() => {
-              close();
-              logoutMutation.mutate();
-            }}
-          >
-            <SignOut size={14} />
-            <span>Sign out</span>
-          </button>
+          <div className="border-border border-t p-2">
+            <ProjectSwitcher onNavigateToSettings={setCategory} />
+          </div>
         )}
       </div>
 
       <div className="relative flex flex-1 flex-col overflow-hidden">
-        <div className="drag h-[36px] shrink-0 border-b border-b-(--gray-6)" />
+        <div className="drag h-[36px] shrink-0 border-b border-b-border" />
         <div className="relative flex flex-1 justify-center overflow-hidden">
           <svg
             aria-hidden="true"
@@ -332,11 +315,7 @@ function SettingsSearchInput({
   onSubmit: () => void;
 }) {
   return (
-    <div className="relative px-3 pt-1 pb-2">
-      <MagnifyingGlass
-        size={13}
-        className="pointer-events-none absolute top-2.5 left-5 text-gray-9"
-      />
+    <div className="px-3 py-2">
       <Input
         value={query}
         onChange={(e) => onQueryChange(e.currentTarget.value)}
@@ -353,9 +332,9 @@ function SettingsSearchInput({
             onSubmit();
           }
         }}
-        placeholder="Search settings"
+        placeholder="Search settings..."
         aria-label="Search settings"
-        className="h-7 pl-7 text-[13px]"
+        className="h-7 text-[13px] hover:bg-fill-hover"
       />
     </div>
   );
@@ -370,7 +349,7 @@ function SettingsSearchResults({
 }) {
   if (results.length === 0) {
     return (
-      <p className="m-0 px-3 py-2 text-[12.5px] text-gray-10">
+      <p className="m-0 px-3 py-2 text-[12.5px] text-muted-foreground">
         No settings match. Try another word, like "sound" or "theme".
       </p>
     );
@@ -382,13 +361,13 @@ function SettingsSearchResults({
         <button
           key={`${result.category}:${result.label}`}
           type="button"
-          className="flex w-full cursor-pointer items-center justify-between gap-2 border-0 bg-transparent px-3 py-1.5 text-left transition-colors hover:bg-gray-3"
+          className="flex w-full cursor-pointer items-center justify-between gap-2 border-0 bg-transparent px-3 py-1.5 text-left transition-colors hover:bg-fill-hover"
           onClick={() => onSelect(result.category)}
         >
-          <span className="min-w-0 truncate text-[13px] text-gray-12">
+          <span className="min-w-0 truncate text-[13px] text-foreground">
             {result.label}
           </span>
-          <span className="shrink-0 text-[11px] text-gray-9">
+          <span className="shrink-0 text-[11px] text-muted-foreground">
             {SETTINGS_PAGE_LABELS[result.category]}
           </span>
         </button>
@@ -407,15 +386,17 @@ function SidebarNavItem({ item, isActive, onClick }: SidebarNavItemProps) {
   return (
     <button
       type="button"
-      className="flex w-full cursor-pointer items-center justify-between gap-2 border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-gray-11 transition-colors hover:bg-gray-3 data-[active]:bg-accent-4 data-[active]:text-gray-12"
+      className="flex w-full cursor-pointer items-center justify-between gap-2 border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-foreground transition-colors hover:bg-fill-hover data-[active]:bg-fill-selected"
       data-active={isActive || undefined}
       onClick={onClick}
     >
       <span className="flex items-center gap-2">
-        <span className="text-gray-10">{item.icon}</span>
+        <span className="text-muted-foreground">{item.icon}</span>
         <span>{SETTINGS_PAGE_LABELS[item.id]}</span>
       </span>
-      {item.hasChevron && <CaretRight size={12} className="text-gray-9" />}
+      {item.hasChevron && (
+        <CaretRight size={12} className="text-muted-foreground" />
+      )}
     </button>
   );
 }

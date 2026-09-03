@@ -1,3 +1,4 @@
+import type { InboxReviewerScope } from "@posthog/shared/analytics-events";
 import type { SignalReport } from "@posthog/shared/types";
 
 /**
@@ -8,7 +9,7 @@ import type { SignalReport } from "@posthog/shared/types";
  * finished section so the user can see what went wrong. Other tabs filter
  * them out via their own predicates.
  */
-export const INBOX_EXCLUDED_STATUSES = new Set<SignalReport["status"]>([
+const INBOX_EXCLUDED_STATUSES = new Set<SignalReport["status"]>([
   "suppressed",
   "resolved",
   "deleted",
@@ -35,21 +36,15 @@ export function isDismissedReport(report: SignalReport): boolean {
   return report.status === "suppressed" || report.status === "resolved";
 }
 
+/**
+ * A suppressed report can be restored to the inbox — except a refunded one: the
+ * backend `state` action refuses `suppressed → potential` for a refunded report
+ * (409), so offering Restore there is a dead-end affordance.
+ */
 export function isRestorableReport(
-  report: Pick<SignalReport, "status">,
+  report: Pick<SignalReport, "status" | "refund">,
 ): boolean {
-  return report.status === "suppressed";
-}
-
-export function getImmediatelyActionableReports(
-  reports: SignalReport[],
-): SignalReport[] {
-  return reports.filter(
-    (report) =>
-      report.status === "ready" &&
-      report.actionability === "immediately_actionable" &&
-      !report.already_addressed,
-  );
+  return report.status === "suppressed" && report.refund == null;
 }
 
 export type InboxScope = "for-you" | "entire-project" | `teammate:${string}`;
@@ -71,6 +66,13 @@ export function isTeammateInboxScope(
   scope: InboxScope,
 ): scope is `teammate:${string}` {
   return parseTeammateInboxScope(scope) != null;
+}
+
+/** Analytics-safe scope value: teammate UUIDs never leave the client. */
+export function inboxReviewerScopeValue(scope: InboxScope): InboxReviewerScope {
+  if (scope === INBOX_SCOPE_FOR_YOU) return "for-you";
+  if (scope === INBOX_SCOPE_ENTIRE_PROJECT) return "entire-project";
+  return "teammate";
 }
 
 export function inboxScopeTriggerLabel(
@@ -117,24 +119,24 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
 
 /**
  * Canonical inbox tab list routes. Use these constants instead of hard-coding
- * `/code/inbox/pulls` etc., so renames stay in one place.
+ * `/inbox/pulls` etc., so renames stay in one place.
  *
- * Detail routes (`/code/inbox/<tab>/$reportId`) stay as TanStack Router
+ * Detail routes (`/inbox/<tab>/$reportId`) stay as TanStack Router
  * literals at call sites – TanStack's typed-link API needs them as literal
  * strings to infer params.
  */
 export const INBOX_TAB_LIST_ROUTE: Record<
   InboxTabKey,
-  `/code/inbox/${InboxTabKey}`
+  `/inbox/${InboxTabKey}`
 > = {
-  pulls: "/code/inbox/pulls",
-  reports: "/code/inbox/reports",
-  runs: "/code/inbox/runs",
-  dismissed: "/code/inbox/dismissed",
+  pulls: "/inbox/pulls",
+  reports: "/inbox/reports",
+  runs: "/inbox/runs",
+  dismissed: "/inbox/dismissed",
 };
 
 const INBOX_DETAIL_PATH_RE = new RegExp(
-  `^/code/inbox/(${INBOX_TAB_KEYS.join("|")})/[^/]+$`,
+  `^/inbox/(${INBOX_TAB_KEYS.join("|")})/[^/]+$`,
 );
 
 export function isInboxDetailPath(pathname: string): boolean {

@@ -14,11 +14,19 @@ from rest_framework.response import Response
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.models import OrganizationMembership
+from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import compute_quota_limit_response
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
+from products.tasks.backend.facade.onboarding import (
+    onboarding_test_tools_enabled,
+    start_onboarding_session,
+    start_onboarding_test_session,
+)
+from products.tasks.backend.facade.onboarding_canvas import ensure_teaching_canvas
 from products.tasks.backend.presentation.serializers import (
     ChannelContextGenerationSerializer,
     ChannelDeleteConflictSerializer,
@@ -30,6 +38,9 @@ from products.tasks.backend.presentation.serializers import (
     ChannelStarWriteSerializer,
     ChannelUpdateSerializer,
     ChannelWriteSerializer,
+    OnboardingSessionSerializer,
+    OnboardingSessionTestResponseSerializer,
+    OnboardingSessionTestSerializer,
     ProvisionedChannelsSerializer,
     TaskActivityMarkReadResponseSerializer,
     TaskActivityMarkReadSerializer,
@@ -41,6 +52,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunErrorResponseSerializer,
     TaskThreadMessageSerializer,
     TaskThreadMessageWriteSerializer,
+    TeachingCanvasSerializer,
 )
 
 # Shared by the PUT and PATCH verbs on /instructions/ — same request/response contract,
@@ -79,6 +91,9 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object_write_actions = [
         "create",
         "provision_defaults",
+        "onboarding_session",
+        "onboarding_session_test",
+        "teaching_canvas_test",
         "partial_update",
         "destroy",
         "publish_instructions",
@@ -134,6 +149,71 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(ProvisionedChannelsSerializer(provisioned).data)
 
     @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(response=OnboardingSessionSerializer, description="The session that was started"),
+            409: OpenApiResponse(description="This team has no #general space to open a session in"),
+        },
+        summary="Start a first-run onboarding session",
+        description=(
+            "Open the agent session a new user lands in, in the team's #general space. Reads the "
+            "company's homepage, so it takes a few seconds and is deliberately not part of "
+            "provisioning, which blocks the app opening. Callers fire it without awaiting it when "
+            "provision_defaults reports personal_created."
+        ),
+    )
+    @action(methods=["POST"], detail=False, url_path="onboarding_session")
+    def onboarding_session(self, request: Request, **kwargs) -> Response:
+        if not isinstance(request.user, User):
+            raise PermissionDenied("Starting an onboarding session requires a user.")
+        task_id = start_onboarding_session(self.team, request.user)
+        if task_id is None:
+            return Response({"detail": "No #general space to open a session in."}, status=409)
+        return Response(OnboardingSessionSerializer({"task_id": task_id}).data)
+
+    @extend_schema(
+        request=OnboardingSessionTestSerializer,
+        responses={200: OnboardingSessionTestResponseSerializer},
+        summary="Start a test first-run onboarding session",
+        description=(
+            "Feature-flagged test path that creates a repeatable session from explicit prompt-building "
+            "inputs, in the requester's personal space."
+        ),
+    )
+    @action(methods=["POST"], detail=False, url_path="onboarding_session_test")
+    def onboarding_session_test(self, request: Request, **kwargs) -> Response:
+        if not isinstance(request.user, User) or not onboarding_test_tools_enabled(self.team, request.user):
+            raise PermissionDenied("The onboarding test tools feature is not enabled.")
+        serializer = OnboardingSessionTestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        values = serializer.validated_data
+        task_id = start_onboarding_test_session(
+            self.team,
+            request.user,
+            **values,
+        )
+        if task_id is None:
+            return Response({"detail": "No personal space to open a session in."}, status=409)
+        channel_id = tasks_facade.ensure_personal_channel_id(self.team_id, request.user.id)
+        return Response(OnboardingSessionTestResponseSerializer({"task_id": task_id, "channel_id": channel_id}).data)
+
+    @extend_schema(
+        request=None,
+        responses={200: TeachingCanvasSerializer},
+        summary="Create the teaching canvas for testing",
+        description="Feature-flagged test path that resolves or creates the teaching canvas in the requester's personal space.",
+    )
+    @action(methods=["POST"], detail=False, url_path="teaching_canvas_test")
+    def teaching_canvas_test(self, request: Request, **kwargs) -> Response:
+        if not isinstance(request.user, User) or not onboarding_test_tools_enabled(self.team, request.user):
+            raise PermissionDenied("The onboarding test tools feature is not enabled.")
+        channel_id = tasks_facade.ensure_personal_channel_id(self.team_id, request.user.id)
+        teaching = ensure_teaching_canvas(self.team_id, channel_id, request.user, refresh=True)
+        if teaching is None:
+            return Response({"detail": "The teaching canvas was previously deleted."}, status=409)
+        return Response(TeachingCanvasSerializer(teaching).data)
+
+    @extend_schema(
         request=ChannelWriteSerializer,
         responses={200: ChannelSerializer},
         summary="Resolve or create a public channel",
@@ -165,13 +245,24 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def partial_update(self, request, pk=None, **kwargs):
         serializer = ChannelUpdateSerializer(data=request.data, context={"team_id": self.team_id}, partial=True)
         serializer.is_valid(raise_exception=True)
-        result = tasks_facade.update_channel(pk, self.team_id, self._user_id(), **serializer.validated_data)
+        membership_level = self.user_permissions.current_team.effective_membership_level
+        result = tasks_facade.update_channel(
+            pk,
+            self.team_id,
+            self._user_id(),
+            can_manage_shared_auto_archive=(
+                membership_level is not None and membership_level >= OrganizationMembership.Level.ADMIN
+            ),
+            **serializer.validated_data,
+        )
         if result == "not_found":
             raise NotFound()
         if result == "personal":
             raise PermissionDenied("Personal channels cannot be renamed")
         if result == "general":
             raise PermissionDenied("The general space can't be renamed")
+        if result == "auto_archive_forbidden":
+            raise PermissionDenied("Only project admins can change automatic archiving for shared spaces")
         if result == "invalid_name":
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         if result == "name_taken":

@@ -2,6 +2,8 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, NamedTuple
 from zoneinfo import ZoneInfo
 
+from django.db import models
+
 from posthog.schema import CachedLogsQueryResponse, LogsQuery
 
 from posthog.hogql import ast
@@ -42,7 +44,14 @@ GROUPABLE_COLUMNS: dict[str, str] = {
     "span_id": "hex(tryBase64Decode(span_id))",
 }
 
-GROUP_SOURCES = ("log", "resource", "column")
+
+class LogsGroupBySource(models.TextChoices):
+    LOG = "log", "log"
+    RESOURCE = "resource", "resource"
+    COLUMN = "column", "column"
+
+
+GROUP_SOURCES = tuple(LogsGroupBySource.values)
 ORDER_FIELDS = ("log_count", "error_count", "last_seen")
 
 
@@ -114,7 +123,7 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
         # Defensive: this runner is invoked directly via the logs API, never through the generic
         # /api/projects/:id/query/ endpoint. Mirror LogsQueryRunner and refuse user-initiated
         # generic-query access so it can't silently bypass that gate if ever registered.
-        from posthog.rbac.user_access_control import UserAccessControlError
+        from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
         raise UserAccessControlError("logs", "viewer")
 
@@ -277,7 +286,7 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
 
     def _calculate(self) -> LogsQueryResponse:
         # The group-by templates only reference posthog-native tables (logs, log_attributes)
-        # and the grouping key is a bound constant, so hand the executor a plain posthog-only
+        # and the grouping key is a bound constant, so hand the executor a posthog-tables-only
         # Database up front. Without it, the `{filters}` placeholder LogsFilterBuilder.where()
         # always emits makes the executor run the full per-query database build — warehouse
         # tables, saved queries, endpoints: several Postgres round trips this query never uses.
@@ -285,7 +294,7 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
             team_id=self.team.pk,
             team=self.team,
             enable_select_queries=True,
-            database=Database(timezone=self.team.timezone, week_start_day=self.team.week_start_day),
+            database=Database.create_for_posthog_tables(self.team, modifiers=self.modifiers),
         )
         response = execute_hogql_query(
             query_type="LogsQuery",

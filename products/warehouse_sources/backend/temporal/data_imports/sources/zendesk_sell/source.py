@@ -58,6 +58,8 @@ class ZendeskSellSource(ResumableSource[ZendeskSellSourceConfig, ZendeskSellResu
             name=SchemaExternalDataSourceType.ZENDESK_SELL,
             category=DataWarehouseSourceCategory.CRM,
             label="Zendesk Sell",
+            # Zendesk Sell was formerly Base CRM; long-time users still search by the old name.
+            keywords=["base crm", "base"],
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Zendesk Sell access token to pull your Sell (formerly Base CRM) data into the PostHog Data warehouse.
 

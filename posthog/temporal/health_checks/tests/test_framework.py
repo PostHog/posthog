@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from posthog.dags.common.owners import JobOwners
+from posthog.job_owners import JobOwners
 from posthog.temporal.health_checks.framework import HealthCheckRegistration
 
 

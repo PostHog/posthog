@@ -124,7 +124,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "description": "Group type index when using group-based filters."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -151,7 +151,7 @@
                                                     "type": "string"
                                                 },
                                                 "type": {
-                                                    "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                    "description": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
                                                     "enum": ["cohort", "person", "group"],
                                                     "type": "string"
                                                 },
@@ -184,7 +184,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "description": "Group type index when using group-based filters."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -196,7 +196,7 @@
                                                     "type": "string"
                                                 },
                                                 "type": {
-                                                    "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                    "description": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
                                                     "enum": ["cohort", "person", "group"],
                                                     "type": "string"
                                                 },
@@ -229,7 +229,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "description": "Group type index when using group-based filters."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -241,7 +241,7 @@
                                                     "type": "string"
                                                 },
                                                 "type": {
-                                                    "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                    "description": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
                                                     "enum": ["cohort", "person", "group"],
                                                     "type": "string"
                                                 },
@@ -275,7 +275,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "description": "Group type index when using group-based filters."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -297,7 +297,7 @@
                                                     "type": "string"
                                                 },
                                                 "type": {
-                                                    "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                    "description": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
                                                     "enum": ["cohort", "person", "group"],
                                                     "type": "string"
                                                 },
@@ -331,7 +331,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "description": "Group type index when using group-based filters."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -343,7 +343,7 @@
                                                     "type": "string"
                                                 },
                                                 "type": {
-                                                    "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                    "description": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
                                                     "enum": ["cohort", "person", "group"],
                                                     "type": "string"
                                                 },
@@ -380,7 +380,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "description": "Group type index when using group-based filters."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -425,7 +425,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "description": "Group type index when using group-based filters."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",

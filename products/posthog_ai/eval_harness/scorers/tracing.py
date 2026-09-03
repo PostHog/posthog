@@ -82,7 +82,7 @@ def create_traced_scorer_clients(posthog_client: Posthog) -> TracedClients:
             kwargs.setdefault(k, v)
         return await original_openai_create(*args, **kwargs)
 
-    openai_client.chat.completions.create = patched_openai_create  # type: ignore
+    openai_client.chat.completions.create = patched_openai_create
 
     class _TracedLLMClient(LLMClient):
         def __post_init__(self):
@@ -221,7 +221,8 @@ def wrap_scorers(
     experiment_id: str,
     experiment_name: str,
     agent_trace_id_lookup: dict[str, str],
-    trace_namespace: str = "sandboxed-agent",
+    *,
+    trace_namespace: str,
 ) -> tuple[list[Any], dict[tuple[str, str], str]]:
     """Wrap scorers with tracing.
 

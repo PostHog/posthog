@@ -71,7 +71,9 @@ def _stub_investigation_result(metric_name: str, mover_label: str = "pod-1") -> 
 
 
 @freeze_time(FROZEN_TIME)
-@patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", side_effect=_metrics_flag_only)
+@patch(
+    "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", side_effect=_metrics_flag_only
+)
 @patch("posthog.tasks.alerts.utils.send_notifications_for_errors", return_value=[])
 @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
 class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
@@ -84,14 +86,19 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         self.metric_name = f"queue.depth.{self._testMethodName}"
 
     def create_metrics_insight(
-        self, group_by: Optional[list[str]] = None, clauses: Optional[list[dict[str, Any]]] = None
+        self,
+        group_by: Optional[list[str]] = None,
+        clauses: Optional[list[dict[str, Any]]] = None,
+        formula: Optional[str] = None,
     ) -> dict:
         if clauses is None:
             clause: dict[str, Any] = {"name": "a", "metricName": self.metric_name, "aggregation": "avg"}
             if group_by:
                 clause["groupBy"] = [{"key": key} for key in group_by]
             clauses = [clause]
-        query_dict = {"kind": "MetricsQuery", "clauses": clauses}
+        query_dict: dict[str, Any] = {"kind": "MetricsQuery", "clauses": clauses}
+        if formula:
+            query_dict["formula"] = formula
         return self.dashboard_api.create_insight(data={"name": "metrics insight", "query": query_dict})[1]
 
     def create_alert(
@@ -200,6 +207,39 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         mock_send_breaches.assert_called_once()
         breach_messages = mock_send_breaches.call_args.args[1]
         assert any("big" in message for message in breach_messages), breach_messages
+
+    def test_formula_alert_evaluates_only_the_formula_series(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        # Input clause 'a' (50) breaches the upper bound on its own; the formula result
+        # (a / b = 5) does not. Catches an extractor that evaluates the input clauses
+        # instead of the formula-only result the query returns.
+        divisor_metric = f"{self.metric_name}.divisor"
+        self.seed_gauge({6: 50.0, 7: 50.0})
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name=divisor_metric,
+            metric_type="gauge",
+            points=[(dt.datetime(2026, 7, 1, hour, 30, tzinfo=dt.UTC), 10.0) for hour in (6, 7)],
+            labels={},
+        )
+        insight = self.create_metrics_insight(
+            clauses=[
+                {"name": "a", "metricName": self.metric_name, "aggregation": "avg"},
+                {"name": "b", "metricName": divisor_metric, "aggregation": "avg"},
+            ],
+            formula="a / b",
+        )
+        alert = self.create_alert(insight, upper=20.0)
+
+        run_alert_check(alert["id"])
+
+        updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
+        assert updated_alert.state == AlertState.NOT_FIRING
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert alert_check.calculated_value == 5.0
+        assert alert_check.error is None
+        mock_send_breaches.assert_not_called()
 
     def test_relative_increase_fires(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock

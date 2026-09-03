@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import type {
   AgentSideConnection,
   CancelNotification,
@@ -12,7 +15,10 @@ import type {
   AppServerRpc,
 } from "./app-server-client";
 import { AppServerRequestError } from "./app-server-client";
-import { CodexAppServerAgent } from "./codex-app-server-agent";
+import {
+  CodexAppServerAgent,
+  shouldAutoAcceptLocalApproval,
+} from "./codex-app-server-agent";
 import { sandboxPolicyFor } from "./session-config";
 
 // Required-field invariants the native codex app-server enforces on each request.
@@ -100,6 +106,68 @@ function makeFakeClient(
 }
 
 const init = { protocolVersion: 1 } as unknown as InitializeRequest;
+
+describe("shouldAutoAcceptLocalApproval", () => {
+  type AutoApprovalInput = Parameters<typeof shouldAutoAcceptLocalApproval>[0];
+  const workspaceWrite = {
+    type: "workspaceWrite" as const,
+    networkAccess: false,
+  };
+  const base: AutoApprovalInput = {
+    environment: "local" as const,
+    mode: "auto",
+    sandboxPolicy: workspaceWrite,
+    method: "item/commandExecution/requestApproval",
+    detail: {},
+    hasMcpToolCall: false,
+  };
+
+  const cases: Array<{
+    input: Partial<AutoApprovalInput>;
+    expected: boolean;
+  }> = [
+    { input: {}, expected: true },
+    {
+      input: { method: "item/fileChange/requestApproval" },
+      expected: true,
+    },
+    { input: { environment: "cloud" }, expected: false },
+    { input: { mode: "plan" }, expected: false },
+    {
+      input: { sandboxPolicy: { type: "dangerFullAccess" } },
+      expected: false,
+    },
+    { input: { hasMcpToolCall: true }, expected: false },
+    { input: { detail: { reason: "needs network" } }, expected: false },
+    {
+      input: { detail: { networkApprovalContext: {} } },
+      expected: false,
+    },
+    {
+      input: {
+        detail: {
+          additionalPermissions: { network: { enabled: true } },
+        },
+      },
+      expected: false,
+    },
+    {
+      input: { detail: { proposedNetworkPolicyAmendments: [{}] } },
+      expected: false,
+    },
+    {
+      input: {
+        method: "item/fileChange/requestApproval",
+        detail: { grantRoot: "/outside" },
+      },
+      expected: false,
+    },
+  ];
+
+  it.each(cases)("returns $expected for $input", ({ input, expected }) => {
+    expect(shouldAutoAcceptLocalApproval({ ...base, ...input })).toBe(expected);
+  });
+});
 
 describe("CodexAppServerAgent", () => {
   const tokenUsage = (last: Record<string, number>) => ({
@@ -638,6 +706,33 @@ describe("CodexAppServerAgent", () => {
         sessionUpdate: "user_message_chunk",
         content: { type: "text", text: "/goal" },
       },
+    });
+  });
+
+  it("reports a steered goal command as accepted so the host does not redeliver it", async () => {
+    const stub = makeStubRpc({
+      "thread/start": { thread: { id: "thr_1" } },
+      "thread/goal/get": {
+        goal: { objective: "Ship the fix", status: "active" },
+      },
+    });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/bundle/codex" },
+      rpcFactory: stub.factory,
+    });
+    await agent.newSession({ cwd: "/repo" } as unknown as NewSessionRequest);
+
+    const result = await agent.prompt({
+      sessionId: "thr_1",
+      prompt: [{ type: "text", text: "/goal" }],
+      _meta: { steer: true },
+    } as unknown as PromptRequest);
+
+    expect(result).toMatchObject({ _meta: { steer: true } });
+    expect(stub.requests).toContainEqual({
+      method: "thread/goal/get",
+      params: { threadId: "thr_1" },
     });
   });
 
@@ -1590,14 +1685,13 @@ describe("CodexAppServerAgent", () => {
     },
   );
 
-  it("flattens the host's {append} systemPrompt and dedupes it against developerInstructions", async () => {
+  it("dedupes a system prompt contained in developerInstructions", async () => {
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
     const { client } = makeFakeClient();
     const agent = new CodexAppServerAgent(client, {
       processOptions: {
         binaryPath: "/x/codex",
-        // The host pre-flattens into developerInstructions AND sends the raw {append} form.
-        developerInstructions: "Be a careful engineer.",
+        developerInstructions: "Be a careful engineer.\n\nUse RTK.",
       },
       rpcFactory: stub.factory,
     });
@@ -1608,12 +1702,52 @@ describe("CodexAppServerAgent", () => {
     } as unknown as NewSessionRequest);
 
     const threadStart = stub.requests.find((r) => r.method === "thread/start");
-    // {append} is flattened (not "[object Object]") and, being identical, deduped to one copy.
     expect(
       (threadStart?.params as { developerInstructions?: string })
         .developerInstructions,
-    ).toBe("Be a careful engineer.");
+    ).toBe("Be a careful engineer.\n\nUse RTK.");
   });
+
+  // "env" is the cloud sandbox path (per-sandbox provisioning); "option" is
+  // the desktop path, where the mount travels per-session to avoid racing on
+  // shared process.env.
+  it.each(["env", "option"] as const)(
+    "appends the context-wiki instructions when a mount exists (via %s)",
+    async (source) => {
+      const mount = fs.mkdtempSync(path.join(os.tmpdir(), "context-wiki-"));
+      if (source === "env") {
+        process.env.POSTHOG_CONTEXT_LAYER_PATH = mount;
+      }
+      try {
+        const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+        const { client } = makeFakeClient();
+        const agent = new CodexAppServerAgent(client, {
+          processOptions: {
+            binaryPath: "/x/codex",
+            developerInstructions: "Codex base guidance.",
+            ...(source === "option" && {
+              contextWiki: { path: mount, commitsPath: "/commits/" },
+            }),
+          },
+          rpcFactory: stub.factory,
+        });
+
+        await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+
+        const threadStart = stub.requests.find(
+          (r) => r.method === "thread/start",
+        );
+        const instructions = (
+          threadStart?.params as { developerInstructions?: string }
+        ).developerInstructions;
+        expect(instructions).toContain("Codex base guidance.");
+        expect(instructions).toContain("# Context Wiki");
+        expect(instructions).toContain(mount);
+      } finally {
+        delete process.env.POSTHOG_CONTEXT_LAYER_PATH;
+      }
+    },
+  );
 
   it("appends a distinct {append} systemPrompt to developerInstructions", async () => {
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
@@ -1751,7 +1885,10 @@ describe("CodexAppServerAgent", () => {
     });
     // Default mode is "auto" → editing allowed. A prior plan/read-only turn's
     // readOnly sandbox persists on the thread, so auto must state its sandbox.
-    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    await agent.newSession({
+      cwd: "/r",
+      _meta: { environment: "local" },
+    } as unknown as NewSessionRequest);
     const done = agent.prompt({
       sessionId: "t",
       prompt: [{ type: "text", text: "go" }],
@@ -1762,9 +1899,11 @@ describe("CodexAppServerAgent", () => {
     const turnStart = stub.requests.find((r) => r.method === "turn/start");
     const params = turnStart?.params as {
       sandboxPolicy?: unknown;
+      approvalPolicy?: string;
       collaborationMode?: unknown;
     };
     expect(params.sandboxPolicy).toEqual(sandboxPolicyFor("auto"));
+    expect(params.approvalPolicy).toBe("on-request");
     // Default collaboration is pushed every turn so switching back from Plan reverts.
     expect(params.collaborationMode).toEqual({
       mode: "default",
@@ -1835,6 +1974,9 @@ describe("CodexAppServerAgent", () => {
     expect(
       (turnStart?.params as { sandboxPolicy?: unknown }).sandboxPolicy,
     ).toBeUndefined();
+    expect(
+      (turnStart?.params as { approvalPolicy?: string }).approvalPolicy,
+    ).toBe("on-request");
   });
 
   it("returns mode + model + thought_level configOptions and emits config_option_update", async () => {
@@ -2902,12 +3044,62 @@ describe("CodexAppServerAgent", () => {
     } as unknown as PromptRequest);
     await agent.cancel({ sessionId: "t" } as unknown as CancelNotification);
     await expect(first).resolves.toMatchObject({ stopReason: "cancelled" });
-    await expect(steer).resolves.toMatchObject({ _meta: { steer: false } });
+    await expect(steer).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "cancelled" },
+    });
 
     const interrupted = stub.requests
       .filter((r) => r.method === "turn/interrupt")
       .map((r) => (r.params as { turnId?: string }).turnId);
     expect(interrupted).toContain("turn_2");
+  });
+
+  it("declines a steer that arrives while a cancel is still interrupting", async () => {
+    let starts = 0;
+    let releaseInterrupt: (() => void) | undefined;
+    const stub = makeStubRpc({
+      "thread/start": { thread: { id: "t" } },
+      "turn/start": () => {
+        starts += 1;
+        return { turn: { id: `turn_${starts}` } };
+      },
+      "turn/interrupt": () =>
+        new Promise((resolve) => {
+          releaseInterrupt = () => resolve({});
+        }),
+    });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const first = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "write a long poem" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { threadId: "t", turn: { id: "turn_1" } });
+
+    const cancelling = agent.cancel({
+      sessionId: "t",
+    } as unknown as CancelNotification);
+    await vi.waitFor(() => expect(releaseInterrupt).toBeDefined());
+
+    await expect(
+      agent.prompt({
+        sessionId: "t",
+        prompt: [{ type: "text", text: "do this instead" }],
+        _meta: { steer: true },
+      } as unknown as PromptRequest),
+    ).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "cancelled" },
+    });
+    expect(starts).toBe(1);
+
+    releaseInterrupt?.();
+    await cancelling;
+    await expect(first).resolves.toMatchObject({ stopReason: "cancelled" });
   });
 
   it("declines a second steer that overlaps the first's interrupt window", async () => {
@@ -2940,7 +3132,9 @@ describe("CodexAppServerAgent", () => {
     } as unknown as PromptRequest);
 
     await expect(steerA).resolves.toMatchObject({ _meta: { steer: true } });
-    await expect(steerB).resolves.toMatchObject({ _meta: { steer: false } });
+    await expect(steerB).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "steer_in_flight" },
+    });
     expect(stub.requests.filter((r) => r.method === "turn/start")).toHaveLength(
       2,
     );
@@ -3089,7 +3283,9 @@ describe("CodexAppServerAgent", () => {
         prompt: [{ type: "text", text: "lost steer" }],
         _meta: { steer: true },
       } as unknown as PromptRequest),
-    ).resolves.toMatchObject({ _meta: { steer: false } });
+    ).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "continuation_failed" },
+    });
     expect(sessionUpdates).not.toContainEqual(
       expect.objectContaining({
         update: expect.objectContaining({
@@ -3192,7 +3388,9 @@ describe("CodexAppServerAgent", () => {
         prompt: [{ type: "text", text: "too late" }],
         _meta: { steer: true },
       } as unknown as PromptRequest),
-    ).resolves.toMatchObject({ _meta: { steer: false } });
+    ).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "no_in_flight_turn" },
+    });
     expect(
       stub.requests.filter((request) => request.method === "turn/start"),
     ).toHaveLength(0);

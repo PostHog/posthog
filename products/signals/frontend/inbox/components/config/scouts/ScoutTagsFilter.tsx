@@ -8,11 +8,13 @@ export function ScoutTagsFilter({
     selected,
     onToggle,
     onClear,
+    size = 'small',
 }: {
     options: ScoutTagOption[]
     selected: string[]
     onToggle: (tag: string) => void
     onClear: () => void
+    size?: 'xsmall' | 'small'
 }): JSX.Element {
     const label = selected.length === 0 ? 'Any tag' : selected.length === 1 ? selected[0] : `${selected.length} tags`
     const items: LemonMenuItems = [
@@ -39,12 +41,7 @@ export function ScoutTagsFilter({
 
     return (
         <LemonMenu items={items} closeOnClickInside={false} placement="bottom-end">
-            <LemonButton
-                type="secondary"
-                size="xsmall"
-                sideIcon={<IconChevronDown />}
-                aria-label="Filter scouts by tag"
-            >
+            <LemonButton type="secondary" size={size} sideIcon={<IconChevronDown />} aria-label="Filter scouts by tag">
                 {label}
             </LemonButton>
         </LemonMenu>

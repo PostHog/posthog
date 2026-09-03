@@ -6,7 +6,11 @@ import type { NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook
 
 import { NotebookNodeType } from '../types'
 import { MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE } from './markdownNotebookRegistry'
-import { NotebookNodeRunTerminalStatus, notebookNodeStalenessLogic } from './notebookNodeStalenessLogic'
+import {
+    NotebookNodeRunTerminalStatus,
+    notebookNodeStalenessLogic,
+    NotebookStaleReason,
+} from './notebookNodeStalenessLogic'
 
 // Only the revamped code cells report run state. Every other block — markdown, insights, images —
 // has nothing to run, so it stays grey.
@@ -19,7 +23,7 @@ const persistedRunStatus = (value: unknown): NotebookNodeRunTerminalStatus | und
 
 export function resolveNotebookComponentRunStatus(
     node: NotebookComponentBlockNode,
-    staleNodeIds: Record<string, true>,
+    staleNodeIds: Record<string, NotebookStaleReason>,
     nodeRunStatuses: Record<string, NotebookNodeRunTerminalStatus>
 ): NotebookComponentRunStatus {
     if (!RUNNABLE_NODE_TYPES.includes(MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE[node.tagName])) {

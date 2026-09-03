@@ -1,15 +1,25 @@
 from django.db import models
+from django.utils.functional import Promise
 
 from posthog.models.utils import UUIDModel
 
 from products.notifications.backend.facade.enums import NotificationType, Priority, TargetType
 
 
+def notification_type_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return [(t.value, t.name) for t in NotificationType]
+
+
+def priority_choices() -> list[tuple[str, str | Promise]]:
+    return [(p.value, p.name) for p in Priority]
+
+
 class NotificationEvent(UUIDModel):
     organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, blank=True)
-    notification_type = models.CharField(max_length=32, choices=[(t.value, t.name) for t in NotificationType])
-    priority = models.CharField(max_length=16, choices=[(p.value, p.name) for p in Priority], default=Priority.NORMAL)
+    notification_type = models.CharField(max_length=32, choices=notification_type_choices)
+    priority = models.CharField(max_length=16, choices=priority_choices, default=Priority.NORMAL)
     title = models.CharField(max_length=255)
     body = models.TextField(blank=True, default="")
     resource_type = models.CharField(max_length=64, null=True, blank=True)

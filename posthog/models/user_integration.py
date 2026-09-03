@@ -130,6 +130,10 @@ class GitHubInstallRequest(UUIDModel):
     github_login = models.CharField(max_length=255, blank=True)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
     installation_id = models.CharField(max_length=64, null=True, blank=True)
+    # The GitHub org or user the approved installation landed on, from the installation.created
+    # payload. Only known once approved; the request itself doesn't say which org was targeted.
+    account_login = models.CharField(max_length=255, null=True, blank=True)
+    account_type = models.CharField(max_length=32, null=True, blank=True)
     requested_at = models.DateTimeField(auto_now_add=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -22,7 +22,8 @@ from posthog.models.resource_transfer.inter_project_transferer import (
 )
 from posthog.models.resource_transfer.types import ResourceTransferKey
 from posthog.models.resource_transfer.visitors import ResourceTransferVisitor
-from posthog.rbac.user_access_control import UserAccessControl, model_to_resource
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
 
 
 class ResourceTransferRequestSerializer(serializers.Serializer):

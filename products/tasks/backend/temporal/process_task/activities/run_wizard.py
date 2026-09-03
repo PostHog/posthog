@@ -9,7 +9,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 from posthog.utils import get_instance_region
 
-from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandbox
+from products.tasks.backend.logic.services.sandbox import ExecutionResult, get_sandbox_class_for_sandbox_id
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 
 from .get_task_processing_context import TaskProcessingContext
@@ -113,7 +113,7 @@ def run_wizard(input: RunWizardInput) -> None:
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
         emit_agent_log(ctx.run_id, "info", "Running the PostHog setup wizard")
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         command = _build_wizard_command(repo_path, ctx.team_id)
 
         result = sandbox.execute(command, timeout_seconds=_SANDBOX_EXEC_TIMEOUT_SECONDS)

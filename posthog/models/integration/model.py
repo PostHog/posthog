@@ -4,6 +4,7 @@ from typing import Any, Self, cast
 
 from django.db import models
 from django.db.models import Q
+from django.utils.functional import Promise
 
 import structlog
 from prometheus_client import Counter
@@ -118,6 +119,11 @@ class IntegrationManager(models.Manager["Integration"]):
         )
 
 
+def integration_kind_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(Integration.IntegrationKind.choices)
+
+
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         ANTHROPIC = "anthropic"
@@ -173,7 +179,7 @@ class Integration(models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     # The integration type identifier
-    kind = field_access_control(models.CharField(max_length=32, choices=IntegrationKind), "project", "admin")
+    kind = field_access_control(models.CharField(max_length=32, choices=integration_kind_choices), "project", "admin")
     # The ID of the integration in the external system
     integration_id = field_access_control(models.TextField(null=True, blank=True), "project", "admin")
     # Any config that COULD be passed to the frontend
@@ -275,8 +281,21 @@ class Integration(models.Model):
             return self.config.get("email", self.integration_id)
         if self.kind == "apns":
             return self.config.get("bundle_id", self.integration_id)
+        if self.kind == Integration.IntegrationKind.POSTGRESQL:
+            # The derived id reads as "1-db.example.com-5432-postgres", so prefer a name the
+            # user chose. Falls back to host and user, which still beats the raw id.
+            if name := self.config.get("name"):
+                return name
+            host = self.config.get("host")
+            user = self.config.get("user")
+            return f"{user}@{host}" if user and host else f"ID: {self.integration_id}"
 
         return f"ID: {self.integration_id}"
+
+    def can_be_managed_by_creator(self, user_id: int | None) -> bool:
+        return (
+            user_id is not None and self.kind == self.IntegrationKind.GOOGLE_CALENDAR and self.created_by_id == user_id
+        )
 
     @property
     def access_token(self) -> str | None:

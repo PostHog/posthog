@@ -31,7 +31,7 @@ export function ProjectEnvironmentCard({
   return (
     <Flex
       direction="column"
-      className="rounded-(--radius-2) border border-(--gray-5)"
+      className="rounded-(--radius-2) border border-border"
     >
       <Flex align="center" justify="between" gap="2" px="3" py="2">
         <Flex align="center" gap="2" className="min-w-0 flex-1">

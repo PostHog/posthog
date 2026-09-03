@@ -20,7 +20,7 @@ def _make_scanner(team, **overrides) -> ReplayScanner:
         "name": "my-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "test"},
-        "model": ScannerModel.GEMINI_3_7_FLASH,
+        "model": ScannerModel.GEMINI_3_8_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -53,7 +53,7 @@ class TestReplayScanner(BaseTest):
             name="shared",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
 
     def test_str_includes_name_and_type(self) -> None:
@@ -228,7 +228,7 @@ class TestReplayObservation(BaseTest):
             name="other-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
         self._create_observation(scanner_a, session_id="shared-session")
         self._create_observation(scanner_b, session_id="shared-session")
@@ -295,7 +295,7 @@ class TestReplayObservation(BaseTest):
             name="doomed",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
         self._create_observation(scanner, session_id="doomed-session")
         scanner_id = scanner.id
@@ -337,7 +337,7 @@ class TestScannerCreditLimit(APIBaseTest):
             name=f"limit-scanner-{ReplayScanner.objects.count()}",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
             **kwargs,
         )
 
@@ -351,7 +351,7 @@ class TestScannerCreditLimit(APIBaseTest):
             name="limit-validator-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
             credit_limit=limit,
         )
         with self.assertRaises(ValidationError) as ctx:
@@ -384,3 +384,25 @@ class TestScannerCreditLimit(APIBaseTest):
 
         assert scanner.scanner_version == version_before
         assert scanner.estimated_at == estimated_at_before
+
+
+class TestTargetedRecordingsQuery(BaseTest):
+    def test_no_targeting_clears_a_stale_exposure_filter_in_the_query(self) -> None:
+        # A query saved before the write-guard (or after targeting was removed) can still carry an
+        # experiment_exposure that nothing access-checks. Since the sweep runs the derived query as the
+        # creator, an untouched blob would run an unauthorized exposure filter — so it must be cleared.
+        scanner = _make_scanner(
+            self.team,
+            query={"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": 999}},
+            experiment_targeting=None,
+        )
+        assert scanner.targeted_recordings_query().experiment_exposure is None
+
+    def test_targeting_sets_the_exposure_filter(self) -> None:
+        scanner = _make_scanner(
+            self.team, query={"kind": "RecordingsQuery"}, experiment_targeting={"experiment_id": 42, "variant": "test"}
+        )
+        exposure = scanner.targeted_recordings_query().experiment_exposure
+        assert exposure is not None
+        assert exposure.experiment_id == 42
+        assert exposure.variant == "test"

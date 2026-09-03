@@ -153,8 +153,6 @@ export interface CanvasApi {
     readonly context: string
     /** @nullable */
     readonly generation_task_id: string | null
-    /** @nullable */
-    readonly discussion_task_id: string | null
     /** Whether the canvas is pinned to its channel. */
     readonly pinned: boolean
     /** @nullable */
@@ -226,6 +224,8 @@ export interface PatchedCanvasUpdateApi {
     context?: string
     /** Updated canvas description (for components, the store-search text). */
     description?: string
+    /** Id of the space the canvas belongs to. */
+    channel_id?: string
     /** Whether the canvas is pinned in its channel. */
     pinned?: boolean
     /**

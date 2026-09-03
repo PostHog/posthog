@@ -375,6 +375,19 @@ class TestFormatInputMessages:
         truncation_marker_found = any("TRUNCATED" in line for line in lines)
         assert truncation_marker_found
 
+    @parameterized.expand(
+        [
+            ("dict", {"name": "user"}),
+            ("list", ["user"]),
+        ]
+    )
+    def test_non_string_role_still_renders_the_message(self, _name, role):
+        messages = [{"role": role, "content": "Hello"}]
+
+        result = "\n".join(format_input_messages(messages))
+
+        assert "Hello" in result
+
 
 class TestFormatOutputMessages:
     """Test output message section formatting."""

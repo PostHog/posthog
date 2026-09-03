@@ -16,11 +16,20 @@ their data results.
 """
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
 from pydantic import Field
 from pydantic.dataclasses import dataclass
+
+
+class DesktopAccessReason(StrEnum):
+    STARTUP_PLAN = "startup_plan"
+    PREPAID_CREDITS = "prepaid_credits"
+
+
+DESKTOP_ACCESS_REASON_SCHEMA_VALUES = [*(reason.value for reason in DesktopAccessReason), None]
 
 
 @dataclass(frozen=True)
@@ -190,6 +199,7 @@ class TaskDetailDTO:
     latest_run_id: UUID | None = None
     channel: UUID | None = None
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
+    origin_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -201,6 +211,7 @@ class ChannelDTO:
     channel_type: str
     github_integration: int | None
     repositories: list[str]
+    auto_archive_after_days: int | None
     created_at: datetime
     created_by: "TaskUserBasicInfo | None" = None
     starred: bool = False
@@ -295,8 +306,6 @@ class TaskActivityDTO:
     latest_comment_id: UUID | None = None
     latest_comment_scope: str | None = None
     latest_comment_item_id: str | None = None
-    target_scope: str | None = None
-    target_id: str | None = None
     is_unread: bool = True
 
 
@@ -365,6 +374,7 @@ class TaskCommentDetailDTO:
 class TaskLatestRunSummaryDTO:
     """The latest-run status/environment pair nested in a task summary response."""
 
+    id: UUID
     status: str | None
     environment: str | None
 
@@ -380,10 +390,15 @@ class TaskSummaryDTO:
     id: UUID
     title: str
     repository: str | None
+    created_by_id: int | None
     created_at: datetime
     updated_at: datetime
     origin_product: str = ""
     latest_run: TaskLatestRunSummaryDTO | None = None
+
+
+class TaskAnalysisError(Exception):
+    """A task analysis could not be created or recorded; ``message`` is safe to surface."""
 
 
 @dataclass(frozen=True)
@@ -479,6 +494,7 @@ class SlackThreadContextRunDTO:
     mention_workflow_url: str | None
     task_view_url: str
     log_url: str | None
+    admin_url: str
     repo_research: SlackThreadContextRepoResearchDTO | None = None
 
 
@@ -491,6 +507,10 @@ class SlackThreadContextThreadDTO:
     thread_ts: str
     slack_workspace_id: str | None
     mentioning_slack_user_id: str | None
+    queue_workflow_id: str | None
+    queue_workflow_url: str | None
+    # Null on the no-mapping path, where there is no row to link.
+    mapping_admin_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -504,6 +524,7 @@ class SlackThreadContextTaskDTO:
     origin_product: str
     created_at: datetime | None
     url: str
+    admin_url: str
 
 
 @dataclass(frozen=True)
@@ -561,6 +582,7 @@ class TaskRunDetailDTO:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
+    preview_available: bool = False
 
 
 @dataclass(frozen=True)
@@ -614,6 +636,8 @@ class TaskRunSandboxConnectionDTO:
     sandbox_url: str | None
     sandbox_connect_token: str | None
     connection_token: str | None = None
+    # Query-param name the transport token travels under (provider-specific).
+    sandbox_token_param: str = "_modal_connect_token"
 
 
 @dataclass(frozen=True)
@@ -644,17 +668,39 @@ class WorkflowTaskDTO:
     created: bool
 
 
-@dataclass(frozen=True)
-class CodeInviteRedeemResult:
-    """Outcome of attempting to redeem a PostHog Desktop invite.
+@dataclass(frozen=True, kw_only=True)
+class WorkflowTaskRateLimits:
+    """Optional per-project overrides for workflow-created AI task daily limits."""
 
-    ``outcome`` is one of ``redeemed`` (or ``already_redeemed``), ``invalid_code``, or
-    ``not_redeemable``. The presentation layer maps it to the success/error HTTP response;
-    the ORM redemption, idempotency check, count increment, and analytics capture all
-    happen inside the facade so no model leaks across the boundary.
+    per_workflow: int | None = Field(default=None, ge=0)
+    per_team: int | None = Field(default=None, ge=0)
+
+
+@dataclass(frozen=True, kw_only=True)
+class WorkflowTaskSlackContext:
+    """The Slack thread whose message triggered the workflow run, so the task reports back there.
+
+    ``integration_id`` is the PostHog integration pk stamped on the trigger event;
+    ``slack_team_id`` is the Slack workspace id, kept as a fallback for re-resolving the
+    integration when the stamped pk is stale. ``slack_user_id`` is empty when a bot
+    posted the triggering message. ``message_ts`` is the triggering message itself,
+    which differs from ``thread_ts`` when a reply started the run.
+    ``is_ext_shared_channel`` comes from the Slack event envelope and decides whether the
+    channel needs an approval on file before a task may reply in it.
     """
 
-    outcome: str
+    integration_id: int
+    channel: str
+    thread_ts: str
+    message_ts: str = ""
+    slack_user_id: str = ""
+    slack_team_id: str = ""
+    is_ext_shared_channel: bool = False
+
+
+@dataclass(frozen=True)
+class DesktopBetaTermsAcceptanceDTO:
+    is_desktop_beta_terms_accepted: bool
 
 
 @dataclass(frozen=True)
@@ -691,6 +737,7 @@ class SandboxEnvironmentDTO:
     repositories: list[str] = Field(default_factory=list)
     effective_domains: list[str] = Field(default_factory=list)
     has_environment_variables: bool = False
+    environment_variable_keys: list[str] = Field(default_factory=list)
     created_by: TaskUserBasicInfo | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -799,3 +846,10 @@ class TaskRunStateMetricsDTO:
     oldest_open_age_seconds: list[TaskRunGaugeRow] = Field(default_factory=list)
     created_recently: list[TaskRunGaugeRow] = Field(default_factory=list)
     terminal_recently: list[TaskRunGaugeRow] = Field(default_factory=list)
+
+
+class ComputeQuotaDenialReason(StrEnum):
+    """Why a compute request was refused. The value is the denial code the API returns."""
+
+    COMPUTE_QUOTA_EXHAUSTED = "posthog_code_billing_limit_exceeded"
+    ORGANIZATION_DEACTIVATED = "organization_deactivated"

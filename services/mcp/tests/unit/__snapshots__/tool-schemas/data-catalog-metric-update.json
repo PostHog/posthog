@@ -1,0 +1,80 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "ai_model": {
+            "description": "Model that generated the metric, if AI-authored.",
+            "maxLength": 128,
+            "type": "string"
+        },
+        "confidence": {
+            "anyOf": [
+                {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "AI author's confidence in the proposal, 0-1."
+        },
+        "definition": {
+            "anyOf": [
+                {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical."
+        },
+        "description": {
+            "description": "What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.",
+            "maxLength": 1000,
+            "type": "string"
+        },
+        "display_name": {
+            "description": "Human-friendly label. Mutable, unlike name.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "name": {
+            "type": "string"
+        },
+        "new_name": {
+            "description": "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving.",
+            "maxLength": 128,
+            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+            "type": "string"
+        },
+        "reasoning": {
+            "description": "AI author's reasoning, surfaced as review context.",
+            "type": "string"
+        },
+        "source_insight_short_id": {
+            "anyOf": [
+                {
+                    "maxLength": 12,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition."
+        },
+        "unit": {
+            "description": "Unit of the result, e.g. usd, percent, cents.",
+            "maxLength": 64,
+            "type": "string"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

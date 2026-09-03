@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
@@ -6,13 +5,24 @@ from django.db.models import Q, QuerySet
 
 import structlog
 
-from posthog.date_util import thirty_days_ago
+from posthog.dataclasses import frozen
 
 from .models.feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
 
 FeatureFlagStatusReason = str
+
+STALE_FLAG_THRESHOLD_DAYS = 30
+
+
+def stale_flag_threshold() -> datetime:
+    """The cutoff that both staleness signals compare against.
+
+    A flag with usage data is stale when `last_called_at` is older than this. A flag with no
+    usage data is only considered at all when `created_at` is older than this.
+    """
+    return datetime.now(UTC) - timedelta(days=STALE_FLAG_THRESHOLD_DAYS)
 
 
 class FeatureFlagStatus(StrEnum):
@@ -23,14 +33,15 @@ class FeatureFlagStatus(StrEnum):
     UNKNOWN = "unknown"
 
 
-@dataclass
+@frozen
 class FeatureFlagRolloutSummary:
     # Whether the flag is effectively rolled out to everyone, independent of recent evaluation.
     effectively_full_rollout: bool
     # Whether any release condition has property filters (conditionally targeted vs. blanket rollout).
     has_targeting_conditions: bool
     # Highest rollout percentage across release conditions, or None when there are no conditions.
-    max_rollout_percentage: int | None
+    # A fractional rollout (e.g. 0.5) stays a float, matching how conditions store the value.
+    max_rollout_percentage: int | float | None
     # Whether the flag serves multiple variants.
     is_multivariate: bool
 
@@ -48,69 +59,106 @@ def exclude_archived_unless_requested(queryset: QuerySet, *, requested: bool) ->
     return queryset
 
 
+def filter_stale_flags(queryset: QuerySet) -> QuerySet:
+    """
+    Narrow a FeatureFlag queryset to the flags that count as stale.
+
+    Set-based counterpart to `FeatureFlagStatusChecker.get_status`, which answers the same
+    question for one flag and also produces the human-readable reason. The two are meant to
+    classify the same flags, so change them together.
+
+    They do not agree yet, on two shapes. First, the checker calls a flag with no release
+    conditions fully rolled out, so `filters` of `{"groups": []}` (the model default) is STALE
+    to the checker and not stale here; the config branch below matches an empty `filters` only
+    as `NULL` or `{}`. Second, the checker reads a group that omits the `properties` key, e.g.
+    `{"groups": [{"rollout_percentage": 100}]}`, as an empty targeting list and calls it STALE,
+    while the config branch requires a literal `[]` and Postgres `->` returns NULL for the
+    absent key, so no branch matches. The editor and the filters serializer now write
+    `properties: []`, so only unedited legacy rows hold the second shape.
+    `test_stale_filter_agrees_with_status_checker` covers the shapes where the two do agree.
+
+    The caller supplies the scope, so pass a queryset already narrowed to the team.
+
+    The config branch's raw SQL rides on `.extra(where=...)`, and that clause stays on that
+    branch when the two querysets are OR-combined below. Applied to the combined query, it
+    would narrow the usage-based branch too and drop flags that are stale only by usage.
+    `test_filters_stale` covers that case.
+
+    Compose it by chaining `.filter()`, and keep the result a top-level queryset. The raw
+    predicate hard-codes the `posthog_featureflag` table name. Nesting the result aliases the
+    inner table, so the raw text resolves against the outer row instead.
+
+    `pk__in=<queryset>` survives that, because `id IN (...)` ties the inner row to the outer
+    row. A correlated `Exists()` or `Subquery()` joined on anything else, such as `team_id`,
+    does not. The config branch then tests the outer flag's `filters` while the inner query
+    ranges over the team's other flags, and returns a wrong set of flags with no error.
+    Postgres rejects the query only when the outer scope holds no `posthog_featureflag`.
+    """
+    # Get stale flags using the best available signal:
+    # 1. If last_called_at exists: flag hasn't been called in 30+ days
+    # 2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old
+    stale_threshold = stale_flag_threshold()
+    usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
+    config_based_queryset = queryset.filter(
+        last_called_at__isnull=True,
+        active=True,
+        created_at__lt=stale_threshold,
+    ).extra(
+        where=[
+            """
+            (
+                (
+                    EXISTS (
+                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
+                        WHERE elem->>'rollout_percentage' = '100'
+                        AND (elem->'properties')::text = '[]'::text
+                    )
+                    AND (posthog_featureflag.filters->>'multivariate' IS NULL
+                        OR posthog_featureflag.filters->'multivariate' = '{}'::jsonb
+                        OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
+                )
+                OR
+                (
+                    EXISTS (
+                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'multivariate'->'variants') AS variant
+                        WHERE variant->>'rollout_percentage' = '100'
+                    )
+                    AND EXISTS (
+                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
+                        WHERE elem->>'rollout_percentage' = '100'
+                        AND (elem->'properties')::text = '[]'::text
+                    )
+                )
+                OR
+                (
+                    EXISTS (
+                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
+                        WHERE elem->>'rollout_percentage' = '100'
+                        AND (elem->'properties')::text = '[]'::text
+                        AND elem->'variant' IS NOT NULL
+                        AND elem->>'variant' IS NOT NULL
+                    )
+                    AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
+                )
+                OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{}'::jsonb)
+            )
+            """
+        ]
+    )
+    return queryset.filter(usage_based_stale) | config_based_queryset
+
+
 def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> QuerySet:
     """
     Filter a FeatureFlag queryset by the `active` param (STALE / true / false).
 
     Source of truth for both the feature_flags viewset (`_apply_filters`) and Max's
     listing path. Handles string values (from URL query params) and native booleans
-    (from JSON bodies). When updating the STALE logic, also update
-    `FeatureFlagStatusChecker.get_status` so the filter and the per-flag status agree.
+    (from JSON bodies). The STALE branch delegates to `filter_stale_flags`.
     """
     if value == "STALE":
-        # Get stale flags using the best available signal:
-        # 1. If last_called_at exists: flag hasn't been called in 30+ days
-        # 2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old
-        stale_threshold = thirty_days_ago()
-        usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
-        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
-        config_based_queryset = queryset.filter(
-            last_called_at__isnull=True,
-            active=True,
-            created_at__lt=stale_threshold,
-        ).extra(
-            where=[
-                """
-                (
-                    (
-                        EXISTS (
-                            SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                            WHERE elem->>'rollout_percentage' = '100'
-                            AND (elem->'properties')::text = '[]'::text
-                        )
-                        AND (posthog_featureflag.filters->>'multivariate' IS NULL
-                            OR posthog_featureflag.filters->'multivariate' = '{}'::jsonb
-                            OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
-                    )
-                    OR
-                    (
-                        EXISTS (
-                            SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'multivariate'->'variants') AS variant
-                            WHERE variant->>'rollout_percentage' = '100'
-                        )
-                        AND EXISTS (
-                            SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                            WHERE elem->>'rollout_percentage' = '100'
-                            AND (elem->'properties')::text = '[]'::text
-                        )
-                    )
-                    OR
-                    (
-                        EXISTS (
-                            SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                            WHERE elem->>'rollout_percentage' = '100'
-                            AND (elem->'properties')::text = '[]'::text
-                            AND elem->'variant' IS NOT NULL
-                            AND elem->>'variant' IS NOT NULL
-                        )
-                        AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
-                    )
-                    OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{}'::jsonb)
-                )
-                """
-            ]
-        )
-        return queryset.filter(usage_based_stale) | config_based_queryset
+        return filter_stale_flags(queryset)
 
     # Handle both string "true"/"false" (any casing) and boolean True/False
     is_active = str(value).lower() == "true"
@@ -129,7 +177,8 @@ def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> Query
 # - DELETED: The feature flag has been soft deleted.
 # - UNKNOWN: The feature flag is not found in the database.
 #
-# When we update the logic for stale flags, do check/update the function `_filter_request`` in feature_flag.py
+# The set-based counterpart is `filter_stale_flags`. Both are meant to classify the same flags as
+# stale, with the exceptions recorded in that function's docstring.
 class FeatureFlagStatusChecker:
     def __init__(
         self,
@@ -138,6 +187,10 @@ class FeatureFlagStatusChecker:
     ):
         self.feature_flag_id = feature_flag_id
         self.feature_flag = feature_flag
+        # Set when `get_status` reaches STALE through the configuration route, where the reason it
+        # returns already states the rollout. Callers that narrate the rollout separately read this
+        # rather than re-deriving the route from the flag.
+        self.reason_states_rollout = False
 
     def get_status(self) -> tuple[FeatureFlagStatus, FeatureFlagStatusReason]:
         if not self.feature_flag_id and not self.feature_flag:
@@ -185,10 +238,11 @@ class FeatureFlagStatusChecker:
         else:
             # No usage data - fall back to configuration-based detection
             # Only for flags that are old enough (30+ days) to have had a chance to be called
-            is_flag_at_least_thirty_days_old = flag.created_at < thirty_days_ago()
-            if is_flag_at_least_thirty_days_old:
+            is_flag_older_than_stale_threshold = flag.created_at < stale_flag_threshold()
+            if is_flag_older_than_stale_threshold:
                 is_fully_rolled_out, rolled_out_reason = self.is_flag_fully_rolled_out(flag)
                 if is_fully_rolled_out:
+                    self.reason_states_rollout = True
                     return FeatureFlagStatus.STALE, rolled_out_reason
 
         return FeatureFlagStatus.ACTIVE, "Flag has no usage data yet"
@@ -199,7 +253,7 @@ class FeatureFlagStatusChecker:
         A flag is stale if it hasn't been called in 30+ days.
         """
         assert flag.last_called_at is not None, "last_called_at must not be None"
-        stale_threshold = datetime.now(UTC) - timedelta(days=30)
+        stale_threshold = stale_flag_threshold()
 
         if flag.last_called_at < stale_threshold:
             days_since_called = (datetime.now(UTC) - flag.last_called_at).days
@@ -221,7 +275,7 @@ class FeatureFlagStatusChecker:
         multivariate = filters.get("multivariate")
 
         has_targeting_conditions = False
-        max_rollout_percentage: int | None = None
+        max_rollout_percentage: int | float | None = None
         for group in groups:
             if group.get("properties"):
                 has_targeting_conditions = True

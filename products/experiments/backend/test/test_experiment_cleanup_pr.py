@@ -51,11 +51,11 @@ class TestExperimentCleanupPr(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (name, flag_enabled, open_cleanup_pr, conclusion, expect_task_created)
-            ("flag_on_and_opted_in", True, True, "won", True),
-            ("not_opted_in", True, False, "won", False),
-            ("flag_off", False, True, "won", False),
-            ("no_conclusion", True, True, None, False),
+            # (name, flag_enabled, open_cleanup_pr, conclusion, expect_task_created, expected_skip_reason)
+            ("flag_on_and_opted_in", True, True, "won", True, None),
+            ("not_opted_in", True, False, "won", False, None),
+            ("flag_off", False, True, "won", False, "flag_disabled"),
+            ("no_conclusion", True, True, None, False, "no_conclusion"),
         ]
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
@@ -69,10 +69,11 @@ class TestExperimentCleanupPr(APIBaseTest):
         open_cleanup_pr,
         conclusion,
         expect_task_created,
+        expected_skip_reason,
         mock_resolve_github,
         mock_create_task,
         mock_feature_enabled,
-        _mock_report,
+        mock_report,
     ):
         mock_resolve_github.return_value = SimpleNamespace(
             list_all_cached_repositories=lambda max_repos: [{"full_name": "posthog/posthog"}]
@@ -101,6 +102,26 @@ class TestExperimentCleanupPr(APIBaseTest):
         else:
             mock_create_task.assert_not_called()
             self.assertIsNone(experiment.flag_cleanup_task_id)
+
+        completed_calls = [call for call in mock_report.call_args_list if call.args[1] == "experiment completed"]
+        self.assertEqual(len(completed_calls), 1)
+        completed_metadata = completed_calls[0].args[2]
+        self.assertEqual(completed_metadata["open_cleanup_pr"], open_cleanup_pr)
+        self.assertEqual(completed_metadata["cleanup_task_attempted"], expect_task_created)
+        self.assertEqual(completed_metadata["cleanup_skip_reason"], expected_skip_reason)
+
+        requested_calls = [
+            call for call in mock_report.call_args_list if call.args[1] == "experiment cleanup pr requested"
+        ]
+        if expect_task_created:
+            self.assertEqual(len(requested_calls), 1)
+            requested_metadata = requested_calls[0].args[2]
+            self.assertEqual(requested_metadata["repository_source"], "explicit")
+            self.assertEqual(requested_metadata["conclusion"], "won")
+            self.assertTrue(requested_metadata["confident"])
+            self.assertEqual(completed_metadata["cleanup_repository_source"], "explicit")
+        else:
+            self.assertEqual(requested_calls, [])
 
     @parameterized.expand(
         [

@@ -2,8 +2,7 @@
 name: signals-scout-revenue-analytics
 description: >
   Signals scout for PostHog revenue analytics. Watches for upstream failures (Stripe sync
-  stalls, capture regressions), config drift, and goal-miss escalations, and files each
-  validated finding as a report in the inbox.
+  stalls, capture regressions), config drift, and goal-miss escalations.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
   read-only analytics plus signal_scout_internal:write (for scratchpad) +

@@ -70,7 +70,7 @@ pub async fn build_flags_cache(
 /// Do not widen this to the rest of that set (survey, evaluation runtime, evaluation
 /// contexts): those are request-scoped, so blanking on them would strip targeting that
 /// other requests still need.
-fn is_evaluable(flag: &FeatureFlag) -> bool {
+pub(crate) fn is_evaluable(flag: &FeatureFlag) -> bool {
     flag.active && !flag.deleted
 }
 

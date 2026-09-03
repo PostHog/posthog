@@ -10,59 +10,6 @@
 import * as zod from 'zod'
 
 /**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const StamphogDigestChannelsCreateBody = /* @__PURE__ */ zod
-    .object({
-        audience_key: zod
-            .string()
-            .describe(
-                "Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone."
-            ),
-        slack_integration_id: zod.number().describe("ID of the team's Slack integration used to post the digest."),
-        slack_channel_id: zod.string().describe("Slack channel ID to post the digest to, e.g. 'C012AB3CD'."),
-        slack_channel_name: zod.string().optional().describe('Human-readable Slack channel name, for display only.'),
-        enabled: zod.boolean().optional().describe('Whether this channel is included in the daily digest fan-out.'),
-    })
-    .describe('Input shape for creating\/updating a digest channel (see the repo-config write serializer).')
-
-/**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const StamphogDigestChannelsUpdateBody = /* @__PURE__ */ zod
-    .object({
-        audience_key: zod
-            .string()
-            .describe(
-                "Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone."
-            ),
-        slack_integration_id: zod.number().describe("ID of the team's Slack integration used to post the digest."),
-        slack_channel_id: zod.string().describe("Slack channel ID to post the digest to, e.g. 'C012AB3CD'."),
-        slack_channel_name: zod.string().optional().describe('Human-readable Slack channel name, for display only.'),
-        enabled: zod.boolean().optional().describe('Whether this channel is included in the daily digest fan-out.'),
-    })
-    .describe('Input shape for creating\/updating a digest channel (see the repo-config write serializer).')
-
-/**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const StamphogDigestChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    audience_key: zod
-        .string()
-        .optional()
-        .describe(
-            "Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone."
-        ),
-    slack_integration_id: zod
-        .number()
-        .optional()
-        .describe("ID of the team's Slack integration used to post the digest."),
-    slack_channel_id: zod.string().optional().describe("Slack channel ID to post the digest to, e.g. 'C012AB3CD'."),
-    slack_channel_name: zod.string().optional().describe('Human-readable Slack channel name, for display only.'),
-    enabled: zod.boolean().optional().describe('Whether this channel is included in the daily digest fan-out.'),
-})
-
-/**
  * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
  */
 export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod

@@ -77,7 +77,6 @@ import {
     getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
-import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
 import {
     getProductEventFilterOptions,
@@ -119,6 +118,7 @@ import {
 } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
 import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
 
 import type { Noun } from '../../../models/groupsModel'
@@ -1086,6 +1086,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Data Warehouse Table',
                         getIcon: () => <IconServer />,
                     },
+                    {
+                        name: 'Materialized views',
+                        searchPlaceholder: 'materialized views',
+                        type: TaxonomicFilterGroupType.DataWarehouseMaterializedViews,
+                        logic: dataWarehouseSettingsSceneLogic,
+                        value: 'materializedViews',
+                        valueLoading: 'materializedViewsLoading',
+                        getName: (table: DatabaseSchemaTable) => table.name,
+                        getValue: (table: DatabaseSchemaTable) => table.name,
+                        getPopoverHeader: () => 'Materialized view',
+                        getIcon: () => <IconServer />,
+                    },
                     ...(schemaColumns.length > 0 || schemaColumnsLoading
                         ? [
                               {
@@ -1359,6 +1371,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (option: PropertyDefinition) => option.name,
                         getValue: (option: PropertyDefinition) => option.id,
                         getPopoverHeader: () => 'Account field',
+                    },
+                    {
+                        name: 'Account relationships',
+                        searchPlaceholder: 'account relationships',
+                        type: TaxonomicFilterGroupType.AccountRelationships,
+                        getIcon: getAccountFieldDefinitionIcon,
+                        getName: (option: PropertyDefinition) => option.name,
+                        getValue: (option: PropertyDefinition) => option.id,
+                        getPopoverHeader: () => 'Account relationship',
                     },
                     {
                         name: 'Account custom properties',

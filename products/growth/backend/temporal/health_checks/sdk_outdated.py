@@ -4,7 +4,7 @@ from typing import Any
 
 import structlog
 
-from posthog.dags.common.owners import JobOwners
+from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.redis import get_client
 from posthog.temporal.health_checks.detectors import HealthExecutionPolicy

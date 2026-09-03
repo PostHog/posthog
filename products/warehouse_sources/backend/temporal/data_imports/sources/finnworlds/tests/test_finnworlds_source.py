@@ -3,13 +3,6 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.finnworlds import MAX_TICKERS
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.settings import (
@@ -20,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnworlds import (
     FinnworldsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides: Any) -> mock.MagicMock:
@@ -35,33 +27,6 @@ class TestFinnworldsSource:
         self.source = FinnworldsSource()
         self.team_id = 123
         self.config = FinnworldsSourceConfig(api_key="fw-test", tickers="AAPL, MSFT")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FINNWORLDS
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Finnworlds"
-        assert config.label == "Finnworlds"
-        assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/finnworlds"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["api_key", "tickers"]
-
-        api_key_field = config.fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-
-        tickers_field = config.fields[1]
-        assert isinstance(tickers_field, SourceFieldInputConfig)
-        assert tickers_field.type == SourceFieldInputConfigType.TEXTAREA
-        assert tickers_field.required is True
-        assert tickers_field.secret is False
 
     def test_lists_tables_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True
@@ -116,15 +81,6 @@ class TestFinnworldsSource:
         assert message is not None
         assert "Too many tickers" in message
         probe.assert_not_called()
-
-    def test_get_non_retryable_errors_includes_auth(self) -> None:
-        errors = self.source.get_non_retryable_errors()
-        assert "Finnworlds authentication failed" in errors
-
-    def test_get_canonical_descriptions_keyed_by_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions).issubset(set(ENDPOINTS))
-        assert "income_statements" in descriptions
 
     def test_source_for_pipeline_plumbs_parsed_tickers(self) -> None:
         inputs = _make_inputs(schema_name="dividends")

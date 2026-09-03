@@ -404,6 +404,16 @@ procs:
             layer: Ingestion pipeline
             tech: Rust
 
+    usage-ingestion:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service usage-ingestion
+        capability: event_ingestion
+        ready_pattern: 'Starting usage-ingestion gRPC service'
+        groups:
+            layer: Ingestion pipeline
+            tech: Rust
+
     batch-import-worker:
         shell: |-
             bin/wait-for-docker && \

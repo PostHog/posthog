@@ -129,6 +129,8 @@ function taskItem(id: string): ChannelItemModel {
     authorName: null,
     authorUuid: null,
     templateId: null,
+    repository: null,
+    branch: null,
     task: null,
   };
 }

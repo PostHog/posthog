@@ -15,12 +15,12 @@ DEFAULT_TRACE_BATCH_SIZE = 6  # Traces processed in small parallel batches
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
 DEFAULT_WINDOW_OFFSET_MINUTES = 30  # Offset window into the past so traces have time to fully complete
-DEFAULT_MODEL = OpenAIModel.GPT_4_1_NANO
-
-# Max text representation length (in characters)
-# GPT-4.1-nano has 1M token context. At typical 2.5:1 char/token ratio,
-# 2M chars = ~800K tokens, leaving room for system prompt and output.
-MAX_TEXT_REPR_LENGTH = 2_000_000
+# Not env-configurable: the coordinator schedule bakes this value into its stored input in
+# whatever process re-creates it, so an env override would govern only part of the traffic.
+# Changing the model is a deploy, and the value must also be on the Python gateway's
+# llma_summarization allowlist (services/llm-gateway/src/llm_gateway/products/config.py),
+# or the fallback path 403s.
+DEFAULT_MODEL = OpenAIModel.GPT_5_NANO
 
 # Max estimated raw trace size (in characters) before formatting.
 # Traces exceeding this are skipped — formatting huge traces is CPU-intensive

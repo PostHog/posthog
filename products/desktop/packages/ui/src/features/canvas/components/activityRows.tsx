@@ -27,8 +27,10 @@ import {
   type ArtifactPayload,
   type CommentEventPayload,
   type CommitsPushedPayload,
+  type PrPayload,
   prLabel,
 } from "@posthog/core/canvas/activityEvents";
+import type { GroupableActivityEvent } from "@posthog/core/canvas/activityGrouping";
 import type { ChangedFile } from "@posthog/core/git/router-schemas";
 import { xmlToContent } from "@posthog/core/message-editor/content";
 import {
@@ -190,7 +192,7 @@ const BADGE_TONES = {
 type BeadTone = keyof typeof BEAD_TONES;
 
 /** Opaque and above the connector, so the line reads as running into it. */
-export function EventBead({
+function EventBead({
   children,
   tone = "neutral",
 }: {
@@ -237,7 +239,7 @@ export function PersonBead({
 }
 
 export const MESSAGE_BADGE = <PaperPlaneTiltIcon size={8} weight="fill" />;
-export const COMMENT_BADGE = <ChatCircleIcon size={8} weight="fill" />;
+const COMMENT_BADGE = <ChatCircleIcon size={8} weight="fill" />;
 export const CREATED_BADGE = <PlusIcon size={8} weight="bold" />;
 
 const EVENT_TONES: Record<ActivityEvent["kind"], BeadTone> = {
@@ -432,7 +434,7 @@ function eventDetail(event: ActivityEvent): ReactNode {
   }
 }
 
-export function DetailAction({
+function DetailAction({
   children,
   onClick,
 }: {
@@ -451,7 +453,7 @@ export function DetailAction({
  * them (`@[Name](email)` becomes a mailto link), so a message carrying either goes through
  * `MentionText` instead.
  */
-export function MessageBody({ content }: { content: string }) {
+function MessageBody({ content }: { content: string }) {
   const hasOwnMarkup = useMemo(() => {
     const { segments } = xmlToContent(content);
     return (
@@ -738,6 +740,122 @@ export function ActivityEventRow({
       detail={detail ?? eventDetail(event)}
     >
       {eventLabel(event, runCount, runOrdinal)}
+    </TimelineRow>
+  );
+}
+
+function PrGroupLink({ payload }: { payload: PrPayload }) {
+  const label = prLabel(payload);
+  // Same gate CommitSha applies: the url comes from run output, so a crafted
+  // payload must not turn a github-looking label into a link anywhere else.
+  const parsed = parseHttpsUrl(payload.prUrl);
+  const safeUrl = parsed?.origin === "https://github.com" ? parsed.href : null;
+  if (!safeUrl) {
+    return <div className="truncate text-muted-foreground">{label}</div>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => openExternalUrl(safeUrl)}
+      className="block max-w-full cursor-pointer truncate text-left hover:underline"
+    >
+      {label}
+    </button>
+  );
+}
+
+/**
+ * One row for a stretch of events that each said the same thing. The count is the news; the
+ * events themselves are the detail, so nothing the individual rows carried is lost.
+ */
+export function GroupedEventRow({
+  events,
+  timestamp,
+  connectedAbove = true,
+  connectedBelow = true,
+}: {
+  events: GroupableActivityEvent[];
+  timestamp: string;
+  connectedAbove?: boolean;
+  connectedBelow?: boolean;
+}) {
+  const first = events[0];
+  if (!first) return null;
+
+  if (first.kind === "commits_pushed") {
+    const pushes = events.flatMap((event) =>
+      event.kind === "commits_pushed" ? [event.payload] : [],
+    );
+    const total = pushes.reduce((sum, push) => sum + push.total, 0);
+    const listed = pushes.reduce((sum, push) => sum + push.commits.length, 0);
+    const branch = first.payload.branch;
+    return (
+      <TimelineRow
+        connectedAbove={connectedAbove}
+        connectedBelow={connectedBelow}
+        gutter={
+          <EventBead tone={EVENT_TONES.commits_pushed}>
+            {EVENT_ICONS.commits_pushed}
+          </EventBead>
+        }
+        timestamp={timestamp}
+        detail={
+          <DetailBlock>
+            <div className="max-h-56 space-y-1.5 overflow-y-auto overscroll-contain">
+              {pushes.flatMap((push) =>
+                push.commits.map((commit) => (
+                  <PushedCommitRow
+                    key={commit.sha}
+                    commit={commit}
+                    repository={push.repository}
+                  />
+                )),
+              )}
+              {total > listed && (
+                <div className="text-muted-foreground">
+                  and {total - listed} more
+                </div>
+              )}
+            </div>
+          </DetailBlock>
+        }
+      >
+        {`${total} commits pushed`}
+        {branch && <span className="text-muted-foreground"> to {branch}</span>}
+      </TimelineRow>
+    );
+  }
+
+  const verb =
+    first.kind === "pr_created"
+      ? "opened"
+      : first.kind === "pr_merged"
+        ? "merged"
+        : "closed";
+  const pulls = events.flatMap((event) =>
+    event.kind === "commits_pushed" ? [] : [event.payload],
+  );
+  return (
+    <TimelineRow
+      connectedAbove={connectedAbove}
+      connectedBelow={connectedBelow}
+      gutter={
+        <EventBead tone={EVENT_TONES[first.kind]}>
+          {EVENT_ICONS[first.kind]}
+        </EventBead>
+      }
+      timestamp={timestamp}
+      detail={
+        <DetailBlock>
+          <div className="max-h-56 space-y-1 overflow-y-auto overscroll-contain">
+            {pulls.map((payload) => (
+              <PrGroupLink key={payload.prUrl} payload={payload} />
+            ))}
+          </div>
+        </DetailBlock>
+      }
+    >
+      {`${pulls.length} pull requests ${verb}`}
     </TimelineRow>
   );
 }

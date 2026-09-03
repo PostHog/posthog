@@ -47,12 +47,44 @@ def _file_imports_django_models(tree: ast.Module) -> bool:
     return False
 
 
-def get_model_names(backend_dir: Path) -> list[str]:
-    """Return names of Django ORM model subclasses in backend/models.py and/or backend/models/.
+# Base-name suffixes whose subclasses are value/manager helpers, never registered models.
+_NON_MODEL_BASE_SUFFIXES = ("Choices", "Enum", "Manager", "QuerySet")
 
-    Only counts classes whose base name ends with 'Model' (e.g. Model, UUIDTModel)
-    and only in files that import from django.db, to avoid false positives from
-    Pydantic BaseModel or similar.
+
+def _base_names(node: ast.ClassDef) -> list[str]:
+    names: list[str] = []
+    for base in node.bases:
+        if isinstance(base, ast.Name):
+            names.append(base.id)
+        elif isinstance(base, ast.Attribute):
+            names.append(base.attr)
+    return names
+
+
+def _is_abstract_model(node: ast.ClassDef) -> bool:
+    for item in node.body:
+        if not (isinstance(item, ast.ClassDef) and item.name == "Meta"):
+            continue
+        for stmt in item.body:
+            if (
+                isinstance(stmt, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "abstract" for t in stmt.targets)
+                and isinstance(stmt.value, ast.Constant)
+                and stmt.value.value is True
+            ):
+                return True
+    return False
+
+
+def get_model_names(backend_dir: Path) -> list[str]:
+    """Return names of Django ORM model classes in backend/models.py and/or backend/models/.
+
+    Counts every concrete module-level class with at least one base, in files that import
+    from django.db. Base-name matching cannot see that TeamScopedRootMixin or a meta-fields
+    mixin ultimately reaches models.Model, so this fails open: overcounting a helper class
+    is harmless (apps.get_model can never resolve it), while missing a model lets a
+    crossing bypass the ratchet. Excluded: abstract models (Meta.abstract = True) and
+    choices/enum/manager/queryset subclasses, which the app registry never returns.
     """
     sources: list[Path] = []
     models_file = backend_dir / "models.py"
@@ -69,19 +101,18 @@ def get_model_names(backend_dir: Path) -> list[str]:
             continue
         if not _file_imports_django_models(tree):
             continue
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef):
-                for base in node.bases:
-                    base_name = (
-                        base.id
-                        if isinstance(base, ast.Name)
-                        else base.attr
-                        if isinstance(base, ast.Attribute)
-                        else None
-                    )
-                    if base_name and base_name.endswith("Model"):
-                        names.append(node.name)
-                        break
+        # Module level only: nested classes (Meta, TextChoices) are never registered models.
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef):
+                continue
+            bases = _base_names(node)
+            if not bases:
+                continue
+            if any(base.endswith(_NON_MODEL_BASE_SUFFIXES) for base in bases):
+                continue
+            if _is_abstract_model(node):
+                continue
+            names.append(node.name)
     return names
 
 

@@ -739,6 +739,11 @@ class TestClickHouseSourceRetryableErrors:
             "HTTPDriver for https://play.clickhouse.com:8443 received ClickHouse error code 202\n "
             "Code: 202. DB::Exception: Too many simultaneous queries for all users. Current: 500, "
             "maximum: 500. (TOO_MANY_SIMULTANEOUS_QUERIES) (version 24.8.1.1 (official build))",
+            # The exact wrapped message that reached error tracking: our own egress proxy was
+            # unreachable past all of `_get_client`'s in-process connect retries.
+            "Error HTTPSConnectionPool(host='play.clickhouse.com', port=8443): Max retries exceeded "
+            "with url: /? (Caused by ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))) "
+            "executing HTTP request attempt 1 (https://play.clickhouse.com:8443)",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -753,6 +758,17 @@ class TestClickHouseSourceRetryableErrors:
         # also be misclassified as a benign retryable error, or `_handle_import_error` would log
         # it at `warning` and mask the real cause.
         error_msg = "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 404"
+        retryable = source.get_retryable_errors()
+        assert not any(pattern in error_msg for pattern in retryable)
+
+    def test_proxy_auth_failure_is_not_classified_as_retryable(self, source):
+        # A 407 wraps the same "Cannot connect to proxy." prefix as the TCP-connect timeout above,
+        # but it's a deterministic proxy-auth misconfiguration, not a transient blip.
+        error_msg = (
+            "Error HTTPSConnectionPool(host='play.clickhouse.com', port=8443): Max retries exceeded "
+            "with url: /? (Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection "
+            "failed: 407 Proxy Authentication Required')))"
+        )
         retryable = source.get_retryable_errors()
         assert not any(pattern in error_msg for pattern in retryable)
 
@@ -778,6 +794,11 @@ class TestIsTransientConnectDrop:
             # HTTP 429 rate-limit at connect time — clickhouse-connect doesn't
             # retry the client-construction probe, so we retry it in-process.
             "HTTPDriver for https://host:8443 returned response code 429",
+            # The exact wrapped message that reached error tracking: urllib3 couldn't open a
+            # TCP connection to our own egress proxy before ever attempting a CONNECT tunnel.
+            "Error HTTPSConnectionPool(host='h', port=8443): Max retries exceeded with url: /? "
+            "(Caused by ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))) "
+            "executing HTTP request attempt 1",
         ],
     )
     def test_matches_transient_drops(self, message):
@@ -792,6 +813,10 @@ class TestIsTransientConnectDrop:
             "HTTPDriver for https://host:8443 returned response code 404",
             # A proxy 407 is a deterministic auth-config failure, not a transient gateway blip.
             "Tunnel connection failed: 407 Proxy Authentication Required",
+            # A 407 reaches us wrapped in the same "Cannot connect to proxy." prefix as the TCP-connect
+            # timeout above — it must not become transient just because it shares that prefix.
+            "(Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: "
+            "407 Proxy Authentication Required')))",
         ],
     )
     def test_does_not_match_deterministic_failures(self, message):

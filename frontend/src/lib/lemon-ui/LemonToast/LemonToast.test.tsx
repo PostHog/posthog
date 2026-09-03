@@ -1,6 +1,8 @@
+import '@testing-library/jest-dom'
+
 import { act, fireEvent, render } from '@testing-library/react'
 
-import { GET_HELP_BUTTON, ToastContent } from './LemonToast'
+import { GET_HELP_BUTTON, ToastContent, withClickableUrls } from './LemonToast'
 
 describe('LemonToast', () => {
     const writeText = jest.fn((_text: string) => Promise.resolve())
@@ -33,5 +35,28 @@ describe('LemonToast', () => {
         const { container } = render(<ToastContent type={type} message="A message" />)
 
         expect(!!container.querySelector('[data-attr="toast-copy-button"]')).toBe(expected)
+    })
+
+    // Wiring guard for the error toast path: the message must go through the trusted-only
+    // renderDetailWithLinks (URL linked in place, prose untouched), not a linkify-everything helper.
+    it('links a PostHog URL in place without changing the message text', () => {
+        const { container } = render(
+            <>{withClickableUrls('Visit https://posthog.com/docs to fix this, then retry.')}</>
+        )
+
+        const link = container.querySelector('a')!
+        expect(link).toHaveAttribute('href', 'https://posthog.com/docs')
+        expect(container).toHaveTextContent('Visit https://posthog.com/docs to fix this, then retry.')
+    })
+
+    it('leaves a URL outside posthog.com as plain text', () => {
+        const { container } = render(<>{withClickableUrls('More info: https://example.com/details')}</>)
+
+        expect(container.querySelector('a')).toBeNull()
+        expect(container).toHaveTextContent('More info: https://example.com/details')
+    })
+
+    it('returns a message without URLs unchanged', () => {
+        expect(withClickableUrls('Load experiment failed')).toBe('Load experiment failed')
     })
 })

@@ -1,10 +1,11 @@
 import { Badge } from "@posthog/quill";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
+import type { MouseEventHandler } from "react";
 import { SidebarItem } from "../SidebarItem";
 
 interface LoopsItemProps {
   isActive: boolean;
-  onClick: () => void;
+  onClick: MouseEventHandler<Element>;
   depth?: number;
 }
 

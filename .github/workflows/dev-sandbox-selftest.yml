@@ -29,6 +29,11 @@ concurrency:
 jobs:
     selftest:
         name: Verify dev sandbox profile
+        # Skip on merge-queue branches. The sandbox scripts already ran on the PR,
+        # and each trunk-merge/** batch is its own concurrency group that queues
+        # behind the fixed Depot macOS pool. Gate on the same-repo check so a fork
+        # cannot skip the test by naming its branch trunk-merge/*.
+        if: ${{ !(github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'trunk-merge/')) }}
         # sandbox-exec (Seatbelt) is macOS-only. Depot macOS is a fixed FIFO pool
         # (Startup+ plan); if it's unavailable, swap runs-on for `macos-14`.
         runs-on: depot-macos-15

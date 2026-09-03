@@ -284,6 +284,8 @@ export const HogFunctionTypeEnumApi = {
  * * `task_model` - task_model
  * * `task_repository` - task_repository
  * * `task_mcp_installations` - task_mcp_installations
+ * * `signals_scout` - signals_scout
+ * * `task_skills` - task_skills
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -308,6 +310,8 @@ export const InputsSchemaItemTypeEnumApi = {
     TaskModel: 'task_model',
     TaskRepository: 'task_repository',
     TaskMcpInstallations: 'task_mcp_installations',
+    SignalsScout: 'signals_scout',
+    TaskSkills: 'task_skills',
 } as const
 
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }
@@ -333,6 +337,7 @@ export interface InputsSchemaItemApi {
 
 /**
  * * `events` - events
+ * * `internal-events` - internal-events
  * * `person-updates` - person-updates
  * * `data-warehouse-table` - data-warehouse-table
  * * `data-warehouse-view` - data-warehouse-view
@@ -342,6 +347,7 @@ export type HogFunctionFiltersSourceEnumApi =
 
 export const HogFunctionFiltersSourceEnumApi = {
     Events: 'events',
+    InternalEvents: 'internal-events',
     PersonUpdates: 'person-updates',
     DataWarehouseTable: 'data-warehouse-table',
     DataWarehouseView: 'data-warehouse-view',
@@ -747,6 +753,21 @@ export interface HogFunctionRevisionApi {
 export interface HogFunctionRevisionRestoreRequestApi {
     /** Replace the open staged draft with this revision's config. Without it, restoring while a draft is open returns 409. */
     overwrite?: boolean
+}
+
+export interface HogFunctionMaskedSecretApi {
+    /** ID of the hog function. */
+    id: string
+    /** Name of the hog function. */
+    name: string
+    /** Hog function type, for example 'destination'. */
+    type: string
+    /** Whether the hog function is enabled. */
+    enabled: boolean
+    /** Keys of the live secret inputs to enter again. Only keys are returned, never values. */
+    input_keys: string[]
+    /** Keys of the staged draft's secret inputs to enter again. Only keys are returned. */
+    draft_input_keys: string[]
 }
 
 /**

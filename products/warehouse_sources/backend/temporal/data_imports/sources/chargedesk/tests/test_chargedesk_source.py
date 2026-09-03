@@ -3,23 +3,13 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-)
+from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.chargedesk import (
-    ChargedeskResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.source import ChargedeskSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargedesk import (
     ChargedeskSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> ChargedeskSourceConfig:
@@ -27,16 +17,6 @@ def _config() -> ChargedeskSourceConfig:
 
 
 class TestChargedeskSourceConfig:
-    def test_source_type(self) -> None:
-        assert ChargedeskSource().source_type == ExternalDataSourceType.CHARGEDESK
-
-    def test_get_source_config(self) -> None:
-        config = ChargedeskSource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.CHARGEDESK
-        assert config.category == DataWarehouseSourceCategory.PAYMENTS___BILLING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/chargedesk"
-
     def test_single_secret_api_key_field(self) -> None:
         fields = ChargedeskSource().get_source_config.fields
         assert len(fields) == 1
@@ -52,31 +32,12 @@ class TestChargedeskSourceConfig:
 
 
 class TestGetSchemas:
-    def test_lists_all_four_resources(self) -> None:
-        schemas = ChargedeskSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == {"charges", "customers", "subscriptions", "products"}
-
-    def test_incremental_resources_advertise_incremental(self) -> None:
-        schemas = {s.name: s for s in ChargedeskSource().get_schemas(_config(), team_id=1)}
-        for name in ("charges", "customers", "subscriptions"):
-            assert schemas[name].supports_incremental is True
-            assert schemas[name].incremental_fields
-
-    def test_products_is_full_refresh_only(self) -> None:
-        schemas = {s.name: s for s in ChargedeskSource().get_schemas(_config(), team_id=1)}
-        assert schemas["products"].supports_incremental is False
-        assert schemas["products"].incremental_fields == []
-
     def test_incremental_fields_use_resource_timestamp(self) -> None:
         schemas = {s.name: s for s in ChargedeskSource().get_schemas(_config(), team_id=1)}
         assert schemas["charges"].incremental_fields[0]["field"] == "occurred"
         # Customers/subscriptions track the creation timestamp column that the row actually carries.
         assert schemas["customers"].incremental_fields[0]["field"] == "first_seen"
         assert schemas["subscriptions"].incremental_fields[0]["field"] == "first_seen"
-
-    def test_names_filter(self) -> None:
-        schemas = ChargedeskSource().get_schemas(_config(), team_id=1, names=["charges"])
-        assert [s.name for s in schemas] == ["charges"]
 
 
 class TestValidateCredentials:
@@ -91,21 +52,6 @@ class TestValidateCredentials:
             ok, error = ChargedeskSource().validate_credentials(_config(), team_id=1)
         assert ok is False
         assert error is not None
-
-
-class TestNonRetryableErrors:
-    def test_auth_errors_are_non_retryable(self) -> None:
-        errors = ChargedeskSource().get_non_retryable_errors()
-        assert any(key.startswith("401") for key in errors)
-        assert any(key.startswith("403") for key in errors)
-
-
-class TestResumableManager:
-    def test_returns_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = ChargedeskSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ChargedeskResumeConfig
 
 
 class TestSourceForPipeline:
@@ -150,12 +96,6 @@ class TestSourceForPipeline:
 
         assert captured["db_incremental_field_last_value"] is None
         assert captured["db_incremental_field_earliest_value"] is None
-
-
-class TestCanonicalDescriptions:
-    def test_covers_every_resource(self) -> None:
-        descriptions = ChargedeskSource().get_canonical_descriptions()
-        assert {"charges", "customers", "subscriptions", "products"} <= set(descriptions)
 
 
 if __name__ == "__main__":

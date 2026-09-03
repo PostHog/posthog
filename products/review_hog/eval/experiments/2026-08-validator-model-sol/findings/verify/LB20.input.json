@@ -1,0 +1,12 @@
+{
+    "id": "LB20",
+    "file": "products/stamphog/backend/tasks/tasks.py",
+    "lines": "881-898",
+    "priority": "must_fix",
+    "title": "The opt-out path leaves the old review workflow active",
+    "problem": "This path dismisses stored approvals but does not supersede queued or reviewing runs. An older workflow can check the head before a push, then approve after this path returns.",
+    "suggestion": "Mark all nonterminal ReviewRun rows for the pull request as SUPERSEDED before returning. This lets the existing post_verdict guards stop the old workflow.",
+    "cluster": null,
+    "cluster_issue": null,
+    "cluster_verified": null
+}

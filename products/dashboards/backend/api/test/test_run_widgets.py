@@ -17,7 +17,6 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.models import Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
@@ -26,6 +25,7 @@ from posthog.session_recordings.session_recording_api import RecordingsListingRe
 from posthog.slo.types import SloOperation, SloOutcome
 from posthog.test.persons import create_person
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.dashboards.backend.api import widget_openapi_serializers as widget_openapi_serializers_module
 from products.dashboards.backend.constants import (
     ACTIVITY_EVENTS_DEFAULT_LIMIT,

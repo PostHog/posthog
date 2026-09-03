@@ -22,14 +22,17 @@ positions with differently-shaped files. Writers therefore call
 past the position the retry re-reads from is superseded and removed. A schema
 reset (TRUNCATE / lost slot) invalidates the whole prefix — `purge_buffer_prefix`.
 
-Enablement is the `dwh-cdc-buffer-shadow` feature flag alone (per team, so a soak
-covers a couple of projects rather than every CDC source on the worker). Evaluated
-once per extraction run, never per flush, and fail-closed: a flag-service outage
-leaves the lane off, so there is no path to accidental enablement.
+Two lanes write here. Shadow (the `dwh-cdc-buffer-shadow` feature flag, per team,
+evaluated once per extraction run and fail-closed) writes a validation copy while
+legacy delivery stays authoritative. Buffered ingress (`cdc_ingest_mode="buffered"`
+in the source's `job_inputs`) writes the same files as the ONLY delivery — the
+scheduled sync consumes them, and a write failure fails the run rather than being
+swallowed, because the slot is about to advance past those changes.
 
-Retention: no TTL exists yet; resets and CDC-disable purge, ordinary settled files
-do not expire. An S3 lifecycle rule on `cdc_producer/` is tracked for the fleet-wide
-soak — until it exists, keep the flag on a handful of projects.
+Retention: an S3 lifecycle rule on `cdc_producer/` (`expire-cdc-producer-buffer`)
+expires files after 14 days. Resets and CDC-disable purge sooner. For a buffered
+schema, expiry of unconsumed files is unrecoverable — the slot advanced long ago —
+so consumer lag is watched against file age, not file count.
 """
 
 from __future__ import annotations
@@ -252,15 +255,23 @@ class CDCBufferWriter:
         return removed
 
 
-def purge_buffer_prefix(team_id: int, schema_id: str, logger: FilteringBoundLogger) -> None:
-    """Best-effort removal of a schema's entire buffer prefix.
+def purge_buffer_prefix(team_id: int, schema_id: str, logger: FilteringBoundLogger, *, strict: bool = False) -> None:
+    """Remove a schema's entire buffer prefix.
 
-    Called on schema reset (TRUNCATE / lost-slot re-snapshot): the legacy table is
-    wiped and re-seeded through the snapshot lane the buffer never sees, so every
-    existing buffer file predates a discontinuity no consumer could order across.
+    Called on schema reset (TRUNCATE / lost-slot re-snapshot) and again right before the
+    snapshot→streaming flip: the table is wiped and re-seeded through the snapshot lane the
+    buffer never sees, so every existing buffer file predates a discontinuity no consumer
+    could order across. Best-effort by default; `strict` propagates failures (except a
+    missing prefix) for callers where a survived stale file would corrupt the table.
     """
     prefix = strip_s3_protocol(get_buffer_prefix(team_id, schema_id))
-    with suppress(Exception):
+    try:
         s3 = get_s3_client()
         s3.rm(prefix, recursive=True)
         logger.info("cdc_buffer_prefix_purged", schema_id=schema_id)
+    except FileNotFoundError:
+        pass
+    except Exception:
+        if strict:
+            raise
+        logger.warning("cdc_buffer_prefix_purge_failed", schema_id=schema_id, exc_info=True)

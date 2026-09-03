@@ -3,11 +3,13 @@ use reqwest::blocking::Response;
 use tracing::error;
 
 pub mod auth;
+pub mod broken_pipe;
 pub mod dotenv;
 pub mod files;
 pub mod git;
 pub mod homedir;
 pub mod throttler;
+pub mod xcode;
 
 pub fn raise_for_err(response: Response) -> Result<Response> {
     if !response.status().is_success() {

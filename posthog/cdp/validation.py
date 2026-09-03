@@ -3,6 +3,8 @@ import json
 import logging
 from typing import Any, Optional
 
+from django.db import models
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -34,6 +36,27 @@ MAX_WORKFLOW_EMAIL_SENDERS = 10
 # The mask the UI shows in place of a stored secret. A re-save that did not touch the secret
 # sends this back, meaning "keep the stored value". It must never be persisted as a real secret.
 MASKED_SECRET_VALUE = "********"
+
+
+def masked_secret_input_keys(stored_inputs: object) -> list[str]:
+    """Input keys whose stored secret is the mask rather than a real credential.
+
+    Such an input authenticates against nothing, and the original value is gone, so only the
+    owner can restore it. The match cannot be a SQL predicate: the storage column is Fernet
+    encrypted, and Fernet embeds a random IV, so the same plaintext encrypts differently every
+    write. Callers have to decrypt and inspect.
+
+    A row encrypted under a key we no longer hold decrypts to the raw ciphertext string rather
+    than a dict, because the field swallows the failure, so the shape is checked, not assumed.
+    """
+    if not isinstance(stored_inputs, dict):
+        return []
+    return sorted(
+        key
+        for key, entry in stored_inputs.items()
+        if isinstance(entry, dict) and entry.get("value") == MASKED_SECRET_VALUE
+    )
+
 
 # Mirrors FROM_OVERRIDE_EMAIL_REGEX in nodejs/src/cdp/services/messaging/email.service.ts, which
 # is what the send path enforces after rendering. Keep the two in sync.
@@ -180,6 +203,29 @@ register_supported_function("postHogUpdateAccount")
 register_supported_function("postHogSetAccountProperties")
 
 
+# Async functions that put the invocation on a queue the running consumer cannot serve.
+#
+# The worker's async function registry is global and is not scoped by function type, so any hog
+# program that names one of these reaches the real handler. These two handlers set
+# `queueParameters` to a bespoke type ('email', 'sendPushNotification') instead of the ordinary
+# 'fetch'. Only the messaging consumers process those queues. When a plain destination stages one,
+# the cyclotron worker produces to a Kafka topic its cluster does not have. The produce error
+# terminates the worker process, and the partition it owned stops draining.
+#
+# Membership is decided by that failure mode, NOT by "the worker registers it". Most registered
+# async functions stage an ordinary 'fetch' (postHogCreateAccount, postHogCreateTask and the
+# postHogGet*/postHogUpdate* family), which is the same mechanism CORE_SUPPORTED_FUNCTIONS already
+# gives user code, so they are safe here and are deliberately absent. produceToWarehouseWebhooks is
+# also absent: it only appends to an in-memory list, and its callers are all
+# `warehouse_source_webhook` functions, which HogFunctionSerializer.validate_type refuses anyway.
+#
+# Before adding a name, check what its handler in nodejs/src/cdp/async-functions/ stages.
+RESERVED_ASYNC_FUNCTIONS = {
+    "sendEmail",
+    "sendPushNotification",
+}
+
+
 # Globals that the realtime transformer actually populates at runtime.
 # Keep in sync with HogTransformerService.createInvocationGlobals
 # (nodejs/src/cdp/hog-transformations/hog-transformer.service.ts).
@@ -322,6 +368,42 @@ class HyphenatedPropertyDetector(TraversingVisitor):
         return True
 
 
+class ReservedFunctionDetector(TraversingVisitor):
+    names: set[str]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.names = set()
+
+    def visit_call(self, node: ast.Call) -> None:
+        super().visit_call(node)
+        if node.name in RESERVED_ASYNC_FUNCTIONS:
+            self.names.add(node.name)
+
+    def visit_field(self, node: ast.Field) -> None:
+        # A bare reference is caught as well as a direct call. `let f := sendEmail` followed by
+        # `f()` compiles to the same global dispatch, so the name alone is refused.
+        super().visit_field(node)
+        if len(node.chain) == 1 and str(node.chain[0]) in RESERVED_ASYNC_FUNCTIONS:
+            self.names.add(str(node.chain[0]))
+
+
+def reserved_functions_used(hog: str) -> set[str]:
+    """The reserved async functions that the given hog source names.
+
+    Source that does not parse gives an empty set. compile_hog reports the parse error with a
+    better message, so this must not raise before it runs.
+    """
+    try:
+        program = parse_program(hog)
+    except Exception:
+        return set()
+
+    detector = ReservedFunctionDetector()
+    detector.visit(program)
+    return detector.names
+
+
 class RecordAliasRewriter(TraversingVisitor):
     """Rewrite `{record.x}` template references to `{event.properties.x}` for data-warehouse-table
     sources. The synced row is delivered under `event.properties` at runtime, so `record` is a
@@ -460,6 +542,8 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "task_model",
             "task_repository",
             "task_mcp_installations",
+            "signals_scout",
+            "task_skills",
         ]
     )
     key = serializers.CharField()
@@ -492,9 +576,14 @@ class AnyInputField(serializers.Field):
         return value
 
 
+class HogFunctionTemplating(models.TextChoices):
+    HOG = "hog", "hog"
+    LIQUID = "liquid", "liquid"
+
+
 class InputsItemSerializer(serializers.Serializer):
     value = AnyInputField(required=False)
-    templating = serializers.ChoiceField(choices=["hog", "liquid"], required=False)
+    templating = serializers.ChoiceField(choices=HogFunctionTemplating.choices, required=False)
     bytecode = serializers.ListField(required=False, read_only=True)
     order = serializers.IntegerField(required=False, read_only=True)
     transpiled = serializers.JSONField(required=False, read_only=True)
@@ -574,6 +663,12 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "task_mcp_installations":
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of MCP connector IDs."})
+        elif item_type == "signals_scout":
+            if not isinstance(value, str):
+                raise serializers.ValidationError({"input": "Value must be a scout skill name."})
+        elif item_type == "task_skills":
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                raise serializers.ValidationError({"input": "Value must be a list of skill names."})
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
@@ -811,9 +906,26 @@ class InputsSerializer(serializers.DictField):
 DATA_WAREHOUSE_SOURCES = ("data-warehouse-table", "data-warehouse-view")
 
 
+def _contains_behavioral_property(filters: dict) -> bool:
+    """Behavioral ("performed event") property filters compile to a ClickHouse subquery over events
+    history, which realtime function filters (bytecode per-event, or JS transpiled into the browser)
+    can never evaluate."""
+    entities = (filters.get("events") or []) + (filters.get("actions") or []) + (filters.get("data_warehouse") or [])
+    property_lists = [filters.get("properties") or []] + [
+        entity.get("properties") or [] for entity in entities if isinstance(entity, dict)
+    ]
+    return any(
+        isinstance(prop, dict) and prop.get("type") == "behavioral"
+        for property_list in property_lists
+        for prop in property_list
+    )
+
+
 class HogFunctionFiltersSerializer(serializers.Serializer):
     source = serializers.ChoiceField(
-        choices=["events", "person-updates", *DATA_WAREHOUSE_SOURCES], required=False, default="events"
+        choices=["events", "internal-events", "person-updates", *DATA_WAREHOUSE_SOURCES],
+        required=False,
+        default="events",
     )  # type: ignore
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
@@ -836,6 +948,15 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         # Ensure data is initialized as an empty dict if it's None
         data = data or {}
 
+        if _contains_behavioral_property(data):
+            raise serializers.ValidationError(
+                "Behavioral (performed event) filters can't be evaluated in realtime functions. "
+                "Use a cohort to filter on past behavior."
+            )
+
+        if function_type == "internal_destination":
+            data["source"] = "internal-events"
+
         if function_type == "transformation_log":
             # Filter bytecode is compiled against event-shaped globals, which log records
             # don't have — silently accepting filters would mis-evaluate at ingestion time.
@@ -854,6 +975,27 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         if data.get("source") == "events":
             # Don't allow events or actions for person-updates
             data.pop("data_warehouse", None)
+
+        if data.get("source") == "internal-events":
+            disallowed = [key for key in ("actions", "data_warehouse") if data.get(key)]
+            if disallowed:
+                raise serializers.ValidationError(
+                    dict.fromkeys(disallowed, "This filter is not supported for internal events.")
+                )
+            data.pop("actions", None)
+            data.pop("data_warehouse", None)
+            events = data.get("events")
+            if (
+                not isinstance(events, list)
+                or not events
+                or any(
+                    not isinstance(event, dict) or not isinstance(event.get("id"), str) or not event["id"].strip()
+                    for event in events
+                )
+            ):
+                raise serializers.ValidationError(
+                    {"events": "Internal event filters require at least one event with a non-empty id."}
+                )
 
         if data.get("source") == "person-updates":
             # Don't allow events or actions for person-updates

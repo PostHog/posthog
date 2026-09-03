@@ -296,7 +296,7 @@ def execute_process_query(
         query_status.error = False
         raise
     except Exception as err:
-        from posthog.rbac.user_access_control import UserAccessControlError
+        from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
         query_status.results = None  # Clear results in case they are faulty
         is_user_safe_error = isinstance(

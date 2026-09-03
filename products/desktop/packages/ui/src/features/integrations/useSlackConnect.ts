@@ -18,7 +18,7 @@ const POLL_TIMEOUT_MS = 300_000;
 export type SlackConnectState = ConnectState;
 export type SlackConnectError = ConnectError;
 
-interface Result {
+export interface SlackConnectResult {
   state: SlackConnectState;
   error: SlackConnectError | null;
   isConnecting: boolean;
@@ -41,8 +41,12 @@ function invalidateIntegrationQueries(queryClient: QueryClient): void {
  *   - refetches integration queries on success so the rest of the UI updates,
  *   - times out after 5 minutes and refetches as a fallback (a Slack admin who
  *     finishes the install in another browser still surfaces eventually).
+ *
+ * State is per-instance and the pending-callback read is destructive, so a surface with a
+ * connect button and an error callout must call this once and share the result, not call it
+ * from each component.
  */
-export function useSlackConnect(): Result {
+export function useSlackConnect(): SlackConnectResult {
   const client = useHostTRPCClient();
   const queryClient = useQueryClient();
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);

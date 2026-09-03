@@ -61,6 +61,37 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_expire_quarantine_takes_only_an_identifier(self):
+        repo = api.create_repo(team_id=self.team.id, repo_external_id=444, repo_full_name="org/expire")
+        quarantine.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+            user_id=self.user.id,
+            team_id=self.team.id,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}/expire",
+            {"identifier": "Button"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id) == []
+
+    def test_opening_a_quarantine_still_needs_a_reason(self):
+        repo = api.create_repo(team_id=self.team.id, repo_external_id=555, repo_full_name="org/open")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}",
+            {"identifier": "Button"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
 
 class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES

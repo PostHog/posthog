@@ -12,6 +12,7 @@ import structlog
 
 from posthog.cloud_utils import is_cloud
 from posthog.models.integration import Integration
+from posthog.psycopg_helpers import prefer_routable_addresses
 from posthog.utils import get_instance_region
 
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
@@ -160,7 +161,11 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
     # connect would try them in. Pinning the first one gives up that fallback: if it is down,
     # nothing tries the next. Every address in the list passed the check above, so this costs
     # availability on multi-address hosts, not safety.
-    return HostResolution(connect_host=resolved_ips[0], error=None)
+    #
+    # That order is IPv6-first for a dual-stack host (RFC 6724), so on an IPv4-only worker the
+    # pinned address is one nothing can route to and the connection can never succeed. Order by
+    # what this host can actually reach before pinning.
+    return HostResolution(connect_host=prefer_routable_addresses(resolved_ips)[0], error=None)
 
 
 def log_connection_open(

@@ -7,41 +7,49 @@ import pytest
 from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
-from django.db import OperationalError, transaction
+from django.db import OperationalError
 from django.db.models import QuerySet
 from django.utils import timezone
 
 from parameterized import parameterized
+from posthog_owners.schema import TeamEntry
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 
-from products.stamphog.backend.facade.enums import AudienceReason, DigestRunStatus
+from products.stamphog.backend.facade.enums import AudienceReason, ChannelResolutionSource, DigestRunStatus
+from products.stamphog.backend.logic.channel_resolution import (
+    Destination,
+    RoutingContext,
+    RoutingUnavailable,
+    SlackChannel,
+    _candidate_repo_configs,
+)
 from products.stamphog.backend.logic.digest import (
+    _HEADLINE_MAX_RETRIES,
+    _HEADLINE_TIMEOUT_SECONDS,
+    GRAZE_CHANGED_FILES,
     MAX_DIGEST_PRS,
+    MAX_FALLBACK_PRS,
     DigestPRSummary,
     DigestSummary,
-    _capped_summary,
-    _parse_llm_response,
+    _build_summary,
+    _parse_selection,
     summarize_merged_prs,
 )
-from products.stamphog.backend.logic.slack_digest import DigestSlackError, post_digest
-from products.stamphog.backend.models import (
-    DigestChannel,
-    DigestRun,
-    PullRequest,
-    PullRequestAudience,
-    StamphogRepoConfig,
-)
-from products.stamphog.backend.tasks.digest import (
+from products.stamphog.backend.logic.digest_runs import (
     DIGEST_LOOKBACK_DAYS,
     STALE_PENDING_RUN_MINUTES,
     _previous_run_slot,
-    _reclaim_stale_pending_runs,
-    send_digest_for_channel,
+    pending_audiences_by_team,
+    reclaim_stale_pending_runs,
 )
+from products.stamphog.backend.logic.slack_digest import DigestSlackError, post_digest_details, post_digest_lead
+from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, StamphogRepoConfig
+from products.stamphog.backend.tasks.digest import send_team_digests
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES
+from products.stamphog.backend.tests.fakes import FakeSlackIntegration
 
 REPO = "acme/widgets"
 AUDIENCE = "team-devex"
@@ -49,11 +57,11 @@ AUDIENCE = "team-devex"
 
 def _summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSummary:
     """Stand in for the LLM so the task never reaches a gateway. Keeps every PR: a summary that
-    keeps nothing is its own path (the digest posts nothing and releases the claim).
+    keeps nothing is its own path (the digest posts nothing and consumes the claim).
 
-    Goes through _capped_summary rather than building a DigestSummary, so a task test sees the same
-    truncation a real run would."""
-    return _capped_summary(
+    Goes through _build_summary rather than building a DigestSummary, so a task test sees the same
+    rail a real run would."""
+    return _build_summary(
         len(prs),
         [
             DigestPRSummary(
@@ -69,30 +77,61 @@ def _summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSum
     )
 
 
-def _seed_channel_and_prs(team_id: int, pr_count: int = 2) -> str:
+def _seed_prs(
+    team_id: int,
+    pr_count: int = 2,
+    repository: str = REPO,
+    first_number: int = 1,
+    digest_enabled: bool = True,
+) -> StamphogRepoConfig:
     repo_config = StamphogRepoConfig.objects.for_team(team_id).create(
-        team_id=team_id, repository=REPO, installation_id="9001"
+        team_id=team_id, repository=repository, installation_id="9001", digest_enabled=digest_enabled
     )
-    channel = DigestChannel.objects.for_team(team_id).create(
-        team_id=team_id, audience_key=AUDIENCE, slack_integration_id=1, slack_channel_id="C1"
-    )
-    for number in range(1, pr_count + 1):
+    for number in range(first_number, first_number + pr_count):
         pr = PullRequest.objects.for_team(team_id).create(
             team_id=team_id,
             repo_config=repo_config,
             pr_number=number,
             title=f"Change number {number}",
             author_login="devex-dev",
-            pr_url=f"https://github.com/{REPO}/pull/{number}",
+            pr_url=f"https://github.com/{repository}/pull/{number}",
             merged_at=timezone.now(),
         )
         PullRequestAudience.objects.for_team(team_id).create(
-            team_id=team_id,
-            pull_request=pr,
-            audience_key=AUDIENCE,
-            reason=AudienceReason.AUTHORED,
+            team_id=team_id, pull_request=pr, audience_key=AUDIENCE, reason=AudienceReason.OWNED
         )
-    return str(channel.id)
+    return repo_config
+
+
+def _channel(channel_id: str, shared: bool = False) -> SlackChannel:
+    return SlackChannel(channel_id=channel_id, shared=shared)
+
+
+def _routing_context(
+    registry_by_repo: dict[str, dict[str, TeamEntry]] | None = None,
+    declared_repo_channel: dict[str, str] | None = None,
+    channels_by_name: dict[str, SlackChannel] | None = None,
+) -> RoutingContext:
+    """A routing context built in memory, so a task test never reaches GitHub or Slack.
+
+    The default routes AUDIENCE to C1 through the plain name match, which is what most of these
+    tests want: they are about claiming and posting, not about how the destination was decided.
+    """
+    return RoutingContext(
+        slack_integration_id=1,
+        registry_by_repo=registry_by_repo if registry_by_repo is not None else {REPO: {}},
+        inherited_registry=next((r for r in (registry_by_repo or {}).values() if r), {}),
+        declared_repo_channel=declared_repo_channel or {},
+        channels_by_name=channels_by_name if channels_by_name is not None else {AUDIENCE: _channel("C1")},
+    )
+
+
+def _run_digests(team_id: int, context: RoutingContext | None = None) -> None:
+    with patch(
+        "products.stamphog.backend.logic.digest_runs.build_routing_context",
+        return_value=_routing_context() if context is None else context,
+    ):
+        send_team_digests(team_id=team_id, audience_keys=[AUDIENCE])
 
 
 @pytest.mark.parametrize(
@@ -101,15 +140,16 @@ def _seed_channel_and_prs(team_id: int, pr_count: int = 2) -> str:
     ids=["posted_run_finalized_keeps_prs", "unposted_run_reclaimed_unlinks_prs"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_reclaim_stale_pending_runs(team, slack_ts, expect_status, expect_prs_linked) -> None:
+def testreclaim_stale_pending_runs(team, slack_ts, expect_status, expect_prs_linked) -> None:
     # A worker that dies mid-run leaves a PENDING run with its PRs claimed. If it already posted to Slack
     # (slack_message_ts set), reclaim must finalize it as COMPLETED and KEEP its PRs linked so the next
     # digest doesn't re-send them. If it never posted, reclaim unlinks the PRs so they're retried.
     with team_scope(team.id):
-        channel_id = _seed_channel_and_prs(team.id, pr_count=2)
+        _seed_prs(team.id, pr_count=2)
         run = DigestRun.objects.for_team(team.id).create(
             team_id=team.id,
-            digest_channel_id=channel_id,
+            audience_key=AUDIENCE,
+            slack_channel_id="C1",
             status=DigestRunStatus.PENDING,
             slack_message_ts=slack_ts,
         )
@@ -117,50 +157,49 @@ def test_reclaim_stale_pending_runs(team, slack_ts, expect_status, expect_prs_li
         stale = timezone.now() - timedelta(minutes=STALE_PENDING_RUN_MINUTES + 5)
         DigestRun.objects.for_team(team.id).filter(id=run.id).update(created_at=stale)
 
-    _reclaim_stale_pending_runs()
+    reclaim_stale_pending_runs()
 
     with team_scope(team.id):
         run.refresh_from_db()
         linked = PullRequestAudience.objects.for_team(team.id).filter(digest_run_id=run.id).count()
-        channel_last_digest_at = DigestChannel.objects.for_team(team.id).get(id=channel_id).last_digest_at
     assert run.status == expect_status
     assert (linked == 2) is expect_prs_linked
-    # A finalized (actually-posted) run advances the channel's clock like a normal completion would.
-    assert (channel_last_digest_at is not None) is (expect_status == DigestRunStatus.COMPLETED)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_proof_of_post_persists_metadata_for_reclaim(team) -> None:
-    # Worker death between Slack accepting the message and the completion transaction: the reclaim
-    # sweeper finalizes from persisted state only, so the proof-of-post write must already carry
-    # pr_count/summary — or the finalized run keeps zeros while its PRs stay linked.
+    # Worker death between Slack accepting the message and the completion write: the reclaim sweeper
+    # finalizes from persisted state only, so the proof-of-post write must already carry
+    # pr_count/summary, or the finalized run keeps zeros while its PRs stay linked.
+    #
+    # The crash goes in at the thread post, which is the last call before the completion write.
+    # An earlier version raised on the second transaction.atomic call; the completion write is no
+    # longer wrapped in one, so that injection stopped firing and the test passed on the ordinary
+    # path without ever entering the window it names.
     with team_scope(team.id):
-        channel_id = _seed_channel_and_prs(team.id, pr_count=2)
-
-    real_atomic = transaction.atomic
-    atomic_calls = {"n": 0}
-
-    def _dying_atomic(*args: Any, **kwargs: Any):
-        # Call 1 is the claim transaction; call 2 is the completion transaction — the crash window
-        # under test sits right after the proof-of-post write, before the completion commits.
-        atomic_calls["n"] += 1
-        if atomic_calls["n"] == 2:
-            raise RuntimeError("worker died before the completion transaction")
-        return real_atomic(*args, **kwargs)
+        _seed_prs(team.id, pr_count=2)
 
     with (
-        patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
-        patch("products.stamphog.backend.tasks.digest.post_digest", return_value="1234.5"),
-        patch("products.stamphog.backend.tasks.digest.transaction.atomic", side_effect=_dying_atomic),
+        patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="1234.5"),
+        patch(
+            "products.stamphog.backend.logic.digest_runs.post_digest_details",
+            side_effect=RuntimeError("worker died before the completion write"),
+        ),
     ):
-        with pytest.raises(RuntimeError):
-            send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
+        # send_team_digests contains each audience's failure, so the crash is read off the run state
+        # rather than raised out of the task.
+        _run_digests(team.id)
 
     with team_scope(team.id):
+        stranded = DigestRun.objects.for_team(team.id).get()
+        # The window this test exists for: Slack has the message, the run does not say so yet.
+        assert stranded.status == DigestRunStatus.PENDING
+        assert stranded.slack_message_ts == "1234.5"
         DigestRun.objects.for_team(team.id).update(
             created_at=timezone.now() - timedelta(minutes=STALE_PENDING_RUN_MINUTES + 5)
         )
-    _reclaim_stale_pending_runs()
+    reclaim_stale_pending_runs()
 
     with team_scope(team.id):
         run = DigestRun.objects.for_team(team.id).get()
@@ -170,18 +209,18 @@ def test_proof_of_post_persists_metadata_for_reclaim(team) -> None:
 
 
 @pytest.mark.parametrize(
-    "fail_times,expect_raise",
+    "fail_times,expect_pending",
     [(2, False), (3, True)],
-    ids=["retries_then_succeeds", "exhausts_and_propagates"],
+    ids=["retries_then_succeeds", "exhausts_and_leaves_the_run_for_the_sweeper"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_proof_of_post_write_retries_transient_db_error(team, fail_times: int, expect_raise: bool) -> None:
+def test_proof_of_post_write_retries_transient_db_error(team, fail_times: int, expect_pending: bool) -> None:
     # The proof-of-post write is the dedup proof: once Slack accepts, only slack_message_ts stops the
     # reclaim sweeper from re-sending. A transient DB blip there must be retried (not taken at face
     # value) or it converts into a duplicate Slack post. Slack is posted exactly once regardless; if the
-    # write never lands, the exception propagates with the PRs still linked to the PENDING run — the
-    # existing crash-window semantics the reclaim sweeper then handles.
-    channel_id = _seed_channel_and_prs(team.id, pr_count=2)
+    # write never lands, the run stays PENDING with its PRs linked — the crash-window semantics the
+    # reclaim sweeper then handles.
+    _seed_prs(team.id, pr_count=2)
     attempts = {"n": 0}
     real_update = QuerySet.update
 
@@ -198,22 +237,18 @@ def test_proof_of_post_write_retries_transient_db_error(team, fail_times: int, e
     post = MagicMock(return_value="1234.5")
     sleeps: list[float] = []
     with (
-        patch("products.stamphog.backend.tasks.digest.post_digest", post),
-        patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
-        patch("products.stamphog.backend.tasks.digest.time.sleep", side_effect=lambda s: sleeps.append(s)),
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", post),
+        patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
+        patch("products.stamphog.backend.logic.digest_runs.time.sleep", side_effect=lambda s: sleeps.append(s)),
         patch.object(QuerySet, "update", flaky_update),
     ):
-        if expect_raise:
-            with pytest.raises(OperationalError):
-                send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
-        else:
-            send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
+        _run_digests(team.id)
 
     assert post.call_count == 1  # Slack posted exactly once either way
     with team_scope(team.id):
         run = DigestRun.objects.get()
         linked = PullRequestAudience.objects.filter(digest_run_id=run.id).count()
-    if expect_raise:
+    if expect_pending:
         assert run.status == DigestRunStatus.PENDING  # never finalized
         assert linked == 2  # PRs stay linked to the PENDING run for the reclaim sweeper
         assert len(sleeps) == fail_times - 1  # slept between the 3 attempts, not after the last
@@ -223,29 +258,29 @@ def test_proof_of_post_write_retries_transient_db_error(team, fail_times: int, e
         assert len(sleeps) == fail_times
 
 
-# ---- Finding 2: a channel's digest must never post to Slack twice ------------------------------
+# ---- Finding 2: an audience's digest must never post to Slack twice ----------------------------
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_concurrent_runs_for_one_channel_post_to_slack_once(team) -> None:
-    # Two workers firing for the same channel would both read the same unlinked PRs and both post.
+def test_concurrent_runs_for_one_audience_post_to_slack_once(team) -> None:
+    # Two workers firing for the same audience would both read the same unlinked PRs and both post.
     # The fix claims the PRs (links them to a run) before posting, so a second worker that starts
     # mid-post finds nothing unlinked and returns without posting. Re-entering post_digest simulates
     # that overlap deterministically.
-    channel_id = _seed_channel_and_prs(team.id)
+    _seed_prs(team.id)
     posts: list[str] = []
 
-    def reentrant_post(team_id: int, channel: Any, summary: Any) -> str:
-        posts.append(str(channel.id))
+    def reentrant_post(team_id: int, destination: Any, summary: Any) -> str:
+        posts.append(destination.channel_id)
         if len(posts) == 1:  # a second worker starts while the first is posting
-            send_digest_for_channel(digest_channel_id=str(channel.id), team_id=team_id)
+            _run_digests(team_id)
         return f"ts-{len(posts)}"
 
     with (
-        patch("products.stamphog.backend.tasks.digest.post_digest", side_effect=reentrant_post),
-        patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", side_effect=reentrant_post),
+        patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
     ):
-        send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
+        _run_digests(team.id)
 
     assert len(posts) == 1  # the re-entrant worker found no unlinked PRs and did not post
     with team_scope(team.id):
@@ -255,11 +290,192 @@ def test_concurrent_runs_for_one_channel_post_to_slack_once(team) -> None:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_two_repos_declaring_one_team_partition_rather_than_duplicate(team) -> None:
+    # A repo declaring a team's channel is a scope, not a conflict: it answers for its own merges
+    # and leaves everyone else's alone. Picking a winner discards a declaration somebody wrote, and
+    # fanning out posts every merge twice in the product whose problem is volume. Each PR must
+    # appear in exactly one digest.
+    _seed_prs(team.id, pr_count=2, repository=REPO, first_number=1)
+    _seed_prs(team.id, pr_count=3, repository="acme/gadgets", first_number=10)
+    context = _routing_context(
+        registry_by_repo={
+            # REPO carries a registry that does not mention this team, which is an answer: the
+            # derived name is right. Without that, gadgets' declaration would capture REPO's merges
+            # too, since REPO declared nothing to the contrary.
+            REPO: {"team-other": TeamEntry(slack="#team-other")},
+            "acme/gadgets": {AUDIENCE: TeamEntry(notifications="#bots-devex")},
+        },
+        channels_by_name={AUDIENCE: _channel("C1"), "bots-devex": _channel("C2")},
+    )
+    posted: dict[str, int] = {}
+
+    def record(team_id: int, destination: Any, summary: Any) -> str:
+        posted[destination.channel_id] = len(summary.prs)
+        return f"ts-{destination.channel_id}"
+
+    with (
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", side_effect=record),
+        patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
+    ):
+        _run_digests(team.id, context)
+
+    assert posted == {"C1": 2, "C2": 3}
+    with team_scope(team.id):
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 0
+        sources = set(DigestRun.objects.values_list("resolution_source", flat=True))
+    assert sources == {ChannelResolutionSource.SLACK_NAME_MATCH, ChannelResolutionSource.OWNERS_CONTACT}
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_switching_a_repos_digest_off_stops_merges_it_already_captured(team) -> None:
+    # The toggle used to be read only at capture, which decides what gets stamped. A repo switched
+    # off after its merges landed therefore kept posting them for the rest of the claim window, and
+    # the owner who switched it off had no way to stop that. Reading it at claim time is what makes
+    # the toggle take effect on the next digest rather than on the next merge.
+    repo_config = _seed_prs(team.id, pr_count=3)
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.filter(id=repo_config.id).update(digest_enabled=False)
+
+    assert pending_audiences_by_team().get(team.id) is None
+
+    with (
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="ts-1") as post,
+        patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
+    ):
+        _run_digests(team.id)
+    assert not post.called
+    with team_scope(team.id):
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 3
+
+    # Switching it back on returns the backlog still inside the claim floor, rather than losing it.
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.filter(id=repo_config.id).update(digest_enabled=True)
+    with (
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="ts-1") as post,
+        patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
+    ):
+        _run_digests(team.id)
+    assert post.called
+    with team_scope(team.id):
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 0
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_unroutable_merges_do_not_starve_routable_ones_behind_them(team) -> None:
+    # The cap used to be applied before routing. An audience whose oldest merges all came from an
+    # unroutable repo filled the whole claim with rows the run then dropped, and because dropped
+    # rows stay unclaimed the next run selected exactly the same ones. The routable merges behind
+    # them were never reached and aged out of the window unposted.
+    _seed_prs(team.id, pr_count=2, repository="acme/nowhere", first_number=1)
+    _seed_prs(team.id, pr_count=2, repository=REPO, first_number=10)
+    context = _routing_context(
+        registry_by_repo={REPO: {}},  # acme/nowhere is not a candidate repo, so it routes nowhere
+        channels_by_name={AUDIENCE: _channel("C1")},
+    )
+
+    with (
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="ts-1") as post,
+        patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
+        patch("products.stamphog.backend.logic.digest_runs.DIGEST_MAX_PRS_PER_RUN", 2),
+    ):
+        _run_digests(team.id, context)
+
+    assert post.called
+    _team_id, _destination, posted = post.call_args.args
+    assert {pr.pr_number for pr in posted.prs} == {10, 11}
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_repo_with_no_registry_inherits_one(team) -> None:
+    # The convenience layer. charts carries no ownership file at all, so a team whose channel is not
+    # named after its slug still routes correctly there because the monorepo says where it goes.
+    _seed_prs(team.id, pr_count=2, repository="acme/charts")
+    context = _routing_context(
+        registry_by_repo={"acme/charts": {}, REPO: {AUDIENCE: TeamEntry(slack="#team-apm")}},
+        channels_by_name={"team-apm": _channel("C9")},
+    )
+    with (
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="ts-1") as post,
+        patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
+    ):
+        _run_digests(team.id, context)
+
+    _team_id, destination, _posted = post.call_args.args
+    assert destination.channel_id == "C9"
+
+
+@pytest.mark.parametrize(
+    "context_kwargs,reason",
+    [
+        ({"registry_by_repo": {REPO: {AUDIENCE: TeamEntry(notifications=False)}}}, "silenced_by_config"),
+        ({"channels_by_name": {}}, "no_channel_of_that_name"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_unroutable_merges_stay_unclaimed(team, context_kwargs: dict, reason: str) -> None:
+    # Claiming marks a PR as handled forever, so a merge that routes nowhere must not be claimed.
+    # A team that silences its digest today and declares a channel next week has to receive the
+    # merges in between, and a channel created after the declaration has to pick up the backlog.
+    _seed_prs(team.id, pr_count=2)
+
+    with (
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead") as post,
+        patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
+    ):
+        _run_digests(team.id, _routing_context(**context_kwargs))
+
+    assert not post.called
+    with team_scope(team.id):
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 2
+        assert not DigestRun.objects.exists()
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_an_unreadable_registry_posts_nothing(team) -> None:
+    # Routing is derived every run and never cached, so a half-read registry does not degrade — it
+    # silently reroutes. The repo whose fetch failed could be the one declaring every team's
+    # channel, and continuing without it would send a whole morning of digests to derived names.
+    _seed_prs(team.id, pr_count=2)
+
+    with (
+        patch(
+            "products.stamphog.backend.logic.digest_runs.build_routing_context",
+            side_effect=RoutingUnavailable("github is down"),
+        ),
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead") as post,
+    ):
+        send_team_digests(team_id=team.id, audience_keys=[AUDIENCE])
+
+    assert not post.called
+    with team_scope(team.id):
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 2
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_blank_installation_placeholder_is_not_a_routing_candidate(team) -> None:
+    # A repo created through the API carries a blank installation and defaults to enabled, so it
+    # used to join the candidates. It can fetch no routing file, and every candidate is read, so the
+    # failed fetch raised RoutingUnavailable and silenced the whole team's digest. This does not
+    # relax that rule: a repo that was readable and broke still stops the run. A blank installation
+    # was never readable, resolves no webhook, and so reports no merges either.
+    repo_config = _seed_prs(team.id, pr_count=1)
+    with team_scope(team.id):
+        placeholder = StamphogRepoConfig.objects.for_team(team.id).create(
+            team_id=team.id, repository="acme/placeholder", installation_id="", enabled=True
+        )
+
+    candidates = _candidate_repo_configs(team.id)
+
+    assert [config.id for config in candidates] == [repo_config.id]
+    assert placeholder.id not in {config.id for config in candidates}
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_claim_is_capped_per_run_and_backlog_drains_across_runs(team) -> None:
     # An unbounded claim grows the LLM prompt and the Slack payload with the merge-burst size, and a
     # rejected oversized payload retries the identical batch forever. The claim caps per run and the
     # remainder drains on the next one.
-    channel_id = _seed_channel_and_prs(team.id, pr_count=3)
+    _seed_prs(team.id, pr_count=3)
     batch_sizes: list[int] = []
 
     def sized_summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSummary:
@@ -267,12 +483,12 @@ def test_claim_is_capped_per_run_and_backlog_drains_across_runs(team) -> None:
         return _summary(prs)
 
     with (
-        patch("products.stamphog.backend.tasks.digest.DIGEST_MAX_PRS_PER_RUN", 2),
-        patch("products.stamphog.backend.tasks.digest.post_digest", return_value="ts-1"),
-        patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=sized_summary),
+        patch("products.stamphog.backend.logic.digest_runs.DIGEST_MAX_PRS_PER_RUN", 2),
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="ts-1"),
+        patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=sized_summary),
     ):
-        send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
-        send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
+        _run_digests(team.id)
+        _run_digests(team.id)
 
     assert batch_sizes == [2, 1]
     with team_scope(team.id):
@@ -280,25 +496,50 @@ def test_claim_is_capped_per_run_and_backlog_drains_across_runs(team) -> None:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_prs_the_cap_left_out_come_back_next_run(team) -> None:
-    # Claiming marks every PR in a run as handled, so a PR the cap truncates is consumed by a
-    # digest that never showed it and no later digest can reach it. The overflow has to go back to
-    # unclaimed, while the PRs the summarizer deliberately left out stay consumed.
+def test_prs_the_rail_left_out_stay_consumed(team) -> None:
+    # The rail is a Slack payload limit and never an editorial one, so what it removes is dropped
+    # rather than handed back. Releasing the overflow put the same merges in front of the same
+    # prompt every morning, which grew a team's claim instead of draining it and carried merges
+    # into a channel days after they landed.
     overflow = 2
-    channel_id = _seed_channel_and_prs(team.id, pr_count=MAX_DIGEST_PRS + overflow)
+    _seed_prs(team.id, pr_count=MAX_DIGEST_PRS + overflow)
 
     with (
-        patch("products.stamphog.backend.tasks.digest.post_digest", return_value="ts-1") as post,
-        patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="ts-1") as post,
+        patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
     ):
-        send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
+        _run_digests(team.id)
 
     assert post.called
-    posted = post.call_args.args[2]
+    _team_id, _destination, posted = post.call_args.args
     assert len(posted.prs) == MAX_DIGEST_PRS
     with team_scope(team.id):
-        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == overflow
-        assert PullRequestAudience.objects.filter(digest_run__isnull=False).count() == MAX_DIGEST_PRS
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 0
+        assert PullRequestAudience.objects.filter(digest_run__isnull=False).count() == MAX_DIGEST_PRS + overflow
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_summary_that_keeps_nothing_consumes_the_claim(team) -> None:
+    # Keeping nothing is a judgment, not a failure worth retrying. Releasing the claim sent the same
+    # merges back to the same prompt the next morning, where the same text produced the same answer,
+    # so the batch grew for a week and then aged out unseen.
+    _seed_prs(team.id, pr_count=3)
+
+    with (
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead") as post,
+        patch(
+            "products.stamphog.backend.logic.digest_runs.summarize_merged_prs",
+            return_value=_build_summary(3, []),
+        ),
+    ):
+        _run_digests(team.id)
+
+    assert not post.called
+    with team_scope(team.id):
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 0
+        run = DigestRun.objects.for_team(team.id).get()
+        assert run.status == DigestRunStatus.COMPLETED
+        assert run.pr_count == 3
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -306,13 +547,13 @@ def test_failed_slack_post_leaves_prs_retryable_next_run(team) -> None:
     # A Slack failure must not hide the PRs: they're claimed before posting, so on failure they have
     # to be unlinked again (the retry query filters digest_run__isnull=True). Otherwise they'd stay
     # bound to a FAILED run and never retry.
-    channel_id = _seed_channel_and_prs(team.id)
+    _seed_prs(team.id)
 
     with (
-        patch("products.stamphog.backend.tasks.digest.post_digest", side_effect=RuntimeError("slack down")),
-        patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", side_effect=RuntimeError("slack down")),
+        patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
     ):
-        send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
+        _run_digests(team.id)
 
     with team_scope(team.id):
         run = DigestRun.objects.get()
@@ -320,10 +561,10 @@ def test_failed_slack_post_leaves_prs_retryable_next_run(team) -> None:
         assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 2  # unlinked, retryable
 
     with (
-        patch("products.stamphog.backend.tasks.digest.post_digest", return_value="ts-ok"),
-        patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="ts-ok"),
+        patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
     ):
-        send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
+        _run_digests(team.id)
 
     with team_scope(team.id):
         completed = DigestRun.objects.get(status=DigestRunStatus.COMPLETED)
@@ -354,24 +595,25 @@ def test_previous_run_slot(now: str, expected: str) -> None:
         # established channel: wide floor for failed-run resilience, but a week+ old PR is out
         (True, timedelta(hours=43), timedelta(days=DIGEST_LOOKBACK_DAYS + 1)),
     ],
-    ids=["first_digest_cadence_window", "established_channel_week_floor"],
+    ids=["first_digest_cadence_window", "established_audience_week_floor"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @freeze_time("2026-07-15T08:00:00+00:00")  # a Wednesday; previous slot = Tue 07:00 UTC
 def test_digest_claim_floor(team, has_history: bool, claimed_offset: timedelta, unclaimed_offset: timedelta) -> None:
-    # A channel's first digest must cover only the natural cadence window (what it would have
-    # received had it existed one run earlier), never an arbitrary backlog; an established channel
-    # keeps the wide week floor so merges from a failed run are retried instead of aging out fast.
+    # An audience's first digest must cover only the natural cadence window (what it would have
+    # received had it been routable one run earlier), never an arbitrary backlog; an established
+    # audience keeps the wide week floor so merges from a failed run are retried instead of aging
+    # out fast.
     with team_scope(team.id):
         repo_config = StamphogRepoConfig.objects.for_team(team.id).create(
-            team_id=team.id, repository=REPO, installation_id="9001"
-        )
-        channel = DigestChannel.objects.for_team(team.id).create(
-            team_id=team.id, audience_key=AUDIENCE, slack_integration_id=1, slack_channel_id="C1"
+            team_id=team.id, repository=REPO, installation_id="9001", digest_enabled=True
         )
         if has_history:
             DigestRun.objects.for_team(team.id).create(
-                team_id=team.id, digest_channel=channel, status=DigestRunStatus.COMPLETED
+                team_id=team.id,
+                audience_key=AUDIENCE,
+                slack_channel_id="C1",
+                status=DigestRunStatus.COMPLETED,
             )
         recent = PullRequestAudience.objects.for_team(team.id).create(
             team_id=team.id,
@@ -382,7 +624,7 @@ def test_digest_claim_floor(team, has_history: bool, claimed_offset: timedelta, 
                 merged_at=timezone.now() - claimed_offset,
             ),
             audience_key=AUDIENCE,
-            reason=AudienceReason.AUTHORED,
+            reason=AudienceReason.OWNED,
         )
         old = PullRequestAudience.objects.for_team(team.id).create(
             team_id=team.id,
@@ -393,14 +635,14 @@ def test_digest_claim_floor(team, has_history: bool, claimed_offset: timedelta, 
                 merged_at=timezone.now() - unclaimed_offset,
             ),
             audience_key=AUDIENCE,
-            reason=AudienceReason.AUTHORED,
+            reason=AudienceReason.OWNED,
         )
 
     with (
-        patch("products.stamphog.backend.tasks.digest.post_digest", return_value="ts-ok"),
-        patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="ts-ok"),
+        patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
     ):
-        send_digest_for_channel(digest_channel_id=str(channel.id), team_id=team.id)
+        _run_digests(team.id)
 
     with team_scope(team.id):
         recent.refresh_from_db()
@@ -429,9 +671,142 @@ def _pr_stub(repository: str, pr_number: int, title: str, url: str) -> PullReque
     )
 
 
-def _fake_llm_client(content: str) -> Any:
-    response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
-    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: response)))
+def _recording_llm_client(answers: list[Any]) -> Any:
+    """Answers each call with the next entry, recording the prompts it was given on `.prompts`.
+
+    An entry that is an exception is raised instead, which is how the selection call and the
+    headline call are given different fates.
+    """
+    prompts: list[str] = []
+
+    def create(**kwargs: Any) -> Any:
+        prompts.append(kwargs["messages"][0]["content"])
+        answer = answers[len(prompts) - 1]
+        if isinstance(answer, Exception):
+            raise answer
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=answer))])
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)), prompts=prompts, options=[]
+    )
+    # The real client hands back a bounded copy. The fake records the bounds and answers as itself,
+    # so a test can assert what the optional headline call was limited to.
+    client.with_options = lambda **kwargs: (client.options.append(kwargs), client)[1]
+    return client
+
+
+def test_the_headline_call_never_sees_a_merge_the_thread_left_out() -> None:
+    # The single-call version asked the model not to name a change it had dropped, and shipped two
+    # headlines that named one anyway: both accurate, both with no line under them and no link. The
+    # split makes that unreachable rather than forbidden, so what is asserted is the prompt, not the
+    # answer. A merge dropped for citing no valid rule must be absent from the second call's input.
+    prs = [
+        _pr_stub("o/r", 1, "Kept", "https://github.com/o/r/pull/1"),
+        _pr_stub("o/r", 2, "Dropped and unmentionable", "https://github.com/o/r/pull/2"),
+    ]
+    # The kept PR's reviewed summary has to travel with it. It is where a condition like a flag
+    # lives, and a headline that drops one states a gated change as shipped.
+    prs[0].summary_line = "Playback blocking is behind a flag, off by default."
+    selection = json.dumps(
+        {
+            "prs": [
+                {"index": 0, "rule": "contract", "summary": "The kept one."},
+                {"index": 1, "rule": "vibes", "summary": "The dropped one."},
+            ]
+        }
+    )
+    client = _recording_llm_client([selection, json.dumps({"headline": "The kept one shipped."})])
+
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=client):
+        summary = summarize_merged_prs(prs)
+
+    assert [p.pr_number for p in summary.prs] == [1]
+    assert summary.headline == "The kept one shipped."
+    selection_prompt, headline_prompt = client.prompts
+    assert "Dropped and unmentionable" in selection_prompt
+    assert "Dropped and unmentionable" not in headline_prompt
+    assert "The kept one." in headline_prompt
+    assert "Playback blocking is behind a flag, off by default." in headline_prompt
+
+
+def test_a_headline_failure_keeps_the_judged_digest() -> None:
+    # The selection call already succeeded, so its lines are the digest. Taking a second-call
+    # timeout to the deterministic fallback would replace judged lines with unreviewed titles and
+    # throw away the half of the work that worked.
+    prs = [_pr_stub("o/r", 1, "Kept", "https://github.com/o/r/pull/1")]
+    answers = [
+        json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "It ships."}]}),
+        RuntimeError("gateway down"),
+    ]
+
+    client = _recording_llm_client(answers)
+
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=client):
+        summary = summarize_merged_prs(prs)
+
+    assert summary.judged is True
+    assert [p.summary for p in summary.prs] == ["It ships."]
+    assert summary.headline == ""
+    # The same call also has to be bounded. It sits in front of a Slack post that is already ready,
+    # and a team's audiences post one at a time, so an unbounded stall on an optional call holds up
+    # this digest and every audience behind it. The client's own default is ten minutes with retries.
+    assert client.options == [{"timeout": _HEADLINE_TIMEOUT_SECONDS, "max_retries": _HEADLINE_MAX_RETRIES}]
+
+
+@pytest.mark.parametrize(
+    "owned_count,changed_files,dropped",
+    [
+        (1, GRAZE_CHANGED_FILES, True),
+        (1, GRAZE_CHANGED_FILES - 1, False),
+        (2, GRAZE_CHANGED_FILES, False),
+    ],
+)
+def test_a_merge_that_only_grazed_the_team_never_reaches_the_model(
+    owned_count: int, changed_files: int, dropped: bool
+) -> None:
+    # A repo-wide config change owned one line in ten products and reached every one of their
+    # channels. The prompt named the graze and asked the model to drop it, and the model kept it
+    # anyway: the prompt carries no diff, so nothing in it says what that one file does. Code
+    # decides now. The grazed merge goes first so a filter that forgot to renumber the index map
+    # would resolve the model's index 0 to the wrong PR.
+    grazed = _pr_stub("o/r", 1, "Swept in", "https://github.com/o/r/pull/1")
+    grazed.changed_files = changed_files
+    owned = _pr_stub("o/r", 2, "Ours", "https://github.com/o/r/pull/2")
+    audiences = [
+        PullRequestAudience(
+            audience_key=AUDIENCE,
+            reason=AudienceReason.OWNED,
+            owned_files=[f"a{i}.py" for i in range(count)],
+            owned_file_count=count,
+        )
+        for count in (owned_count, 1)
+    ]
+    selection = json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "The first one."}]})
+    client = _recording_llm_client([selection, json.dumps({"headline": "Something shipped."})])
+
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=client):
+        summary = summarize_merged_prs([grazed, owned], audiences)
+
+    assert ("Swept in" in client.prompts[0]) is not dropped
+    assert [p.pr_number for p in summary.prs] == [2 if dropped else 1]
+    # The scope line still counts every merge the audience claimed. Counting only what survived
+    # would tell a swept team that nothing landed in its area at all.
+    assert summary.considered == 2
+
+
+def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() -> None:
+    # The fallback keeps merge order and judges nothing, so it needs its own low rail: the bar that
+    # normally keeps a digest short never runs on this path. It also has to mark itself, because a
+    # run consumes every merge it claims either way and the post reads like an ordinary quiet day.
+    prs = [_pr_stub("o/r", n, f"Change {n}", f"https://github.com/o/r/pull/{n}") for n in range(MAX_FALLBACK_PRS + 3)]
+
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", side_effect=RuntimeError("gateway down")):
+        summary = summarize_merged_prs(prs)
+
+    assert summary.judged is False
+    assert len(summary.prs) == MAX_FALLBACK_PRS
+    assert summary.considered == len(prs)
+    assert summary.headline == ""
 
 
 def test_same_pr_number_across_repos_both_survive_summarization() -> None:
@@ -443,9 +818,19 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
         _pr_stub("acme/a", 123, "A change", "https://github.com/acme/a/pull/123"),
         _pr_stub("acme/b", 123, "B change", "https://github.com/acme/b/pull/123"),
     ]
-    content = json.dumps({"prs": [{"index": 0, "summary": "repo a change"}, {"index": 1, "summary": "repo b change"}]})
+    selection = json.dumps(
+        {
+            "prs": [
+                {"index": 0, "rule": "contract", "summary": "repo a change"},
+                {"index": 1, "rule": "customer", "summary": "repo b change"},
+            ]
+        }
+    )
 
-    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=_fake_llm_client(content)):
+    with patch(
+        "products.stamphog.backend.logic.digest.get_llm_client",
+        return_value=_recording_llm_client([selection, json.dumps({"headline": "Both repos changed."})]),
+    ):
         summary = summarize_merged_prs(prs)
 
     assert len(summary.prs) == 2
@@ -456,11 +841,57 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
     assert {p.summary for p in summary.prs} == {"repo a change", "repo b change"}
 
 
+@pytest.mark.parametrize(
+    "raw_summary,expected",
+    [
+        ("The widget opens on the first click.", "The widget opens on the first click."),
+        ("  padded  ", "padded"),
+        (None, "The reviewer's own sentence."),
+        ("", "The reviewer's own sentence."),
+        ({"text": "Shipped"}, "The reviewer's own sentence."),
+        (["Shipped"], "The reviewer's own sentence."),
+        (42, "The reviewer's own sentence."),
+    ],
+    ids=[
+        "a_string_is_the_line",
+        "surrounding_whitespace_goes",
+        "an_omitted_summary_falls_back_to_the_reviewed_sentence",
+        "an_empty_summary_falls_back_too",
+        "a_dict_never_reaches_the_post_as_its_repr",
+        "a_list_does_not_either",
+        "nor_a_number",
+    ],
+)
+def test_only_a_string_becomes_a_change_line(raw_summary: Any, expected: str) -> None:
+    # Coercing whatever arrived put `{'text': 'Shipped'}` in the thread as its Python repr, and the
+    # channel lead can now promote a change line, so the repr had a route to the one line a reader
+    # cannot skip. Falling back to the reviewed sentence keeps a malformed entry saying something
+    # true rather than dropping the change.
+    pr = _pr_stub("o/r", 1, "The author's own claim.", "https://github.com/o/r/pull/1")
+    pr.summary_line = "The reviewer's own sentence."
+    content = json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": raw_summary}]})
+
+    picked = _parse_selection(content, {0: pr})
+
+    assert [p.summary for p in picked] == [expected]
+
+
 @parameterized.expand(
     [
         ("empty_list_is_intentional_filtering", '{"prs": []}', True),
         ("unrecognizable_entries_are_not", '{"prs": [{"index": 99}, "junk"]}', False),
         ("missing_key_is_not", '{"summary": "x"}', False),
+        # A kept PR must name the rule that admits it. Without that check the model keeps most of a
+        # routine batch and calls all of it a customer change, which is the drift the rules catch.
+        # A response naming real merges that cleared no rule was read, so it is a judged empty
+        # result. Sending it to the fallback would post ten unjudged titles for the one answer that
+        # broke the bar outright.
+        ("a_kept_pr_without_a_rule_is_a_judged_empty", '{"prs": [{"index": 0, "summary": "x"}]}', True),
+        ("an_invented_rule_is_a_judged_empty", '{"prs": [{"index": 0, "rule": "vibes", "summary": "x"}]}', True),
+        ("an_index_naming_no_merge_is_still_unreadable", '{"prs": [{"index": 99, "rule": "contract"}]}', False),
+        # `in` against a frozenset raises on an unhashable value, and the raise escaped into the
+        # outage fallback, which posts unjudged titles for a response that named no valid rule.
+        ("an_unhashable_rule_is_a_judged_empty", '{"prs": [{"index": 0, "rule": [], "summary": "x"}]}', True),
     ]
 )
 def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, accepted: bool) -> None:
@@ -469,10 +900,112 @@ def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, a
     # an empty post instead of falling back to the deterministic list.
     prs_by_index = {0: _pr_stub("PostHog/posthog", 1, "Title", "https://example.com/1")}
     if accepted:
-        assert _parse_llm_response(content, prs_by_index).prs == []
+        assert _parse_selection(content, prs_by_index) == []
     else:
         with pytest.raises(ValueError):
-            _parse_llm_response(content, prs_by_index)
+            _parse_selection(content, prs_by_index)
+
+
+@pytest.mark.parametrize(
+    "raw_headline,expected",
+    [
+        ("The scanner stops at 24 months.", "The scanner stops at 24 months."),
+        ("  The scanner stops.\n\n It also logs.  ", "The scanner stops. It also logs."),
+        ("- The scanner stops.\n- It also logs.", "- The scanner stops. - It also logs."),
+        ("See https://github.com/o/r/pull/1 for the change.", ""),
+        ("<https://github.com/o/r/pull/1|The scanner stops.>", ""),
+        (["not", "a", "string"], ""),
+    ],
+    ids=[
+        "a_plain_paragraph_survives",
+        "line_breaks_collapse_into_one_paragraph",
+        "a_list_collapses_rather_than_reaching_the_channel_as_lines",
+        "a_bare_url_drops_the_whole_headline",
+        "a_slack_link_drops_the_whole_headline",
+        "a_non_string_drops_the_whole_headline",
+    ],
+)
+def test_the_headline_reaches_the_channel_as_one_link_free_paragraph(raw_headline: Any, expected: str) -> None:
+    # The headline is the only part posted where a reader cannot choose to skip it, and it is meant
+    # to read as prose. A model that answers with bullets puts the list back in the channel, and one
+    # that answers with a URL either shows a raw link mid-sentence or, once escaped, shows raw
+    # markup. Neither is repairable in place, so a link drops the headline and the renderer leads
+    # with the change's own line instead.
+    contents = [
+        json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "Ship it."}]}),
+        json.dumps({"headline": raw_headline}),
+    ]
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=_recording_llm_client(contents)):
+        summary = summarize_merged_prs([_pr_stub("o/r", 1, "Ship it", "https://example.com/1")])
+    assert summary.headline == expected
+    # A rejected headline never costs the change line the selection call already wrote.
+    assert len(summary.prs) == 1
+
+
+def _slack_destination(team: Any) -> Destination:
+    integration = Integration.objects.create(
+        team_id=team.id, kind="slack", config={}, sensitive_config={"access_token": "x"}
+    )
+    return Destination(
+        slack_integration_id=integration.id,
+        channel_id="C1",
+        channel_name="team-devex",
+        source=ChannelResolutionSource.SLACK_NAME_MATCH,
+    )
+
+
+def _one_pr_summary(headline: str = "") -> DigestSummary:
+    return DigestSummary(
+        considered=1,
+        headline=headline,
+        prs=[
+            DigestPRSummary(
+                pr_number=1,
+                title="Add util helper",
+                url="https://github.com/acme/widgets/pull/1",
+                author_login="devex-dev",
+                summary="Add util helper",
+                repository=REPO,
+            )
+        ],
+    )
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_the_changes_are_posted_as_a_thread_reply_under_the_lead(team) -> None:
+    # The channel gets one line and the change lines hang off it. Losing thread_ts posts those
+    # lines as a second top-level message, so the channel carries more of the digest than the flat
+    # version it replaced rather than less.
+    destination = _slack_destination(team)
+    FakeSlackIntegration.reset(channels=[])
+
+    with patch("products.stamphog.backend.logic.slack_digest.SlackIntegration", FakeSlackIntegration):
+        summary = _one_pr_summary("The util helper landed.")
+        message_ts = post_digest_lead(team.id, destination, summary)
+        assert message_ts == "1234.5678"
+        post_digest_details(team.id, destination, summary, message_ts)
+
+    posted = FakeSlackIntegration.posted_messages
+    assert [p["thread_ts"] for p in posted] == [None, "1234.5678"]
+    assert "pull/1" not in str(posted[0]["blocks"])
+    assert "pull/1" in str(posted[1]["blocks"])
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_failed_thread_reply_still_counts_as_a_posted_digest(team) -> None:
+    # Slack already accepted the lead, and the caller writes that ts as proof-of-post before
+    # consuming the claimed PRs. Raising here would mark the run failed, unlink its PRs, and post
+    # the same lead into the channel again tomorrow.
+    destination = _slack_destination(team)
+    FakeSlackIntegration.reset(channels=[], fail_thread_replies=True)
+
+    with patch("products.stamphog.backend.logic.slack_digest.SlackIntegration", FakeSlackIntegration):
+        summary = _one_pr_summary("The util helper landed.")
+        message_ts = post_digest_lead(team.id, destination, summary)
+        assert message_ts == "1234.5678"
+        post_digest_details(team.id, destination, summary, message_ts)
+
+    assert len(FakeSlackIntegration.posted_messages) == 2
 
 
 def _slack_stub(post_error: str, join_error: str | None, joined: list[str]) -> MagicMock:
@@ -523,38 +1056,17 @@ def test_post_digest_joins_a_channel_the_app_was_never_invited_to(
     # concurrent worker joining first (already_in_channel) must not fail a digest whose retry would
     # have gone through. A genuine refusal names Slack's reason and the invite, because neither is
     # derivable from an error code by the person reading the run.
-    integration = Integration.objects.create(
-        team_id=team.id, kind="slack", config={}, sensitive_config={"access_token": "x"}
-    )
-    channel = DigestChannel.objects.for_team(team.id).create(
-        team_id=team.id,
-        audience_key=AUDIENCE,
-        slack_integration_id=integration.id,
-        slack_channel_id="C1",
-        slack_channel_name="team-devex",
-    )
-    summary = DigestSummary(
-        considered=1,
-        prs=[
-            DigestPRSummary(
-                pr_number=1,
-                title="Add util helper",
-                url="https://github.com/acme/widgets/pull/1",
-                author_login="devex-dev",
-                summary="Add util helper",
-                repository=REPO,
-            )
-        ],
-    )
+    destination = _slack_destination(team)
+    summary = _one_pr_summary()
     actually_joined: list[str] = []
     stub = _slack_stub(post_error, join_error, actually_joined)
 
     with patch("products.stamphog.backend.logic.slack_digest.SlackIntegration", return_value=stub):
         if expected_error is None:
-            assert post_digest(team.id, channel, summary) == "9999.1"
+            assert post_digest_lead(team.id, destination, summary) == "9999.1"
         else:
             with pytest.raises(expected_error) as caught:
-                post_digest(team.id, channel, summary)
+                post_digest_lead(team.id, destination, summary)
             if expected_error is DigestSlackError:
                 assert "/invite @PostHog" in str(caught.value)
                 assert str(join_error) in str(caught.value)

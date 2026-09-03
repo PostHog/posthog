@@ -1,6 +1,6 @@
 import type { Task } from "@posthog/shared/domain-types";
 import { describe, expect, it, vi } from "vitest";
-import { ApiRequestError } from "./fetcher";
+import { ApiRequestError, type FetchImplementation } from "./fetcher";
 import {
   CloudCommandError,
   CloudUsageLimitError,
@@ -10,6 +10,397 @@ import {
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  describe("updateTaskChannelAutoArchive", () => {
+    it("rejects a successful response that did not save the setting", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ id: "channel-1", name: "personal" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(
+        client.updateTaskChannelAutoArchive("channel-1", 7),
+      ).rejects.toThrow(
+        "Automatic archiving isn't available on this server yet",
+      );
+    });
+  });
+
+  describe("setUserSpendLimit", () => {
+    // The shared fetcher throws on non-2xx, so the endpoint's `detail` must be
+    // unwrapped for the settings toast rather than the raw fetcher string.
+    it("surfaces the endpoint detail when the gateway rejects the limit", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ detail: "Limit must be above current spend." }),
+            { status: 400, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      const error = await client
+        .setUserSpendLimit(10, 30 * 24 * 60 * 60)
+        .catch((e: unknown) => e);
+      // The exact clean detail, not the raw `Failed request: [400] {...}`.
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe(
+        "Limit must be above current spend.",
+      );
+    });
+  });
+
+  describe("getInsightDefinition", () => {
+    it("loads the saved insight with a blocking refresh and returns its result", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 1,
+            short_id: "sdyR2Pn8",
+            name: "Unique users per variant",
+            derived_name: null,
+            description: "Feature flag calls",
+            query: { kind: "InsightVizNode", source: { kind: "TrendsQuery" } },
+            result: [
+              {
+                label: "$feature_flag_called - true",
+                data: [],
+                days: [],
+                aggregated_value: 2,
+              },
+            ],
+            columns: null,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(client.getInsightDefinition("sdyR2Pn8")).resolves.toEqual({
+        name: "Unique users per variant",
+        description: "Feature flag calls",
+        query: { kind: "InsightVizNode", source: { kind: "TrendsQuery" } },
+        response: {
+          results: [
+            {
+              label: "$feature_flag_called - true",
+              data: [],
+              days: [],
+              aggregated_value: 2,
+            },
+          ],
+          columns: [],
+        },
+      });
+      const url = fetch.mock.calls[0][0] as URL;
+      expect(url.pathname).toBe("/api/projects/42/insights/sdyR2Pn8/");
+      expect(url.searchParams.get("refresh")).toBe("blocking");
+    });
+
+    it("returns null when the saved insight does not exist", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ detail: "Not found." }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(client.getInsightDefinition("missing")).resolves.toBeNull();
+    });
+  });
+
+  describe("getEvidencePreview", () => {
+    it("retrieves an Inbox report from the signals endpoint", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: "rep-1",
+            title: "Checkout latency increased",
+            summary: "Requests became slower after the latest release.",
+            status: "ready",
+            priority: "P1",
+            signal_count: 3,
+            total_weight: 3,
+            artefact_count: 1,
+            created_at: "2026-01-02T10:00:00Z",
+            updated_at: "2026-01-03T10:00:00Z",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(
+        client.getEvidencePreview("report", "rep-1"),
+      ).resolves.toMatchObject({
+        title: "Checkout latency increased",
+        status: { label: "Ready", tone: "positive" },
+      });
+      expect((fetch.mock.calls[0][0] as URL).pathname).toBe(
+        "/api/projects/42/signals/reports/rep-1/",
+      );
+    });
+
+    it("builds experiment presentation data from metric and exposure query responses", async () => {
+      const metricResponse = {
+        kind: "ExperimentQuery",
+        baseline: {
+          key: "control",
+          number_of_samples: 100,
+          sum: 10,
+          sum_squares: 10,
+        },
+        variant_results: [
+          {
+            key: "test",
+            method: "frequentist",
+            number_of_samples: 100,
+            sum: 12,
+            sum_squares: 12,
+            p_value: 0.04,
+            significant: true,
+            confidence_interval: [0.01, 0.39],
+          },
+        ],
+        significance_code: "significant",
+        is_cached: true,
+        last_refresh: new Date().toISOString(),
+      };
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              id: 1234,
+              name: "Checkout prompt",
+              feature_flag_key: "checkout-prompt",
+              feature_flag: { id: 3, key: "checkout-prompt" },
+              start_date: "2026-01-01T00:00:00Z",
+              metrics: [
+                {
+                  kind: "ExperimentMetric",
+                  uuid: "primary-1",
+                  name: "Checkout conversion",
+                  metric_type: "funnel",
+                },
+              ],
+              metrics_secondary: [
+                {
+                  kind: "ExperimentMetric",
+                  uuid: "secondary-1",
+                  name: "Orders per user",
+                  metric_type: "mean",
+                },
+              ],
+              saved_metrics: [],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              kind: "ExperimentExposureQuery",
+              timeseries: [
+                {
+                  variant: "control",
+                  days: ["2026-01-01", "2026-01-02"],
+                  exposure_counts: [45, 60],
+                },
+                {
+                  variant: "test",
+                  days: ["2026-01-01", "2026-01-02"],
+                  exposure_counts: [43, 60],
+                },
+              ],
+              total_exposures: { control: 105, test: 103 },
+              date_range: { date_from: "2026-01-01", date_to: null },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify(metricResponse), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify(metricResponse), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      const preview = await client.getEvidencePreview("experiment", "1234");
+
+      expect(preview).toMatchObject({
+        chart: {
+          title: "Daily exposures by variant",
+          labels: ["2026-01-01", "2026-01-02"],
+          series: [
+            { label: "control", data: [45, 60] },
+            { label: "test", data: [43, 60] },
+          ],
+          render: "bar",
+        },
+      });
+      expect(preview?.experimentResults).toMatchObject({
+        state: "ready",
+        primaryMetrics: [
+          {
+            name: "Checkout conversion",
+            variants: [
+              expect.objectContaining({ key: "control" }),
+              expect.objectContaining({ key: "test", uplift: "+20.0%" }),
+            ],
+          },
+        ],
+        secondaryMetrics: [{ name: "Orders per user" }],
+      });
+      const queryBodies = fetch.mock.calls
+        .slice(1)
+        .map((call) => JSON.parse(String((call[1] as RequestInit).body)));
+      expect(queryBodies.map((body) => body.query.kind)).toEqual([
+        "ExperimentExposureQuery",
+        "ExperimentQuery",
+        "ExperimentQuery",
+      ]);
+      expect(queryBodies.every((body) => body.refresh === undefined)).toBe(
+        true,
+      );
+    });
+
+    it("retrieves a person by UUID instead of taking the first search result", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 1,
+            uuid: "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            name: "Ann",
+            distinct_ids: ["ann-1"],
+            properties: { email: "ann@example.com" },
+            created_at: "2024-01-03T10:00:00Z",
+            last_seen_at: "2024-01-04T10:00:00Z",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(
+        client.getEvidencePreview(
+          "person",
+          "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        ),
+      ).resolves.toMatchObject({
+        title: "Ann",
+        resolvedId: "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      });
+      const url = fetch.mock.calls[0][0] as URL;
+      expect(url.pathname).toBe(
+        "/api/projects/42/persons/0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee/",
+      );
+    });
+
+    it("resolves a UUID-shaped distinct id when retrieve-by-uuid 404s", async () => {
+      const distinctId = "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ detail: "Not found." }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              results: [
+                {
+                  id: 1,
+                  uuid: "0192ffff-1111-2222-3333-444444444444",
+                  name: "Ann",
+                  distinct_ids: [distinctId],
+                  properties: { email: "ann@example.com" },
+                  created_at: "2024-01-03T10:00:00Z",
+                  last_seen_at: "2024-01-04T10:00:00Z",
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(
+        client.getEvidencePreview("person", distinctId),
+      ).resolves.toMatchObject({
+        title: "Ann",
+        resolvedId: "0192ffff-1111-2222-3333-444444444444",
+      });
+      expect((fetch.mock.calls[0][0] as URL).pathname).toBe(
+        `/api/projects/42/persons/${distinctId}/`,
+      );
+      const listUrl = fetch.mock.calls[1][0] as URL;
+      expect(listUrl.pathname).toBe("/api/projects/42/persons/");
+      expect(listUrl.searchParams.get("search")).toBe(distinctId);
+    });
+  });
+
   it("fetches later task pages before reporting complete results", async () => {
     const client = new PostHogAPIClient(
       "https://app.posthog.test",
@@ -60,6 +451,28 @@ describe("PostHogAPIClient", () => {
       isComplete: false,
       tasks: [{ id: "task-1" }, { id: "task-2" }],
     });
+  });
+
+  it("fetches every task page when requested", async () => {
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+    );
+    const getTasksPage = vi
+      .spyOn(client, "getTasksPage")
+      .mockResolvedValueOnce({ tasks: [{ id: "task-1" } as Task], count: 3 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-2" } as Task], count: 3 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-3" } as Task], count: 3 });
+
+    await expect(
+      client.getTasksWithStatus(undefined, { fetchAll: true }),
+    ).resolves.toMatchObject({
+      isComplete: true,
+      tasks: [{ id: "task-1" }, { id: "task-2" }, { id: "task-3" }],
+    });
+    expect(getTasksPage).toHaveBeenCalledTimes(3);
   });
 
   it.each([
@@ -1389,6 +1802,41 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  describe("getSignalReports", () => {
+    it("sends report filters to the reports endpoint", async () => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ count: 3, results: [] }),
+      });
+      const client = new PostHogAPIClient(
+        "http://localhost:8000",
+        async () => "token",
+        async () => "token",
+        123,
+      );
+      (
+        client as unknown as {
+          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+        }
+      ).api = {
+        baseUrl: "http://localhost:8000",
+        fetcher: { fetch },
+      };
+
+      await expect(
+        client.getSignalReports({
+          actionability: "immediately_actionable,requires_human_input",
+          count_only: true,
+        }),
+      ).resolves.toEqual({ count: 3, results: [] });
+
+      const request = fetch.mock.calls[0]?.[0] as { url: URL };
+      expect(request.url.toString()).toBe(
+        "http://localhost:8000/api/projects/123/signals/reports/?actionability=immediately_actionable%2Crequires_human_input&count_only=true",
+      );
+    });
+  });
+
   describe("getSignalReport", () => {
     function makeClient(fetch: ReturnType<typeof vi.fn>) {
       const client = new PostHogAPIClient(
@@ -1449,6 +1897,110 @@ describe("PostHogAPIClient", () => {
       const client = makeClient(fetch);
 
       await expect(client.getSignalReport("abc")).rejects.toThrow("[500]");
+    });
+  });
+
+  describe("updateSignalReportState", () => {
+    function makeClient(fetch: FetchImplementation): PostHogAPIClient {
+      return new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+    }
+
+    it("accepts a suppression conflict when a fresh read is already suppressed", async () => {
+      const fetch = vi
+        .fn<FetchImplementation>()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "Invalid state transition" }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ id: "abc", status: "suppressed" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.updateSignalReportState("abc", { state: "suppressed" }),
+      ).resolves.toMatchObject({ id: "abc", status: "suppressed" });
+    });
+
+    it("preserves a suppression conflict when the report is still active", async () => {
+      const fetch = vi
+        .fn<FetchImplementation>()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "Invalid state transition" }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ id: "abc", status: "ready" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.updateSignalReportState("abc", { state: "suppressed" }),
+      ).rejects.toThrow("[409]");
+    });
+
+    it.each([
+      {
+        name: "accepts matching dismissal feedback",
+        current: {
+          dismissal_reason: "wontfix_intentional",
+          dismissal_note: "Expected behavior",
+        },
+        rejects: false,
+      },
+      {
+        name: "rejects feedback another dismissal did not save",
+        current: {
+          dismissal_reason: "analysis_wrong",
+          dismissal_note: "Different feedback",
+        },
+        rejects: true,
+      },
+    ])("$name after a suppression conflict", async ({ current, rejects }) => {
+      const fetch = vi
+        .fn<FetchImplementation>()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "Invalid state transition" }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ id: "abc", status: "suppressed", ...current }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      const request = makeClient(fetch).updateSignalReportState("abc", {
+        state: "suppressed",
+        dismissal_reason: "wontfix_intentional",
+        dismissal_note: " Expected behavior ",
+      });
+
+      if (rejects) {
+        await expect(request).rejects.toThrow("[409]");
+      } else {
+        await expect(request).resolves.toMatchObject({ status: "suppressed" });
+      }
     });
   });
 
@@ -1873,6 +2425,54 @@ describe("PostHogAPIClient", () => {
       // attribution survives the fallback path
       expect(results[0].task_id).toBe("t1");
     });
+
+    // A resolve stores its rationale as a `dismissal` artefact, so resolve-only
+    // reasons must normalize as dismissals rather than degrade to a raw preview.
+    it.each([["fixed_outside_posthog"], ["pr_merged"]])(
+      "keeps a resolve reason %s as a dismissal row",
+      async (reason) => {
+        const rows = [
+          {
+            id: "d1",
+            type: "dismissal",
+            content: { reason, note: "", user_id: 1, user_uuid: null },
+            created_at: "2026-06-01T00:00:00Z",
+          },
+        ];
+        const fetch = vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ count: rows.length, results: rows }),
+        });
+        const client = makeClient(fetch);
+
+        const { results } = await client.getSignalReportArtefacts("r1");
+
+        expect(results).toHaveLength(1);
+        expect(results[0].type).toBe("dismissal");
+        expect(results[0].degraded).toBeFalsy();
+        expect((results[0].content as { reason: string }).reason).toBe(reason);
+      },
+    );
+
+    it.each([
+      [
+        "asks for the full log when a caller reads every row",
+        { limit: 1000 },
+        "1000",
+      ],
+      ["leaves list callers on the server page size", undefined, null],
+    ])("%s", async (_name, options, expected) => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ count: 0, results: [] }),
+      });
+      const client = makeClient(fetch);
+
+      await client.getSignalReportArtefacts("r1", options);
+
+      const { url } = fetch.mock.calls[0][0] as { url: URL };
+      expect(url.searchParams.get("limit")).toBe(expected);
+    });
   });
 
   describe("updateSignalReportArtefact", () => {
@@ -1969,6 +2569,30 @@ describe("PostHogAPIClient", () => {
       await expect(
         client.updateSignalReportArtefact("report-1", "art-1", []),
       ).rejects.toThrow("Unexpected response");
+    });
+
+    it("sets the first reviewer through the report-level endpoint", async () => {
+      const content = [{ user_uuid: "uuid-1" }];
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: "art-1",
+          type: "suggested_reviewers",
+          created_at: "2024-01-01T00:00:00Z",
+          content: [OCTOCAT_REVIEWER],
+        }),
+      });
+      const client = makeClient(fetch);
+
+      await client.setSignalReportReviewers("report-1", content);
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "put",
+          path: "/api/projects/123/signals/reports/report-1/reviewers/",
+          overrides: { body: JSON.stringify({ content }) },
+        }),
+      );
     });
   });
 

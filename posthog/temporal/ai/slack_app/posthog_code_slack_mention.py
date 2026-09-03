@@ -197,11 +197,19 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
 
             user_id = inputs.user_id
 
+            # A forked run is the one case where the thread we read and the thread we
+            # answer in are different. `channel`/`thread_ts` stay the DM throughout —
+            # they own the task, the mapping, the reaction and every follow-up — while
+            # the context block is built from the channel thread the user forked.
+            # Unset for every other run, so both pairs coincide.
+            context_channel = inputs.fork_source_channel or channel
+            context_thread_ts = inputs.fork_source_thread_ts or thread_ts
+
             thread_messages = await _execute_posthog_code_activity(
                 collect_posthog_code_thread_messages_activity,
                 inputs,
-                channel,
-                thread_ts,
+                context_channel,
+                context_thread_ts,
             )
             if not thread_messages:
                 return

@@ -8,6 +8,7 @@ export const DIRECT_QUERY_SOURCE_TYPES = [
     'Redshift',
     'ClickHouse',
     'Motherduck',
+    'Trino',
 ] as const
 
 export function supportsDirectQuery(sourceType: string | null | undefined): boolean {

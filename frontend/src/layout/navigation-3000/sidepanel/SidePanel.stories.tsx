@@ -61,6 +61,12 @@ const meta: Meta<StoryArgs> = {
                 '/api/projects/:team_id/feature_flags/:flagId/status': {
                     status: 'active',
                     reason: 'Feature flag is active',
+                    rollout: {
+                        effectively_full_rollout: false,
+                        has_targeting_conditions: false,
+                        max_rollout_percentage: 50,
+                        is_multivariate: false,
+                    },
                 },
                 '/api/projects/:team_id/feature_flags/:flagId/activity': { results: [], count: 0 },
                 '/api/projects/:team_id/feature_flags/:flagId/access_controls': {
@@ -101,11 +107,11 @@ export const SidePanelMax: Story = {
 }
 
 export const SidePanelActivity: Story = {
-    // The tab needs the audit logs entitlement, which the feature flags below don't grant
+    // The tab needs the audit logs entitlement, which the feature flag below doesn't grant
     args: { panel: SidePanelTab.Activity, availableFeatures: [AvailableFeature.AUDIT_LOGS] },
     parameters: {
         pageUrl: objectScenePageUrl,
-        featureFlags: [FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS, FEATURE_FLAGS.AUDIT_LOGS_ACCESS],
+        featureFlags: [FEATURE_FLAGS.AUDIT_LOGS_ACCESS],
     },
 }
 

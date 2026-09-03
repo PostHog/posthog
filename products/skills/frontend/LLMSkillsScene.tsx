@@ -14,9 +14,10 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { fullName } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -33,7 +34,7 @@ import type { LLMSkillListApi } from 'products/skills/frontend/generated/api.sch
 import { llmSkillsEmptyState } from './emptyState/llmSkillsEmptyState'
 import { SKILLS_GROUP_LIMIT, SKILLS_PER_PAGE, SkillGroupNode, SkillGroupTree, llmSkillsLogic } from './llmSkillsLogic'
 import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
-import { openArchiveSkillDialog } from './skillSceneComponents'
+import { openArchiveSkillDialog, openPublishToCommunityDialog } from './skillSceneComponents'
 import { SkillsSceneShell } from './SkillsSceneShell'
 
 export const scene: SceneExport = {
@@ -102,14 +103,35 @@ function buildSkillColumns(
             },
         },
         {
-            title: 'Latest author',
+            title: 'Owners',
+            key: 'owners',
+            width: 140,
+            render: function renderOwners(_, skill) {
+                if (!skill.owners.length) {
+                    return <span className="text-muted-alt text-sm">No owner</span>
+                }
+                return (
+                    <ProfileBubbles
+                        people={skill.owners.map((owner) => ({
+                            email: owner.email,
+                            name: fullName(owner) || owner.email,
+                        }))}
+                        limit={4}
+                    />
+                )
+            },
+        },
+        {
+            // Plain text, not a second avatar column: this is whoever published the latest version,
+            // which is a weaker signal than ownership and reads as ownership when given a face.
+            title: 'Last published by',
             dataIndex: 'created_by',
             render: function renderCreatedBy(_, item) {
                 const { created_by } = item
                 return (
-                    <div className="flex flex-row items-center flex-nowrap">
-                        {created_by && <ProfilePicture user={created_by as any} size="md" showName />}
-                    </div>
+                    <span className="text-muted text-sm">
+                        {created_by ? fullName(created_by) || created_by.email : <i>-</i>}
+                    </span>
                 )
             },
         },
@@ -469,42 +491,7 @@ export function LLMSkillsScene(): JSX.Element {
     const showCommunityDiscovery = communitySkillsEnabled && !skillsLoading && skills.count === 0 && !filters.search
 
     const openPublishDialog = (skill: LLMSkillListApi): void => {
-        LemonDialog.openForm({
-            title: 'Publish to community',
-            description:
-                "Publishing commits the skill's instructions and every bundled file to a public GitHub repo, then opens a pull request for a maintainer to review. The contents are public from the moment you submit, so don't include credentials or internal details.",
-            initialValues: {
-                display_name: skill.name.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-                tags: '',
-                // Prefill with the user's resolved GitHub handle when we have one; the field stays
-                // editable so users without a linked GitHub identity can still type one (free-text fallback).
-                author_handle: githubLogin ?? '',
-            },
-            content: (
-                <div className="flex flex-col gap-2">
-                    <LemonField name="display_name" label="Display name">
-                        <LemonInput data-attr="llma-publish-display-name" autoFocus />
-                    </LemonField>
-                    <LemonField name="tags" label="Tags (comma-separated)">
-                        <LemonInput data-attr="llma-publish-tags" placeholder="web-analytics, triage" />
-                    </LemonField>
-                    <LemonField name="author_handle" label="Your GitHub handle (optional)">
-                        <LemonInput data-attr="llma-publish-author-handle" placeholder="octocat" />
-                    </LemonField>
-                </div>
-            ),
-            onSubmit: ({ display_name, tags, author_handle }) =>
-                publishToCommunity(skill.name, {
-                    display_name: display_name?.trim() || undefined,
-                    tags: tags
-                        ? tags
-                              .split(',')
-                              .map((t: string) => t.trim())
-                              .filter(Boolean)
-                        : undefined,
-                    author_handle: author_handle?.trim() || undefined,
-                }),
-        })
+        openPublishToCommunityDialog({ skillName: skill.name, githubLogin, onPublish: publishToCommunity })
     }
 
     // Memoize columns so the array reference doesn't change every render — otherwise every
@@ -571,6 +558,15 @@ export function LLMSkillsScene(): JSX.Element {
                     />
                     <div className="text-muted-alt">{skillCountLabel}</div>
                     <div className="flex-1" />
+                    <span>
+                        <b>Owned by</b>
+                    </span>
+                    <MemberSelect
+                        defaultLabel="Any user"
+                        value={filters.owner_id ?? null}
+                        size="xsmall"
+                        onChange={(user) => setFilters({ owner_id: user?.id, page: 1 })}
+                    />
                     <span>
                         <b>Created by</b>
                     </span>

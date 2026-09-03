@@ -16,7 +16,9 @@ export const savedCreateBodyNameMax = 400
 
 export const savedCreateBodyUrlMax = 2000
 
-export const savedCreateBodyDataUrlMax = 2000
+export const savedCreateBodyDataUrlOneMax = 2000
+
+export const savedCreateBodyDataUrlTwoMax = 0
 
 export const savedCreateBodyWidthsItemMin = 100
 export const savedCreateBodyWidthsItemMax = 3000
@@ -32,9 +34,8 @@ export const SavedCreateBody = /* @__PURE__ */ zod.object({
         .max(savedCreateBodyUrlMax)
         .describe('Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.'),
     data_url: zod
-        .url()
-        .max(savedCreateBodyDataUrlMax)
-        .nullish()
+        .union([zod.url().max(savedCreateBodyDataUrlOneMax).nullable(), zod.string().max(savedCreateBodyDataUrlTwoMax)])
+        .optional()
         .describe("URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted."),
     widths: zod
         .array(zod.number().min(savedCreateBodyWidthsItemMin).max(savedCreateBodyWidthsItemMax))
@@ -66,7 +67,9 @@ export const savedPartialUpdateBodyNameMax = 400
 
 export const savedPartialUpdateBodyUrlMax = 2000
 
-export const savedPartialUpdateBodyDataUrlMax = 2000
+export const savedPartialUpdateBodyDataUrlOneMax = 2000
+
+export const savedPartialUpdateBodyDataUrlTwoMax = 0
 
 export const savedPartialUpdateBodyWidthsItemMin = 100
 export const savedPartialUpdateBodyWidthsItemMax = 3000
@@ -87,9 +90,11 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.'),
     data_url: zod
-        .url()
-        .max(savedPartialUpdateBodyDataUrlMax)
-        .nullish()
+        .union([
+            zod.url().max(savedPartialUpdateBodyDataUrlOneMax).nullable(),
+            zod.string().max(savedPartialUpdateBodyDataUrlTwoMax),
+        ])
+        .optional()
         .describe("URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted."),
     widths: zod
         .array(zod.number().min(savedPartialUpdateBodyWidthsItemMin).max(savedPartialUpdateBodyWidthsItemMax))
@@ -112,6 +117,61 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "When true, ask the headless browser to dismiss cookie\/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps."
         ),
+})
+
+/**
+ * Persist screenshots captured client-side by the on-page toolbar as a completed screenshot heatmap. No headless render is enqueued: the toolbar runs in the user's authenticated browser, so this is the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page at each width and captures it, matching the widths the server renders). The image bytes are stored and served only through the authenticated content endpoint. The heatmap's data URL is set to the captured URL.
+ */
+export const savedCaptureCreateBodyWidthMin = 100
+export const savedCaptureCreateBodyWidthMax = 3000
+
+export const savedCaptureCreateBodyImagesMax = 16
+
+export const savedCaptureCreateBodyWidthsItemMin = 100
+export const savedCaptureCreateBodyWidthsItemMax = 3000
+
+export const savedCaptureCreateBodyWidthsMax = 16
+
+export const savedCaptureCreateBodyUrlMax = 2000
+
+export const savedCaptureCreateBodyNameMax = 400
+
+export const SavedCaptureCreateBody = /* @__PURE__ */ zod.object({
+    image: zod
+        .url()
+        .nullish()
+        .describe(
+            "Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'\/'widths' instead to save several viewport widths on one heatmap."
+        ),
+    width: zod
+        .number()
+        .min(savedCaptureCreateBodyWidthMin)
+        .max(savedCaptureCreateBodyWidthMax)
+        .optional()
+        .describe("Viewport width (CSS pixels) the single 'image' was captured at."),
+    images: zod
+        .array(zod.url())
+        .max(savedCaptureCreateBodyImagesMax)
+        .optional()
+        .describe(
+            "One screenshot per viewport width, parallel to 'widths' (same length, same order). Lets a single toolbar capture cover the same viewport widths the server renders. At most 16 widths."
+        ),
+    widths: zod
+        .array(zod.number().min(savedCaptureCreateBodyWidthsItemMin).max(savedCaptureCreateBodyWidthsItemMax))
+        .max(savedCaptureCreateBodyWidthsMax)
+        .optional()
+        .describe("Viewport widths (CSS pixels) the 'images' were captured at, parallel to 'images'."),
+    url: zod
+        .string()
+        .max(savedCaptureCreateBodyUrlMax)
+        .describe(
+            'Exact page URL the screenshot was captured on. Wildcards are not allowed; this is stored as both the heatmap URL and its data URL, so the overlay reads aggregate data for this exact URL.'
+        ),
+    name: zod
+        .string()
+        .max(savedCaptureCreateBodyNameMax)
+        .optional()
+        .describe('Human-readable label for the saved heatmap. Defaults to the URL when omitted.'),
 })
 
 /**
@@ -141,6 +201,19 @@ export const SavedPrewarmCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, ask the headless browser to dismiss cookie\/consent banners before capturing. Must match the value used at creation time for the prewarmed render to be reused.'
         ),
+})
+
+/**
+ * Loads an llms.txt file from a public URL for coverage analysis without saving it.
+ * @summary Load an llms.txt file
+ */
+export const webAnalyticsFetchLlmsTxtBodyUrlMax = 2048
+
+export const WebAnalyticsFetchLlmsTxtBody = /* @__PURE__ */ zod.object({
+    url: zod
+        .url()
+        .max(webAnalyticsFetchLlmsTxtBodyUrlMax)
+        .describe('Public HTTP or HTTPS URL of the llms.txt file to load.'),
 })
 
 /**

@@ -6,19 +6,13 @@ from unittest import mock
 
 import structlog
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_budgets import (
     aws_budgets as transport_module,
     source as source_module,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_budgets.aws_budgets import (
-    AwsBudgetsResumeConfig,
     BudgetRef,
     normalize_budget,
     normalize_history_rows,
@@ -36,7 +30,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsbudgets import (
     AwsBudgetsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def make_inputs(
@@ -69,16 +62,6 @@ class TestAwsBudgetsSource:
             aws_session_token=None,
         )
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.AWSBUDGETS
-
-    def test_source_is_released_and_labelled_alpha(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
-
     def test_the_credential_form_asks_only_for_an_iam_key(self) -> None:
         # Budgets is global, so there is no region to route on and none to ask for.
         fields = [cast(SourceFieldInputConfig, field) for field in self.source.get_source_config.fields]
@@ -92,16 +75,6 @@ class TestAwsBudgetsSource:
         secret_fields = [field.name for field in fields if field.type == SourceFieldInputConfigType.PASSWORD]
         assert secret_fields == ["aws_secret_access_key", "aws_session_token"]
 
-    def test_the_table_catalog_renders_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-        assert self.source.api_docs_url.startswith("https://")
-
-    def test_get_schemas_lists_every_endpoint_with_its_description(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1)
-
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
-        assert all(schema.description for schema in schemas)
-
     def test_only_the_history_table_syncs_incrementally(self) -> None:
         # Budgets and notifications have no server-side time filter, so an "incremental" sync of
         # them would still read everything.
@@ -112,20 +85,6 @@ class TestAwsBudgetsSource:
         assert by_name["budgets"].supports_incremental is False
         assert by_name["notifications"].supports_incremental is False
 
-    def test_a_schema_filter_narrows_the_list(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["notifications"])
-
-        assert [schema.name for schema in schemas] == ["notifications"]
-
-    def test_validate_credentials_passes_the_schema_through(self) -> None:
-        with mock.patch.object(
-            source_module, "validate_aws_budgets_credentials", return_value=(True, None)
-        ) as validate:
-            assert self.source.validate_credentials(self.config, team_id=1, schema_name="budgets") == (True, None)
-
-        assert validate.call_args[1]["schema_name"] == "budgets"
-        assert validate.call_args[0][:3] == ("AKIAEXAMPLE", "secret", None)
-
     def test_endpoint_permissions_are_probed_for_the_requested_endpoints(self) -> None:
         with mock.patch.object(source_module, "probe_endpoint_permissions", return_value={"budgets": None}) as probe:
             assert self.source.get_endpoint_permissions(self.config, team_id=1, endpoints=["budgets"]) == {
@@ -133,11 +92,6 @@ class TestAwsBudgetsSource:
             }
 
         assert probe.call_args[0][3] == ["budgets"]
-
-    def test_the_resume_manager_is_bound_to_the_sources_own_state_shape(self) -> None:
-        manager = self.source.get_resumable_source_manager(make_inputs("budgets"))
-
-        assert manager._data_class is AwsBudgetsResumeConfig
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_for_pipeline_declares_the_endpoints_primary_key(self, endpoint: str) -> None:

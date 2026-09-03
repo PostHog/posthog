@@ -44,11 +44,13 @@ export interface aiOnboardingLogicValues {
     currentStep: OnboardingStep | null
     githubConnected: boolean
     hasSeenOnboarding: boolean
+    hasSeenOnboardingPersisted: boolean
     isOpen: boolean
     isReplay: boolean
     projectHasData: boolean
     reportProperties: OnboardingReportProperties
     repositoryCount: number
+    seenThisSession: boolean
     starterPrompts: readonly string[]
     stepIndex: number
     viewedStepKeys: Record<string, true>
@@ -100,7 +102,8 @@ export interface aiOnboardingLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         currentStep: (stepIndex: number) => OnboardingStep | null
-        hasSeenOnboarding: (user: UserType | null) => boolean
+        hasSeenOnboardingPersisted: (user: UserType | null) => boolean
+        hasSeenOnboarding: (hasSeenOnboardingPersisted: boolean, seenThisSession: boolean) => boolean
         projectHasData: (currentTeam: TeamPublicType | TeamType | null) => boolean
         starterPrompts: (projectHasData: boolean) => readonly string[]
         githubConnected: (githubIntegrations: IntegrationType[]) => boolean
@@ -183,6 +186,14 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
                 setStepIndex: (_, { stepIndex }) => stepIndex,
             },
         ],
+        // The seen flag normally round-trips the server, but an impersonated session can never persist
+        // it, so hold it here as well to keep the takeover closed for the rest of the session.
+        seenThisSession: [
+            false,
+            {
+                markOnboardingSeen: () => true,
+            },
+        ],
         // Fire-once guard so re-entering a step (via Back, or the dot row) doesn't re-report it.
         viewedStepKeys: [
             {} as Record<string, true>,
@@ -198,9 +209,14 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             (s) => [s.stepIndex],
             (stepIndex: number): OnboardingStep | null => DEFAULT_ONBOARDING_STEPS[stepIndex] ?? null,
         ],
-        hasSeenOnboarding: [
+        hasSeenOnboardingPersisted: [
             (s) => [s.user],
             (user: UserType | null): boolean => !!user?.has_seen_product_intro_for?.[POSTHOG_AI_ONBOARDING_SEEN_KEY],
+        ],
+        hasSeenOnboarding: [
+            (s) => [s.hasSeenOnboardingPersisted, s.seenThisSession],
+            (hasSeenOnboardingPersisted: boolean, seenThisSession: boolean): boolean =>
+                hasSeenOnboardingPersisted || seenThisSession,
         ],
         // `TeamPublicType` has no `ingested_event`, so read it defensively rather than casting.
         projectHasData: [
@@ -279,7 +295,14 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             posthog.capture('posthog ai onboarding media replayed', values.reportProperties)
         },
         markOnboardingSeen: () => {
-            if (values.hasSeenOnboarding) {
+            // Reads the persisted value, not `hasSeenOnboarding`: the session reducer above already
+            // flipped on this action, so the combined selector would skip every write.
+            if (values.hasSeenOnboardingPersisted) {
+                return
+            }
+            // `/api/users/` rejects writes from an impersonated session (ImpersonationBlockedPathsMiddleware),
+            // and the only outcome of trying is a failure toast on top of the takeover.
+            if (values.user?.is_impersonated) {
                 return
             }
             actions.updateUser({

@@ -1,0 +1,24 @@
+name: bgwriter
+description: Checkpoint and background writer activity (pg_stat_bgwriter; split with pg_stat_checkpointer on 17+).
+interval: 60s
+scope: cluster
+kind: cumulative
+key: [id]
+query: |
+  SELECT 1 AS id,
+         checkpoints_timed, checkpoints_req,
+         checkpoint_write_time, checkpoint_sync_time,
+         buffers_checkpoint, buffers_clean, maxwritten_clean,
+         buffers_backend, buffers_backend_fsync, buffers_alloc,
+         stats_reset
+  FROM pg_stat_bgwriter
+variants:
+  - min_pg_version: 170000
+    query: |
+      SELECT 1 AS id,
+             c.num_timed AS checkpoints_timed, c.num_requested AS checkpoints_req,
+             c.write_time AS checkpoint_write_time, c.sync_time AS checkpoint_sync_time,
+             c.buffers_written AS buffers_checkpoint,
+             b.buffers_clean, b.maxwritten_clean, b.buffers_alloc,
+             b.stats_reset
+      FROM pg_stat_bgwriter b, pg_stat_checkpointer c

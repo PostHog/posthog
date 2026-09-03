@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { makeDelay } from 'lib/utils/async'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -18,6 +17,12 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-01-27',
         pageUrl: urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id),
+        testOptions: {
+            // The funnel chart only renders once the metric result AND the exposure query have
+            // both resolved. The loader wait covers the metric table alone, so wait for the chart
+            // itself to avoid snapshotting before it appears.
+            waitForSelector: '[data-attr="experiment-funnel-chart"]',
+        },
     },
     decorators: [
         mswDecorator({
@@ -48,5 +53,4 @@ export default meta
 
 type Story = StoryObj<{}>
 
-// Small delay to ensure charts render completely
-export const ExperimentWithFunnelMetric: Story = { play: makeDelay(500) }
+export const ExperimentWithFunnelMetric: Story = {}

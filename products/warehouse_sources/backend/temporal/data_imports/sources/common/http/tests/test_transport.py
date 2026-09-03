@@ -41,3 +41,28 @@ class TestBoundedRetry:
         # urllib3 rebuilds the Retry via `new()` on each attempt; the cap must survive.
         assert isinstance(DEFAULT_RETRY, BoundedRetry)
         assert isinstance(DEFAULT_RETRY.new(), BoundedRetry)
+
+    @parameterized.expand(
+        [
+            ("rate_limited", 429, True),
+            ("bad_gateway", 502, True),
+            ("gateway_timeout", 504, True),
+            # Cloudflare 52x family — a slow or unreachable origin behind Cloudflare (e.g. Cal.com).
+            ("cloudflare_unknown", 520, True),
+            ("cloudflare_web_server_down", 521, True),
+            ("cloudflare_connection_timeout", 522, True),
+            ("cloudflare_origin_unreachable", 523, True),
+            ("cloudflare_timeout", 524, True),
+            ("cloudflare_dns", 530, True),
+            # Not transient: a real 4xx or an origin that answered.
+            ("not_implemented", 501, False),
+            ("bad_request", 400, False),
+            ("ok", 200, False),
+        ]
+    )
+    def test_default_retry_covers_transient_statuses(self, _name: str, status: int, retried: bool) -> None:
+        assert DEFAULT_RETRY.is_retry("GET", status) is retried
+
+    def test_default_retry_skips_non_idempotent_methods(self) -> None:
+        # A POST is not safe to replay, so even a transient timeout must not be retried.
+        assert DEFAULT_RETRY.is_retry("POST", 524) is False

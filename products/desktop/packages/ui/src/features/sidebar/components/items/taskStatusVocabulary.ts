@@ -24,6 +24,7 @@ import { SlackMark } from "@posthog/ui/primitives/SlackMark";
  */
 export type TaskStatusInput = TaskIconProps & {
   prUrl?: string | null;
+  isAgentSessionStarting?: boolean;
 };
 
 /**
@@ -146,13 +147,14 @@ export function taskDot(props: TaskStatusInput): TaskDot {
   // status, so it can sit there for hours after the agent is done with it.
   const isStartingCloudRun =
     props.taskRunStatus === "queued" && props.workspaceMode === "cloud";
-  if (props.isGenerating || isStartingCloudRun) {
+  const isStarting = props.isAgentSessionStarting || isStartingCloudRun;
+  if (props.isGenerating || isStarting) {
     return {
       tone: "yellow",
       style: "solid",
       pulse: false,
       spinner: true,
-      label: props.isGenerating ? "Working" : "Starting",
+      label: props.isGenerating && !isStarting ? "Working" : "Starting",
     };
   }
   // Only a background run's status is a claim about work. An interactive run is

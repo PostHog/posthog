@@ -23,3 +23,17 @@ export function resolveWorkspaceModePreference({
   }
   return "cloud";
 }
+
+export interface CloudSignalsInput {
+  cloudModeEnabled: boolean;
+  flagsLoaded: boolean;
+  isLoadingIntegrations: boolean;
+}
+
+export function areCloudSignalsSettled({
+  cloudModeEnabled,
+  flagsLoaded,
+  isLoadingIntegrations,
+}: CloudSignalsInput): boolean {
+  return (cloudModeEnabled || flagsLoaded) && !isLoadingIntegrations;
+}

@@ -23,6 +23,7 @@ import {
 import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLogic'
 
 const ACCOUNT_TAG_ADDED_EVENT = '$account_tag_added'
+const ACCOUNT_TAG_REMOVED_EVENT = '$account_tag_removed'
 const ACCOUNT_CUSTOM_PROPERTY_CHANGED_EVENT = '$account_custom_property_changed'
 const ACCOUNT_RELATIONSHIP_CHANGED_EVENT = '$account_relationship_changed'
 
@@ -40,23 +41,69 @@ export function getSelectedTags(config: EventTriggerConfig): string[] {
     return values.filter((tag: unknown): tag is string => typeof tag === 'string')
 }
 
-export function accountTagAddedFilters(tags: string[]): EventTriggerConfig['filters'] {
+const ACCOUNT_TAG_CHANGE_TYPES = ['added', 'removed'] as const
+export type AccountTagChangeType = (typeof ACCOUNT_TAG_CHANGE_TYPES)[number]
+
+export function getAccountTagChangeType(config: EventTriggerConfig): AccountTagChangeType | null {
+    const eventIds = (config.filters?.events ?? []).map((event: any) => event?.id)
+    const includesAdded = eventIds.includes(ACCOUNT_TAG_ADDED_EVENT)
+    const includesRemoved = eventIds.includes(ACCOUNT_TAG_REMOVED_EVENT)
+
+    if (includesAdded === includesRemoved) {
+        return null
+    }
+    return includesAdded ? 'added' : 'removed'
+}
+
+const accountTagChangedEvent = (changeType: AccountTagChangeType): any => ({
+    id: changeType === 'added' ? ACCOUNT_TAG_ADDED_EVENT : ACCOUNT_TAG_REMOVED_EVENT,
+    type: 'events',
+    name: changeType === 'added' ? 'Account tag added' : 'Account tag removed',
+})
+
+export function accountTagChangedFilters(
+    tags: string[],
+    existingFilters: EventTriggerConfig['filters'] = {},
+    changeType: AccountTagChangeType | null = getAccountTagChangeType({ type: 'event', filters: existingFilters })
+): EventTriggerConfig['filters'] {
+    const changeTypes: AccountTagChangeType[] = changeType ? [changeType] : ['added', 'removed']
+
     return {
-        events: [{ id: ACCOUNT_TAG_ADDED_EVENT, type: 'events', name: 'Account tag added' }],
-        properties: tags.length > 0 ? [{ key: 'tag', value: tags, operator: 'exact', type: 'event' }] : [],
+        ...existingFilters,
+        events: changeTypes.map(accountTagChangedEvent),
+        properties: [
+            ...(tags.length > 0 ? [{ key: 'tag', value: tags, operator: 'exact', type: 'event' }] : []),
+            ...(existingFilters.properties ?? []).filter((property: any) => property?.key !== 'tag'),
+        ],
     }
 }
 
-function StepTriggerConfigurationAccountTagAdded({ node }: { node: any }): JSX.Element {
+function isAccountTagChangedConfig(config: EventTriggerConfig): boolean {
+    if (config.type !== 'event') {
+        return false
+    }
+    const events = config.filters?.events ?? []
+    return (
+        events.length > 0 &&
+        events.every(
+            (event: any) =>
+                (event?.id === ACCOUNT_TAG_ADDED_EVENT || event?.id === ACCOUNT_TAG_REMOVED_EVENT) &&
+                !event?.properties?.length
+        )
+    )
+}
+
+function StepTriggerConfigurationAccountTagChanged({ node }: { node: any }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { tags, tagsLoading } = useValues(tagsModel)
     const config = node.data.config as EventTriggerConfig
     const selectedTags = getSelectedTags(config)
+    const changeType = getAccountTagChangeType(config)
 
     return (
         <div className="flex flex-col gap-2 w-full">
             <p className="mb-0 text-sm text-muted-alt">
-                This trigger runs when a tag is added to an account. Leave empty to run for any tag.
+                This trigger runs when a tag is added to or removed from an account. Leave empty to run for any tag.
             </p>
             <LemonField.Pure label="Tags">
                 <LemonInputSelect
@@ -69,10 +116,28 @@ function StepTriggerConfigurationAccountTagAdded({ node }: { node: any }): JSX.E
                     onChange={(value) =>
                         setWorkflowActionConfig(node.data.id, {
                             type: 'event',
-                            filters: accountTagAddedFilters(value),
+                            filters: accountTagChangedFilters(value, config.filters),
                         })
                     }
                     data-attr="account-tag-added-trigger-tags"
+                />
+            </LemonField.Pure>
+            <LemonField.Pure label="Change type" info="Limit this trigger to tags that were added or removed.">
+                <LemonSelect<AccountTagChangeType | null>
+                    value={changeType}
+                    placeholder="Any change type"
+                    allowClear
+                    options={[
+                        { label: 'Added', value: 'added' },
+                        { label: 'Removed', value: 'removed' },
+                    ]}
+                    onChange={(value) =>
+                        setWorkflowActionConfig(node.data.id, {
+                            type: 'event',
+                            filters: accountTagChangedFilters(selectedTags, config.filters, value),
+                        })
+                    }
+                    data-attr="account-tag-change-type-filter"
                 />
             </LemonField.Pure>
         </div>
@@ -80,18 +145,18 @@ function StepTriggerConfigurationAccountTagAdded({ node }: { node: any }): JSX.E
 }
 
 registerTriggerType({
-    value: 'account_tag_added',
-    label: 'Account tag added',
+    value: 'account_tag_changed',
+    label: 'Account tag changed',
     icon: <IconBolt />,
-    description: 'Trigger when a tag is added to an account',
+    description: 'Trigger when a tag is added to or removed from an account',
     group: 'Customer analytics',
     featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
-    matchConfig: (config) => config.type === 'event' && getEventId(config) === ACCOUNT_TAG_ADDED_EVENT,
+    matchConfig: isAccountTagChangedConfig,
     buildConfig: () => ({
         type: 'event',
-        filters: accountTagAddedFilters([]),
+        filters: accountTagChangedFilters([]),
     }),
-    ConfigComponent: StepTriggerConfigurationAccountTagAdded,
+    ConfigComponent: StepTriggerConfigurationAccountTagChanged,
 })
 
 // Account events carry no person (they use a synthetic distinct_id), so the generic person-keyed

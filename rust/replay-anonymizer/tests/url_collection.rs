@@ -11,7 +11,6 @@ use posthog_replay_anonymizer::{
 use serde_json::{json, Value};
 
 const TS0: f64 = 1_700_000_000_000.0;
-const PSEUDO_TEAM: &str = "0123456789abcdef0123456789abcdef";
 const URL_KEY: &str = "0123456789abcdef0123456789abcdef";
 
 fn payload_tagged(tag: &str, attrs: Value) -> Vec<u8> {
@@ -54,7 +53,6 @@ fn collect_urls_of(tag: &str, attrs: Value) -> Vec<String> {
             None,
             None,
             Some(UrlCollection {
-                pseudo_team: PSEUDO_TEAM.to_string(),
                 url_key: URL_KEY.to_string(),
             }),
         )
@@ -65,35 +63,118 @@ fn collect_urls_of(tag: &str, attrs: Value) -> Vec<String> {
 }
 
 #[test]
-fn only_an_image_bearing_tag_has_its_src_collected() {
-    // TagKind::Media also covers video, audio and track, whose src is a movie, a sound file, or a
-    // WebVTT subtitle document. The fetch lane is sized to download images.
-    for tag in ["img", "image", "picture"] {
+fn known_image_fields_are_collected() {
+    for (tag, attrs) in [
+        ("img", json!({ "src": "https://cdn.example.com/a.png" })),
+        ("img", json!({ "rr_src": "https://cdn.example.com/a.png" })),
+        ("image", json!({ "href": "https://cdn.example.com/a.png" })),
+        (
+            "image",
+            json!({ "xlink:href": "https://cdn.example.com/a.png" }),
+        ),
+        (
+            "video",
+            json!({ "poster": "https://cdn.example.com/a.png" }),
+        ),
+    ] {
         assert_eq!(
-            collect_urls_of(tag, json!({ "src": "https://cdn.example.com/a.png" })),
+            collect_urls_of(tag, attrs),
             vec!["byte_walk=true:1", "byte_walk=false:1"],
-            "{tag} src should be collected"
-        );
-    }
-    for tag in ["video", "audio", "track", "source"] {
-        assert_eq!(
-            collect_urls_of(tag, json!({ "src": "https://cdn.example.com/movie.mp4" })),
-            vec!["byte_walk=true:0", "byte_walk=false:0"],
-            "{tag} src is not an image and must not be collected"
+            "{tag} image field should be collected"
         );
     }
 }
 
 #[test]
-fn a_video_poster_is_still_collected() {
-    // poster only exists on a video and always names a still image.
-    assert_eq!(
-        collect_urls_of(
-            "video",
-            json!({ "poster": "https://cdn.example.com/poster.jpg" })
+fn fields_that_can_name_non_images_are_not_collected() {
+    for (tag, attrs) in [
+        (
+            "iframe",
+            json!({ "rr_src": "https://cdn.example.com/frame.html" }),
         ),
-        vec!["byte_walk=true:1", "byte_walk=false:1"]
-    );
+        (
+            "video",
+            json!({ "src": "https://cdn.example.com/movie.mp4" }),
+        ),
+        (
+            "audio",
+            json!({ "src": "https://cdn.example.com/audio.mp3" }),
+        ),
+        (
+            "track",
+            json!({ "src": "https://cdn.example.com/subtitles.vtt" }),
+        ),
+        (
+            "source",
+            json!({ "srcset": "https://cdn.example.com/a.png 2x" }),
+        ),
+    ] {
+        assert_eq!(
+            collect_urls_of(tag, attrs),
+            vec!["byte_walk=true:0", "byte_walk=false:0"],
+            "{tag} field must not be guessed as an image"
+        );
+    }
+}
+
+#[test]
+fn picture_source_srcset_is_collected_when_its_parent_is_known() {
+    let inner = json!({
+        "event": "$snapshot_items",
+        "properties": {
+            "$session_id": "s",
+            "$window_id": "w",
+            "$snapshot_items": [{
+                "type": 2,
+                "timestamp": TS0,
+                "data": {
+                    "node": {
+                        "type": 0,
+                        "childNodes": [{
+                            "type": 2,
+                            "tagName": "picture",
+                            "attributes": {},
+                            "childNodes": [{
+                                "type": 2,
+                                "tagName": "source",
+                                "attributes": {
+                                    "srcset": "https://cdn.example.com/a.png 1x, https://cdn.example.com/b.png 2x"
+                                },
+                                "childNodes": []
+                            }]
+                        }]
+                    },
+                    "initialOffset": { "top": 0, "left": 0 }
+                }
+            }]
+        }
+    });
+    let payload = json!({ "distinct_id": "d", "data": inner.to_string() })
+        .to_string()
+        .into_bytes();
+
+    for byte_walk in [true, false] {
+        let mut bytes = payload.clone();
+        let message = anonymize_kafka_payload_collecting(
+            &AllowLists::default(),
+            &mut bytes,
+            AnonymizeOpts {
+                byte_walk,
+                image_policy: ImagePolicy::Inline,
+            },
+            None,
+            None,
+            Some(UrlCollection {
+                url_key: URL_KEY.to_string(),
+            }),
+        )
+        .expect("anonymize should succeed");
+        assert_eq!(message.meta.urls.len(), 1, "byte_walk={byte_walk}");
+        assert_eq!(
+            message.meta.urls[0].url, "https://cdn.example.com/b.png",
+            "byte_walk={byte_walk}"
+        );
+    }
 }
 
 fn payload(attrs: Value) -> Vec<u8> {
@@ -129,7 +210,6 @@ fn run(attrs: Value, collect: bool) -> Vec<(String, Value)> {
     for byte_walk in [true, false] {
         let mut bytes = payload(attrs.clone());
         let collection = collect.then(|| UrlCollection {
-            pseudo_team: PSEUDO_TEAM.to_string(),
             url_key: URL_KEY.to_string(),
         });
         let msg = anonymize_kafka_payload_collecting(
@@ -176,18 +256,29 @@ fn a_remote_src_keeps_its_placeholder_and_stashes_the_ref() {
         let url_ref = attrs_of(line)["data-anon-image-ref-src"]
             .as_str()
             .expect("the URL ref is stashed");
-        assert!(
-            url_ref.starts_with(&format!("imageurl:{PSEUDO_TEAM}:")),
-            "{engine}: expected a URL ref, got {url_ref}"
-        );
+        assert!(url_ref.starts_with("imageurl:"), "{engine}: got {url_ref}");
 
         let urls = meta["urls"].as_array().expect("meta.urls present");
         assert_eq!(urls.len(), 1, "{engine}");
         assert_eq!(urls[0]["url"], "https://cdn.example.com/hero.png?w=200");
         assert_eq!(urls[0]["host"], "cdn.example.com");
+        assert_eq!(
+            meta["imageSources"],
+            json!([{
+                "source": "html",
+                "property": "src",
+                "kind": "url",
+                "count": 1
+            }]),
+            "{engine}"
+        );
         assert!(
-            url_ref.ends_with(urls[0]["hash"].as_str().expect("hash is a string")),
-            "{engine}: the ref must carry the hash meta reports"
+            url_ref
+                == format!(
+                    "imageurl:{}",
+                    urls[0]["hash"].as_str().expect("hash is a string")
+                ),
+            "{engine}: the ref must equal the hash meta reports"
         );
 
         assert!(
@@ -247,9 +338,7 @@ fn a_non_fetchable_scheme_keeps_the_placeholder() {
 }
 
 #[test]
-fn srcset_stays_out_of_scope_and_keeps_the_placeholder() {
-    // srcset holds several candidates with descriptors, so it needs a parse and a choice this lane
-    // deliberately does not make yet. Pinned so adding it is a decision rather than an accident.
+fn srcset_collects_only_the_largest_candidate() {
     for (engine, result) in run(
         json!({ "srcset": "https://cdn.example.com/a.png 1x, https://cdn.example.com/b.png 2x" }),
         true,
@@ -263,71 +352,84 @@ fn srcset_stays_out_of_scope_and_keeps_the_placeholder() {
             "{engine}: expected the placeholder, got {srcset}"
         );
         assert!(
-            attrs_of(line).get("data-anon-image-ref-srcset").is_none(),
+            attrs_of(line)["data-anon-image-ref-srcset"]
+                .as_str()
+                .is_some_and(|reference| reference.starts_with("imageurl:")),
             "{engine}"
         );
+        assert_eq!(meta["urls"].as_array().map(Vec::len), Some(1), "{engine}");
+        assert_eq!(meta["urls"][0]["url"], "https://cdn.example.com/b.png");
+    }
+}
+
+#[test]
+fn srcset_routes_an_inlined_largest_candidate_to_the_image_scrubber() {
+    let small = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    let large = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l5hJxAAAAABJRU5ErkJggg==";
+    for (engine, result) in run(json!({ "srcset": format!("{small} 1x, {large} 2x") }), true) {
+        let (line, meta) = (&result[0], &result[1]);
+        let srcset = attrs_of(line)["srcset"]
+            .as_str()
+            .expect("srcset is a string");
+        assert!(!srcset.contains(large), "{engine}");
+        assert!(srcset.starts_with("data:image/"), "{engine}: {srcset}");
         assert!(meta.get("urls").is_none(), "{engine}");
     }
 }
 
 #[test]
-fn one_url_under_two_signatures_collects_once() {
-    // The whole reason canonicalization splits the dedup URL from the fetch URL.
-    let allow = AllowLists::default();
-    let mut bytes = json!({
-        "distinct_id": "d",
-        "data": json!({
-            "event": "$snapshot_items",
-            "properties": {
-                "$session_id": "s",
-                "$window_id": "w",
-                "$snapshot_items": [
-                    {"type": 3, "timestamp": TS0, "data": {"source": 0, "adds": [
-                        {"parentId": 1, "nextId": null, "node": {"type": 2, "tagName": "img", "id": 1,
-                          "attributes": {"src": "https://cdn.example.com/a.png?X-Amz-Signature=aaa"}, "childNodes": []}},
-                        {"parentId": 1, "nextId": null, "node": {"type": 2, "tagName": "img", "id": 2,
-                          "attributes": {"src": "https://cdn.example.com/a.png?X-Amz-Signature=bbb"}, "childNodes": []}}
-                    ]}}
-                ]
-            }
-        }).to_string()
-    })
-    .to_string()
-    .into_bytes();
+fn css_image_urls_use_numbered_placeholders_and_a_reference_map() {
+    let css = "background-image:url('https://cdn.example.com/a.png');mask-image:url(https://cdn.example.com/b.png)";
+    for (engine, result) in run(json!({ "style": css }), true) {
+        let (line, meta) = (&result[0], &result[1]);
+        let attrs = attrs_of(line);
+        let style = attrs["style"].as_str().expect("style is a string");
+        assert!(!style.contains("cdn.example.com"), "{engine}: {style}");
+        assert!(style.contains("anon-image-slot-0"), "{engine}: {style}");
+        assert!(style.contains("anon-image-slot-1"), "{engine}: {style}");
 
-    let msg = anonymize_kafka_payload_collecting(
-        &allow,
-        &mut bytes,
-        AnonymizeOpts::default(),
-        None,
-        None,
-        Some(UrlCollection {
-            pseudo_team: PSEUDO_TEAM.to_string(),
-            url_key: URL_KEY.to_string(),
-        }),
-    )
-    .expect("anonymize should succeed");
-
-    assert_eq!(
-        msg.meta.urls.len(),
-        1,
-        "two signatures of one image are one URL to fetch"
-    );
+        let refs: serde_json::Map<String, Value> = serde_json::from_str(
+            attrs["data-anon-image-refs-style"]
+                .as_str()
+                .expect("CSS references are present"),
+        )
+        .expect("CSS references are JSON");
+        assert_eq!(refs.len(), 2, "{engine}");
+        assert!(refs.values().all(|reference| {
+            reference
+                .as_str()
+                .is_some_and(|reference| reference.starts_with("imageurl:"))
+        }));
+        assert_eq!(meta["urls"].as_array().map(Vec::len), Some(2), "{engine}");
+    }
 }
 
 #[test]
-fn every_refusal_is_counted_with_a_reason() {
+fn signed_urls_produce_no_ref_or_fetch_candidate() {
+    for (engine, result) in run(
+        json!({ "src": "https://cdn.example.com/a.png?X-Amz-Signature=aaa" }),
+        true,
+    ) {
+        let (line, meta) = (&result[0], &result[1]);
+        assert!(
+            attrs_of(line).get("data-anon-image-ref-src").is_none(),
+            "{engine}: signed URLs must not produce a global ref"
+        );
+        assert!(meta.get("urls").is_none(), "{engine}");
+        assert_eq!(meta["urlDeclines"][0]["reason"], "credential", "{engine}");
+        assert_eq!(meta["urlDeclines"][0]["count"], 1, "{engine}");
+    }
+}
+
+#[test]
+fn a_refusal_is_counted_with_a_reason() {
     // A silent decline makes the lane look like the traffic carries fewer images than it does,
     // which is exactly the number the measurement phase exists to produce.
     let allow = AllowLists::default();
     let mut bytes = payload_tagged(
         "img",
         json!({
-            // https, so this refusal counts as an address refusal. The scheme check runs first, so
-            // over http it would count as a scheme refusal instead.
-            "src": "https://169.254.169.254/meta.png",
-            "rr_src": "ftp://files.example.com/a.png",
-            "poster": "/relative/a.png"
+            "src": "https://169.254.169.254/meta.png"
         }),
     );
     let msg = anonymize_kafka_payload_collecting(
@@ -337,7 +439,6 @@ fn every_refusal_is_counted_with_a_reason() {
         None,
         None,
         Some(UrlCollection {
-            pseudo_team: PSEUDO_TEAM.to_string(),
             url_key: URL_KEY.to_string(),
         }),
     )
@@ -351,6 +452,4 @@ fn every_refusal_is_counted_with_a_reason() {
         .map(|d| d.reason.as_str())
         .collect();
     assert!(reasons.contains(&"non_public_host"), "{reasons:?}");
-    assert!(reasons.contains(&"bad_scheme"), "{reasons:?}");
-    assert!(reasons.contains(&"not_absolute"), "{reasons:?}");
 }

@@ -2,7 +2,7 @@
 
 import time
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 import pytest
 from freezegun import freeze_time
@@ -29,11 +29,13 @@ from posthog.models.github_integration_base import (
     GitHubIntegrationBase,
 )
 from posthog.models.integration import (
+    GitHubInstallationAccessFetchError,
     GitHubIntegration,
     GitHubIntegrationError,
     Integration,
     invalidate_github_repository_caches_for_installation,
 )
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
 
 class TestExtractFailingChecks(SimpleTestCase):
@@ -89,6 +91,16 @@ class TestGitHubIntegrationModel(BaseTest):
             integration_id=(config or {}).get("installation_id"),
             config=_config,
             sensitive_config=_sensitive_config,
+        )
+
+    def create_user_integration(self, installation_id: str, **fields: Any) -> UserIntegration:
+        return UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id=installation_id,
+            config={"installation_id": installation_id},
+            sensitive_config={"access_token": "ACCESS_TOKEN"},
+            **fields,
         )
 
     def mock_github_client_request(
@@ -927,6 +939,148 @@ class TestGitHubIntegrationModel(BaseTest):
         GitHubIntegration(integration).refresh_access_token()
         assert integration.config["permissions"] == {"contents": "read", "metadata": "read", "deployments": "read"}
 
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_github_integration_persists_repository_selection_on_refresh(self, mock_client_request):
+        mock_client_request.side_effect = self.mock_github_client_request(repository_selection="all")
+        integration = GitHubIntegration.integration_from_installation_id("INSTALLATION_ID", self.team.id, self.user)
+        assert integration.config["repository_selection"] == "all"
+
+        mock_client_request.side_effect = self.mock_github_client_request(repository_selection="selected")
+        GitHubIntegration(integration).refresh_access_token()
+        assert integration.config["repository_selection"] == "selected"
+
+    @parameterized.expand(
+        [
+            ("installation_info_non_200", 503, 201, "installation_fetch_failed"),
+            ("token_mint_non_201", 200, 400, "installation_token_failed"),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_fetch_installation_access_fails_on_bad_status(
+        self, _name, info_status, token_status, expected_code, mock_client_request
+    ):
+        def _client_request(endpoint, method="GET"):
+            response = MagicMock()
+            if method == "POST":
+                response.status_code = token_status
+                response.json.return_value = (
+                    {"token": "TOKEN", "expires_at": "2099-01-01T00:00:00Z"} if token_status == 201 else {}
+                )
+            else:
+                response.status_code = info_status
+                response.json.return_value = (
+                    {"account": {"login": "PostHog", "type": "Organization"}}
+                    if info_status == 200
+                    else {"message": "Service unavailable"}
+                )
+            return response
+
+        mock_client_request.side_effect = _client_request
+
+        with pytest.raises(GitHubInstallationAccessFetchError) as exc_info:
+            GitHubIntegration.fetch_installation_access("INSTALLATION_ID")
+
+        assert exc_info.value.code == expected_code
+
+    @parameterized.expand(
+        [
+            ("numeric_placeholder", {"type": None, "name": "INSTALL"}, True, "PostHog"),
+            ("missing_account", None, True, "PostHog"),
+            ("already_resolved", {"type": "Organization", "name": "PostHog"}, False, "PostHog"),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_ensure_account_name_only_fetches_for_placeholder_names(
+        self, _name, account, expects_fetch, expected_name, mock_client_request
+    ):
+        mock_client_request.return_value = MagicMock(
+            status_code=200, json=lambda: {"account": {"login": "PostHog", "type": "Organization"}}
+        )
+        config = {"installation_id": "INSTALL"}
+        if account is not None:
+            config["account"] = account
+        integration = self.create_integration(config, {"access_token": "ACCESS_TOKEN"})
+
+        healed = GitHubIntegration(integration).ensure_account_name()
+
+        integration.refresh_from_db()
+        assert healed is expects_fetch
+        assert integration.config["account"]["name"] == expected_name
+        assert mock_client_request.call_count == (1 if expects_fetch else 0)
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_ensure_account_name_backs_off_between_failed_attempts(self, mock_client_request):
+        mock_client_request.return_value = MagicMock(status_code=503, json=lambda: {"message": "unavailable"})
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"type": None, "name": "INSTALL"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            assert GitHubIntegration(integration).ensure_account_name() is False
+            assert GitHubIntegration(integration).ensure_account_name() is False
+        assert mock_client_request.call_count == 1
+
+        with freeze_time("2024-01-01T12:06:00Z"):
+            GitHubIntegration(integration).ensure_account_name()
+        assert mock_client_request.call_count == 2
+        integration.refresh_from_db()
+        assert integration.config["account"]["name"] == "INSTALL"
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_ensure_account_name_skips_unavailable_installation(self, mock_client_request):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "INSTALL"}, "installation_unavailable_since": 1},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+
+        assert GitHubIntegration(integration).ensure_account_name() is False
+        mock_client_request.assert_not_called()
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_ensure_account_name_keeps_config_written_during_the_github_call(self, mock_client_request):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"type": None, "name": "INSTALL"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+
+        def _client_request(*_args, **_kwargs):
+            # Stands in for a token refresh or installation webhook committing config mid-request.
+            stored = Integration.objects.get(id=integration.id)
+            Integration.objects.filter(id=integration.id).update(
+                config={**stored.config, "repository_selection": "selected"}
+            )
+            return MagicMock(status_code=200, json=lambda: {"account": {"login": "PostHog", "type": "Organization"}})
+
+        mock_client_request.side_effect = _client_request
+
+        assert GitHubIntegration(integration).ensure_account_name() is True
+
+        integration.refresh_from_db()
+        assert integration.config["account"]["name"] == "PostHog"
+        assert integration.config["repository_selection"] == "selected"
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_ensure_account_name_blocks_a_heal_that_lands_mid_call(self, mock_client_request):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"type": None, "name": "INSTALL"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        landed_mid_call = []
+
+        def _client_request(*_args, **_kwargs):
+            # Stands in for a second list request arriving before the first heal has recorded its attempt.
+            reread = Integration.objects.get(id=integration.id)
+            landed_mid_call.append(GitHubIntegration(reread).ensure_account_name())
+            return MagicMock(status_code=200, json=lambda: {"account": {"login": "PostHog", "type": "Organization"}})
+
+        mock_client_request.side_effect = _client_request
+
+        assert GitHubIntegration(integration).ensure_account_name() is True
+
+        assert landed_mid_call == [False]
+        assert mock_client_request.call_count == 1
+
     @patch("posthog.models.integration.github.reload_integrations_on_workers")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_github_refresh_access_token_handles_errors(self, mock_client_request, mock_reload):
@@ -1314,8 +1468,6 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_list_all.assert_called_once_with()
 
     def test_invalidate_github_repository_caches_for_installation_clears_team_and_personal_rows(self):
-        from posthog.models.user_integration import UserIntegration
-
         team_integration = self.create_integration(
             {"installation_id": "12345", "account": {"name": "PostHog"}},
             {"access_token": "ACCESS_TOKEN"},
@@ -1325,12 +1477,8 @@ class TestGitHubIntegrationModel(BaseTest):
         team_integration.repository_cache_updated_at = timezone.now()
         team_integration.save(update_fields=["integration_id", "repository_cache", "repository_cache_updated_at"])
 
-        user_integration = UserIntegration.objects.create(
-            user=self.user,
-            kind=UserIntegration.IntegrationKind.GITHUB,
-            integration_id="12345",
-            config={"installation_id": "12345"},
-            sensitive_config={"access_token": "ACCESS_TOKEN"},
+        user_integration = self.create_user_integration(
+            "12345",
             repository_cache=[{"id": 2, "name": "b", "full_name": "org/b"}],
             repository_cache_updated_at=timezone.now(),
         )
@@ -1397,6 +1545,27 @@ class TestGitHubIntegrationModel(BaseTest):
         assert has_more is expected_has_more
         mock_list_all.assert_called_once_with()
 
+    @patch("posthog.models.integration.github.GitHubIntegration.list_all_repositories")
+    def test_count_cached_repositories_counts_the_filtered_set_not_the_page(self, mock_list_all):
+        mock_list_all.return_value = [
+            {"id": 1, "name": "posthog", "full_name": "PostHog/posthog"},
+            {"id": 2, "name": "posthog-js", "full_name": "PostHog/posthog-js"},
+            {"id": 3, "name": "code", "full_name": "Acme/code"},
+        ]
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        github = GitHubIntegration(integration)
+
+        repos, has_more = github.list_cached_repositories(search="posthog", limit=1, offset=0)
+
+        assert len(repos) == 1
+        assert has_more is True
+        assert github.count_cached_repositories(search="posthog") == 2
+        assert github.count_cached_repositories() == 3
+        mock_list_all.assert_called_once_with()
+
     @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
     def test_list_cached_branches_uses_cached_data_when_fresh(self, mock_default_branch, mock_list_branches):
@@ -1432,6 +1601,27 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_list_branches.assert_not_called()
         mock_default_branch.assert_not_called()
         assert REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) == previous_count + 1
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.get_default_branch")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_all_branches")
+    def test_branch_cache_is_shared_across_rows_on_one_installation(
+        self, mock_list_all_branches: MagicMock, mock_default_branch: MagicMock
+    ) -> None:
+        mock_list_all_branches.return_value = ["main", "develop"]
+        mock_default_branch.return_value = "main"
+        repo = "posthog/posthog"
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        user_integration = self.create_user_integration("INSTALL")
+
+        GitHubIntegration(integration).list_cached_branches(repo)
+        branches, default_branch, _ = UserGitHubIntegration(user_integration).list_cached_branches(repo)
+
+        assert branches == ["main", "develop"]
+        assert default_branch == "main"
+        mock_list_all_branches.assert_called_once_with(repo)
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")

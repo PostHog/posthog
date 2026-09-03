@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
@@ -29,6 +30,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -41,6 +44,8 @@ import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackBu
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ScannerBudget } from './components/ScannerBudget'
 import { ScannerGoalDraft } from './components/ScannerGoalDraft'
+import { ScannerGoalFlow } from './components/ScannerGoalFlow'
+import { ScannerGoalOverview } from './components/ScannerGoalOverview'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
@@ -72,9 +77,9 @@ export const scene: SceneExport = {
     productKey: ProductKey.REPLAY_VISION,
 }
 
-// Template renders its own header, so only the form steps need one here.
+// Template renders its own header, and overview renders none, so only the form steps need one here.
 const STEP_HEADERS: Record<
-    Exclude<ScannerEditorStep, 'template'>,
+    Exclude<ScannerEditorStep, 'template' | 'overview'>,
     { hedgehog: JSX.Element; title: string; subtitle: string }
 > = {
     details: {
@@ -102,6 +107,14 @@ const STEP_HEADERS: Record<
 export function ScannerEditorSceneComponent(): JSX.Element {
     const { scannerId, step, isNew } = useValues(scannerEditorSceneLogic)
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    // Multivariate flag; a truthy check would turn the goal flow on for control too.
+    const goalFlow = featureFlags[FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW] === 'test'
+    const [manualMode, setManualMode] = useState(false)
+    const showGoalEntry = step === 'template' && goalFlow && !manualMode
+    // Reached a form step by clicking Edit on the goal overview: the overview is home, not a wizard
+    // stop, so the linear stepper is hidden and the footer returns there instead of marching on.
+    const fromOverview = searchParams.from === 'overview'
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
@@ -167,30 +180,54 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                         resourceType={{ type: 'replay_vision' }}
                         actions={<ReplayVisionFeedbackButton />}
                     />
-                    <ScannerEditorStepper
-                        currentStep={step}
-                        steps={SCANNER_EDITOR_STEPS}
-                        onStepClick={goToStep}
-                        stepErrors={stepErrors}
-                        disabledSteps={
-                            isNew ? undefined : { template: 'A saved scanner keeps the template it was created from' }
-                        }
-                    />
+                    {showGoalEntry || step === 'overview' || fromOverview ? null : (
+                        <ScannerEditorStepper
+                            currentStep={step}
+                            steps={SCANNER_EDITOR_STEPS}
+                            onStepClick={goToStep}
+                            stepErrors={stepErrors}
+                            disabledSteps={
+                                isNew
+                                    ? undefined
+                                    : { template: 'A saved scanner keeps the template it was created from' }
+                            }
+                        />
+                    )}
                     {step === 'template' ? (
-                        <>
-                            <div className="text-center space-y-3">
-                                <div className="flex justify-center mb-2">
-                                    <HedgehogXRay className="w-32 h-32" />
+                        showGoalEntry ? (
+                            <>
+                                <div className="text-center space-y-3">
+                                    <div className="flex justify-center mb-2">
+                                        <HedgehogXRay className="w-32 h-32" />
+                                    </div>
+                                    <h1 className="text-2xl font-bold m-0">What should the scanner find out?</h1>
+                                    <p className="text-base text-secondary max-w-2xl mx-auto m-0">
+                                        Describe the goal, set a monthly budget, and the agent drafts the whole scanner
+                                        for you to review.
+                                    </p>
                                 </div>
-                                <h1 className="text-2xl font-bold m-0">Choose a scanner template</h1>
-                                <p className="text-base text-secondary max-w-2xl mx-auto m-0">
-                                    Pick a pre-configured template to get started quickly, or create a fully custom
-                                    scanner from scratch.
-                                </p>
-                            </div>
-                            <ScannerTemplatePicker />
-                            <ScannerGoalDraft />
-                        </>
+                                <ScannerGoalFlow onManual={() => setManualMode(true)} />
+                            </>
+                        ) : (
+                            <>
+                                <div className="text-center space-y-3">
+                                    <div className="flex justify-center mb-2">
+                                        <HedgehogXRay className="w-32 h-32" />
+                                    </div>
+                                    <h1 className="text-2xl font-bold m-0">Choose a scanner template</h1>
+                                    <p className="text-base text-secondary max-w-2xl mx-auto m-0">
+                                        Pick a pre-configured template to get started quickly, or create a fully custom
+                                        scanner from scratch.
+                                    </p>
+                                </div>
+                                <ScannerTemplatePicker />
+                                <ScannerGoalDraft />
+                            </>
+                        )
+                    ) : step === 'overview' ? (
+                        <div className="max-w-4xl w-full mx-auto">
+                            <ScannerGoalOverview scannerId={scannerId} />
+                        </div>
                     ) : (
                         <Form
                             logic={replayScannerLogic}
@@ -442,6 +479,12 @@ function EditorFooter({
     const { scanner, durationValidationError, hasUnsavedChanges } = useValues(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
     const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(aiConsentLogic)
+    const [consentRequested, setConsentRequested] = useState(false)
+    // The backend rejects scanner creation without org AI consent, so the popover interposes at
+    // Save instead of letting the request 400.
+    const needsConsent = isNew && !dataProcessingAccepted
+    const canApproveConsent = !dataProcessingApprovalDisabledReason
     const stepIndex = SCANNER_EDITOR_STEPS.indexOf(step)
     const previous = stepIndex > 0 ? SCANNER_EDITOR_STEPS[stepIndex - 1] : null
     const prevStep = previous === 'template' && !isNew ? null : previous
@@ -452,6 +495,10 @@ function EditorFooter({
     const ownsDurationFilter = step === 'triggers' || step === 'budget'
     const durationError = ownsDurationFilter ? durationValidationError : null
     const saveDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level) ?? durationError
+    // Editing one section from the goal overview: the edit is already in the form state, so the only
+    // action needed is to return to the overview, where the whole draft is reviewed and created.
+    const { from, ...overviewParams } = searchParams
+    const fromOverview = from === 'overview'
 
     const cancel = (): void => {
         // Resetting first leaves nothing unsaved, so the leave guard can't prompt on top of this.
@@ -477,49 +524,89 @@ function EditorFooter({
         <div className="flex flex-col gap-2">
             {/* The duration field lives on the recordings step, so budget needs the error spelled out. */}
             {step === 'budget' && durationError ? <div className="text-danger text-sm">{durationError}</div> : null}
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                {prevStep ? (
-                    <LemonButton
-                        type="tertiary"
-                        to={scannerStepUrlWithParams(prevStep, scannerId, searchParams)}
-                        data-attr="vision-editor-back"
-                    >
-                        Back
-                    </LemonButton>
-                ) : null}
-                <div className="flex flex-wrap items-center gap-2 ml-auto">
+            {fromOverview ? (
+                <div className="flex flex-wrap items-center justify-end gap-2">
                     <LemonButton
                         type="tertiary"
                         onClick={handleCancel}
                         disabledReason={isSubmitting ? 'Saving…' : undefined}
                         data-attr="vision-editor-cancel"
                     >
-                        Cancel
+                        Discard scanner
                     </LemonButton>
-                    {nextStep ? (
-                        <LemonButton
-                            type="primary"
-                            loading={isSubmitting}
-                            disabledReason={saveDisabledReason}
-                            onClick={onAdvance}
-                            data-attr="vision-editor-next"
-                        >
-                            Next: {STEP_LABELS[nextStep]}
-                        </LemonButton>
-                    ) : (
-                        <LemonButton
-                            type="primary"
-                            loading={isSubmitting}
-                            disabledReason={saveDisabledReason}
-                            onClick={onSave}
-                            data-attr="vision-editor-save"
-                            data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
-                        >
-                            {isNew ? 'Create scanner' : 'Save changes'}
-                        </LemonButton>
-                    )}
+                    <LemonButton
+                        type="primary"
+                        to={scannerStepUrlWithParams('overview', scannerId, overviewParams)}
+                        disabledReason={saveDisabledReason ?? undefined}
+                        data-attr="vision-editor-back-to-overview"
+                    >
+                        Back to overview
+                    </LemonButton>
                 </div>
-            </div>
+            ) : (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    {prevStep ? (
+                        <LemonButton
+                            type="tertiary"
+                            to={scannerStepUrlWithParams(prevStep, scannerId, searchParams)}
+                            data-attr="vision-editor-back"
+                        >
+                            Back
+                        </LemonButton>
+                    ) : null}
+                    <div className="flex flex-wrap items-center gap-2 ml-auto">
+                        <LemonButton
+                            type="tertiary"
+                            onClick={handleCancel}
+                            disabledReason={isSubmitting ? 'Saving…' : undefined}
+                            data-attr="vision-editor-cancel"
+                        >
+                            Cancel
+                        </LemonButton>
+                        {nextStep ? (
+                            <LemonButton
+                                type="primary"
+                                loading={isSubmitting}
+                                disabledReason={saveDisabledReason}
+                                onClick={onAdvance}
+                                data-attr="vision-editor-next"
+                            >
+                                Next: {STEP_LABELS[nextStep]}
+                            </LemonButton>
+                        ) : (
+                            <AIConsentPopoverWrapper
+                                placement="top-end"
+                                showArrow
+                                ignoreDismissal
+                                hideTrainingDisclaimer
+                                hidden={!consentRequested}
+                                onApprove={() => {
+                                    setConsentRequested(false)
+                                    onSave()
+                                }}
+                                onDismiss={() => setConsentRequested(false)}
+                            >
+                                <LemonButton
+                                    type="primary"
+                                    loading={isSubmitting}
+                                    disabledReason={saveDisabledReason}
+                                    onClick={() => (needsConsent ? setConsentRequested(true) : onSave())}
+                                    data-attr="vision-editor-save"
+                                    data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
+                                >
+                                    {needsConsent
+                                        ? canApproveConsent
+                                            ? 'Allow AI analysis and create scanner'
+                                            : 'Ask an admin to enable AI analysis'
+                                        : isNew
+                                          ? 'Create scanner'
+                                          : 'Save changes'}
+                                </LemonButton>
+                            </AIConsentPopoverWrapper>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

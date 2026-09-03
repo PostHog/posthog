@@ -101,14 +101,16 @@ def reduce_by_uniform_sampling(
     lines = text.split("\n")
     total_lines = len(lines)
 
+    # Sampling drops whole lines, so text that is oversized but has too few lines to sample (one
+    # huge payload on a single line, for example) can only be cut mid-line.
     if total_lines <= preserve_header_lines:
-        return text, False
+        return text[:max_length], True
 
     header_lines = lines[:preserve_header_lines]
     body_lines = lines[preserve_header_lines:]
 
     if not body_lines:
-        return text, False
+        return text[:max_length], True
 
     sample_header_template_size = len(SAMPLED_VIEW_HEADER.format(percent=100, total=total_lines)) + 1
 
@@ -117,13 +119,13 @@ def reduce_by_uniform_sampling(
 
     available_for_body = max_length - header_size
     if available_for_body <= 0:
-        return text, False
+        return text[:max_length], True
 
     avg_line_length = sum(len(line) + 1 for line in body_lines) / len(body_lines)
     target_body_lines = int(available_for_body / avg_line_length)
 
     if target_body_lines >= len(body_lines):
-        return text, False
+        return text[:max_length], True
 
     target_body_lines = max(target_body_lines, 1)
 
@@ -254,15 +256,11 @@ def extract_tool_calls_from_content(content: Any) -> list[ToolCall]:
 
     tool_calls: list[ToolCall] = []
     for block in content:
-        if isinstance(block, dict):
+        match block:
             # Handle tool-call format: { type: "tool-call", function: {...} }
-            if block.get("type") == "tool-call" and "function" in block:
-                if isinstance(block["function"], dict):
-                    tool_calls.append({"function": block["function"]})
-            # Handle Anthropic function format: { type: "function", function: {...} }
-            elif block.get("type") == "function" and "function" in block:
-                if isinstance(block["function"], dict):
-                    tool_calls.append({"function": block["function"]})
+            # and Anthropic function format: { type: "function", function: {...} }
+            case {"type": "tool-call" | "function", "function": dict() as function}:
+                tool_calls.append({"function": function})
 
     return tool_calls
 
@@ -581,7 +579,8 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
         if not isinstance(msg, dict):
             continue
 
-        role = msg.get("role") or msg.get("type") or "unknown"
+        # SDKs record non-string roles, which crash `.upper()`.
+        role = str(msg.get("role") or msg.get("type") or "unknown")
         content = msg.get("content", "")
         tool_calls = msg.get("tool_calls", [])
 

@@ -16,8 +16,19 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
+from products.access_control.backend.models.role import Role
 from products.cohorts.backend.models.cohort import Cohort
 from products.error_tracking.backend.logic import ErrorTrackingIssueNotFoundError, get_issue
+from products.error_tracking.backend.logic.lifecycle_events import (
+    ISSUE_ASSIGNED_EVENT,
+    ISSUE_MERGED_EVENT,
+    ISSUE_SPLIT_EVENT,
+    ISSUE_UNASSIGNED_EVENT,
+    STATUS_CHANGE_EVENTS,
+    assignee_property,
+    produce_issue_lifecycle_event_on_commit,
+    status_label,
+)
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -26,8 +37,6 @@ from products.error_tracking.backend.models import (
     sync_issues_to_clickhouse,
 )
 from products.error_tracking.backend.notifications import dispatch_issue_assigned_realtime
-
-from ee.models.rbac.role import Role
 
 
 class CohortNotFoundError(Exception):
@@ -141,23 +150,95 @@ def update_issue(
                 detail=Detail(name=issue.name, changes=changes),
             )
 
+        if status_updated and status_after in STATUS_CHANGE_EVENTS:
+            # Register inside the transaction: a ClickHouse sync failure after commit
+            # must not drop the event, since a retry sees no transition and emits nothing.
+            produce_issue_lifecycle_event_on_commit(
+                event=STATUS_CHANGE_EVENTS[status_after],
+                issue=issue,
+                user=user,
+                extra_properties={"previous_status": status_label(status_before)},
+            )
+
     if state_updated:
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
 
     return issue
 
 
-def merge_issues(team_id: int, issue_id: UUID, source_ids: list[str]) -> ErrorTrackingIssueMergeResult:
-    issue = _get_issue(team_id, issue_id)
+def merge_issues(
+    team_id: int, issue_id: UUID, source_ids: list[str], *, user: User, was_impersonated: bool
+) -> ErrorTrackingIssueMergeResult:
+    issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
     # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
     ids = [x for x in source_ids if x != str(issue.id)]
-    return issue.merge(issue_ids=ids)
+    result, merged_issue_ids = issue.merge(issue_ids=ids)
+
+    if result == ErrorTrackingIssueMergeResult.MERGED:
+        merged_id_strings = [str(merged_issue_id) for merged_issue_id in merged_issue_ids]
+        log_activity(
+            organization_id=issue.team.organization_id,
+            team_id=team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=str(issue.id),
+            scope="ErrorTrackingIssue",
+            activity="merged",
+            detail=Detail(
+                name=issue.name,
+                changes=[
+                    Change(
+                        type="ErrorTrackingIssue", field="merged_issue_ids", after=merged_id_strings, action="merged"
+                    ),
+                ],
+            ),
+        )
+        produce_issue_lifecycle_event_on_commit(
+            event=ISSUE_MERGED_EVENT,
+            issue=issue,
+            user=user,
+            extra_properties={"merged_issue_ids": merged_id_strings},
+        )
+
+    return result
 
 
-def split_issue(team_id: int, issue_id: UUID, fingerprints: list[dict]) -> list[UUID]:
-    issue = _get_issue(team_id, issue_id)
+def split_issue(
+    team_id: int, issue_id: UUID, fingerprints: list[dict], *, user: User, was_impersonated: bool
+) -> list[UUID]:
+    issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
     new_issues = issue.split(fingerprints=fingerprints)
-    return [new_issue.id for new_issue in new_issues]
+    new_issue_ids = [new_issue.id for new_issue in new_issues]
+
+    if new_issues:
+        log_activity(
+            organization_id=issue.team.organization_id,
+            team_id=team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=str(issue.id),
+            scope="ErrorTrackingIssue",
+            activity="split",
+            detail=Detail(
+                name=issue.name,
+                changes=[
+                    Change(
+                        type="ErrorTrackingIssue",
+                        field="split_issue_ids",
+                        after=[str(new_issue_id) for new_issue_id in new_issue_ids],
+                        action="split",
+                    ),
+                ],
+            ),
+        )
+        produce_issue_lifecycle_event_on_commit(
+            event=ISSUE_SPLIT_EVENT,
+            issue=issue,
+            user=user,
+            extra_properties={"split_issue_ids": [str(new_issue_id) for new_issue_id in new_issue_ids]},
+        )
+
+    return new_issue_ids
 
 
 def set_issue_cohort(team_id: int, issue_id: UUID, cohort_id: int) -> None:
@@ -228,6 +309,14 @@ def bulk_update_issues(
                         ],
                     ),
                 )
+                if new_status in STATUS_CHANGE_EVENTS:
+                    produce_issue_lifecycle_event_on_commit(
+                        event=STATUS_CHANGE_EVENTS[new_status],
+                        issue=issue,
+                        user=user,
+                        status=new_status,
+                        extra_properties={"previous_status": status_label(issue.status)},
+                    )
             if changed_issue_ids:
                 ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=changed_issue_ids).update(
                     status=new_status, state_updated_at=timezone.now()
@@ -293,11 +382,28 @@ def _assign_one(
             assignee=assignee,
             assigner=user,
         )
+
+        produce_issue_lifecycle_event_on_commit(
+            event=ISSUE_ASSIGNED_EVENT,
+            issue=issue,
+            user=user,
+            extra_properties={"assignee": assignee_property(assignee)},
+        )
     else:
         if assignment_before is None:
             return False
         assignment_before.delete()
         serialized_assignment_after = None
+
+        extra_properties = None
+        if serialized_assignment_before and serialized_assignment_before.get("id") is not None:
+            extra_properties = {"previous_assignee": assignee_property(serialized_assignment_before)}
+        produce_issue_lifecycle_event_on_commit(
+            event=ISSUE_UNASSIGNED_EVENT,
+            issue=issue,
+            user=user,
+            extra_properties=extra_properties,
+        )
 
     log_activity(
         organization_id=organization.id,

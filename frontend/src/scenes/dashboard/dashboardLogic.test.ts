@@ -16,6 +16,7 @@ import * as featureFlagLib from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
+import { parseDashboardId } from 'scenes/dashboard/Dashboard'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
@@ -312,17 +313,43 @@ describe('dashboardLogic', () => {
         insightsModel.mount()
     })
 
-    describe('key() guard', () => {
+    describe('malformed dashboard id', () => {
         it.each([
             ['NaN', NaN],
             ['undefined', undefined as unknown as number],
             ['Infinity', Infinity],
-        ])('throws when id is %s', (_label, id) => {
-            expect(() => dashboardLogic({ id })).toThrow(/non-finite id/)
+        ])('mounts and reports not found instead of throwing when id is %s', async (_label, id) => {
+            const invalidLogic = dashboardLogic({ id })
+            invalidLogic.mount()
+            await expectLogic(invalidLogic).toMatchValues({ error404: true, hasInvalidDashboardId: true })
         })
 
         it('accepts a finite numeric id', () => {
             expect(() => dashboardLogic({ id: 42 })).not.toThrow()
+        })
+
+        it('reports not found when dashboard data is supplied for an invalid id', async () => {
+            const invalidLogic = dashboardLogic({ id: NaN, dashboard: dashboards[5] })
+            invalidLogic.mount()
+
+            await expectLogic(invalidLogic).toMatchValues({ error404: true, hasInvalidDashboardId: true })
+        })
+
+        it('does not load the zero dashboard sentinel', async () => {
+            const zeroLogic = dashboardLogic({ id: 0 })
+            zeroLogic.mount()
+
+            await expectLogic(zeroLogic)
+                .toNotHaveDispatchedActions(['loadDashboard', 'loadDashboardStreaming', 'dashboardNotFound'])
+                .toMatchValues({ error404: false, hasInvalidDashboardId: false })
+        })
+
+        it.each(['12abc', '12.5', '+12', '-12', '0', '00', '000'])('rejects invalid route id %s', (id) => {
+            expect(parseDashboardId(id)).toBeNaN()
+        })
+
+        it('parses a full numeric route id', () => {
+            expect(parseDashboardId('12')).toBe(12)
         })
     })
 
@@ -382,7 +409,7 @@ describe('dashboardLogic', () => {
             }
         })
 
-        it('does not report the default tile density', async () => {
+        it('reports the tile density when reset to standard', async () => {
             await expectLogic(logic).toFinishAllListeners()
             const reportTileDensityConfigured = jest.spyOn(
                 eventUsageLogic.actions,
@@ -396,7 +423,7 @@ describe('dashboardLogic', () => {
                 await jest.advanceTimersByTimeAsync(750)
                 await expectLogic(logic).toFinishAllListeners()
 
-                expect(reportTileDensityConfigured).not.toHaveBeenCalled()
+                expect(reportTileDensityConfigured).toHaveBeenCalledWith('standard')
             } finally {
                 jest.useRealTimers()
             }
@@ -1162,6 +1189,46 @@ describe('dashboardLogic', () => {
                     .toMatchValues({
                         layoutEditMode: false,
                     })
+            })
+        })
+
+        describe('url filter overrides', () => {
+            const PROPERTY_OVERRIDE = [{ key: '$browser', value: 'Chrome', type: 'event' }]
+
+            const openWithUrlFilters = async (urlFilters: Record<string, any>): Promise<void> => {
+                logic.unmount()
+                router.actions.push('/dashboard/5', {
+                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify(urlFilters),
+                })
+                logic = dashboardLogic({ id: 5 })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+            }
+
+            // The overrides banner renders off hasUrlFilters. An override that constrains nothing still
+            // has keys, so testing for key presence announces overrides on a dashboard that is showing
+            // exactly its saved state.
+            const activeOverrideCases: [string, Record<string, any>, boolean][] = [
+                ['a date override is active', { date_from: '-7d', date_to: null }, true],
+                ['a property override is active', { properties: PROPERTY_OVERRIDE }, true],
+                ['properties cleared to empty is not active', { properties: [] }, false],
+            ]
+
+            it.each(activeOverrideCases)('%s', async (_name, urlFilters, expected) => {
+                await openWithUrlFilters(urlFilters)
+
+                expect(logic.values.hasUrlFilters).toBe(expected)
+            })
+
+            it('drops the url param when the last filter is cleared', async () => {
+                await openWithUrlFilters({ properties: PROPERTY_OVERRIDE })
+                expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).not.toBeUndefined()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setProperties([])
+                }).toFinishAllListeners()
+
+                expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).toBeUndefined()
             })
         })
 
@@ -2651,6 +2718,36 @@ describe('dashboardLogic', () => {
             expect(updated.name).toEqual('renamed via bare patch')
             expect(updated.result).toEqual(originalResult)
             expect(updated.last_refresh).toEqual(originalLastRefresh)
+        })
+
+        it('preserves cached columns and types when a bare PATCH returns them null', async () => {
+            // SQL tiles draw from columns and types rather than result, and pick their axes from
+            // columns. Blanking those leaves the tile with nothing to draw.
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                columns: ['day', 'total'],
+                types: [
+                    ['day', 'DateTime'],
+                    ['total', 'UInt64'],
+                ],
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                name: 'renamed via bare patch',
+                columns: null,
+                types: null,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            const updated = logic.values.insightTiles[0].insight!
+            expect(updated.name).toEqual('renamed via bare patch')
+            expect(updated.columns).toEqual(['day', 'total'])
+            expect(updated.types).toEqual([
+                ['day', 'DateTime'],
+                ['total', 'UInt64'],
+            ])
         })
 
         it('replaces cached chart data when a full refresh returns non-null result', async () => {

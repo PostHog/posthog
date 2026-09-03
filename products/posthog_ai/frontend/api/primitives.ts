@@ -51,6 +51,8 @@ export { DEFAULT_SUGGESTIONS_DATA } from '../components/suggestions/suggestionsD
 // atoms); `ThreadView` is the prepackaged virtualized presenter (also `Thread.Root`).
 export { Thread } from '../components/Thread'
 export { ThreadView } from '../components/ThreadView'
+export type { TurnTrailer } from '../utils/turnTrailers'
+export { TurnFeedbackActions } from '../components/TurnFeedbackActions'
 export { MessageTemplate } from '../messages/MessageTemplate'
 export { MarkdownMessage } from '../messages/MarkdownMessage'
 export { ReasoningAnswer } from '../messages/ReasoningAnswer'
@@ -76,8 +78,13 @@ export { RunAlertActivity } from '../components/RunAlertActivity'
 export { TaskRunStatusDot } from '../components/TaskRunStatusDot'
 export { TaskRunLivenessDot } from '../components/TaskRunLivenessDot'
 
+// Debug-logs overflow menu for hosts with no scene chrome (the PostHog AI scene and side panel).
+export { DebugLogsMenu } from '../components/DebugLogsMenu'
+export type { DebugLogsMenuProps } from '../components/DebugLogsMenu'
+
 export { PermissionInput } from '../components/PermissionInput'
 export { QuestionInput } from '../components/QuestionInput'
+export { parseSandboxQuestions } from '../policy/questionUtils'
 export { ResourcesBar } from '../components/ResourcesBar'
 export { ContextUsageBar } from '../components/ContextUsageBar'
 export { QuestionField, MultiFieldQuestion, isFieldValid } from '../components/QuestionField'

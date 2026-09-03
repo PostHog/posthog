@@ -1,7 +1,7 @@
 import { dimensions, makeSeries } from '../testing'
 import {
     applyValueBounds,
-    autoFormatYTick,
+    autoFormatterFor,
     buildSegmentResolveValue,
     buildStackedPositionValue,
     computeDivergingStackData,
@@ -111,6 +111,16 @@ describe('hog-charts scales', () => {
             const series = [makeSeries({ key: 's1', data: [NaN, Infinity, -Infinity] })]
             const scale = createYScale(series, dimensions)
             expect(scale.domain()).toEqual([0, 1])
+        })
+
+        it('treats a series with null data as empty instead of throwing', () => {
+            // A query that returned no points can hand the chart `data: null`, which the `number[]`
+            // type forbids but the runtime still sees. Iterating it used to crash the whole chart.
+            const nullData = { ...makeSeries({ key: 'empty', data: [] }), data: null as unknown as number[] }
+            const withData = makeSeries({ key: 's1', data: [10, 20] })
+            const [domainMin, domainMax] = createYScale([withData, nullData], dimensions).domain()
+            expect(domainMin).toBe(0)
+            expect(domainMax).toBeGreaterThanOrEqual(20)
         })
 
         it('excludes visibility.excluded series from the domain calculation', () => {
@@ -469,6 +479,19 @@ describe('hog-charts scales', () => {
             expect(result.yAxes!.y1.scale.domain()[1]).toBe(1000)
         })
 
+        // A reference line outside its axis's domain doesn't render, so an axis whose meaning fixes
+        // its range (a 0-1 probability) has to say so — the chart-level valueDomain above only
+        // reaches the primary axis.
+        it('honors a secondary axis own valueDomain', () => {
+            const value = makeSeries({ key: 'value', data: [0, 1000], yAxisId: DEFAULT_Y_AXIS_ID })
+            const score = makeSeries({ key: 'score', data: [0, 0.25], yAxisId: 'y1' })
+            const result = createScales([value, score], ['a', 'b'], dimensions, {
+                axes: [{ id: 'y1', valueDomain: { min: 0, max: 1 } }],
+            })
+            expect(result.yAxes!.y1.scale.domain()).toEqual([0, 1])
+            expect(result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain()[1]).toBe(1000)
+        })
+
         it.each([
             ['DEFAULT_Y_AXIS_ID first', [DEFAULT_Y_AXIS_ID, 'y1']],
             ['non-default first', ['y1', DEFAULT_Y_AXIS_ID]],
@@ -709,6 +732,16 @@ describe('hog-charts scales', () => {
             expect(result.get('s3')!.bottom).toEqual([30])
         })
 
+        it('stacks a series whose key collides with Object.prototype (e.g. __proto__)', () => {
+            const s1 = makeSeries({ key: '__proto__', data: [10, 20] })
+            const s2 = makeSeries({ key: 's2', data: [5, 15] })
+            const result = computeStackData([s1, s2], ['a', 'b'])
+
+            expect(result.get('__proto__')!.top).toEqual([10, 20])
+            expect(result.get('s2')!.top).toEqual([15, 35])
+            expect(result.get('s2')!.bottom).toEqual([10, 20])
+        })
+
         it('excludes visibility.excluded series from the stack', () => {
             const visible = makeSeries({ key: 'v', data: [10, 20] })
             const hidden = makeSeries({ key: 'h', data: [100, 200], visibility: { excluded: true } })
@@ -799,43 +832,49 @@ describe('hog-charts scales', () => {
         })
     })
 
-    describe('autoFormatYTick', () => {
+    describe('autoFormatterFor', () => {
         it.each([
-            { domainMax: 0, value: 0.5, expected: '0.50', label: 'two decimal places when domainMax < 2' },
-            { domainMax: 1, value: 0.123, expected: '0.12', label: 'two decimal places when domainMax equals 1' },
-            { domainMax: 1.99, value: 1.5, expected: '1.50', label: 'two decimal places when domainMax is 1.99' },
-            { domainMax: 2, value: 3.5, expected: '3.5', label: 'one decimal place when domainMax equals 2' },
-            { domainMax: 4.99, value: 2.7, expected: '2.7', label: 'one decimal place when domainMax is 4.99' },
-            { domainMax: 5, value: 42, expected: '42', label: 'no decimal places when domainMax equals 5' },
-            { domainMax: 1000, value: 999, expected: '999', label: 'no decimal places when domainMax is large' },
-            { domainMax: 10000, value: 1234, expected: '1,234', label: 'adds thousands separator' },
             {
-                domainMax: 1000000,
-                value: 123456,
-                expected: '123,456',
-                label: 'adds thousands separators for large values',
+                label: 'integer ticks need no decimals',
+                ticks: [0, 1, 2, 3, 4, 5],
+                expected: ['0', '1', '2', '3', '4', '5'],
             },
-        ])('returns $expected: $label', ({ domainMax, value, expected }) => {
-            expect(autoFormatYTick(value, domainMax)).toBe(expected)
+            {
+                label: 'half-step ticks get one uniform decimal',
+                ticks: [0, 0.5, 1, 1.5, 2],
+                expected: ['0.0', '0.5', '1.0', '1.5', '2.0'],
+            },
+            {
+                label: 'fractional ticks stay distinct on an axis that extends past five',
+                ticks: [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5],
+                expected: ['0.0', '0.5', '1.0', '1.5', '2.0', '2.5', '3.0', '3.5', '4.0', '4.5', '5.0'],
+            },
+            {
+                label: 'small ticks get exactly the decimals their step needs',
+                ticks: [0, 0.004, 0.008, 0.012],
+                expected: ['0.000', '0.004', '0.008', '0.012'],
+            },
+            {
+                label: 'large integer ticks keep thousands separators',
+                ticks: [0, 2500, 5000],
+                expected: ['0', '2,500', '5,000'],
+            },
+            {
+                label: 'negative ticks format like positive ones',
+                ticks: [-10, -5, 0, 5, 10],
+                expected: ['-10', '-5', '0', '5', '10'],
+            },
+            {
+                label: 'float noise in computed ticks does not leak into labels',
+                ticks: [0, 0.1, 0.2, 0.1 + 0.2],
+                expected: ['0.0', '0.1', '0.2', '0.3'],
+            },
+        ])('$label', ({ ticks, expected }) => {
+            expect(ticks.map(autoFormatterFor(ticks))).toEqual(expected)
         })
 
-        it.each([
-            { domainMax: 0.012, value: 0.012, expected: '0.012' },
-            { domainMax: 0.012, value: 0.002, expected: '0.002' },
-            { domainMax: 0.0005, value: 0.0001, expected: '0.0001' },
-        ])(
-            'scales precision to the domain so small ticks stay distinct: $value over 0–$domainMax → $expected',
-            ({ domainMax, value, expected }) => {
-                expect(autoFormatYTick(value, domainMax)).toBe(expected)
-            }
-        )
-
-        it('formats zero correctly when domainMax is large', () => {
-            expect(autoFormatYTick(0, 100)).toBe('0')
-        })
-
-        it('formats negative values correctly', () => {
-            expect(autoFormatYTick(-5, 10)).toBe('-5')
+        it('falls back to integer formatting for an empty tick list', () => {
+            expect(autoFormatterFor([])(1234)).toBe('1,234')
         })
     })
 

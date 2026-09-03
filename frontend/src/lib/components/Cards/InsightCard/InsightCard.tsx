@@ -24,6 +24,7 @@ import {
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
@@ -46,6 +47,7 @@ import type { AlertType } from 'products/alerts/frontend/types'
 
 import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
+import { INSIGHT_CARD_KEY_ATTR, insightCardKey } from './insightCardImageCapture'
 import { InsightMeta } from './InsightMeta'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
@@ -163,6 +165,8 @@ export interface InsightCardProps extends Resizeable {
     apiErrored?: boolean
     /** Might contain more information on the error that occurred on the server. */
     apiError?: Error
+    /** Query ID associated with the error, when available from the insight response. */
+    queryId?: string
     /** Whether the card should be highlighted with a blue border. */
     highlighted?: boolean
     /** Whether loading timed out. */
@@ -227,6 +231,7 @@ function InsightCardInternal(
         loading,
         apiError,
         apiErrored,
+        queryId,
         timedOut,
         highlighted,
         showResizeHandles,
@@ -327,6 +332,7 @@ function InsightCardInternal(
     const openCreateAnomalyAlertModal = useCallback(() => setAlertModal({ defaultToAnomalyDetection: true }), [])
     const closeAlertModal = useCallback(() => setAlertModal(null), [])
     const hasResults = !!insight?.result || !!(insight as any)?.results
+    const sharedView = isSharedView()
 
     // Empty states that completely replace the Query component.
     const BlockingEmptyState = (() => {
@@ -351,6 +357,7 @@ function InsightCardInternal(
                 <InsightErrorState
                     data-attr="insight-access-denied-state"
                     title={errorMessage || "You don't have permission to view this insight."}
+                    titleStatus={403}
                     excludeDetail
                 />
             )
@@ -367,15 +374,23 @@ function InsightCardInternal(
                     <InsightValidationError
                         detail={validationError}
                         validationErrorCode={extractValidationErrorCode(apiError)}
+                        query={insight.query}
+                        excludeActions={sharedView}
+                        placement={placement}
                     />
                 )
             } else if (apiError instanceof ApiError) {
-                const isDashboardTileError = apiError.code === 'dashboard_tile_error'
                 return (
                     <InsightErrorState
                         title={apiError.detail}
-                        queryId={apiError.data?.queryId}
-                        supportOnly={isDashboardTileError}
+                        titleStatus={apiError.status}
+                        queryId={apiError.data?.queryId ?? queryId}
+                        retryAfter={apiError.formattedRetryAfter}
+                        retryLoading={loading}
+                        query={insight.query}
+                        excludeActions={sharedView}
+                        placement={placement}
+                        onRetry={sharedView ? undefined : refresh}
                     />
                 )
             }
@@ -425,6 +440,7 @@ function InsightCardInternal(
                 className
             )}
             data-attr="insight-card"
+            {...{ [INSIGHT_CARD_KEY_ATTR]: insightCardKey(insight, tile) }}
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ ...divProps?.style, ...theme?.boxStyle }}

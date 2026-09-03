@@ -2,6 +2,7 @@ import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { getRedisHost } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
@@ -15,6 +16,9 @@ import { WarehouseSourceWebhooksOutput } from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
+import { CohortMembershipRepository } from './services/cohorts/cohort-membership-repository'
+import { PostgresCohortMembershipRepository } from './services/cohorts/postgres-cohort-membership-repository'
+import { ConversionWatchersService } from './services/conversion-watchers/conversion-watchers.service'
 import { HogExecutorAsyncService } from './services/hog-executor-async.service'
 import { HogExecutorService } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
@@ -30,7 +34,7 @@ import { RecipientsManagerService } from './services/managers/recipients-manager
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
-import { EmailService } from './services/messaging/email.service'
+import { EmailService, parseTeamEmailCapMode, parseTierCaps } from './services/messaging/email.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { MessageAssetsService } from './services/messaging/message-assets.service'
 import { PushNotificationService } from './services/messaging/push-notification.service'
@@ -40,11 +44,15 @@ import { HogFunctionMonitoringService } from './services/monitoring/hog-function
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
+import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
+import { CdpUsageReporterService } from './services/usage/cdp-usage-reporter.service'
 import { WarehouseWebhooksService } from './services/warehouse/warehouse-webhooks.service'
 import { MAX_FETCH_TIMEOUT_MS, cdpTrackedFetch } from './utils/cdp-fetch'
 import { configureValkeyReads } from './utils/dual-store'
 import { EncryptedFields } from './utils/encryption-utils'
+import { PosthogJwtAudience } from './utils/jwt-utils'
+import { ScopedServiceJwt } from './utils/scoped-service-jwt'
 
 /** Union of every output name resolved by `createCdpOutputsRegistry()`. */
 export type CdpOutput = AppMetricsOutput | LogEntriesOutput | HogInvocationResultsOutput | WarehouseSourceWebhooksOutput
@@ -83,8 +91,11 @@ export interface CdpCoreServices {
     recipientPreferencesService: RecipientPreferencesService
     emailSuppressionService: EmailSuppressionService
     teamWorkflowsConfigService: TeamWorkflowsConfigService
+    /** Point lookups for realtime/behavioral cohort membership (behavioral cohorts DB). */
+    cohortMembershipRepository: CohortMembershipRepository
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    cdpUsageReporter: CdpUsageReporterService
     capturedEventsService: CapturedEventsService
     /** Per-invocation lifecycle row producer for the new runs/invocations UI + rerun path. */
     hogInvocationResultsService: HogInvocationResultsService
@@ -102,8 +113,14 @@ export interface CdpCoreServices {
 
 export type CdpCoreServicesConfig = Pick<
     CommonConfig,
-    'REDIS_URL' | 'REDIS_POOL_MIN_SIZE' | 'REDIS_POOL_MAX_SIZE' | 'ENCRYPTION_SALT_KEYS' | 'SITE_URL'
+    | 'REDIS_URL'
+    | 'REDIS_POOL_MIN_SIZE'
+    | 'REDIS_POOL_MAX_SIZE'
+    | 'ENCRYPTION_SALT_KEYS'
+    | 'SITE_URL'
+    | 'INTERNAL_API_BASE_URL'
 > &
+    UsageIngestionConfig &
     Pick<
         CdpConfig,
         | 'CDP_REDIS_HOST'
@@ -118,6 +135,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_VALKEY_READER_PORT'
         | 'CDP_VALKEY_TLS'
         | 'CDP_VALKEY_READ_FEATURES'
+        | 'CYCLOTRON_NODE_DATABASE_URL'
+        | 'CYCLOTRON_NODE_MAX_CONNECTIONS'
         | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING'
@@ -139,9 +158,13 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_ENDPOINT'
         | 'SES_TRACKED_CONFIGURATION_SET'
         | 'SES_UNTRACKED_CONFIGURATION_SET'
-        | 'EMAIL_SES_TENANT_ATTRIBUTION_ENABLED'
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
+        | 'EMAIL_TEAM_SENDING_CAP_MODE'
+        | 'EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER'
+        | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
+        | 'CONVERSATIONS_TICKETS_JWT_SECRET'
+        | 'CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET'
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
@@ -389,7 +412,7 @@ export function createCdpCoreServices(
     )
 
     const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
-    const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
+    const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres, deps.pubSub)
     const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
     const messageAssetsService = new MessageAssetsService(outputs)
     // Constructed here (rather than below with the other messaging services) so it can be threaded
@@ -399,6 +422,16 @@ export function createCdpCoreServices(
         transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
+    // Per-workflow send pacing rides the SES Valkey pool, which is only populated on pods that
+    // execute email actions — exactly where the limit is enforced. Null elsewhere disables it.
+    const workflowEmailRateLimiter = deps.emailValidationValkey
+        ? new RateLimiterService(deps.emailValidationValkey, { name: 'workflow-email' })
+        : null
+    // Separate limiter instance from the per-workflow one so the two show up under different
+    // `limiter` labels on the shared claim metrics. Same Valkey pool, different bucket keys.
+    const teamEmailRateLimiter = deps.emailValidationValkey
+        ? new RateLimiterService(deps.emailValidationValkey, { name: 'team-email' })
+        : null
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -407,7 +440,9 @@ export function createCdpCoreServices(
             sesEndpoint: config.SES_ENDPOINT,
             sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
             sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
-            sesTenantAttributionEnabled: config.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
+            teamEmailCapMode: parseTeamEmailCapMode(config.EMAIL_TEAM_SENDING_CAP_MODE),
+            teamEmailTierHourlyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER),
+            teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
@@ -416,7 +451,9 @@ export function createCdpCoreServices(
         trackingCodeSigner,
         emailSuppressionService,
         recipientsManager,
-        messageAssetsService
+        messageAssetsService,
+        workflowEmailRateLimiter,
+        teamEmailRateLimiter
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
@@ -443,9 +480,18 @@ export function createCdpCoreServices(
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
             siteUrl: config.SITE_URL,
+            internalApiBaseUrl: config.INTERNAL_API_BASE_URL,
         },
         {
             teamManager: deps.teamManager,
+            conversationsTicketsJwt: new ScopedServiceJwt(
+                PosthogJwtAudience.CONVERSATIONS_TICKETS,
+                config.CONVERSATIONS_TICKETS_JWT_SECRET
+            ),
+            customerAnalyticsAccountsJwt: new ScopedServiceJwt(
+                PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
+                config.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
+            ),
             hogInputsService,
             emailService,
             recipientTokensService,
@@ -466,25 +512,38 @@ export function createCdpCoreServices(
     // whose capabilities execute email actions; everywhere else this is null
     // and EmailValidationService degrades to the local cache + DNS.
     const emailValidationService = new EmailValidationService(deps.emailValidationValkey)
+    const cohortMembershipRepository = new PostgresCohortMembershipRepository(deps.postgres)
     // Observer writes to both stores; the read source decides which verdict drives the metric.
     const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow.writer)
+    const cdpUsageReporter = new CdpUsageReporterService(
+        createUsageIngestionClient(config, 'cdp'),
+        usageReportTeamMatcher(config)
+    )
     const hogFlowExecutor = new HogFlowExecutorService(
         hogFlowFunctionsService,
         recipientPreferencesService,
         emailValidationService,
-        hogFlowDuplicateObserver
+        cohortMembershipRepository,
+        deps.integrationManager,
+        hogFlowDuplicateObserver,
+        cdpUsageReporter
     )
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)
     const hogInvocationResultsService = new HogInvocationResultsService(outputs, config)
     const warehouseWebhooksService = new WarehouseWebhooksService(outputs)
     const capturedEventsService = new CapturedEventsService(deps.internalCaptureService, deps.teamManager)
+    const conversionWatchersService = new ConversionWatchersService(
+        config.CYCLOTRON_NODE_DATABASE_URL,
+        config.CYCLOTRON_NODE_MAX_CONNECTIONS
+    )
     const invocationResultsService = new InvocationResultsService(
         hogFunctionMonitoringService,
         hogInvocationResultsService,
         warehouseWebhooksService,
         capturedEventsService,
-        messageAssetsService
+        messageAssetsService,
+        conversionWatchersService
     )
 
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)
@@ -505,8 +564,10 @@ export function createCdpCoreServices(
         recipientPreferencesService,
         emailSuppressionService,
         teamWorkflowsConfigService,
+        cohortMembershipRepository,
         hogFlowExecutor,
         hogFunctionMonitoringService,
+        cdpUsageReporter,
         capturedEventsService,
         hogInvocationResultsService,
         invocationResultsService,

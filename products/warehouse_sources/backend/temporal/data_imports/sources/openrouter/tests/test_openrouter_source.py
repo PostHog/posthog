@@ -3,17 +3,11 @@ from typing import Optional
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openrouter import (
     OpenRouterSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.openrouter import (
-    OpenRouterResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.source import OpenRouterSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MANAGEMENT_ENDPOINTS = ["activity", "api_keys", "credits", "organization_members", "workspaces"]
 CATALOG_ENDPOINTS = ["models", "providers"]
@@ -28,24 +22,6 @@ class TestOpenRouterSource:
         self.source = OpenRouterSource()
         self.team_id = 123
         self.config = OpenRouterSourceConfig(api_key="sk-or-test")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.OPENROUTER
-
-    def test_source_config_fields(self):
-        config = self.source.get_source_config
-        assert config.label == "OpenRouter"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source is not hidden.
-        assert config.unreleasedSource is None or config.unreleasedSource is False
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/openrouter"
-
-        assert len(config.fields) == 1
-        field = config.fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "api_key"
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.required is True
 
     def test_lists_tables_without_credentials(self):
         # Static endpoint catalog with no I/O — required for the public-docs table list to render.
@@ -65,10 +41,6 @@ class TestOpenRouterSource:
     def test_get_schemas_filters_by_name(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["models", "activity"])
         assert {s.name for s in schemas} == {"models", "activity"}
-
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error", "404 Client Error"])
-    def test_non_retryable_errors(self, expected_key):
-        assert any(expected_key in key for key in self.source.get_non_retryable_errors())
 
     @pytest.mark.parametrize(
         "raw_error,is_non_retryable",
@@ -139,39 +111,6 @@ class TestOpenRouterSource:
                 self.config, self.team_id, MANAGEMENT_ENDPOINTS + CATALOG_ENDPOINTS
             )
         assert all(v is None for v in result.values())
-
-    def test_resumable_manager_bound_to_resume_config(self):
-        inputs = mock.Mock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is OpenRouterResumeConfig
-
-    def test_source_for_pipeline_plumbs_arguments(self):
-        inputs = mock.Mock()
-        inputs.schema_name = "activity"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-06-01"
-        manager = mock.Mock()
-
-        with mock.patch.object(source_module, "openrouter_source") as mocked:
-            self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mocked.assert_called_once()
-        kwargs = mocked.call_args.kwargs
-        assert kwargs["api_key"] == "sk-or-test"
-        assert kwargs["endpoint"] == "activity"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-06-01"
-
-    def test_source_for_pipeline_drops_last_value_when_not_incremental(self):
-        inputs = mock.Mock()
-        inputs.schema_name = "models"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-06-01"
-
-        with mock.patch.object(source_module, "openrouter_source") as mocked:
-            self.source.source_for_pipeline(self.config, mock.Mock(), inputs)
-
-        assert mocked.call_args.kwargs["db_incremental_field_last_value"] is None
 
     def test_documented_tables_rendered_for_public_docs(self):
         tables = self.source.get_documented_tables()

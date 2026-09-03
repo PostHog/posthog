@@ -177,6 +177,12 @@ jobs:
                     - release: ingestion-control-plane
                       digest_key: ingestion-control-plane
                       values_key: image
+                    - release: pgcollector
+                      digest_key: pgcollector
+                      values_key: image
+                    - release: pgapi
+                      digest_key: pgapi
+                      values_key: image
                     - release: kafka-deduplicator
                       digest_key: kafka-deduplicator
                       values_key: image
@@ -206,6 +212,9 @@ jobs:
                       values_key: image
                     - release: hypercache-server
                       digest_key: hypercache-server
+                      values_key: image
+                    - release: usage-ingestion
+                      digest_key: usage-ingestion
                       values_key: image
         steps:
             - name: check if image was built

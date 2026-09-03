@@ -80,6 +80,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     LABEL_DEFAULTS,
     LABEL_STREAMS,
     LABELED_REPORT_IDS_SQL,
+    LABELS_TEAM_ID,
     REPORT_EMBEDDINGS_QUERY_SETTINGS,
     REPORT_EMBEDDINGS_SQL,
     SIGNAL_EMBEDDINGS_QUERY_SETTINGS,
@@ -91,7 +92,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     valid_report_uuids,
 )
 
-FEATURE_SCHEMA_VERSION = 3
+FEATURE_SCHEMA_VERSION = 5
 
 # Statuses a report can be authored straight into and still be in the inbox (`create_scout_report`
 # and `create_custom_agent_ready_report`), which is how a report reaches the spine without a
@@ -123,11 +124,14 @@ COMMON_ASSET_KWARGS: dict[str, Any] = {
 }
 
 
-def _tag_dagster_queries(context: dagster.AssetExecutionContext) -> None:
+def _tag_dagster_queries(context: dagster.AssetExecutionContext, query_type: str) -> None:
     """Stamp product + feature + dagster run tags into the thread's query tags so every ClickHouse
     query this asset issues (sync_execute and HogQL alike) is attributable in system.query_log.
-    Both product and feature are required: sync_execute refuses an untagged query in local dev."""
-    tag_queries(product=Product.SIGNALS, feature=Feature.DATA_MODELING)
+    Both product and feature are required: sync_execute refuses an untagged query in local dev.
+    team_id and query_type are set because sync_execute warns on every call missing either; the
+    fleet-wide embedding scans have no single tenant, so they carry the labels team as the owner of
+    the dataset they feed (HogQL calls re-tag the team from their own context)."""
+    tag_queries(product=Product.SIGNALS, feature=Feature.DATA_MODELING, team_id=LABELS_TEAM_ID, query_type=query_type)
     get_query_tags().with_dagster(dagster_tags(context))
 
 
@@ -220,6 +224,7 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("latest_status_event", pa.string()),
     ("latest_status_event_at", _TIMESTAMP),
     ("dismissal_reason", pa.string()),
+    ("wrong_dismissal_count", pa.int32()),
     ("status_event_priority", pa.string()),
     ("status_event_actionability", pa.string()),
     ("status_event_team_id", pa.int64()),
@@ -237,6 +242,8 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("first_reviewer_added_at", _TIMESTAMP),
     ("reviewer_remove_count", pa.int32()),
     ("first_reviewer_removed_at", _TIMESTAMP),
+    ("resolve_click_count", pa.int32()),
+    ("first_resolve_clicked_at", _TIMESTAMP),
 ]
 
 _LABELS_FIELDS: list[tuple[str, pa.DataType]] = [
@@ -383,7 +390,7 @@ def spine_report_filter(snapshot_end: datetime.datetime) -> Q:
 def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
-    _tag_dagster_queries(context)
+    _tag_dagster_queries(context, query_type="inbox_ranking_report_state")
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
@@ -483,7 +490,7 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
 def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
-    _tag_dagster_queries(context)
+    _tag_dagster_queries(context, query_type="inbox_ranking_report_embeddings")
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
@@ -584,7 +591,7 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
     """
     if skip_unconfigured(context):
         return
-    _tag_dagster_queries(context)
+    _tag_dagster_queries(context, query_type="inbox_ranking_signal_embeddings")
     partition_key = context.partition_key
     window_start, window_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
@@ -689,7 +696,7 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
 def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
-    _tag_dagster_queries(context)
+    _tag_dagster_queries(context, query_type="inbox_ranking_labels")
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     team = labels_team()
@@ -882,7 +889,22 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
     # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and
     # the label windows only grow, since they accumulate from LABELS_EPOCH.
-    tags={**owner_tags, "dagster/max_runtime": str(3 * 60 * 60)},
+    tags={
+        **owner_tags,
+        "dagster/max_runtime": str(3 * 60 * 60),
+        # The state, embeddings, signal-embeddings and labels assets execute as parallel subprocesses
+        # in one run pod, and the embeddings snapshot holds a 1536-float vector per live report, so
+        # the pod's peak memory grows with the inventory. The default 8Gi limit is what a run gets
+        # without this tag, and the peak crossed it (OOMKilled) once the inventory grew enough.
+        "dagster-k8s/config": {
+            "container_config": {
+                "resources": {
+                    "requests": {"memory": "8Gi"},
+                    "limits": {"memory": "16Gi"},
+                }
+            }
+        },
+    },
 )
 
 

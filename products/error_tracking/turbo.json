@@ -12,7 +12,9 @@
                 "backend/hogql_queries/**",
                 "backend/max_tools.py",
                 "backend/temporal/**",
-                "backend/tasks/**"
+                "backend/tasks/**",
+                "backend/models.py",
+                "backend/migrations/**"
             ],
             "outputs": [],
             "cache": true

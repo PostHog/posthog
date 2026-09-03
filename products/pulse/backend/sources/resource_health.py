@@ -9,9 +9,9 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.schema_enums import AlertState
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.models import AlertConfiguration
 from products.exports.backend.models.subscription import SubscriptionDelivery
 from products.product_analytics.backend.facade.models import Insight

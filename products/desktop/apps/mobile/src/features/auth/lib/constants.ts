@@ -10,6 +10,10 @@ export const OAUTH_SCOPES = [
   // rejects push-token registration with 403 and notifications never fire.
   "user:write",
   "project:read",
+  // Required for the organization consent gate: the beta-terms read and the
+  // AI-data-processing / beta-terms writes hit organization-scoped endpoints.
+  "organization:read",
+  "organization:write",
   "task:write",
   "integration:read",
   "conversation:write",
@@ -17,7 +21,7 @@ export const OAUTH_SCOPES = [
   "llm_skill:read",
 ];
 
-export const OAUTH_SCOPE_VERSION = 1;
+export const OAUTH_SCOPE_VERSION = 2;
 
 // Token refresh settings
 export const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000; // 5 minutes before expiry

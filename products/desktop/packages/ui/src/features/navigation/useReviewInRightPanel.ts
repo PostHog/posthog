@@ -1,13 +1,13 @@
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
-import { useParams } from "@tanstack/react-router";
+import { useActiveSession } from "@posthog/ui/features/navigation/useActiveSession";
 
 /**
  * Whether a session's review belongs to the shared right panel rather than to
- * the surface asking. Three places turn on this: the panel draws the review,
- * the session's own review pane stands down, and the controls that opened the
- * review from elsewhere come off, because the panel's switcher owns it now.
+ * the surface asking. Keyed on the session, not the route's channel: Activity
+ * puts no channel in the URL, and asking for one there left both surfaces
+ * drawing the diff.
  */
 export function useReviewInRightPanel(): boolean {
-  const channelId = useParams({ strict: false }).channelId;
-  return useChannelsLayout() && channelId != null;
+  const { taskId } = useActiveSession();
+  return useChannelsLayout() && taskId != null;
 }

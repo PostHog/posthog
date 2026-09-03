@@ -14,6 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    required_parents_from_endpoint_configs,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesk import (
@@ -60,6 +63,9 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             "403 Client Error: Forbidden for url": "Zendesk authentication failed. Please check your API token and subdomain.",
             "401 Client Error": "Zendesk authentication failed. Please check your API token and subdomain.",
         }
+
+    def get_required_parent_schemas(self, schema_name: str) -> list[str]:
+        return required_parents_from_endpoint_configs(ZENDESK_ENDPOINTS, schema_name)
 
     def get_schemas(
         self,
@@ -168,6 +174,8 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             if inputs.should_use_incremental_field
             else None,
             incremental_field_name=inputs.incremental_field,
+            source_id=inputs.source_id,
+            use_warehouse_parent=inputs.fanout_warehouse_reuse,
         )
         # The original nine endpoints aren't in the declarative catalog; they keep the `id`
         # primary key and ascending sort they have always used.

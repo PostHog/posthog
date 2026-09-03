@@ -222,13 +222,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     )
 
     app.state.http_client = httpx.AsyncClient()
+    app.state.desktop_access_http_client = httpx.AsyncClient(
+        limits=httpx.Limits(
+            max_connections=settings.desktop_access_max_connections,
+            max_keepalive_connections=settings.desktop_access_max_connections,
+        )
+    )
     app.state.plan_resolver = PlanResolver(
         redis=app.state.redis,
         http_client=app.state.http_client,
     )
     app.state.desktop_access_resolver = DesktopAccessResolver(
         redis=app.state.redis,
-        http_client=app.state.http_client,
+        http_client=app.state.desktop_access_http_client,
     )
     app.state.quota_resolver = QuotaResolver(
         redis=app.state.redis,
@@ -279,6 +285,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             await breaker_gauge_task
         except asyncio.CancelledError:
             pass
+    if app.state.desktop_access_http_client:
+        await app.state.desktop_access_http_client.aclose()
+        logger.info("Desktop access HTTP client closed")
     if app.state.http_client:
         await app.state.http_client.aclose()
         logger.info("HTTP client closed")

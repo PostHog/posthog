@@ -48,9 +48,13 @@ vi.mock("@posthog/ui/features/sessions/hooks/useMessagingMode", () => ({
   useMessagingMode: () => messagingMode.value,
 }));
 
-// No code command / skill rewrite; the raw text is used as the prompt.
+// No code command / skill rewrite by default; the raw text is used as the
+// prompt. Kept as a spy so tests can inspect the CommandContext it received.
+const tryExecuteCodeCommand = vi.hoisted(() =>
+  vi.fn(async (_text: string, _ctx: Record<string, unknown>) => false),
+);
 vi.mock("@posthog/ui/features/message-editor/commands", () => ({
-  tryExecuteCodeCommand: async () => false,
+  tryExecuteCodeCommand,
   rewriteLocalSkillCommandPrompt: () => null,
   resolveLocalSkillPrompt: async (text: string) => text,
 }));
@@ -101,6 +105,27 @@ function renderCallbacks(session?: AgentSession) {
       repoPath: "/repo",
     }),
   );
+}
+
+function makeSession(overrides: Partial<AgentSession>): AgentSession {
+  return {
+    taskRunId: "run-1",
+    taskId: TASK,
+    taskTitle: "Test",
+    channel: "agent-event:run-1",
+    events: [],
+    startedAt: 0,
+    status: "connected",
+    isPromptPending: false,
+    isCompacting: false,
+    promptStartedAt: null,
+    pendingPermissions: new Map(),
+    pausedDurationMs: 0,
+    messageQueue: [],
+    optimisticItems: [],
+    adapter: "claude",
+    ...overrides,
+  } as AgentSession;
 }
 
 describe("useSessionCallbacks.handleSendPrompt while editing a queued message", () => {
@@ -267,5 +292,45 @@ describe("useSessionCallbacks.handleCancelPrompt", () => {
     expect(useDraftStore.getState().pendingContent[TASK]).toEqual({
       segments: [{ type: "text", text: "first" }],
     });
+  });
+});
+
+describe("useSessionCallbacks.handleSendPrompt askSideQuestion gating", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionState.editingQueuedId = undefined;
+    sessionState.messageQueue = [];
+  });
+
+  it("passes a callable askSideQuestion for a session that supports it", async () => {
+    const { result } = renderHook(() =>
+      useSessionCallbacks({
+        taskId: TASK,
+        task,
+        session: makeSession({ isCloud: false, sideQuestion: true }),
+        repoPath: "/repo",
+      }),
+    );
+    await result.current.handleSendPrompt("/btw what changed?");
+
+    const ctx = tryExecuteCodeCommand.mock.calls.at(-1)?.[1];
+    expect(ctx).toBeDefined();
+    expect(ctx?.askSideQuestion).toBeInstanceOf(Function);
+  });
+
+  it("passes undefined askSideQuestion for a session that does not support it", async () => {
+    const { result } = renderHook(() =>
+      useSessionCallbacks({
+        taskId: TASK,
+        task,
+        session: makeSession({ sideQuestion: false }),
+        repoPath: "/repo",
+      }),
+    );
+    await result.current.handleSendPrompt("/btw what changed?");
+
+    const ctx = tryExecuteCodeCommand.mock.calls.at(-1)?.[1];
+    expect(ctx).toBeDefined();
+    expect(ctx?.askSideQuestion).toBeUndefined();
   });
 });

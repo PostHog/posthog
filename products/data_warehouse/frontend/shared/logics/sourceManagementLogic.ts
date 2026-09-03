@@ -39,7 +39,19 @@ import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSour
 import { joinsLogic } from './joinsLogic'
 import { sourcesDataLogic } from './sourcesDataLogic'
 
+// Poll fast while something is actively syncing so sync status feels live; otherwise poll slowly. The
+// list response can be very large (a source can have tens of thousands of schemas), so refetching it
+// every 10s when nothing is changing wastes server work and can pile up behind slow requests. The idle
+// cadence still bounds how long a server-started sync (scheduled, not user-triggered) takes to appear.
 const REFRESH_INTERVAL = 10000
+const IDLE_REFRESH_INTERVAL = 15000
+
+const isActivelySyncing = (sources: PaginatedResponse<ExternalDataSource> | null): boolean =>
+    (sources?.results ?? []).some(
+        (source) =>
+            source.status === ExternalDataJobStatus.Running ||
+            (source.schemas ?? []).some((schema) => schema.status === ExternalDataSchemaStatus.Running)
+    )
 
 // Pages that actually render the sources list and want live sync-status updates. The 10s poll
 // runs only on these. Every other page that mounts this logic (the new-source wizard, SQL editor,
@@ -509,8 +521,10 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         updateSchema: (schema) => {
             posthog.capture('schema updated', { shouldSync: schema.should_sync, syncType: schema.sync_type })
         },
-        loadSourcesSuccess: () => {
+        loadSourcesSuccess: ({ dataWarehouseSources }) => {
             if (shouldPollSources()) {
+                // Poll fast while a sync is in progress, slowly otherwise.
+                const interval = isActivelySyncing(dataWarehouseSources) ? REFRESH_INTERVAL : IDLE_REFRESH_INTERVAL
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
                         // Re-check at fire time: this shared logic stays mounted across navigation
@@ -519,19 +533,20 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                         if (shouldPollSources()) {
                             actions.loadSources()
                         }
-                    }, REFRESH_INTERVAL)
+                    }, interval)
                     return () => clearTimeout(timerId)
                 }, 'refreshTimeout')
             }
         },
         loadSourcesFailure: () => {
             if (shouldPollSources()) {
+                // Nothing loaded to inspect; back off to the slow cadence rather than hammering on errors.
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
                         if (shouldPollSources()) {
                             actions.loadSources()
                         }
-                    }, REFRESH_INTERVAL)
+                    }, IDLE_REFRESH_INTERVAL)
                     return () => clearTimeout(timerId)
                 }, 'refreshTimeout')
             }

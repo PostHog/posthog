@@ -7,8 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.status import HTTP_429_TOO_MANY_REQUESTS
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
 from posthog.redis import get_client
@@ -83,7 +84,7 @@ def _make_scanner(**overrides) -> ReplayScanner:
         "name": "t",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_7_FLASH,
+        "model": ScannerModel.GEMINI_3_8_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -136,7 +137,7 @@ class TestBackfillQuotaCommitment:
             name="c",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
         _make_backfill(cancelled_scanner, status=BackfillStatus.CANCELLED, total_count=100, credits_per_observation=5)
 
@@ -200,7 +201,7 @@ class TestCreateObservationForBackfill:
     def test_capped_retake_counts_as_in_flight_spend_for_the_next_admission(self) -> None:
         # The retake reserves fresh budget under the admission lock, so the next admission's budget
         # read must see it and refuse; missing it would overshoot the cap by the retaken row.
-        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
         backfill = _make_backfill(scanner)
         failed = ReplayObservation.objects.create(
@@ -504,6 +505,25 @@ class TestBackfillTickActivities:
         assert result.next_cursor_end_time is None
         assert result.skipped_delta == 0
 
+    def test_unrunnable_exposure_filter_cancels_the_backfill(self) -> None:
+        # The candidate query raises PermissionDenied when the launcher was deleted or lost
+        # experiment access. Left RUNNING, the backfill would fail every minute forever while its
+        # unspent credits kept inflating the spend projection — the tick must cancel it terminally.
+        # Also pins the fail-closed manager path: the cancel runs outside request context, where a
+        # bare `objects` access raises TeamScopeError instead of cancelling.
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner)
+        with patch("products.replay_vision.backend.temporal.activities.backfill.WindowedCandidateQuery") as query_cls:
+            query_cls.return_value.run.side_effect = PermissionDenied("experiment access lost")
+            with pytest.raises(ApplicationError) as raised:
+                find_backfill_candidates_activity(
+                    FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=50)
+                )
+        assert raised.value.non_retryable
+        backfill.refresh_from_db()
+        assert backfill.status == BackfillStatus.CANCELLED
+        assert backfill.finished_at is not None
+
     def test_excluded_sessions_are_walked_over_not_dispatched(self) -> None:
         # The cursor must pass an excluded session exactly as it passes an already-succeeded one.
         # Filtering before the walk would leave the cursor short and refetch the same rows forever.
@@ -586,7 +606,7 @@ class TestBackfillsApi(APIBaseTest):
             name="backfill-api-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
         self.base_url = f"/api/projects/{self.team.id}/vision/scanners/{self.scanner.id}/backfills"
 

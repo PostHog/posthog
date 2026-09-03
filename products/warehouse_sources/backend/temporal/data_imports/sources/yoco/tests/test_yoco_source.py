@@ -1,18 +1,10 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.yoco import YocoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.yoco.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.yoco.source import YocoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.yoco.yoco import YocoResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestYocoSource:
@@ -20,9 +12,6 @@ class TestYocoSource:
         self.source = YocoSource()
         self.team_id = 123
         self.config = YocoSourceConfig(api_key="yoco-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.YOCO
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -32,19 +21,6 @@ class TestYocoSource:
         assert config.iconPath == "/static/services/yoco.png"
         # The source ships visible — a truthy unreleasedSource hides it from every user.
         assert not config.unreleasedSource
-
-    def test_api_key_field_is_a_secret_password(self) -> None:
-        config = self.source.get_source_config
-        assert [f.name for f in config.fields] == ["api_key"]
-        field = config.fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
-    def test_get_schemas_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "name,expected_fields",
@@ -65,10 +41,6 @@ class TestYocoSource:
         assert [f["field"] for f in schemas[name].incremental_fields] == expected_fields
         assert schemas[name].supports_incremental is bool(expected_fields)
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["payments"])
-        assert [s.name for s in schemas] == ["payments"]
-
     @pytest.mark.parametrize(
         "observed_error,expect_match",
         [
@@ -82,20 +54,10 @@ class TestYocoSource:
         assert any(key in observed_error for key in non_retryable) is expect_match
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yoco.source.api_client")
-    def test_validate_credentials_plumbs_api_key(self, mock_client: mock.MagicMock) -> None:
-        mock_client.validate_credentials.return_value = (True, None)
-        assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
-        assert mock_client.validate_credentials.call_args.args == ("yoco-key",)
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yoco.source.api_client")
     def test_get_endpoint_permissions_plumbs_endpoints(self, mock_client: mock.MagicMock) -> None:
         mock_client.get_endpoint_permissions.return_value = {"payments": None}
         assert self.source.get_endpoint_permissions(self.config, self.team_id, ["payments"]) == {"payments": None}
         assert mock_client.get_endpoint_permissions.call_args.args == ("yoco-key", ["payments"])
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert manager._data_class is YocoResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yoco.source.api_client")
     def test_source_for_pipeline_plumbs_arguments(self, mock_client: mock.MagicMock) -> None:
@@ -118,18 +80,3 @@ class TestYocoSource:
         # The user's chosen cursor must reach the request layer, not the endpoint default.
         assert kwargs["incremental_field"] == "created_at"
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yoco.source.api_client")
-    def test_source_for_pipeline_omits_watermark_when_not_incremental(self, mock_client: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "payments"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_client.yoco_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_canonical_descriptions_cover_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)

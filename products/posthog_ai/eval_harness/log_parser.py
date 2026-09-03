@@ -47,6 +47,24 @@ def normalize_tool_name(name: str | None) -> str:
     return name
 
 
+def describe_tool_use(name: str | None, tool_input: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Resolve a raw ``tool_use`` name and input to the tool the agent actually invoked.
+
+    Single-exec mode routes every PostHog tool through one ``exec`` call, so the raw
+    name says ``exec`` for all of them and only the command string tells them apart.
+    Falls back to the normalized raw name for command shapes that wrap no inner tool
+    (``search``, ``tools``, ``schema``).
+    """
+    normalized = normalize_tool_name(name)
+    if normalized == EXEC_TOOL_NAME:
+        command = tool_input.get("command", "")
+        if isinstance(command, str):
+            unwrapped = _parse_exec_command(command)
+            if unwrapped is not None:
+                return unwrapped
+    return (normalized, tool_input)
+
+
 class ToolCall(BaseModel):
     model_config = ConfigDict(frozen=True)
 

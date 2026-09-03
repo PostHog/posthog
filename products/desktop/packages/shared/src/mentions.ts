@@ -13,12 +13,12 @@
 // (CodeQL js/polynomial-redos). Real emails carry exactly one `@` anyway.
 const MENTION_PATTERN = /@\[([^\][\n]+)\]\(([^\s()@]+@[^\s()@]+)\)/g;
 
-export interface MentionTextSegment {
+interface MentionTextSegment {
   type: "text";
   text: string;
 }
 
-export interface MentionUserSegment {
+interface MentionUserSegment {
   type: "mention";
   /** The raw token as it appears in the content. */
   text: string;

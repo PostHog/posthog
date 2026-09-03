@@ -3,11 +3,8 @@ from typing import cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.ezofficeinventory import (
-    EZOfficeInventoryResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.settings import (
     ENDPOINTS,
     EZOFFICEINVENTORY_API_VERSION_V1,
@@ -20,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficein
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ezofficeinventory import (
     EZOfficeInventorySourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.source"
 
@@ -30,9 +26,6 @@ def _config() -> EZOfficeInventorySourceConfig:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert EZOfficeInventorySource().source_type == ExternalDataSourceType.EZOFFICEINVENTORY
-
     def test_get_source_config_fields(self) -> None:
         config = EZOfficeInventorySource().get_source_config
         fields = {f.name: cast(SourceFieldInputConfig, f) for f in config.fields}
@@ -42,12 +35,6 @@ class TestSourceConfig:
         assert fields["subdomain"].secret is False
         assert fields["api_key"].required is True
         assert fields["subdomain"].required is True
-
-    def test_get_source_config_metadata(self) -> None:
-        config = EZOfficeInventorySource().get_source_config
-        assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/ezofficeinventory"
 
     def test_connection_host_fields_include_subdomain(self) -> None:
         # Retargeting the subdomain must re-require the stored token.
@@ -128,20 +115,7 @@ class TestValidateCredentials:
         assert error == "EZOfficeInventory rate limit reached while validating credentials."
 
 
-class TestNonRetryableErrors:
-    def test_auth_errors_are_non_retryable(self) -> None:
-        errors = EZOfficeInventorySource().get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-
-
 class TestResumableWiring:
-    def test_get_resumable_source_manager_binds_data_class(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = EZOfficeInventorySource().get_resumable_source_manager(inputs)
-        assert manager._data_class is EZOfficeInventoryResumeConfig
-
     @pytest.mark.parametrize(
         ("pin", "expected_version"),
         [

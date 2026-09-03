@@ -18,7 +18,6 @@ import type { AIObservabilityConfig } from './ai-observability/config'
 import type { CdpConfig } from './cdp/config'
 import type {
     KafkaWarehouseProducerEnvConfig,
-    KafkaWarpstreamCalculatedEventsProducerEnvConfig,
     KafkaWarpstreamCyclotronProducerEnvConfig,
     KafkaWarpstreamIngestionProducerEnvConfig,
 } from './cdp/outputs/producers'
@@ -106,7 +105,6 @@ export interface PluginsServerConfig
         TracesIngestionConsumerConfig,
         // Producer envs needed by the CDP producer registry the legacy big server builds.
         KafkaWarpstreamIngestionProducerEnvConfig,
-        KafkaWarpstreamCalculatedEventsProducerEnvConfig,
         KafkaWarpstreamCyclotronProducerEnvConfig,
         KafkaWarehouseProducerEnvConfig {}
 
@@ -378,7 +376,12 @@ export interface ProcessedEvent {
     project_id: ProjectId
     distinct_id: string
     elements_chain: string
-    created_at: null
+    /**
+     * Stamped once when create-event assembles the event, so every table this
+     * event is written to agrees on it. Serializing twice would otherwise read
+     * the wall clock twice and stamp two different values.
+     */
+    created_at: DateTime
     captured_at: Date | null
     person_id: string
     person_properties: Record<string, unknown>

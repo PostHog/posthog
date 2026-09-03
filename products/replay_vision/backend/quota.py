@@ -1,20 +1,25 @@
 import json
 from collections import Counter
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
 from django.db.models import IntegerField, Sum, Value
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, TruncDay
 
 import structlog
 from dateutil.relativedelta import relativedelta
 
+from posthog.dataclasses import frozen
 from posthog.date_util import start_of_month
 from posthog.models.organization import Organization
 from posthog.settings.utils import get_from_env
 
-from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
+from products.replay_vision.backend.billing import (
+    ESTIMATE_MONTH_DAYS,
+    FREE_TIER_MONTHLY_CREDITS,
+    observation_credits_for_model,
+)
 from products.replay_vision.backend.models.replay_observation import (
     IN_FLIGHT_STATUSES,
     ObservationStatus,
@@ -89,11 +94,16 @@ class QuotaState:
 
     # None means no limit applies: an org billing synced with no spend limit, or a scanner with no cap set.
     credit_limit: int | None
+    # `credits_settled + credits_reserved`; kept as a field because gates read only this one number.
     credits_used: int
     period_start: datetime
     period_end: datetime
     # Display-only: the slice of `credit_limit` that never bills; see FREE_TIER_MONTHLY_CREDITS.
     free_monthly_credits: int = FREE_TIER_MONTHLY_CREDITS
+    # Posted to the receipt ledger; deletes cannot refund it.
+    credits_settled: int = 0
+    # Held by in-flight observations and running prompt evaluations; released without a receipt on failure.
+    credits_reserved: int = 0
 
     @property
     def remaining(self) -> int | None:
@@ -170,15 +180,45 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
+def _roll_period_forward(start: datetime, end: datetime, now: datetime) -> BillingPeriod:
+    """Advance a stale synced period along its own cadence until it contains `now`."""
+    month_diff = (end.year - start.year) * 12 + end.month - start.month
+    # Billing may close a period a second before the next one starts, so an end up to a day short
+    # of the calendar boundary is still a whole-month period; the shortfall is carried along.
+    for whole_months in (month_diff, month_diff + 1):
+        if whole_months <= 0:
+            continue
+        shortfall = start + relativedelta(months=whole_months) - end
+        if not timedelta(0) <= shortfall < timedelta(days=1):
+            continue
+        # Anniversary plans keep their day of month, so roll by calendar months from the original
+        # start: re-anchoring on a February-clamped end would drift a day-31 plan.
+        steps = 0
+        while start + relativedelta(months=whole_months * (steps + 1)) - shortfall <= now:
+            steps += 1
+        return BillingPeriod(
+            start=start + relativedelta(months=whole_months * steps),
+            end=start + relativedelta(months=whole_months * (steps + 1)) - shortfall,
+        )
+    length = end - start
+    elapsed = (now - start) // length
+    start = start + elapsed * length
+    return BillingPeriod(start=start, end=start + length)
+
+
 def _current_period_bounds(organization: Organization | None, now: datetime) -> BillingPeriod:
-    """The org's active billing period when synced and current, else the calendar month containing `now`."""
+    """The org's synced billing period rolled forward to contain `now`; the calendar month when unsynced.
+
+    A billing sync that lags past the period's end must not snap the window to calendar months, or an
+    anniversary-plan org would see its spend counted against a period boundary billing never uses.
+    """
     billing_period = organization.current_billing_period if organization else None
     if billing_period:
         start = _as_utc(billing_period.start)
         end = _as_utc(billing_period.end)
-        # Gate before constructing so a malformed synced period falls back to the calendar month
-        if start <= now < end:
-            return BillingPeriod(start=start, end=end)
+        # A malformed or not-yet-started period cannot be rolled, so it falls back to the calendar month.
+        if start < end and start <= now:
+            return _roll_period_forward(start, end, now)
     return _current_month_bounds(now)
 
 
@@ -232,13 +272,12 @@ def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> d
 class ScannerBudget(QuotaState):
     """A scanner's own allowance, carrying what one more observation costs.
 
-    `credits_used` is the full draw: settled receipts plus live reservations. `settled_credits` is
-    only what has actually posted to the ledger. Defaults exist only to satisfy the dataclass
-    field-order rule, as `QuotaSnapshot` does; every constructor passes both.
+    `credits_used` is the full draw: settled receipts plus live reservations, split as
+    `credits_settled` and `credits_reserved`. The default exists only to satisfy the dataclass
+    field-order rule, as `QuotaSnapshot` does; every constructor passes it.
     """
 
     credits_per_observation: int = 0
-    settled_credits: int = 0
 
     @property
     def blocked(self) -> bool:
@@ -257,7 +296,7 @@ class ScannerBudget(QuotaState):
         A reservation can release without ever writing a receipt (a failed observation), so an
         irreversible reaction to a cap must not fire on a transient in-flight spike.
         """
-        return replace(self, credits_used=self.settled_credits).blocked
+        return replace(self, credits_used=self.credits_settled).blocked
 
 
 def _scanner_in_flight_credits(
@@ -307,10 +346,11 @@ def compute_scanner_budgets(
     if period is None:
         period = current_period_bounds(organization_id)
     # Limits are read here, not passed in: a caller that forgot them would silently disable enforcement.
+    # `all_origins`: a capped inline scanner must resolve its limit here, or its budget reads as uncapped.
     # nosemgrep: idor-lookup-without-team (org-level aggregation, the pk__in list is co-filtered by team__organization_id, so a scanner id outside this org matches nothing)
-    scanner_rows = ReplayScanner.objects.filter(team__organization_id=organization_id, pk__in=scanner_ids).values_list(
-        "id", "credit_limit", "model"
-    )
+    scanner_rows = ReplayScanner.all_origins.filter(
+        team__organization_id=organization_id, pk__in=scanner_ids
+    ).values_list("id", "credit_limit", "model")
     configs = {scanner_id: (limit, model) for scanner_id, limit, model in scanner_rows}
     # Almost every scanner is uncapped, so the spend aggregates run only for the capped ones; the
     # rest report zero usage, and `blocked` is always False without a limit.
@@ -348,7 +388,8 @@ def compute_scanner_budgets(
             period_end=period.end,
             # A scanner outside this org or deleted mid-read has no model; pricing "" would log a warning.
             credits_per_observation=observation_credits_for_model(config[1]) if config else 0,
-            settled_credits=settled_credits,
+            credits_settled=settled_credits,
+            credits_reserved=reserved,
         )
     return result
 
@@ -360,13 +401,31 @@ def compute_scanner_budget(scanner: ReplayScanner, period: BillingPeriod | None 
 
 
 def _sum_enabled_scanner_estimated_credits(organization_id: UUID, exclude_scanner_id: UUID | None = None) -> int:
-    """Projected monthly credit spend from the org's enabled scanners' cached estimates."""
+    """Projected monthly credit spend of the org's enabled scanners' cached estimates.
+
+    A capped scanner can only spend what its limit has left this period. Surfaces pro-rate this
+    30-day rate over the days left, so that headroom is folded back into a rate: the pro-rated
+    share then lands on exactly the remaining cap, never past it.
+    """
     scanners = ReplayScanner.objects.filter(team__organization_id=organization_id, enabled=True)
     if exclude_scanner_id is not None:
         scanners = scanners.exclude(pk=exclude_scanner_id)
     # Credit weighting happens in Python: the per-model price table lives in code, and orgs have few scanners.
-    rows = scanners.values_list("model", "estimated_monthly_observations")
-    return sum(observation_credits_for_model(model) * (estimate or 0) for model, estimate in rows)
+    rows = list(scanners.values_list("id", "model", "estimated_monthly_observations", "credit_limit"))
+    capped_ids = [scanner_id for scanner_id, _, _, credit_limit in rows if credit_limit is not None]
+    budgets = compute_scanner_budgets(organization_id, capped_ids) if capped_ids else {}
+    now = datetime.now(UTC)
+    total = 0.0
+    for scanner_id, model, estimate, _credit_limit in rows:
+        rate = observation_credits_for_model(model) * (estimate or 0)
+        budget = budgets.get(scanner_id)
+        if budget is None or budget.remaining is None:
+            total += rate
+            continue
+        days_left = max((budget.period_end - now).total_seconds() / 86400, 0)
+        headroom_rate = budget.remaining * ESTIMATE_MONTH_DAYS / days_left if days_left > 0 else rate
+        total += min(rate, headroom_rate)
+    return round(total)
 
 
 def _sum_active_backfill_remaining_credits(organization_id: UUID) -> int:
@@ -399,7 +458,12 @@ def _billing_synced_limit(organization: Organization | None) -> tuple[bool, int 
     if limit is None:
         return True, None
     if isinstance(limit, (int, float)) and not isinstance(limit, bool):
-        return True, int(limit)
+        if limit < 0:
+            # A negative limit would read as permanently over; clamp to a hard block instead.
+            logger.warning(
+                "replay_vision.negative_billing_limit", organization_id=str(organization.id), limit=repr(limit)
+            )
+        return True, max(0, int(limit))
     # A malformed limit must fail toward the env cap, never toward uncapped.
     logger.warning("replay_vision.malformed_billing_limit", organization_id=str(organization.id), limit=repr(limit))
     return False, None
@@ -446,7 +510,7 @@ def quota_state(organization_id: UUID) -> QuotaState:
     )
     in_flight = sum(observation_credits_for_model(model or "") * count for model, count in in_flight_models.items())
     # Prompt tests have no observation rows. Their unsettled sessions are committed spend too.
-    usage = consumed + in_flight + in_flight_evaluation_credits(organization_id)
+    reserved = in_flight + in_flight_evaluation_credits(organization_id)
     synced, credit_limit = _billing_synced_limit(organization)
     if not synced:
         credit_limit = MONTHLY_CREDIT_QUOTA
@@ -457,9 +521,11 @@ def quota_state(organization_id: UUID) -> QuotaState:
         credit_limit = override if credit_limit is None else min(credit_limit, override)
     return QuotaState(
         credit_limit=credit_limit,
-        credits_used=usage,
+        credits_used=consumed + reserved,
         period_start=period.start,
         period_end=period.end,
+        credits_settled=consumed,
+        credits_reserved=reserved,
     )
 
 
@@ -476,7 +542,51 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
         period_start=state.period_start,
         period_end=state.period_end,
         free_monthly_credits=state.free_monthly_credits,
+        credits_settled=state.credits_settled,
+        credits_reserved=state.credits_reserved,
         projected_monthly_credits=projection.total,
         scanners_monthly_credits=projection.scanners_monthly_credits,
         backfills_committed_credits=projection.backfills_committed_credits,
     )
+
+
+@frozen
+class DailySpend:
+    date: date
+    credits: int
+
+
+@frozen
+class DailySpendSeries:
+    """Settled credits per UTC day from the period start through today, zero-filled and in order."""
+
+    period_start: datetime
+    period_end: datetime
+    days: tuple[DailySpend, ...]
+
+
+def daily_spend_series(organization_id: UUID) -> DailySpendSeries:
+    now = datetime.now(UTC)
+    organization = Organization.objects.filter(pk=organization_id).only("usage").first()
+    # Same `now` as the window so the series can never straddle a period boundary.
+    period = _current_period_bounds(organization, now)
+    rows = (
+        ReplayObservationUsage.objects.filter(
+            organization_id=organization_id,
+            observation_created_at__gte=period.start,
+            observation_created_at__lt=period.end,
+        )
+        .annotate(day=TruncDay("observation_created_at", tzinfo=UTC))
+        .values("day")
+        .annotate(total=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))
+        .order_by()
+        .values_list("day", "total")
+    )
+    credits_by_day = {day.date(): total for day, total in rows}
+    first_day = period.start.date()
+    day_count = (now.date() - first_day).days + 1
+    days = tuple(
+        DailySpend(date=day, credits=credits_by_day.get(day, 0))
+        for day in (first_day + timedelta(days=offset) for offset in range(day_count))
+    )
+    return DailySpendSeries(period_start=period.start, period_end=period.end, days=days)

@@ -29,8 +29,8 @@ from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
+    PromptSuggestionStatus,
     ReplayScannerPromptSuggestion,
-    SuggestionStatus,
 )
 from products.replay_vision.backend.prompt_evaluation import (
     EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
@@ -352,7 +352,7 @@ class ReplayScannerPromptSuggestionViewSet(
                 team_id=self.team_id, id=suggestion.id
             )
             # A stale tab can submit an old or dismissed suggestion id, silently rolling the prompt back.
-            if suggestion.status != SuggestionStatus.PENDING:
+            if suggestion.status != PromptSuggestionStatus.PENDING:
                 raise ValidationError("Only the current recommendation can be applied.")
             if suggestion.scanner_version != scanner.scanner_version:
                 raise ValidationError("The scanner prompt changed since this was generated. Generate a fresh one.")
@@ -371,7 +371,7 @@ class ReplayScannerPromptSuggestionViewSet(
                 raise ValidationError(f"This recommendation can't be applied: {message}")
             scanner.scanner_config = config
             scanner.save(update_fields=["scanner_config"])
-            suggestion.status = SuggestionStatus.APPLIED
+            suggestion.status = PromptSuggestionStatus.APPLIED
             suggestion.applied_at = timezone.now()
             suggestion.applied_by = cast(User, request.user)
             suggestion.save(update_fields=["status", "applied_at", "applied_by"])
@@ -425,7 +425,7 @@ class ReplayScannerPromptSuggestionViewSet(
             suggestion = ReplayScannerPromptSuggestion.objects.select_for_update().get(
                 team_id=self.team_id, id=suggestion.id
             )
-            if suggestion.status != SuggestionStatus.PENDING:
+            if suggestion.status != PromptSuggestionStatus.PENDING:
                 raise ValidationError("Only the current pending suggestion can be tested.")
             # A test already in flight keeps reporting its state even if quota ran out meanwhile.
             if evaluation_in_flight(suggestion.evaluation):
@@ -453,7 +453,7 @@ class ReplayScannerPromptSuggestionViewSet(
                         detail=(
                             f"This test would use {planned_credits:,} credits but this scanner has "
                             f"{scanner_budget.remaining or 0:,} left of its {scanner_budget.credit_limit or 0:,} credit "
-                            f"limit for this period. Lower the test session count or raise the scanner's limit."
+                            f"limit for this billing period. Lower the test session count or raise the scanner's limit."
                         ),
                         code="scanner_credit_limit_exceeded",
                     )
@@ -512,8 +512,8 @@ class ReplayScannerPromptSuggestionViewSet(
                 team_id=self.team_id, id=suggestion.id
             )
             # Dismissing an applied suggestion would mark the scanner's live prompt as rejected.
-            if suggestion.status != SuggestionStatus.PENDING:
+            if suggestion.status != PromptSuggestionStatus.PENDING:
                 raise ValidationError("Only the current recommendation can be dismissed.")
-            suggestion.status = SuggestionStatus.DISMISSED
+            suggestion.status = PromptSuggestionStatus.DISMISSED
             suggestion.save(update_fields=["status"])
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)

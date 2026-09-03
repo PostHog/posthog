@@ -131,6 +131,7 @@ fn base() -> HandoffModel {
         zombie_window: 0,
         hold_pods: 0,
         cancels: 0,
+        chunked_plans: false,
         probes: false,
     }
 }
@@ -867,4 +868,57 @@ fn rollout_quota_mode_is_safe_and_live() {
     }
     .explore("rollout_quota_mode_is_safe_and_live")
     .assert_properties();
+}
+
+/// Chunked plan application (production: `apply_plan` past the etcd txn
+/// budget): a plan's later units land against a world that kept moving —
+/// phase advances, crashes, cancellations, competing rebalances — each
+/// guarded on its plan-time snapshot. Every safety property must hold
+/// across those interleavings and every full run must still converge.
+#[test]
+fn chunked_plan_application_is_safe_and_live() {
+    HandoffModel {
+        partitions: 2,
+        chunked_plans: true,
+        crashes: 1,
+        cancels: 1,
+        writes: 1,
+        reads: 0,
+        ..base()
+    }
+    .explore("chunked_plan_application_is_safe_and_live")
+    .assert_properties();
+}
+
+/// Both fates of a pending unit are genuinely reachable — applied after
+/// other actions interleaved, and dropped by a failed plan-time guard —
+/// and no interleaving that reaches them loses an acked write or
+/// double-plans a partition.
+#[test]
+fn probe_chunked_pending_units_reach_both_fates_safely() {
+    let checker = HandoffModel {
+        partitions: 2,
+        chunked_plans: true,
+        crashes: 1,
+        cancels: 1,
+        writes: 1,
+        reads: 0,
+        probes: true,
+        ..base()
+    }
+    .explore("probe_chunked_pending_units_reach_both_fates_safely");
+    assert!(
+        checker.discovery("chunked_pending_unit_applied").is_some(),
+        "a pending unit must be able to land after its plan's first transaction"
+    );
+    assert!(
+        checker.discovery("chunked_pending_unit_dropped").is_some(),
+        "a failed plan-time guard must be able to stand a pending unit down"
+    );
+    for safety in ["no_lost_acked_write", "no_double_planned_handoff"] {
+        assert!(
+            checker.discovery(safety).is_none(),
+            "{safety} must hold across chunked application"
+        );
+    }
 }

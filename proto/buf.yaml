@@ -27,3 +27,17 @@ breaking:
             - personhog/service/v1/service.proto
         MESSAGE_NO_DELETE:
             - personhog/types/v1/person.proto
+        # Temporary: the WorkerIngest stream has no consumers yet, so its
+        # response message can be reshaped in place. Remove once on master.
+        FIELD_NO_DELETE:
+            - ingestion/worker/v1/worker.proto
+        FIELD_SAME_CARDINALITY:
+            - ingestion/worker/v1/worker.proto
+        FIELD_SAME_JSON_NAME:
+            - ingestion/worker/v1/worker.proto
+        FIELD_SAME_NAME:
+            - ingestion/worker/v1/worker.proto
+        FIELD_SAME_ONEOF:
+            - ingestion/worker/v1/worker.proto
+        FIELD_SAME_TYPE:
+            - ingestion/worker/v1/worker.proto

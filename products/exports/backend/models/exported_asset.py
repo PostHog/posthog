@@ -59,6 +59,11 @@ class ExportedAssetManager(models.Manager):
 
 
 class ExportedAsset(models.Model):
+    class SourceAuthentication(models.TextChoices):
+        SESSION = "session"
+        PERSONAL_API_KEY = "personal_api_key", "Personal API key"
+        OAUTH_ACCESS_TOKEN = "oauth_access_token", "OAuth access token"
+
     class ExportFormat(models.TextChoices):
         PNG = "image/png", "image/png"
         PDF = "application/pdf", "application/pdf"
@@ -108,6 +113,8 @@ class ExportedAsset(models.Model):
     # to allow for lazy deletes
     expires_after = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    source_authentication = models.CharField(max_length=32, choices=SourceAuthentication.choices, null=True, blank=True)
+    source_credential_id = models.CharField(max_length=50, null=True, blank=True)
     # for example holds filters for CSV exports
     export_context = models.JSONField(null=True, blank=True)
     # path in object storage or some other location identifier for the asset

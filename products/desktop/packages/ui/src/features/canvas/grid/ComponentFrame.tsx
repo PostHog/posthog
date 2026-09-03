@@ -5,10 +5,13 @@ import {
 } from "@posthog/core/canvas/gridLayoutSchemas";
 import { Button, Spinner, Text } from "@posthog/quill";
 import type { CanvasCapabilities } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useCanvasBuilds } from "@posthog/ui/features/canvas/hooks/useCanvasBuilds";
+import { track } from "@posthog/ui/shell/analytics";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { BuiltCanvas } from "../freeform/BuiltCanvas";
+import { canvasRuntimeErrorAnalytics } from "../freeform/canvasRuntimeError";
 import { handleFreeformDataRequest } from "../freeform/freeformDataBridge";
 import { usePinnedArtifact } from "../freeform/usePinnedArtifact";
 
@@ -58,6 +61,23 @@ export function ComponentFrame({ placement }: { placement: GridPlacement }) {
     () => (placement.config as Record<string, unknown> | null) ?? undefined,
     [placement.config],
   );
+  const lastRuntimeErrorRef = useRef<string | null>(null);
+  const onError = useCallback(
+    (message: string) => {
+      if (message === lastRuntimeErrorRef.current) return;
+      lastRuntimeErrorRef.current = message;
+      track(ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR, {
+        dashboard_id: componentId,
+        build_id: artifact?.buildId,
+        ...canvasRuntimeErrorAnalytics(message),
+      });
+    },
+    [artifact?.buildId, componentId],
+  );
+  const onArtifactReady = useCallback(() => {
+    lastRuntimeErrorRef.current = null;
+    onReady();
+  }, [onReady]);
 
   if (!artifact) {
     // The lifecycle loaded and the pinned version has no artifact in it: build
@@ -128,8 +148,9 @@ export function ComponentFrame({ placement }: { placement: GridPlacement }) {
       capabilities={capabilities}
       config={config}
       onDataRequest={onDataRequest}
-      onReady={onReady}
-      onRendered={onReady}
+      onError={onError}
+      onReady={onArtifactReady}
+      onRendered={onArtifactReady}
     />
   );
 }

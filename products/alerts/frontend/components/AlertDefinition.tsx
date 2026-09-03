@@ -1,7 +1,7 @@
 import { ReactNode } from 'react'
 
 import { IconCalendar, IconClock } from '@posthog/icons'
-import { LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AlertState } from '~/queries/schema/schema-general'
 
@@ -33,10 +33,38 @@ export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Elemen
         case AlertState.ERRORED:
             return <LemonTag type="danger">Errored</LemonTag>
         case AlertState.SNOOZED:
-            return <LemonTag type="muted">Snoozed</LemonTag>
+            return <LemonTag type="completion">Snoozed</LemonTag>
         case AlertState.NOT_FIRING:
             return <LemonTag type="success">Not firing</LemonTag>
     }
+}
+
+export function AlertErrorBanner({ alert }: { alert: AlertType }): JSX.Element | null {
+    if (alert.state !== AlertState.ERRORED) {
+        return null
+    }
+
+    const error = alert.checks?.find((check) => check.error?.message)?.error
+    if (!error?.message) {
+        return null
+    }
+
+    if (error.code !== 'email_unavailable') {
+        return (
+            <LemonBanner type="error" data-attr="alert-error-banner">
+                <strong>{alert.enabled ? 'Alert error.' : 'Alert disabled.'}</strong> {error.message}
+            </LemonBanner>
+        )
+    }
+
+    return (
+        <LemonBanner type="error" data-attr="alert-error-banner">
+            <strong>Alert disabled.</strong> {error.message} To resume it,{' '}
+            <Link to="https://posthog.com/docs/self-host/configure/email" target="_blank" targetBlankIcon>
+                configure email settings
+            </Link>
+        </LemonBanner>
+    )
 }
 
 interface AlertNextEvaluationStatusProps {

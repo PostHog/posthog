@@ -37,6 +37,7 @@ Judges the report for safety, then persists it at the judged status.
 | `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it.                                                                                                                                                                                                                |
 | `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                                                                                                             |
 | `charts`                    | list, ≤20, optional     | Queries the inbox draws on the report — the report's full set, replacing any it already had. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                                                   |
+| `suggested_prompts`         | list, ≤3, optional      | Follow-up prompts the inbox offers above the report's `Ask AI` box (questions to ask, or next-step actions to request), each ≤200 characters and all distinct. See _Suggesting follow-up prompts_ below.                                                                                                                                       |
 
 **Cite each entity as a link, not a bare id.** In `summary` and in `evidence` descriptions, write
 the entity you name as a markdown link: reuse the url the returning tool attached (`_posthogUrl`
@@ -44,6 +45,10 @@ and friends), else build one with `generate-app-url`, and keep the bare id when 
 the entity itself. Two spots stay plain text, because the inbox renders them as text: `title`, and
 the summary's first line, which the inbox lifts out as the card headline. The harness prompt
 (_Linking what you reference_) carries the full rule.
+
+**Section labels are where a Slack thread splits.** A destination with "Post reports as a thread" on posts a short lead in the channel and each later section as a reply.
+A heading (`## Evidence`) and a bold label on a line of its own (`**Evidence**`) both mark a section, so write the outline you want the reader to get and either form works.
+Leave a blank line above each label, since a label the line above runs onto is part of that paragraph rather than a new section.
 
 **Status is decided for you, from safety × actionability:**
 
@@ -122,7 +127,8 @@ Reference each chart once: a repeated reference reads as pointing back at the ch
 Two references in one paragraph sit side by side, so put a pair you want compared in a paragraph of their own.
 A reference inside a code span, a table cell, or a heading has no room to draw — its chart falls to the end of the report instead.
 
-**The summary has to read without the charts.** A report can also be delivered to Slack, where nothing draws and each reference degrades to the plain label it was given.
+**The summary has to read without the charts.** A report can also be delivered to Slack, where each reference degrades to the plain label it was given and the charts follow the prose as images rather than sitting inline.
+Only `InsightVizNode` and `SavedInsightNode` charts render there, at most three per report with referenced charts first; a `DataVisualizationNode` chart shows only in the inbox.
 "Signups fell 60% over the week" survives that; "the chart below shows the drop" leaves a Slack reader with nothing.
 
 **Pin the window** to absolute dates wherever the node supports it, so a reader opening the report days later sees the data you wrote about rather than whatever a relative range resolves to then.
@@ -133,20 +139,56 @@ Leave `charts` out entirely and the report keeps the ones it has; read the repor
 Send `charts: []` to take every chart down, for when the finding has moved on and the old chart would now mislead.
 Cap is **20 charts per report** (and a combined query-size budget), which is far more than most reports should use. Each chart runs its query when the report is opened, so attach the ones that carry the argument rather than everything you looked at: three charts a reader studies beat a dozen they scroll past.
 
+### Suggesting follow-up prompts
+
+`suggested_prompts` are prompts the inbox offers above the report's `Ask AI` box: follow-up questions, and next-step actions the reader can send as a request.
+Clicking one fills the box with it; nothing is sent on the click, so the reader can send it as written or edit it first.
+You did the research and know which threads you left open and what should happen next, so this hands the reader that knowledge instead of leaving them to invent a prompt from an empty box.
+
+Optional, and worth it only when you can name a prompt worth an agent run.
+Write none rather than pad to the cap — a report with no suggestions looks exactly as it did before.
+
+**Ask what your research left open, not what it already answered.**
+A question the summary answers spends an agent run restating the report.
+Good ones widen the finding (who else is affected, since when, what changed), test a hypothesis you could not, or ask for the next step you did not have the standing to take.
+
+**Offer the action your report recommends, so acting on it is one click.**
+The prompt reaches an agent run that can investigate, carry out the report's recommendation, and work the report itself — its work log and its state — so a good action prompt names the concrete work: "Create the alert the report recommends, then mark this report resolved".
+Fold in "mark this report resolved" only when the action completes in place — an action that lands as a pull request must not resolve the report, because a caller resolve closes the report's open PR and the merge resolves the report on its own.
+Suggest only actions your report's own recommendation makes concrete; leave anything a human should weigh first (deleting data, changing a flag serving live traffic) as a question instead.
+
+**Write each prompt as the reader would send it, in their words** — a question they would ask or a request they would make — and make each one stand alone: the prompt reaches an agent that gets the report as context but not your run, so it can't point at "the above" or "the second chart".
+
+**`suggested_prompts` on an edit is the report's whole set, not an addition.**
+It replaces what the report had, the way `summary` replaces the summary, so re-send every prompt you want kept.
+Leave the field out and the report keeps the ones it has; send `suggested_prompts: []` to take them down.
+Rewriting `summary` on an edit does not clear them for you, so send the new set (or `[]`) in the same call.
+The research pipeline does clear them when it rewrites a report it re-researches, since the prompts were written against the prose it replaces.
+
+Cap is **3 prompts per report**, each **≤200 characters**, and duplicates are refused.
+
 ### Opening a draft PR (autostart)
 
 A surfaced, immediately-actionable report can open a draft PR automatically — the same autostart path the pipeline uses.
 It's opt-in per report via three more `emit_report` fields; supply them only when the report is a concrete, fixable issue you'd want a PR for:
 
-| Field                  | Type        | Notes                                                                                                                                                                                                                                                    |
-| ---------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `repository`           | string      | `"owner/repo"` targets that repo; the `NO_REPO` sentinel opts out; **omitting it** falls back to free-form selection across the team's repos — the slow path on a many-repo team (it spawns a selection sandbox), so pass `owner/repo` when you know it. |
-| `priority`             | `P0`-`P4`   | Required for a PR. Pair with `priority_explanation`.                                                                                                                                                                                                     |
-| `priority_explanation` | string      | Required when `priority` is set.                                                                                                                                                                                                                         |
-| `suggested_reviewers`  | list of obj | Reviewers to consider, each `{github_login?, user_uuid?}` (at least one per entry; see the section below). A PR opens only if at least one clears their autonomy threshold.                                                                              |
+| Field                  | Type        | Notes                                                                                                                                                                       |
+| ---------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repository`           | string      | `"owner/repo"` targets that repo; **omitting it** falls back to free-form selection; the `NO_REPO` sentinel opts out. See _Choosing a repository_ below.                    |
+| `priority`             | `P0`-`P4`   | Required for a PR. Pair with `priority_explanation`.                                                                                                                        |
+| `priority_explanation` | string      | Required when `priority` is set.                                                                                                                                            |
+| `suggested_reviewers`  | list of obj | Reviewers to consider, each `{github_login?, user_uuid?}` (at least one per entry; see the section below). A PR opens only if at least one clears their autonomy threshold. |
 
-Repo selection only runs when you signal PR intent — an explicit `repository`, or both `priority` and `suggested_reviewers`.
-A report that supplies none of these just surfaces in the inbox (no repo sandbox, no PR).
+**Choosing a repository.** Prefer `owner/repo` whenever you can say where a fix would land, including on a `requires_human_input` report — a repository does not open a PR by itself, it is what lets a person open one from the inbox later.
+Omit the field when your team has several repositories and you can't tell which one, so selection can find it; that is the slow path on a many-repo team, since it spawns a selection sandbox.
+Keep `NO_REPO` for the rare report where nothing under version control could change, such as a staffing finding or a data question with no artifact.
+A skill body, a config file, and a doc all live in a repository, so "not code" is not the test.
+
+Full repo selection only runs when you signal PR intent — an explicit `repository`, or both `priority` and `suggested_reviewers`.
+A report that supplies none of these just surfaces in the inbox: no repo sandbox, and no PR.
+It still gets a repo target when its own text links exactly one repository the team has connected on GitHub, so someone reading it can click Create PR.
+That inferred target is for a person to act on — it never opens a PR by itself, and rewriting the report's title or summary to link a different connected repository moves it.
+Adding a qualifying reviewer later is a person asking for the PR, so the report can open a draft one from then on.
 Autostart itself still no-ops unless the report is `immediately_actionable`, has a repo + priority, and a reviewer qualifies — so these fields are safe to omit for an informational report.
 
 ## Choosing `suggested_reviewers` — how a report gets assigned to a human
@@ -189,8 +231,9 @@ The fleet's reviewer map should compound over time.
 
 ## `edit_report` — update an existing report
 
-Rewrite `title`/`summary`, append a note, and/or set `suggested_reviewers` on a report that already exists.
-Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `suggested_reviewers`, `charts`.
+Rewrite `title`/`summary`, append a note, set `suggested_reviewers`, and/or replace `charts` / `suggested_prompts` on a report that already exists.
+Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `suggested_reviewers`, `charts`, `suggested_prompts`.
+An edit that supplies content (`title`, `summary`, `charts`, `suggested_prompts`, `append_note`, or a reviewer `reason`) passes the same safety judge as `emit_report`; an unsafe edit is rejected whole and the report keeps what it had.
 
 `edit_report` can target **any** of the team's inbox reports — not just ones a scout authored.
 That makes it the right tool when a later run learns something about a report the pipeline (or another scout) created.
@@ -200,6 +243,7 @@ Rules of good behavior:
   A note is additive and audit-friendly (it carries your scout as the author); a rewrite silently overwrites a human- or pipeline-authored headline.
 - **Don't fight an in-flight pipeline.** A report the summary/research workflow is mid-run on can have its fields overwritten under you.
   If a report is actively being worked, append a note rather than rewriting.
+- **Take the questions down when you replace the prose they answer.** Rewriting `summary` leaves the report's `suggested_prompts` in place, and they were written against the summary you just replaced — send a fresh set in the same call, or `[]` to clear them.
 - **Use `suggested_reviewers` to rescue an unrouted report.** Setting reviewers (same `{github_login?, user_uuid?}` shape as `emit_report`) replaces the report's reviewer list and re-runs autostart — so a report that surfaced routed to no one can be assigned to an owner you resolved later, and a now-actionable report with a repo + priority can open a draft PR.
   An empty list is a no-op (it never clears existing reviewers).
 

@@ -54,13 +54,13 @@ SIGNALS_ORIGIN_PRODUCTS = frozenset(
     {
         Task.OriginProduct.SIGNAL_REPORT,
         Task.OriginProduct.SIGNALS_SCOUT,
+        Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
         Task.OriginProduct.SIGNALS_CHAT,
     }
 )
 
 # Signals surfaces a person drives by hand: the Inbox report CTAs ("Create PR" / "Discuss")
-# and scout chat. Scheduled scouts and auto-started implementations are excluded — they carry
-# `internal=True`, and their volume is chosen by our own pipeline rather than by a customer.
+# and scout chat. Scheduled scouts run under their own reserved origin and never appear here.
 INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS = frozenset(
     {
         Task.OriginProduct.SIGNAL_REPORT,
@@ -77,9 +77,23 @@ def _oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
     return "array"
 
 
-def is_interactive_signals_task(task: Task) -> bool:
-    """Whether this run exists because a person pressed something, not because we scheduled it."""
-    return task.origin_product in INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS and not task.internal
+def is_interactive_signals_run(task: Task, state: dict[str, Any] | None) -> bool:
+    """Whether *this run* exists because a person pressed something, not because we scheduled it.
+
+    Asks the run, not the task. `task.internal` is stamped once at creation and never
+    recomputed, so it only ever answers for the run that created the task: Signals auto-starts
+    an implementation task, and a person can later start a second run on that same task from
+    the report. One task, two runs, two different initiators.
+
+    `ai_stage` is the pipeline's own stamp on a run it started. It is absent from the task
+    create serializer and sits in `_PROTECTED_RUN_STATE_KEYS`, so no caller can set or forge
+    one — the review carve-outs already trust it as proof a run is self-driving. A signals run
+    without one therefore cannot have come from the pipeline, which makes the interactive
+    budget and its per-run ceiling the fail-closed default.
+    """
+    if task.origin_product not in INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS:
+        return False
+    return not (state or {}).get("ai_stage")
 
 
 def _scopes_for_loop_fired_run(scopes: PosthogMcpScopes) -> list[str]:
@@ -111,11 +125,15 @@ def create_oauth_access_token(
     user: User | None = None,
     allow_task_creator_fallback: bool = True,
     loop_id: str | None = None,
+    run_state: dict[str, Any] | None = None,
 ) -> str:
     """Create an OAuth access token for the task's sandbox app, scoped to the task's team.
 
     OAuth tokens auto-expire after 6 hours, so no cleanup is needed. Pass `loop_id` for a
     loop-fired run so `loop:write` is stripped from the granted scopes regardless of `scopes`.
+    Pass `run_state` so the Signals budget is picked from the run's own provenance
+    (`is_interactive_signals_run`); omitting it bills a signals run as interactive, which is
+    the safe default but is never what a pipeline run wants.
     """
     actor = user or (task.created_by if allow_task_creator_fallback else None)
     if not actor:
@@ -133,7 +151,9 @@ def create_oauth_access_token(
     }
     if task.origin_product in {
         Task.OriginProduct.SIGNALS_SCOUT,
+        Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
         Task.OriginProduct.SUPPORT_REPLY,
+        Task.OriginProduct.WORKFLOW,
     } and is_builtin_agent_enforcement_enabled(task.team_id):
         # This scope only removes access to the human MCP Store surface. Add it
         # even when a legacy task lacks trusted provenance so an old spoofed
@@ -142,7 +162,7 @@ def create_oauth_access_token(
         # task needs a member-capable token, or every member-proxy call it was
         # just granted would 403.
         token_options["include_mcp_builtin_agent_scope"] = True
-    if is_interactive_signals_task(task):
+    if is_interactive_signals_run(task, run_state):
         token_options["include_interactive_run_scope"] = True
     return create_oauth_access_token_for_user(actor, task.team_id, **token_options)
 
@@ -201,6 +221,7 @@ def create_oauth_access_token_for_run(
             user=actor_user,
             allow_task_creator_fallback=not is_slack_interaction_state(state),
             loop_id=loop_id if isinstance(loop_id, str) else None,
+            run_state=state,
         )
 
 

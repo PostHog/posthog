@@ -15,8 +15,9 @@ The whole application is one React/TSX file (`src/canvas.tsx` in the source proj
 react-dom or call createRoot.
 
 Start from the working scaffold in [references/starter-scaffold.md](references/starter-scaffold.md)
-on a first build: it already wires the date picker, theme tokens, per-card skeletons, and correct
-typed-node result reading. Keep that wiring; replace the sample metric and layout.
+on a first build: it already wires the date picker, theme tokens, per-query loading state (every
+card fills in independently as its own data lands), and correct typed-node result reading. Keep
+that wiring; replace the sample metrics and layout.
 
 ## Imports
 
@@ -24,10 +25,15 @@ Use React, Quill, Recharts, Lucide, and Day.js for the standard application shel
 also admits ten optional libraries for specialized work. Read
 [references/platform-libraries.md](references/platform-libraries.md) before choosing one.
 
+PostHog data comes through `import { ph } from "@posthog/canvas-sdk"` — a platform-provided
+module, so it needs no `dependencies` entry. The same object exists as the `window.ph` global
+(how existing canvases reach it); prefer the import in new code.
+
 Other bare imports, dynamic `import()`, `require()`, `<script>` tags, and remote code fail
-validation. Direct `fetch()` requires an exact HTTPS origin in `capabilities.network.origins`,
-and works only in the **published** canvas — the edit-mode preview blocks all direct network
-access regardless of declaration, so verify origin-fetching code after publishing, not in preview.
+validation. Direct network requests and external images, fonts, media, or frames require an exact
+HTTPS origin in `capabilities.network.origins`. They work only in the **published** canvas — the
+edit-mode preview blocks direct network access regardless of declaration. Stylesheets from declared
+origins are allowed; remote scripts remain blocked, so bundle code with the canvas.
 
 ## Quill component rules
 
@@ -74,8 +80,15 @@ text-card-foreground`; borders `border-border`. Never a hardcoded hex or light-o
 
 Every data point renders a skeleton in its own `Card` while loading or refreshing: `SkeletonText`
 (matching `lines` and text-size `className`) for text/number values, `Skeleton` for blocks/charts.
-Drive `isLoading` off the data calls and set it true again on refresh; never show a blank or a
-jumping layout.
+
+Render progressively — each query owns its loading state. The chrome (heading, date picker,
+card frames with skeletons inside) renders immediately, every independent query fires
+concurrently on mount, and each card swaps its skeleton for data the moment its own query
+resolves, so a slow query only holds back its own card. Never drive the whole canvas off one
+shared `loading` flag or a `Promise.all` across independent queries — that makes the fastest
+metric wait for the slowest. Set each section's loading state true again on refresh; never show
+a blank or a jumping layout. Content the first paint doesn't show (an inactive tab, a collapsed
+section, a drill-down) defers its query until the user reveals it.
 
 A failed query and an empty result are different states — never let one render as the other.
 `.catch` on every `ph.query`/`ph.loadInsight` must set an error state that renders visibly (the
@@ -97,6 +110,10 @@ Treat these as starting shapes and adapt them to the request and available data.
 - Use a `LineChart` for time series and a `BarChart` for discrete categories. Do not turn every
   result into a table.
 - Give every KPI, chart, and table its own loading, empty, and error state.
+- Make every figure verifiable: an insight-backed card gets a "View in PostHog" affordance opening
+  its saved insight (`ph.openExternal` with a URL minted by `generate-app-url`); an ad-hoc
+  `ph.query` card gets a "View query" `Dialog` or `Collapsible` showing the exact query that ran —
+  see "Verifiability" in `querying-canvas-data`.
 
 ### Web analytics board
 
@@ -118,6 +135,15 @@ sessionization, attribution, or unique visitors in HogQL. Format large values fo
 
 Use controlled Quill inputs for each dimension, event, or date choice. Keep result sets small and
 refresh every dependent query when a control changes.
+
+### Checklist or runbook
+
+For a checklist, QA runbook, launch plan, onboarding sequence, or any list of steps people work
+through and tick off, start from the complete, validated project in
+[references/checklist-example.md](references/checklist-example.md). Its load-bearing parts — the
+typed content module separate from the component, one shared `ph.state` key per step, the
+debounced ref-alongside-state update path, an expected outcome on every step, and visible
+load/save failure states — are what break when improvised. Keep them; replace the content.
 
 ## Date window
 

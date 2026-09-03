@@ -27,7 +27,8 @@ NON_BOOLEAN_SOURCE = """
 return 42
 """
 
-# Nothing validates builtin arity at save time, so this compiles and raises IndexError in the STL.
+# A builtin called with the wrong argument count. The VM validates arity at the dispatch site, so
+# this raises HogVMException rather than an IndexError from inside the STL function.
 MISSING_ARGUMENT_SOURCE = """
 return jsonParse()
 """
@@ -61,15 +62,21 @@ class TestHogInputErrorClassification:
         assert result["error"] is None
         assert result["verdict"] is False
 
-    # The exclusions from HOG_INPUT_ERROR_TYPES are invisible otherwise: widening the tuple back to
-    # Exception leaves every case above classifying identically, so only a case that must NOT be an
-    # input error can catch it. A source that fails on every unit has to stay loud, or it skips
-    # forever while blaming the customer's data.
-    def test_source_that_can_never_run_stays_our_bug(self) -> None:
+    # A source that fails on every unit must not be classified as an input error, or it skips
+    # forever while blaming the customer's data. A wrong-arity builtin is a broken source: the VM
+    # raises HogVMException, which is neither an input error nor our bug. finalize_hog_eval_result
+    # turns it into a terminal hog_error that disables the evaluation and tells the user, instead of
+    # paging us once per unit.
+    def test_wrong_arity_builtin_is_a_broken_source(self) -> None:
         result = run_source(MISSING_ARGUMENT_SOURCE)
 
-        assert result["unexpected"] is True
+        assert result["error"] is not None
         assert "user_input_error" not in result
+        assert "unexpected" not in result
+
+        finalized = finalize_hog_eval_result(result, evaluation=EVALUATION, allows_na=True, unit_label=None)
+        assert finalized["skip_reason"] == "hog_error"
+        assert is_terminal_user_error_result(finalized) is True
 
 
 class TestFinalizeHogEvalResult:

@@ -23,6 +23,28 @@ from products.ai_observability.backend.summarization.llm.schema import (
     SummaryBullet,
 )
 
+TEST_TEXT_REPR_BUDGET = 4000
+
+
+def _oversized_payload(summarize_type: str, one_long_line: bool) -> dict[str, Any]:
+    # A single long line cannot be sampled line-wise, which is the shape that escapes a naive bound.
+    ai_input: Any = (
+        "x" * (TEST_TEXT_REPR_BUDGET * 4)
+        if one_long_line
+        else [{"role": "user", "content": f"turn {i} " + "detail " * 40} for i in range(200)]
+    )
+    event = {
+        "id": "gen-oversized",
+        "event": "$ai_generation",
+        "properties": {"$ai_input": ai_input},
+    }
+    if summarize_type == "event":
+        return {"event": event}
+    return {
+        "trace": {"id": "trace-oversized", "properties": {"$ai_span_name": "oversized"}},
+        "hierarchy": [{"event": event, "children": []}],
+    }
+
 
 class TestSummarizationAPI(APIBaseTest):
     """Test summarization API endpoints."""
@@ -145,6 +167,46 @@ class TestSummarizationAPI(APIBaseTest):
         # Verify title is present
         self.assertIn("title", data["summary"])
         self.assertEqual(data["summary"]["title"], "Multi-step Trace Execution")
+
+    @parameterized.expand(
+        [
+            ("event_many_lines", "event", False),
+            ("event_one_long_line", "event", True),
+            ("trace_many_lines", "trace", False),
+            ("trace_one_long_line", "trace", True),
+        ]
+    )
+    @patch(
+        "products.ai_observability.backend.api.summarization.text_repr_budget",
+        return_value=TEST_TEXT_REPR_BUDGET,
+    )
+    @patch("products.ai_observability.backend.api.summarization.summarize")
+    def test_oversized_entity_is_bounded_before_the_model_call(
+        self, _name, summarize_type, one_long_line, mock_summarize, _mock_budget
+    ):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        mock_summarize.return_value = SummarizationResponse(
+            title="Bounded",
+            flow_diagram="Start",
+            summary_bullets=[SummaryBullet(text="Bounded", line_refs="L1")],
+            interesting_notes=[],
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            {
+                "summarize_type": summarize_type,
+                "mode": "minimal",
+                "force_refresh": True,
+                "data": _oversized_payload(summarize_type, one_long_line),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        text_repr = mock_summarize.call_args.kwargs["text_repr"]
+        self.assertLessEqual(len(text_repr), TEST_TEXT_REPR_BUDGET)
 
     def test_missing_summarize_type(self):
         """Should return 400 for missing summarize_type."""

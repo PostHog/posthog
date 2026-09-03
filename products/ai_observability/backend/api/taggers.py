@@ -30,10 +30,11 @@ from posthog.clickhouse.query_tagging import (
 )
 from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io
 from posthog.temporal.ai_observability.run_tagger import run_hog_tagger
+
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 from ..hog import compile_ai_observability_hog
 from ..models.model_configuration import LLMModelConfiguration

@@ -7,6 +7,7 @@ import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 
 import {
+    ConversionWatcherRow,
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
     HogFunctionCapturedEvent,
@@ -21,17 +22,20 @@ import {
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
+import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
 import { HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
+import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
 import { DelayHandler } from './actions/delay'
 import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
-import { TriggerHandler } from './actions/trigger.handler'
+import { SlackAppLookup, TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
+import { buildConversionWatcher } from './conversion-watcher'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import {
@@ -112,7 +116,10 @@ export class HogFlowExecutorService {
         hogFlowFunctionsService: HogFlowFunctionsService,
         recipientPreferencesService: RecipientPreferencesService,
         emailValidationService: EmailValidationService,
-        duplicateObserver?: HogFlowDuplicateObserverService
+        cohortMembershipRepository: CohortMembershipRepository,
+        integrationManager: SlackAppLookup,
+        duplicateObserver?: HogFlowDuplicateObserverService,
+        usageReporter?: CdpUsageReporterService
     ) {
         this.hogFlowFunctionsService = hogFlowFunctionsService
         this.duplicateObserver = duplicateObserver ?? null
@@ -120,25 +127,28 @@ export class HogFlowExecutorService {
             hogFlowFunctionsService,
             recipientPreferencesService,
             emailValidationService,
-            'fetch'
+            'fetch',
+            usageReporter
         )
         const hogFunctionEmailHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
             recipientPreferencesService,
             emailValidationService,
-            'email'
+            'email',
+            usageReporter
         )
         const hogFunctionPushHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
             recipientPreferencesService,
             emailValidationService,
-            'push'
+            'push',
+            usageReporter
         )
 
         this.actionHandlers = {
-            trigger: new TriggerHandler(),
-            conditional_branch: new ConditionalBranchHandler(),
-            wait_until_condition: new ConditionalBranchHandler(),
+            trigger: new TriggerHandler(integrationManager),
+            conditional_branch: new ConditionalBranchHandler(cohortMembershipRepository),
+            wait_until_condition: new ConditionalBranchHandler(cohortMembershipRepository),
             delay: new DelayHandler(),
             wait_until_time_window: new WaitUntilTimeWindowHandler(),
             random_cohort_branch: new RandomCohortBranchHandler(),
@@ -177,7 +187,8 @@ export class HogFlowExecutorService {
             const trigger = hogFlow.trigger
 
             // Defensive: only the trigger types that carry `filters` make it through eligibility.
-            if (trigger.type !== 'event' && trigger.type !== 'slack-message' && !isRowScopedTrigger(trigger)) {
+            // isRowScopedTrigger covers internal-event too, alongside the two warehouse types.
+            if (trigger.type !== 'event' && !isRowScopedTrigger(trigger)) {
                 continue
             }
 
@@ -230,11 +241,26 @@ export class HogFlowExecutorService {
         const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
         const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
         const messageAssets: MessageAssetRow[] = []
+        const conversionWatchers: ConversionWatcherRow[] = []
 
-        const earlyExitResult = await this.shouldExitEarly(invocation, metrics, capturedPostHogEvents)
+        // A run enrolls on its first execution, before any exit check: a run that exits immediately
+        // still consumed an enrollment, and `triggered` already counted it, so leaving it out would
+        // overstate the rate.
+        const watcher = buildConversionWatcher(invocation)
+        const enrollmentConversion = watcher ? await this.conversionAtEnrollment(invocation) : null
+
+        const earlyExitResult = await this.shouldExitEarly(invocation)
         if (earlyExitResult) {
+            this.recordEnrollment(
+                enrollmentConversion,
+                watcher,
+                earlyExitResult.metrics,
+                earlyExitResult.capturedPostHogEvents,
+                earlyExitResult.conversionWatchers
+            )
             return earlyExitResult
         }
+        this.recordEnrollment(enrollmentConversion, watcher, metrics, capturedPostHogEvents, conversionWatchers)
 
         // Routing-only reschedule: the previous dequeue moved this job onto a dedicated queue
         // (e.g. 'email' for SES rate-limit gating) and is continuing the same action. Suppress
@@ -268,6 +294,7 @@ export class HogFlowExecutorService {
             capturedPostHogEvents.push(...result.capturedPostHogEvents)
             warehouseWebhookPayloads.push(...result.warehouseWebhookPayloads)
             messageAssets.push(...result.messageAssets)
+            conversionWatchers.push(...result.conversionWatchers)
 
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
@@ -279,8 +306,81 @@ export class HogFlowExecutorService {
         result.capturedPostHogEvents = capturedPostHogEvents
         result.warehouseWebhookPayloads = warehouseWebhookPayloads
         result.messageAssets = messageAssets
+        result.conversionWatchers = conversionWatchers
 
         return result
+    }
+
+    /**
+     * A property goal already satisfied when the run enrolls can never be counted from its watcher.
+     * The matcher reads the enrollment event off Kafka long before the run has written the row, and
+     * on `exit_on_conversion` the run is gone before any later event could claim it — so the run
+     * would record `early_exit` and no `conversion` at all.
+     *
+     * Counting it here keeps the two paths disjoint: a run that converts at enrollment writes no
+     * watcher, so it is still counted exactly once.
+     */
+    private async conversionAtEnrollment(
+        invocation: CyclotronJobInvocationHogFlow
+    ): Promise<{ metric: MinimalAppMetric; event: HogFunctionCapturedEvent | null } | null> {
+        const { hogFlow } = invocation
+        if (!invocation.person || !hogFlow.conversion?.filters?.length || !hogFlow.conversion.bytecode?.length) {
+            return null
+        }
+        const filterResult = await filterFunctionInstrumented({
+            fn: hogFlow,
+            filters: { bytecode: hogFlow.conversion.bytecode, properties: hogFlow.conversion.filters },
+            filterGlobals: invocation.filterGlobals,
+        })
+        if (!filterResult.match) {
+            return null
+        }
+        const distinctId = invocation.state.event?.distinct_id
+        return {
+            metric: {
+                team_id: hogFlow.team_id,
+                app_source_id: invocation.parentRunId ?? hogFlow.id,
+                instance_id: hogFlow.id,
+                metric_kind: 'other',
+                metric_name: 'conversion',
+                count: 1,
+            },
+            // Mirrors the matcher's payload so both paths produce the same billable event. A run with
+            // no distinct_id has nothing to attribute the capture to; the metric still counts.
+            event: distinctId
+                ? {
+                      team_id: hogFlow.team_id,
+                      event: '$workflows_conversion',
+                      distinct_id: distinctId,
+                      timestamp: new Date().toISOString(),
+                      properties: {
+                          $workflow_id: hogFlow.id,
+                          $workflow_run_id: invocation.id,
+                          $workflow_version: invocation.state.flowVersion ?? hogFlow.version,
+                          $workflow_conversion_type: 'property',
+                      },
+                  }
+                : null,
+        }
+    }
+
+    private recordEnrollment(
+        enrollmentConversion: { metric: MinimalAppMetric; event: HogFunctionCapturedEvent | null } | null,
+        watcher: ConversionWatcherRow | null,
+        metrics: MinimalAppMetric[],
+        capturedPostHogEvents: HogFunctionCapturedEvent[],
+        conversionWatchers: ConversionWatcherRow[]
+    ): void {
+        if (enrollmentConversion) {
+            metrics.push(enrollmentConversion.metric)
+            if (enrollmentConversion.event) {
+                capturedPostHogEvents.push(enrollmentConversion.event)
+            }
+            return
+        }
+        if (watcher) {
+            conversionWatchers.push(watcher)
+        }
     }
 
     private shouldEndHogFlowExecution(
@@ -302,6 +402,18 @@ export class HogFlowExecutorService {
                     timestamp: DateTime.now(),
                     message: `Workflow is aborting due to ${actionIdForLogging(lastExecutedAction)} error handling setting being set to abort on error`,
                 })
+            } else if (result.invocation.state.currentAction?.delayUntilUnresolved) {
+                // A delay that cannot work out when to continue overrides on_error's default of carrying
+                // on: the next step would run immediately, which is the one outcome the wait exists to
+                // prevent. See delayUntilUnresolved.
+                shouldAbortAfterError = true
+                logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: `Workflow is aborting because ${
+                        lastExecutedAction ? actionIdForLogging(lastExecutedAction) : lastExecutedActionId
+                    } could not work out the date to wait for`,
+                })
             }
         }
 
@@ -321,9 +433,7 @@ export class HogFlowExecutorService {
      * Determines if the invocation should exit early based on the hogflow's exit condition
      */
     private async shouldExitEarly(
-        invocation: CyclotronJobInvocationHogFlow,
-        metrics: MinimalAppMetric[],
-        capturedPostHogEvents: HogFunctionCapturedEvent[]
+        invocation: CyclotronJobInvocationHogFlow
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null> {
         let earlyExitResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
 
@@ -360,42 +470,10 @@ export class HogFlowExecutorService {
                 )
             }
         }
-        // Count property-based conversions here, regardless of exit condition, so the metric is
-        // meaningful even for flows that don't exit on conversion. Captured before the event-flag
-        // override below: event-based conversions are counted by the subscription matcher, so the
-        // executor must only emit for the property path or exit-on-conversion event flows double-count.
-        // Guarded once-per-run by `conversionCounted` since shouldExitEarly runs on every resume.
-        const propertyConversionMatched = conversionMatch === true
-        let conversionMetric: MinimalAppMetric | null = null
-        let conversionEvent: HogFunctionCapturedEvent | null = null
-        if (propertyConversionMatched && !invocation.state.conversionCounted) {
-            invocation.state.conversionCounted = true
-            conversionMetric = {
-                team_id: hogFlow.team_id,
-                app_source_id: invocation.parentRunId ?? hogFlow.id,
-                instance_id: hogFlow.id,
-                metric_kind: 'other',
-                metric_name: 'conversion',
-                count: 1,
-            }
-            // Also surface the conversion as a billable PostHog event so it can power insights and
-            // cohorts (mirrors the $workflows_email_* engagement events). Event-based conversions are
-            // emitted by the subscription matcher, so this only fires for the property path.
-            const distinctId = invocation.state.event?.distinct_id
-            if (distinctId) {
-                conversionEvent = {
-                    team_id: hogFlow.team_id,
-                    event: '$workflows_conversion',
-                    distinct_id: distinctId,
-                    timestamp: new Date().toISOString(),
-                    properties: {
-                        $workflow_id: hogFlow.id,
-                        $workflow_version: hogFlow.version,
-                        $workflow_conversion_type: 'property',
-                    },
-                }
-            }
-        }
+        // Counting lives entirely on the run's conversion watcher, which the matcher claims. The run
+        // only decides whether to exit. Keeping the two apart is what makes the count survive the run
+        // finishing, and stops a watcher and a still-live run from both counting the same conversion.
+        //
         // Event-based conversion goals are evaluated by the subscription matcher (against the live
         // event stream), which flags the job when the conversion event fires. The property-based
         // check above can't see those, so honor the flag here. It is a one-shot signal ("the
@@ -448,16 +526,6 @@ export class HogFlowExecutorService {
             })
         }
 
-        // Route the conversion metric/event onto whichever result is actually flushed: the early-exit
-        // result when we exit, otherwise the caller's arrays (which become result.metrics /
-        // result.capturedPostHogEvents once the run continues and finishes).
-        if (conversionMetric) {
-            ;(earlyExitResult?.metrics ?? metrics).push(conversionMetric)
-        }
-        if (conversionEvent) {
-            ;(earlyExitResult?.capturedPostHogEvents ?? capturedPostHogEvents).push(conversionEvent)
-        }
-
         return earlyExitResult
     }
 
@@ -467,7 +535,13 @@ export class HogFlowExecutorService {
             hogExecutorOptions?: HogExecutorExecuteAsyncOptions
         }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
-        const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
+        // queuePriority is carried over explicitly: createInvocationResult resets it to
+        // 0, and the email routing downstream stashes the entry priority as the value to
+        // restore when a job leaves the email queue — a reset here would stash 0 for any
+        // run whose email action isn't the first action executed.
+        const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queuePriority: invocation.queuePriority,
+        })
         result.finished = false // Typically we are never finished unless we error or exit
 
         try {
@@ -702,6 +776,13 @@ export class HogFlowExecutorService {
     ): void {
         try {
             const { invocation } = result
+            // A delay that could not work out when to continue must never fall through, whatever on_error
+            // says: the next step would run immediately, which is what the wait exists to prevent. Bailing
+            // here also keeps the flag readable by shouldEndHogFlowExecution, since goToNextAction would
+            // replace currentAction with a fresh entry and drop it.
+            if (invocation.state.currentAction?.delayUntilUnresolved) {
+                return
+            }
             // If current action's on_error is set to 'continue', we move to the next action instead of failing the flow
             const currentAction = ensureCurrentAction(invocation)
             if (currentAction?.on_error === 'continue') {
@@ -864,9 +945,27 @@ export class HogFlowExecutorService {
         }
 
         const storedSummary = allStoredKeys
-            .map((key) => `${key} = ${JSON.stringify(result.invocation.state.variables![key])}`)
+            .map((key) => `${key} = ${this.describeStoredVariable(action, result.invocation.state.variables![key])}`)
             .join(', ')
         this.log(result, 'debug', `Stored action result in variable(s): ${storedSummary}`)
+    }
+
+    // The create-ai-task destination's result variable is what lets a workflow author jump from a
+    // run's logs to the task it kicked off. Everything else stays plain JSON.
+    private describeStoredVariable(action: HogFlowAction, value: unknown): string {
+        const isCreateAiTaskAction =
+            action.type === 'function' && action.config.template_id === 'template-posthog-create-task'
+        if (
+            isCreateAiTaskAction &&
+            value &&
+            typeof value === 'object' &&
+            typeof (value as Record<string, unknown>).id === 'string' &&
+            (value as Record<string, unknown>).id !== ''
+        ) {
+            const runId = (value as Record<string, unknown>).run_id
+            return `[Task:${(value as Record<string, unknown>).id}|${typeof runId === 'string' ? runId : ''}]`
+        }
+        return JSON.stringify(value)
     }
 
     private logExecutionTriggerInfo(invocation: CyclotronJobInvocationHogFlow): MinimalLogEntry {

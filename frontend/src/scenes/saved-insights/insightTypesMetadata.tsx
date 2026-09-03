@@ -309,6 +309,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.WebAgentAnalyticsQuery]: {
+        name: 'Agent analytics',
+        description: 'View AI agent demand, request failures, and content readiness.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.WebVitalsQuery]: {
         name: 'Web vitals',
         description: 'View web vitals.',
@@ -372,6 +378,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.ErrorTrackingBreakdownsQuery]: {
         name: 'Error Tracking Breakdowns',
         description: 'Break down error tracking issues by properties.',
+        icon: IconWarning,
+        inMenu: false,
+    },
+    [NodeKind.ErrorTrackingReleasesQuery]: {
+        name: 'Error tracking releases',
+        description: 'Count occurrences of an error tracking issue per app release.',
         icon: IconWarning,
         inMenu: false,
     },
@@ -546,6 +558,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
+    [NodeKind.MarketingAnalyticsRetentionQuery]: {
+        name: 'Marketing Analytics Retention',
+        icon: IconHogQL,
+        inMenu: false,
+    },
     [NodeKind.NonIntegratedConversionsTableQuery]: {
         name: 'Non-Integrated Conversions Table',
         icon: IconHogQL,
@@ -622,6 +639,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.MCPMissingCapabilitiesQuery]: {
+        name: 'MCP missing capabilities',
+        description: 'Capabilities agents asked an MCP server for and could not get.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.MCPToolStatsQuery]: {
         name: 'MCP tool stats',
         description: 'Summary stats for a single MCP tool.',
@@ -679,6 +702,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.MCPToolCategoriesQuery]: {
         name: 'MCP tool categories',
         description: 'Distinct tool categories for the Tool quality scope selector.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolCategoryMapQuery]: {
+        name: 'MCP tool categories by tool',
+        description: 'Which categories each tool belongs to, for the intent clustering scope selector.',
         icon: IconPieChart,
         inMenu: false,
     },

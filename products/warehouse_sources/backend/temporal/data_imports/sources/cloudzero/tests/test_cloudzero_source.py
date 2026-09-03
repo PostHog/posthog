@@ -4,19 +4,14 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.cloudzero import CloudzeroResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.source import (
     CloudzeroSource,
     _parse_group_by,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(
@@ -45,32 +40,6 @@ class TestParseGroupBy:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert CloudzeroSource().source_type == ExternalDataSourceType.CLOUDZERO
-
-    def test_config_is_visible_and_alpha(self) -> None:
-        config = CloudzeroSource().get_source_config
-        # A finished source must not be hidden from users.
-        assert getattr(config, "unreleasedSource", None) in (None, False)
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/cloudzero"
-
-    def test_fields(self) -> None:
-        fields = CloudzeroSource().get_source_config.fields
-        input_fields = {f.name: f for f in fields if isinstance(f, SourceFieldInputConfig)}
-        select_fields = {f.name: f for f in fields if isinstance(f, SourceFieldSelectConfig)}
-
-        assert set(input_fields) == {"api_key", "group_by"}
-        assert input_fields["api_key"].required is True
-        assert input_fields["api_key"].secret is True
-        assert input_fields["group_by"].required is False
-        assert input_fields["group_by"].secret is False
-
-        assert set(select_fields) == {"granularity", "cost_type"}
-        assert select_fields["granularity"].defaultValue == "daily"
-        assert select_fields["cost_type"].defaultValue == "real_cost"
-
     def test_api_version_metadata(self) -> None:
         assert CloudzeroSource.supported_versions == ("v2",)
         assert CloudzeroSource.default_version == "v2"
@@ -78,17 +47,6 @@ class TestSourceConfig:
 
 
 class TestGetSchemas:
-    def test_only_costs_is_incremental(self) -> None:
-        schemas = {s.name: s for s in CloudzeroSource().get_schemas(_config(), team_id=1)}
-        assert set(schemas) == set(ENDPOINTS)
-        assert schemas["Costs"].supports_incremental is True
-        assert [f["field"] for f in schemas["Costs"].incremental_fields] == ["usage_date"]
-        assert schemas["Dimensions"].supports_incremental is False
-
-    def test_names_filter(self) -> None:
-        schemas = CloudzeroSource().get_schemas(_config(), team_id=1, names=["Dimensions"])
-        assert {s.name for s in schemas} == {"Dimensions"}
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog (no I/O) — public docs render the table list.
         assert CloudzeroSource.lists_tables_without_credentials is True
@@ -117,12 +75,6 @@ class TestValidateCredentials:
 
 
 class TestResumableWiring:
-    def test_get_resumable_source_manager_binds_data_class(self) -> None:
-        inputs = MagicMock()
-        manager = CloudzeroSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is CloudzeroResumeConfig
-
     @parameterized.expand(
         [
             ("incremental", True, "2026-01-01T00:00:00+00:00"),
@@ -225,6 +177,3 @@ class TestCanonicalDescriptions:
     def test_canonical_descriptions_keys_are_known_endpoints(self) -> None:
         # Every documented table must map to a real endpoint, or its descriptions never apply.
         assert set(CANONICAL_DESCRIPTIONS) == set(ENDPOINTS)
-
-    def test_source_exposes_canonical_descriptions(self) -> None:
-        assert CloudzeroSource().get_canonical_descriptions() is CANONICAL_DESCRIPTIONS

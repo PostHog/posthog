@@ -1,14 +1,11 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getFramerSteps as getFramerStepsPA } from '../product-analytics/framer'
+import { getFramerInstallSteps } from '../product-analytics/framer'
 import { StepDefinition } from '../steps'
 
 export const getFramerSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
-
-    // Get installation steps from product-analytics only
-    const installationSteps = getFramerStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send events')
 
     // Add experiments-specific steps
     const experimentSteps: StepDefinition[] = [
@@ -39,7 +36,7 @@ export const getFramerSteps = (ctx: OnboardingComponentsContext): StepDefinition
         },
     ]
 
-    return [...installationSteps, ...experimentSteps]
+    return [...getFramerInstallSteps(ctx), ...experimentSteps]
 }
 
 export const FramerInstallation = createInstallation(getFramerSteps)

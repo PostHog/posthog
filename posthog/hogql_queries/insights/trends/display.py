@@ -18,6 +18,7 @@ class TrendsDisplay:
         return (
             self.display_type == ChartDisplayType.BOLD_NUMBER
             or self.display_type == ChartDisplayType.ACTIONS_PIE
+            or self.display_type == ChartDisplayType.ACTIONS_DONUT
             or self.display_type == ChartDisplayType.ACTIONS_BAR_VALUE
             or self.display_type == ChartDisplayType.WORLD_MAP
             or self.display_type == ChartDisplayType.CALENDAR_HEATMAP

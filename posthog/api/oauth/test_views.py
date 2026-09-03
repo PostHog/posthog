@@ -555,12 +555,12 @@ class TestOAuthAPI(APIBaseTest):
         self,
         *,
         slug: str,
-        cimd_metadata_url: str,
+        cimd_url: str,
         name: str,
     ) -> tuple[OAuthApplication, OAuthGrant]:
         app = OAuthApplication.objects.create(
             name=name,
-            client_id=f"cimd-client-id-{slug}",
+            client_id=cimd_url,
             client_secret="",
             client_type=OAuthApplication.CLIENT_PUBLIC,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
@@ -568,7 +568,6 @@ class TestOAuthAPI(APIBaseTest):
             user=self.user,
             algorithm="RS256",
             is_cimd_client=True,
-            cimd_metadata_url=cimd_metadata_url,
         )
         grant = OAuthGrant.objects.create(
             application=app,
@@ -585,10 +584,6 @@ class TestOAuthAPI(APIBaseTest):
         return app, grant
 
     def _exchange_code_for_token(self, app: OAuthApplication, grant: OAuthGrant):
-        # Uses the internal UUID client_id rather than cimd_metadata_url so we
-        # exercise the validator-level suppression in _should_skip_refresh_token
-        # without also invoking the CIMD fetch/validate path (which would require
-        # HTTP mocks). Both entry paths converge on the same in-memory client.
         return self.post(
             "/oauth/token/",
             {
@@ -609,7 +604,7 @@ class TestOAuthAPI(APIBaseTest):
     def test_wizard_cimd_client_does_not_issue_refresh_token(self, region: str, wizard_cimd_url: str):
         wizard_app, grant = self._create_cimd_app_and_grant(
             slug=f"wizard-{region}",
-            cimd_metadata_url=wizard_cimd_url,
+            cimd_url=wizard_cimd_url,
             name="PostHog Wizard",
         )
 
@@ -627,7 +622,7 @@ class TestOAuthAPI(APIBaseTest):
         # keep the default refresh-token behavior.
         other_app, grant = self._create_cimd_app_and_grant(
             slug="other-cimd",
-            cimd_metadata_url="https://example.com/oauth/client-metadata",
+            cimd_url="https://example.com/oauth/client-metadata",
             name="Third-Party CIMD Client",
         )
 
@@ -649,7 +644,7 @@ class TestOAuthAPI(APIBaseTest):
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         app = OAuthApplication.objects.create(
             name="Private Key JWT CIMD Client",
-            client_id="cimd-pkjwt-client-id",
+            client_id=cimd_url if is_cimd_client else "pkjwt-non-cimd-client-id",
             client_secret="",
             client_type=client_type,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
@@ -657,7 +652,6 @@ class TestOAuthAPI(APIBaseTest):
             user=self.user,
             algorithm="RS256",
             is_cimd_client=is_cimd_client,
-            cimd_metadata_url=cimd_url if is_cimd_client else None,
             jwks_uri="https://partner.example.com/.well-known/jwks.json",
         )
         grant = OAuthGrant.objects.create(
@@ -678,8 +672,8 @@ class TestOAuthAPI(APIBaseTest):
         now = int(timezone.now().timestamp())
         assertion = jwt.encode(
             {
-                "iss": app.cimd_metadata_url,
-                "sub": app.cimd_metadata_url,
+                "iss": app.client_id,
+                "sub": app.client_id,
                 "aud": "https://us.posthog.com/oauth/token/",
                 "jti": "pkjwt-assertion-1",
                 "iat": now,
@@ -728,7 +722,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("access_token", response.json())
         # Token exchanges are the only traffic a refresh-grant-only client sends, so the
         # assertion path has to be what keeps its CIMD registration fresh.
-        refresh.assert_called_once_with(app.cimd_metadata_url)
+        refresh.assert_called_once_with(app.client_id)
 
     @freeze_time("2025-01-01 00:00:00")
     @override_settings(SITE_URL="https://us.posthog.com")
@@ -796,7 +790,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(issued[0].kwargs["properties"]["client_auth_method"], "none")
         # Fallback exchanges are the only requests a client living on `none` sends, so
         # they must keep the CIMD document fresh the same way the assertion path does.
-        mock_refresh.assert_called_once_with(app.cimd_metadata_url)
+        mock_refresh.assert_called_once_with(app.client_id)
 
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_non_cimd_confidential_client_rejected_without_assertion(self):
@@ -1697,6 +1691,26 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json().get("scope", ""), "")
+
+    def test_refresh_of_an_empty_grant_rejected_for_first_party_apps(self):
+        self.confidential_application.is_first_party = True
+        self.confidential_application.scopes = ["experiment:read"]
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair("")
+
+        response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token.token,
+                "client_id": self.confidential_application.client_id,
+                "client_secret": "test_confidential_client_secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
 
     def test_refresh_rejected_when_token_scopes_outside_ceiling(self):
         self.confidential_application.scopes = ["experiment:read"]
@@ -3583,6 +3597,127 @@ class TestOAuthAPI(APIBaseTest):
         self.assertFalse(data["active"])
         self.assertEqual(len(data), 1)
 
+    @parameterized.expand(["access_token", "refresh_token"])
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_introspection_ignores_a_spoofed_basic_auth_header(self, token_type):
+        # Assertion auth short-circuits before the Basic header is ever validated, so a caller
+        # can authenticate as itself with a signed assertion while stapling a Basic header
+        # naming another client. The ownership check must bind to the verified assertion
+        # identity, not the unverified header, or the caller reads that other client's token.
+        access_token, refresh_token = self._create_access_and_refresh_tokens()
+        token = access_token if token_type == "access_token" else refresh_token
+
+        app, _grant, private_key = self._create_private_key_jwt_app_and_grant()
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+
+        with (
+            patch(
+                "posthog.api.oauth.client_assertion.fetch_client_json_document",
+                return_value=(jwks, None),
+            ),
+            patch("posthog.api.oauth.views.enqueue_cimd_refresh_if_stale"),
+        ):
+            response = self.post(
+                "/oauth/introspect/",
+                {
+                    "token": token.token,
+                    "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
+                    "client_assertion": assertion,
+                },
+                headers={"Authorization": self.get_basic_auth_header("test_confidential_client_id", "anything")},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["active"])
+        self.assertEqual(len(data), 1)
+
+    def _create_token_pair_for_app(
+        self, app: OAuthApplication, *, scope: str = "openid"
+    ) -> tuple[OAuthAccessToken, OAuthRefreshToken]:
+        access_token = OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token=f"at_{app.id}",
+            expires=timezone.now() + timedelta(hours=1),
+            scope=scope,
+            scoped_teams=[],
+            scoped_organizations=[str(self.organization.id)],
+        )
+        refresh_token = OAuthRefreshToken.objects.create(
+            application=app,
+            user=self.user,
+            token=f"rt_{app.id}",
+            access_token=access_token,
+            scoped_teams=[],
+            scoped_organizations=[str(self.organization.id)],
+        )
+        return access_token, refresh_token
+
+    @parameterized.expand(["access_token", "refresh_token"])
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_introspection_with_client_assertion_rejects_a_different_clients_token(self, token_type):
+        # A private_key_jwt CIMD client carries its identity in the assertion's `sub`, not in
+        # HTTP Basic auth or a `client_id` form field. The ownership check must still bind to
+        # that identity, or an assertion-authenticated caller can introspect any client's token.
+        access_token, refresh_token = self._create_access_and_refresh_tokens()
+        token = access_token if token_type == "access_token" else refresh_token
+
+        app, _grant, private_key = self._create_private_key_jwt_app_and_grant()
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+
+        with (
+            patch(
+                "posthog.api.oauth.client_assertion.fetch_client_json_document",
+                return_value=(jwks, None),
+            ),
+            patch("posthog.api.oauth.views.enqueue_cimd_refresh_if_stale"),
+        ):
+            response = self.post(
+                "/oauth/introspect/",
+                {
+                    "token": token.token,
+                    "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
+                    "client_assertion": assertion,
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["active"])
+        self.assertEqual(len(data), 1)
+
+    @parameterized.expand(["access_token", "refresh_token"])
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_introspection_with_client_assertion_allows_own_token(self, token_type):
+        app, _grant, private_key = self._create_private_key_jwt_app_and_grant()
+        access_token, refresh_token = self._create_token_pair_for_app(app)
+        token = access_token if token_type == "access_token" else refresh_token
+
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+
+        with (
+            patch(
+                "posthog.api.oauth.client_assertion.fetch_client_json_document",
+                return_value=(jwks, None),
+            ),
+            patch("posthog.api.oauth.views.enqueue_cimd_refresh_if_stale"),
+        ):
+            response = self.post(
+                "/oauth/introspect/",
+                {
+                    "token": token.token,
+                    "client_id": app.client_id,
+                    "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
+                    "client_assertion": assertion,
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["active"])
+        self.assertEqual(data["client_id"], app.client_id)
+
     def test_introspection_with_bearer_token_requires_introspection_scope(self):
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
         token_to_introspect, _ = self._create_access_and_refresh_tokens()
@@ -3839,6 +3974,41 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertFalse(data["active"])
+
+    @parameterized.expand(
+        [
+            ("access_token_deactivated_user", "access_token", "deactivated", False),
+            ("refresh_token_deactivated_user", "refresh_token", "deactivated", False),
+            # Client-credentials grants have no resource owner, so a userless access
+            # token must stay introspectable. OAuthRefreshToken.user is not nullable.
+            ("access_token_without_user", "access_token", "userless", True),
+        ]
+    )
+    def test_introspection_reflects_token_user_status(
+        self, _name: str, token_type: str, user_state: str, expected_active: bool
+    ):
+        access_token, refresh_token = self._create_access_and_refresh_tokens()
+        token = access_token if token_type == "access_token" else refresh_token
+
+        if user_state == "deactivated":
+            self.user.is_active = False
+            self.user.save()
+        else:
+            access_token.user = None
+            access_token.save()
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": token.token},
+            headers={
+                "Authorization": self.get_basic_auth_header(
+                    "test_confidential_client_id", "test_confidential_client_secret"
+                )
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["active"], expected_active)
 
     def test_self_introspection_with_revoked_token_fails(self):
         """A revoked (deleted) token cannot self-introspect."""
@@ -4610,6 +4780,7 @@ class TestOAuthAPI(APIBaseTest):
             code_challenge_method="S256",
             redirect_uri="https://example.com/callback",
             expires=timezone.now() + timedelta(minutes=5),
+            scope="openid experiment:read",
             scoped_organizations=[str(self.organization.id)],
             scoped_teams=[],
         )
@@ -4866,7 +5037,7 @@ class TestOAuthFunnelInstrumentation(APIBaseTest):
                 side_effect=OperationalError("query_wait_timeout"),
             ),
             patch(
-                "posthog.api.oauth.views.get_application_by_client_id",
+                "posthog.api.oauth.views.OAuthApplication.objects.get",
                 side_effect=OperationalError("connection failed"),
             ),
             patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture,

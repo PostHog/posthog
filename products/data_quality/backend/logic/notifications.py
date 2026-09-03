@@ -9,9 +9,12 @@ from typing import cast
 import structlog
 
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade.user_access_control import (
+    UserAccessControl,
+    access_level_satisfied_for_resource,
+)
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,

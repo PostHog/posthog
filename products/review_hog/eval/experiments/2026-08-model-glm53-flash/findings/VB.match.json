@@ -1,0 +1,112 @@
+{
+    "VB1": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Same claim as cluster 58: the facade's post-commit dispatch is fire-and-forget with no durable pending record or reconciliation, so a broker publish failure silently drops the initial review (same facade/api.py:149 site)."
+    },
+    "VB2": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Same claim as cluster 57: the gate keys on one selected acting reviewer's toggle (None as opt-out), so a later opted-in assignee is ignored, contradicting the any-assigned-reviewer contract."
+    },
+    "VB3": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Same claim as cluster 58: broker publish failure after the TaskRun commit is caught and only logged, no durable record or retry, so the initial review is silently lost."
+    },
+    "VB4": {
+        "cluster": 29,
+        "confidence": "high",
+        "reason": "Identical to cluster 29: the carve-out exception retry path runs before _retract_stale_approvals_on_skip, so exhausted retries leave a stale approval active over unreviewed commits."
+    },
+    "VB5": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "No cluster claims early-ack (missing acks_late) worker-crash loss; runner-up cluster 58 covers broker/dispatch fire-and-forget, a different delivery-loss mechanism than a crash after the broker accepted the task."
+    },
+    "VB6": {
+        "cluster": 47,
+        "confidence": "medium",
+        "reason": "Same defect class as cluster 47: server-emitted analytics events lack the self-driving marker so dashboards cannot segment — here stamphog_review_failed instead of completed; runner-up cluster 24 is the log/comment-trace variant."
+    },
+    "VB7": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster claims a parent-vs-child environment team-ID mismatch making the config/TaskRun identity check fail; cluster 39 shares the comparison site but claims a tenant-boundary weakness, not this false negative."
+    },
+    "VB8": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Same claim as cluster 2 (same AGENTS.md anchor): process_inbox_pr_review stamps the carve-out from supplied identifiers with no positive PR-to-run linkage; the webhook-writable-pr_url aside belongs to runner-up cluster 73."
+    },
+    "VB9": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Identical to cluster 57: README promises a review when any assigned reviewer opts in, but callers check only the single acting reviewer's toggle."
+    },
+    "VB10": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Same claim as cluster 2: the receiver-leg worker trusts caller-writable output.pr_url with no task_run/signal_report linkage or bot-author verification, stamping inbox_review and bypassing gates on an unrelated PR."
+    },
+    "VB11": {
+        "cluster": 73,
+        "confidence": "medium",
+        "reason": "Same defect as cluster 73 at the same find_task_run site: output.pr_url/branch are untrustworthy linkage evidence that binds an unrelated PR and authorizes it as self-driving; VB11 adds the caller-mutation attack framing."
+    },
+    "VB12": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Identical to cluster 57 (same receivers.py lines): _resolve_assigned_reviewer returns one user and both paths check only that user's toggle, defeating the any-assigned-reviewer requirement."
+    },
+    "VB13": {
+        "cluster": 39,
+        "confidence": "high",
+        "reason": "Same claim as cluster 39: find_task_run selects unscoped before the post-hoc team/signal/internal checks, so an unrelated team's duplicate-URL row shadows the qualifying run and the facade returns None."
+    },
+    "VB14": {
+        "cluster": 70,
+        "confidence": "high",
+        "reason": "Same claim as cluster 70: the self-driving block contradicts the system prompt's categorical bot-author-needs-human-review showstopper (plus the stamphog-label confidence signal), risking refused reviews."
+    },
+    "VB15": {
+        "cluster": 35,
+        "confidence": "high",
+        "reason": "Identical to cluster 35: the hard-coded draft-on-purpose sentence renders unconditionally, so a self-driving PR reviewed after ready_for_review gets a false draft claim in the trusted prompt."
+    },
+    "VB16": {
+        "cluster": 27,
+        "confidence": "medium",
+        "reason": "Same claim as cluster 27: fail-soft stamphog_connected=false in a 200 is indistinguishable from genuinely disconnected, so the UI shows a confirmed-disabled switch; the stuck-until-reload angle is runner-up cluster 65."
+    },
+    "VB17": {
+        "cluster": 41,
+        "confidence": "high",
+        "reason": "Identical to cluster 41: the dedupe excludes FAILED runs, so every receiver refire re-queues a persistently failing head with no retry cap or cooldown."
+    },
+    "VB18": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "No cluster claims the receiver-leg fallback is toggle-gated so opt-out skips head-keyed stale-approval dismissal after a lost webhook; runner-up cluster 29 blocks dismissal via the webhook leg's exception retry path instead."
+    },
+    "VB19": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster claims connected_by_user_id survives user deletion/deactivation so the settings API reports connected while token minting always fails; cluster 18 targets the same helper but for the missing provider filter."
+    },
+    "VB20": {
+        "cluster": 1,
+        "confidence": "high",
+        "reason": "Identical to cluster 1: the internal=True rejection at facade/api.py:508 excludes every production self-driving implementation task, so the carve-out never fires for its target PRs."
+    },
+    "VB21": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "No cluster claims an older completed same-head run masks a newer failed one and blocks retry; adjacent cluster 41 reads the same FAILED-exclusion in the opposite direction (unbounded retries), a different defect."
+    },
+    "VB22": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "No cluster claims transient WAIT/ERROR/migration-gate outcomes persist as terminal runs that head-keyed dedupe then treats as reviewed, stranding the head until a new commit; cluster 41 covers only the FAILED-retry direction."
+    }
+}

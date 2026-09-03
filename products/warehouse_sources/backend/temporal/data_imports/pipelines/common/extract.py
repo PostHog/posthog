@@ -5,6 +5,7 @@ from django.conf import settings
 
 import pyarrow as pa
 import posthoganalytics
+from redis import exceptions as redis_exceptions
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
@@ -237,10 +238,19 @@ async def handle_non_retryable_error(
             raise NonRetryableException() from error
 
         retry_key = build_non_retryable_errors_redis_key(team_id, source_id, run_id)
-        attempts = await redis_client.incr(retry_key)
+        try:
+            attempts = await redis_client.incr(retry_key)
+            if attempts <= NON_RETRYABLE_ERROR_RETRY_LIMIT:
+                await redis_client.expire(retry_key, 86400)  # Expire after 24 hours
+        except redis_exceptions.RedisError as e:
+            # A successful ping doesn't guarantee later commands still have a Redis to talk to -
+            # treat that the same as a `None` client instead of letting it surface unwrapped and
+            # mask the already-classified `error` behind an ordinary retryable activity failure.
+            capture_exception(e)
+            await logger.adebug(f"Redis became unreachable tracking a non-retryable error. error={error_msg}")
+            raise NonRetryableException() from error
 
         if attempts <= NON_RETRYABLE_ERROR_RETRY_LIMIT:
-            await redis_client.expire(retry_key, 86400)  # Expire after 24 hours
             await logger.adebug(
                 f"Non-retryable error attempt {attempts}/{NON_RETRYABLE_ERROR_RETRY_LIMIT}, retrying. error={error_msg}"
             )
@@ -320,7 +330,11 @@ async def persist_primary_keys(
     inside the row lock so a concurrent API edit isn't clobbered. Best-effort: a failure here
     must not fail an otherwise successful sync.
     """
-    if not is_incremental or schema.primary_key_columns:
+    # A CDC schema snapshots as full_refresh but streams incrementally, so its key has to be
+    # persisted during that first non-incremental run or the streaming phase has none.
+    if schema.primary_key_columns:
+        return
+    if not is_incremental and not schema.is_cdc:
         return
     primary_keys = resource.primary_keys
     if not primary_keys:

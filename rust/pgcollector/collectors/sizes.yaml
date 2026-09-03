@@ -1,0 +1,19 @@
+name: sizes
+description: >
+  Table/index/TOAST sizes. Four size functions per relation (each stats the
+  relation's files), so hourly and on the reader.
+interval: 1h
+scope: database
+kind: gauge
+prefers_reader: true
+query: |
+  SELECT n.nspname AS schemaname, c.relname, c.relkind::text AS relkind,
+         c.reltuples::bigint AS reltuples,
+         pg_relation_size(c.oid)                          AS heap_bytes,
+         pg_indexes_size(c.oid)                           AS index_bytes,
+         COALESCE(pg_total_relation_size(c.reltoastrelid), 0) AS toast_bytes,
+         pg_total_relation_size(c.oid)                    AS total_bytes
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE c.relkind IN ('r', 'p', 'm')
+    AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')

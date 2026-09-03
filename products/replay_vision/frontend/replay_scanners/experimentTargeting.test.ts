@@ -1,14 +1,14 @@
-import { RecordingsQuery } from '~/queries/schema/schema-general'
-import { Experiment, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { Experiment } from '~/types'
 
 import {
-    buildExperimentScannerQuery,
+    buildExperimentTargeting,
     experimentScannerName,
     experimentScannerParams,
     parseExperimentScannerParams,
-    reconcileVariantKeys,
-    replaceExperimentExposureFilter,
+    prefillScannerForExperiment,
+    reconcileVariantKey,
 } from './experimentTargeting'
+import type { ReplayScanner } from './types'
 
 const experiment = {
     id: 7,
@@ -28,19 +28,18 @@ const experiment = {
 } as unknown as Experiment
 
 describe('experimentTargeting', () => {
-    it.each([
-        [{ experimentId: 7, variantKeys: [], useExposureFallback: false }],
-        [{ experimentId: 7, variantKeys: ['test'], useExposureFallback: false }],
-        [{ experimentId: 7, variantKeys: ['control', 'test'], useExposureFallback: true }],
-    ])('deep-link params round-trip through the parser: %j', (params) => {
-        expect(parseExperimentScannerParams(experimentScannerParams(params))).toEqual(params)
-    })
+    it.each([[{ experimentId: 7, variantKey: null }], [{ experimentId: 7, variantKey: 'test' }]])(
+        'deep-link params round-trip through the parser: %j',
+        (params) => {
+            expect(parseExperimentScannerParams(experimentScannerParams(params))).toEqual(params)
+        }
+    )
 
     it.each([
         [{}],
         [{ experiment: 'not-a-number' }],
         [{ experiment: '-3' }],
-        [{ variants: 'test' }],
+        [{ variant: 'test' }],
         // kea-router coerces `?experiment=true` to boolean true, and Number(true) is 1; without a
         // type guard that would prefill experiment 1 rather than parse as null.
         [{ experiment: true }],
@@ -52,143 +51,43 @@ describe('experimentTargeting', () => {
     it.each([
         // kea-router hands single numeric query values back as numbers, not strings. The router
         // values, not the stringified ones experimentScannerParams emits, are what the parser sees.
-        [{ experiment: 7 }, { experimentId: 7, variantKeys: [], useExposureFallback: false }],
+        [{ experiment: 7 }, { experimentId: 7, variantKey: null }],
         [
-            { experiment: 7, variants: 1 },
-            { experimentId: 7, variantKeys: ['1'], useExposureFallback: false },
-        ],
-        [
-            { experiment: '7', variants: '1,2' },
-            { experimentId: 7, variantKeys: ['1', '2'], useExposureFallback: false },
+            { experiment: 7, variant: 1 },
+            { experimentId: 7, variantKey: '1' },
         ],
     ])('parses raw router values (numbers, not strings): %j', (searchParams, expected) => {
         expect(parseExperimentScannerParams(searchParams)).toEqual(expected)
     })
 
     it.each([
-        // No selection means every variant, so an empty request stays empty.
-        [[], []],
-        // A stale key that the experiment no longer has is dropped rather than persisted.
-        [['test', 'old-variant'], ['test']],
-        // When every requested key is unknown, fall back to the full variant set rather than the
-        // empty list that would broaden to an IsSet filter matching every enrolled session.
-        [['old-variant'], ['control', 'test']],
-    ])('reconciles requested variant keys against the experiment: %j', (requested, expected) => {
-        expect(reconcileVariantKeys(experiment, requested)).toEqual(expected)
+        // No selection means all variants, so null stays null.
+        [null, null],
+        // A valid variant survives.
+        ['test', 'test'],
+        // A stale key the experiment no longer has drops to all variants rather than an impossible target.
+        ['old-variant', null],
+    ])('reconciles the requested variant key against the experiment: %j', (requested, expected) => {
+        expect(reconcileVariantKey(experiment, requested)).toEqual(expected)
     })
 
-    it('compiles the default exposure event filter with the selected variants', () => {
-        const query = buildExperimentScannerQuery(experiment, ['test'], false)
-        expect(query.events).toEqual([
-            expect.objectContaining({
-                id: '$feature_flag_called',
-                properties: [
-                    {
-                        key: '$feature_flag_response',
-                        type: PropertyFilterType.Event,
-                        value: ['test'],
-                        operator: PropertyOperator.Exact,
-                    },
-                    {
-                        key: '$feature_flag',
-                        type: PropertyFilterType.Event,
-                        value: ['checkout-redesign'],
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-            }),
-        ])
-        expect(query.filter_test_accounts).toBe(true)
+    it.each([
+        ['test', { experiment_id: 7, variant: 'test' }],
+        [null, { experiment_id: 7, variant: null }],
+    ])('builds the persisted targeting for variant %j', (variantKey, expected) => {
+        expect(buildExperimentTargeting({ experiment, variantKey })).toEqual(expected)
     })
 
-    it('targets every variant when no subset is selected', () => {
-        const query = buildExperimentScannerQuery(experiment, [], false)
-        expect(query.events?.[0]?.properties?.[0]).toMatchObject({
-            key: '$feature_flag_response',
-            value: ['control', 'test'],
-        })
-    })
+    it('prefills targeting and test-account filtering without touching exposure in the query', () => {
+        const scanner = { name: 'Frustration score', query: { kind: 'RecordingsQuery' } } as unknown as ReplayScanner
 
-    it('compiles the flag-value property filter in fallback mode', () => {
-        const query = buildExperimentScannerQuery(experiment, ['test'], true)
-        expect(query.events).toEqual([])
-        expect(query.properties).toEqual([
-            {
-                key: '$feature/checkout-redesign',
-                type: PropertyFilterType.Event,
-                value: ['test'],
-                operator: PropertyOperator.Exact,
-            },
-        ])
-    })
+        const prefilled = prefillScannerForExperiment(scanner, { experiment, variantKey: 'test' })
 
-    it('never persists playlist-only query fields', () => {
-        const query = buildExperimentScannerQuery(experiment, [], false)
-        expect(Object.keys(query)).toEqual(
-            expect.not.arrayContaining(['date_from', 'date_to', 'order', 'session_ids', 'limit'])
-        )
-    })
-
-    it('variant changes swap the exposure filter and keep user-added filters', () => {
-        const initial = buildExperimentScannerQuery(experiment, ['test'], false)
-        const userFilter = {
-            key: '$browser',
-            type: PropertyFilterType.Event,
-            value: ['Chrome'],
-            operator: PropertyOperator.Exact,
-        }
-        const edited = { ...initial, properties: [userFilter] } as RecordingsQuery
-
-        const updated = replaceExperimentExposureFilter(edited, {
-            experiment,
-            variantKeys: ['control'],
-            useExposureFallback: false,
-        })
-
-        expect(updated.events?.[0]?.properties?.[0]).toMatchObject({
-            key: '$feature_flag_response',
-            value: ['control'],
-        })
-        expect(updated.properties).toEqual([userFilter])
-    })
-
-    it('fallback-mode variant changes keep user event filters and swap only the flag property', () => {
-        const initial = buildExperimentScannerQuery(experiment, ['test'], true)
-        const userEvent = { id: '$pageview', name: '$pageview', type: 'events' }
-        const edited = { ...initial, events: [userEvent] } as RecordingsQuery
-
-        const updated = replaceExperimentExposureFilter(edited, {
-            experiment,
-            variantKeys: ['control'],
-            useExposureFallback: true,
-        })
-
-        expect(updated.events).toEqual([expect.objectContaining({ id: '$pageview' })])
-        expect(updated.properties).toEqual([
-            expect.objectContaining({ key: '$feature/checkout-redesign', value: ['control'] }),
-        ])
-    })
-
-    it('forces AND when swapping the exposure filter into an OR query', () => {
-        const orQuery = {
-            ...buildExperimentScannerQuery(experiment, ['test'], false),
-            operand: FilterLogicalOperator.Or,
-        } as RecordingsQuery
-        const updated = replaceExperimentExposureFilter(orQuery, {
-            experiment,
-            variantKeys: ['test'],
-            useExposureFallback: false,
-        })
-        expect(updated.operand).toEqual(FilterLogicalOperator.And)
-    })
-
-    it('inserts the exposure filter when the user removed it', () => {
-        const emptied = replaceExperimentExposureFilter(
-            { ...buildExperimentScannerQuery(experiment, [], false), events: [] },
-            { experiment, variantKeys: ['test'], useExposureFallback: false }
-        )
-        expect(emptied.events).toHaveLength(1)
-        expect(emptied.events?.[0]?.properties?.[0]).toMatchObject({ value: ['test'] })
+        expect(prefilled.experiment_targeting).toEqual({ experiment_id: 7, variant: 'test' })
+        expect(prefilled.query?.filter_test_accounts).toBe(true)
+        // Exposure must never enter the query blob: the API rejects it there, and access control
+        // for the experiment hangs off experiment_targeting alone.
+        expect(prefilled.query).not.toHaveProperty('experiment_exposure')
     })
 
     it.each([

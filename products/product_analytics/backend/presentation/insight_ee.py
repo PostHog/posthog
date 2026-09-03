@@ -3,7 +3,7 @@
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.enums import PrivilegeLevel
 from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import InsightViewSet
 
@@ -15,7 +15,7 @@ class CanEditInsight(BasePermission):
         if request.method in SAFE_METHODS:
             return True
 
-        return view.user_permissions.insight(insight).effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
+        return view.user_permissions.insight(insight).effective_privilege_level == PrivilegeLevel.CAN_EDIT
 
 
 class EnterpriseInsightsViewSet(InsightViewSet):

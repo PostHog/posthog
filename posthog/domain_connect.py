@@ -23,6 +23,8 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
 from posthog.schema import DomainConnectProviderName
 
+from posthog.dataclasses import frozen
+
 logger = logging.getLogger(__name__)
 
 # Maps _domainconnect TXT record values (provider endpoints) to display names.
@@ -159,8 +161,14 @@ def get_key_id() -> str:
     return getattr(settings, "DOMAIN_CONNECT_KEY_ID", "_dcpubkeyv1")
 
 
-def extract_root_domain_and_host(full_domain: str) -> tuple[str, str]:
-    """Split a full domain into (root_domain, host_prefix).
+@frozen
+class DomainParts:
+    root_domain: str
+    host: str
+
+
+def extract_root_domain_and_host(full_domain: str, *, include_private_suffixes: bool = False) -> DomainParts:
+    """Split a full domain into its root domain and host prefix.
 
     Examples:
         "ph.example.com"            → ("example.com", "ph")
@@ -170,12 +178,12 @@ def extract_root_domain_and_host(full_domain: str) -> tuple[str, str]:
     Uses the Public Suffix List via tldextract for correct TLD handling.
     """
     full_domain = full_domain.rstrip(".")
-    ext = tldextract.extract(full_domain)
+    ext = tldextract.extract(full_domain, include_psl_private_domains=include_private_suffixes)
     if ext.suffix:
         root = f"{ext.domain}.{ext.suffix}"
     else:
         root = ext.domain or full_domain
-    return (root, ext.subdomain)
+    return DomainParts(root_domain=root, host=ext.subdomain)
 
 
 def get_service_id_for_region(service_prefix: str) -> str:
@@ -256,13 +264,13 @@ def resolve_proxy_context(proxy_record_id: str, organization_id: str) -> tuple[s
     from posthog.models import ProxyRecord
 
     record = ProxyRecord.objects.get(id=proxy_record_id, organization_id=organization_id)
-    root_domain, host = extract_root_domain_and_host(record.domain)
+    domain_parts = extract_root_domain_and_host(record.domain)
 
     service_id = get_service_id_for_region("reverse-proxy")
     variables = {
         "target": record.target_cname,
     }
-    return (root_domain, service_id, host, variables)
+    return (domain_parts.root_domain, service_id, domain_parts.host, variables)
 
 
 def generate_apply_url(

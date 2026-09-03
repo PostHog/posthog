@@ -16,8 +16,10 @@ import {
 import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -26,11 +28,13 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdownWithMermaid'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -43,10 +47,12 @@ import type { LLMSkillFileManifestApi, LLMSkillVersionSummaryApi } from 'product
 
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
+import { llmSkillsLogic } from './llmSkillsLogic'
 import { SKILL_NAME_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH } from './skillConstants'
 import { skillFileLogic } from './skillFileLogic'
 import { collectFilesFromDrop } from './skillFileUpload'
-import { SkillPublishReviewModal, openArchiveSkillDialog } from './skillSceneComponents'
+import { SkillOwners } from './SkillOwners'
+import { SkillPublishReviewModal, openArchiveSkillDialog, openPublishToCommunityDialog } from './skillSceneComponents'
 
 const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
 
@@ -80,8 +86,18 @@ export function LLMSkillScene(): JSX.Element {
         downloadingZip,
         isSkillFormDirty,
         nextVersion,
+        skillName,
+        selectedVersion,
+        isSkillAccessDenied,
+        hasSkillLoadError,
     } = useValues(llmSkillLogic)
     const { searchParams } = useValues(router)
+    // Reuse the list scene's publish flow: its action, per-skill in-flight guard, and resolved
+    // GitHub handle. Mounting llmSkillsLogic here shares that single source of truth.
+    const { publishingSkills, githubLogin } = useValues(llmSkillsLogic)
+    const { publishToCommunity } = useActions(llmSkillsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
 
     const {
         submitSkillForm,
@@ -92,11 +108,8 @@ export function LLMSkillScene(): JSX.Element {
         loadMoreVersions,
         downloadSkill,
         cancelEditing,
+        loadSkill,
     } = useActions(llmSkillLogic)
-
-    if (isSkillMissing) {
-        return <NotFound object="skill" />
-    }
 
     if (shouldDisplaySkeleton) {
         return (
@@ -108,9 +121,64 @@ export function LLMSkillScene(): JSX.Element {
         )
     }
 
+    if (isSkillAccessDenied) {
+        return <AccessDenied object="skill" />
+    }
+
+    if (hasSkillLoadError) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Try again', onClick: loadSkill }}>
+                Couldn't load this skill. Try again, and if it keeps happening contact support.
+            </LemonBanner>
+        )
+    }
+
+    if (isSkillMissing) {
+        return (
+            <NotFound
+                object="skill"
+                caption={
+                    // The resolve endpoint returns the same 404 for a missing skill and a missing
+                    // version, so the caption can only name what the URL asks for.
+                    selectedVersion !== null ? (
+                        <>
+                            This link points to version {selectedVersion}.{' '}
+                            <Link to={urls.skill(skillName)}>Try the latest version</Link>, or{' '}
+                            <Link to={urls.skills()}>browse all skills</Link>.
+                        </>
+                    ) : (
+                        <>
+                            Check the skill name in the URL, or <Link to={urls.skills()}>browse all skills</Link>.
+                        </>
+                    )
+                }
+            />
+        )
+    }
+
     // A direct link with `?edit=true` shouldn't grant edit access the New version button
     // wouldn't otherwise give — fall back to the read-only view when the user can't actually publish.
     const canEditSkill = userHasAccess(AccessControlResourceType.LlmSkill, AccessControlLevel.Editor)
+
+    const communitySkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
+    const skillOwners = isSkill(skill) ? skill.owners : []
+    const isOwner = !!user && skillOwners.some((owner) => owner.uuid === user.uuid)
+    // Publishing is owner-only on the backend, so mirror that here instead of letting a non-owner's
+    // click come back a 403. In-flight guard keyed on the skill name matches the list view.
+    // The backend publishes the latest version by name, so block publishing from a historical
+    // version to avoid pushing content the user is not viewing.
+    const publishDisabledReason = isSkill(skill)
+        ? publishingSkills[skill.name]
+            ? 'Publishing…'
+            : skillOwners.length === 0
+              ? 'Add an owner before publishing to the community'
+              : !isOwner
+                ? "Only the skill's owners can publish it"
+                : isHistoricalVersion
+                  ? 'Switch to the latest version to publish'
+                  : undefined
+        : undefined
+
     const content =
         isViewMode || !canEditSkill ? (
             <SceneContent>
@@ -168,19 +236,43 @@ export function LLMSkillScene(): JSX.Element {
                             <More
                                 size="small"
                                 overlay={
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.LlmSkill}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                    >
-                                        <LemonButton
-                                            status="danger"
-                                            onClick={() => openArchiveSkillDialog(deleteSkill)}
-                                            data-attr="llma-skill-delete-button"
-                                            fullWidth
+                                    <>
+                                        {communitySkillsEnabled && isSkill(skill) && (
+                                            <AccessControlAction
+                                                resourceType={AccessControlResourceType.LlmSkill}
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                            >
+                                                <LemonButton
+                                                    onClick={() =>
+                                                        openPublishToCommunityDialog({
+                                                            skillName: skill.name,
+                                                            githubLogin,
+                                                            onPublish: publishToCommunity,
+                                                        })
+                                                    }
+                                                    disabledReason={publishDisabledReason}
+                                                    data-attr="llma-skill-publish-community-button"
+                                                    fullWidth
+                                                >
+                                                    Publish to community
+                                                </LemonButton>
+                                            </AccessControlAction>
+                                        )}
+
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.LlmSkill}
+                                            minAccessLevel={AccessControlLevel.Editor}
                                         >
-                                            Archive
-                                        </LemonButton>
-                                    </AccessControlAction>
+                                            <LemonButton
+                                                status="danger"
+                                                onClick={() => openArchiveSkillDialog(deleteSkill)}
+                                                data-attr="llma-skill-delete-button"
+                                                fullWidth
+                                            >
+                                                Archive
+                                            </LemonButton>
+                                        </AccessControlAction>
+                                    </>
                                 }
                             />
                         </>
@@ -343,6 +435,8 @@ function SkillViewDetails(): JSX.Element {
                 <label className="text-xs font-semibold uppercase text-secondary">Description</label>
                 <p className="text-sm">{skill.description}</p>
             </div>
+
+            <SkillOwners />
 
             <div>
                 <label className="text-xs font-semibold uppercase text-secondary">Frontmatter</label>

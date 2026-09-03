@@ -69,7 +69,6 @@ NODE_ROLE_MEMBERS = {
 # was) and annotated, rather than silently losing the role.
 NON_TARGET_ROLES = {
     "batch_exports": "dump-baselined; no NodeRole member",
-    "sessionsv3": "dump-baselined; no NodeRole member",
     "all": "the local-single dev node; mirrors what migrations produce",
 }
 

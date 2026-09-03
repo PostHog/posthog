@@ -73,6 +73,7 @@ export function useSidebarBulkActions(
   taskIds: string[],
   tasks: BulkSessionInfo[],
 ): SidebarBulkActions {
+  const selectedCount = taskIds.length;
   const queryClient = useQueryClient();
   const archiveCacheKeys = useArchiveCacheKeys();
   const clearSelection = useTaskSelectionStore((s) => s.clearSelection);
@@ -93,12 +94,10 @@ export function useSidebarBulkActions(
   const channels = bluebirdEnabled ? fetchedChannels : EMPTY_CHANNELS;
   const { fileTask } = useChannelTaskMutations();
 
-  const liveTaskIds = useLiveTaskIds();
+  const liveTaskIds = useLiveTaskIds(selectedCount > 0);
 
   const [isArchiving, setIsArchiving] = useState(false);
   const [isFiling, setIsFiling] = useState(false);
-
-  const selectedCount = taskIds.length;
 
   const selectedTasks = useMemo(() => {
     const ids = new Set(taskIds);
@@ -138,7 +137,6 @@ export function useSidebarBulkActions(
     if (selectedCount === 0 || isArchiving) return;
     setIsArchiving(true);
     const store = useArchivingTasksStore.getState();
-    // Spinner the rows for the whole sequential batch, not just the current one.
     for (const id of taskIds) store.startArchiving(id);
     try {
       const { archived, failed } = await archiveTasksImperative(

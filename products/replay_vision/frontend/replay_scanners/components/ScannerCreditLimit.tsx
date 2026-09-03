@@ -86,8 +86,8 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                             )}
                             <div className="text-xs text-muted">
                                 When this scanner reaches its limit, it stops scanning until the next billing period. It
-                                stays enabled, but sessions it skipped this period aren't scanned later, even after you
-                                raise the limit.
+                                stays enabled, but sessions it skipped this billing period aren't scanned later, even
+                                after you raise the limit.
                             </div>
                         </>
                     )}

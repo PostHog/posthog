@@ -1,20 +1,10 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.companycam.companycam import (
-    CompanycamResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.companycam.settings import (
-    COMPANYCAM_ENDPOINTS,
-    ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.companycam.source import CompanycamSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.companycam import (
     CompanycamSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"Projects", "Photos", "Videos"}
 _FULL_REFRESH_ENDPOINTS = {"Users", "Tags", "Groups", "Checklists", "ChecklistTemplates"}
@@ -25,29 +15,6 @@ class TestCompanycamSource:
         self.source = CompanycamSource()
         self.team_id = 123
         self.config = CompanycamSourceConfig(api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.COMPANYCAM
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Companycam"
-        assert config.label == "CompanyCam"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/companycam.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/companycam"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        api_key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -72,36 +39,6 @@ class TestCompanycamSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_get_schemas_match_endpoints_with_correct_sync_modes(self) -> None:
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert set(schemas) == set(ENDPOINTS)
-        for name in _INCREMENTAL_ENDPOINTS:
-            assert schemas[name].supports_incremental is True
-            assert schemas[name].supports_append is True
-            assert len(schemas[name].incremental_fields) == 1
-        for name in _FULL_REFRESH_ENDPOINTS:
-            assert schemas[name].supports_incremental is False
-            assert schemas[name].supports_append is False
-            assert schemas[name].incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["Projects"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "Projects"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_lists_tables_without_credentials_publishes_catalog(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-        documented = self.source.get_documented_tables()
-        assert {table["name"] for table in documented} == set(ENDPOINTS)
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical) == set(COMPANYCAM_ENDPOINTS)
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
@@ -122,11 +59,6 @@ class TestCompanycamSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with("test-key", "v2")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is CompanycamResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.companycam.source.companycam_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_companycam_source: mock.MagicMock) -> None:

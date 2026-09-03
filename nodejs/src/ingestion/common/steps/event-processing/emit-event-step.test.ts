@@ -62,7 +62,7 @@ describe('emit-event-step', () => {
             project_id: 1 as ProjectId,
             distinct_id: 'test-distinct-id',
             elements_chain: '',
-            created_at: null,
+            created_at: DateTime.fromISO('2023-01-01T00:01:00.000Z'),
             captured_at: null,
             person_id: 'person-uuid',
             person_properties: {},

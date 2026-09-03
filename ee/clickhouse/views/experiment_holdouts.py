@@ -11,8 +11,8 @@ from rest_framework.response import Response
 from posthog.api.documentation import FeatureFlagConditionGroupSchemaSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.experiments.backend.models.experiment import ExperimentHoldout
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.facade.filters import set_holdout

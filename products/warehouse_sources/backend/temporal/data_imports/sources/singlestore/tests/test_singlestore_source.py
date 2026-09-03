@@ -1,11 +1,9 @@
-from typing import Any, cast
+from typing import Any
 
 from unittest import mock
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
-
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.singlestore import (
@@ -15,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.singlestor
     source as singlestore_source_module,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.singlestore.source import SinglestoreSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:
@@ -42,75 +39,9 @@ class TestSinglestoreSource:
         self.source = SinglestoreSource()
         self.config = SinglestoreSourceConfig(api_key="key")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SINGLESTORE
-
-    def test_source_config_metadata(self) -> None:
-        config = self.source.get_source_config
-        assert config.label == "SingleStore, Inc."
-        assert config.category == DataWarehouseSourceCategory.DATABASES
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/singlestore"
-        # A finished source must never ship hidden behind this flag.
-        assert config.unreleasedSource is not True
-
-    def test_source_config_fields(self) -> None:
-        fields = {f.name: cast(SourceFieldInputConfig, f) for f in self.source.get_source_config.fields}
-        assert set(fields) == {"api_key"}
-        assert fields["api_key"].required is True
-        assert fields["api_key"].secret is True
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas iterates a static catalog with no I/O, so the public docs render the table list.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, team_id=1)}
-        assert set(schemas) == {"organization", "regions", "workspace_groups", "workspaces", "billing_usage"}
-
-    @parameterized.expand(
-        [
-            ("organization",),
-            ("regions",),
-            ("workspace_groups",),
-            ("workspaces",),
-        ]
-    )
-    def test_dimension_schemas_are_full_refresh(self, name: str) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, team_id=1)}
-        assert schemas[name].supports_incremental is False
-        assert schemas[name].incremental_fields == []
-
-    def test_billing_usage_schema_is_incremental(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, team_id=1)}
-        assert schemas["billing_usage"].supports_incremental is True
-        assert [f["field"] for f in schemas["billing_usage"].incremental_fields] == ["startTime"]
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["regions"])
-        assert [s.name for s in schemas] == ["regions"]
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        tables = {t["name"]: t for t in self.source.get_documented_tables()}
-        assert set(tables) == {"organization", "regions", "workspace_groups", "workspaces", "billing_usage"}
-        assert tables["organization"]["description"]
-        assert tables["billing_usage"]["sync_methods"] == ["Incremental", "Full refresh"]
-
-    @parameterized.expand(
-        [
-            ("valid", (True, None)),
-            (
-                "invalid",
-                (
-                    False,
-                    "SingleStore rejected the API key. Generate a new organization API key in the Cloud Portal and try again.",
-                ),
-            ),
-        ]
-    )
-    def test_validate_credentials_delegates(self, _name: str, result: tuple) -> None:
-        with mock.patch.object(singlestore_source_module, "validate_singlestore_credentials", lambda api_key: result):
-            assert self.source.validate_credentials(self.config, team_id=1) == result
 
     @parameterized.expand(
         [

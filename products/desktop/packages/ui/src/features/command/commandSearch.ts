@@ -1,6 +1,6 @@
 import type { CommandSection } from "@posthog/ui/features/command/useSearchSections";
 
-export const RECENT_COMMAND_LIMIT = 5;
+const RECENT_COMMAND_LIMIT = 5;
 
 export function addRecentCommand<T extends { id: string }>(
   recentCommands: T[],

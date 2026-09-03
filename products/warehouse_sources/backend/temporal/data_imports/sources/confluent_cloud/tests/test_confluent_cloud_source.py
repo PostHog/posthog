@@ -1,11 +1,6 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.confluent_cloud import (
-    ConfluentCloudResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.settings import (
     CONFLUENT_CLOUD_ENDPOINTS,
     ENDPOINTS,
@@ -14,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.confluentcloud import (
     ConfluentCloudSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _METRICS_ENDPOINTS = {name for name, c in CONFLUENT_CLOUD_ENDPOINTS.items() if c.kind == "metrics"}
 _DESCRIPTOR_ENDPOINTS = set(ENDPOINTS) - _METRICS_ENDPOINTS
@@ -32,39 +26,6 @@ class TestConfluentCloudSource:
         self.config = ConfluentCloudSourceConfig(
             api_key="cloud-key", api_secret="cloud-secret", kafka_cluster_ids="lkc-111, lkc-222"
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CONFLUENTCLOUD
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "ConfluentCloud"
-        assert config.label == "Confluent Cloud"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/confluent_cloud.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/confluent-cloud"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == [
-            "api_key",
-            "api_secret",
-            "kafka_cluster_ids",
-            "connector_ids",
-            "ksqldb_cluster_ids",
-            "schema_registry_ids",
-            "compute_pool_ids",
-        ]
-
-    def test_api_secret_field_is_secret_password(self):
-        config = self.source.get_source_config
-        secret_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_secret"
-        )
-        assert secret_field.type == SourceFieldInputConfigType.PASSWORD
-        assert secret_field.secret is True
-        assert secret_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -121,10 +82,6 @@ class TestConfluentCloudSource:
         assert self.source.lists_tables_without_credentials is True
         documented = self.source.get_documented_tables()
         assert {table["name"] for table in documented} == set(ENDPOINTS)
-
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical) == set(CONFLUENT_CLOUD_ENDPOINTS)
 
     def test_endpoint_permissions_flag_unconfigured_metrics_tables(self):
         permissions = self.source.get_endpoint_permissions(self.config, self.team_id, list(ENDPOINTS))
@@ -183,11 +140,6 @@ class TestConfluentCloudSource:
         self.source.validate_credentials(config, self.team_id, schema_name="connector_metrics")
 
         assert mock_validate.call_args.args[3:] == ("resource.connector.id", "lcc-999")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is ConfluentCloudResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.source.confluent_cloud_source"

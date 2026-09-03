@@ -1,5 +1,4 @@
 import json
-import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -63,7 +62,7 @@ def forward_pending_user_message(run_id: str) -> None:
     from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
     from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
     from products.tasks.backend.metrics import observe_followup_delivery_failed
-    from products.tasks.backend.models import TaskRun
+    from products.tasks.backend.models import TaskRun, stamp_pending_user_message_id
 
     try:
         task_run = TaskRun.objects.select_related("task__created_by", "task__team", "task__loop").get(id=run_id)
@@ -90,15 +89,9 @@ def forward_pending_user_message(run_id: str) -> None:
         activity_failure=activity_failure,
         **_task_run_log_context(task_run),
     ):
-
-        def _ensure_pending_message_id(state: dict[str, Any]) -> None:
-            if not state.get("pending_user_message") and not state.get("pending_user_artifact_ids"):
-                return
-            pending_message_id = state.get("pending_user_message_id")
-            if not isinstance(pending_message_id, str) or not pending_message_id:
-                state["pending_user_message_id"] = str(uuid.uuid4())
-
-        state = TaskRun.mutate_state_atomic(run_id, _ensure_pending_message_id)
+        state = dict(task_run.state or {})
+        if not state.get("pending_user_message_id"):
+            state = TaskRun.mutate_state_atomic(run_id, stamp_pending_user_message_id)
         pending_message = state.get("pending_user_message")
         pending_user_artifact_ids = state.get("pending_user_artifact_ids") or []
         if not pending_message and not pending_user_artifact_ids:

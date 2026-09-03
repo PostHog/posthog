@@ -10,6 +10,7 @@ offloads the blocking call via ``asyncio.to_thread`` rather than pulling in ``li
 storage, which requires a separate ``coredis`` client and would bypass our configured client.
 """
 
+import time
 import asyncio
 import threading
 
@@ -34,6 +35,13 @@ _PLACEHOLDER_URI = "redis://outbound-rate-limiter"
 # Namespace our keys in the shared Redis db so they're self-documenting and can't collide with
 # (or be wiped by a reset() of) anything else that might use the limits library's default "LIMITS".
 _KEY_PREFIX = "outbound_rate_limit"
+
+# While a window still holds more than this share of a priority's allowance, `pace_seconds` returns
+# zero. A short run spends too little of the budget to exhaust it, so slowing it would buy nothing
+# and cost latency on every small job. Under the share, the remaining allowance is close enough to
+# the floor that spending it at full speed would exhaust the window and get the caller shed for the
+# rest of it.
+_PACE_HEADROOM_FRACTION = 0.5
 
 
 def _items(limits: tuple[RateLimit, ...]) -> list[RateLimitItemPerSecond]:
@@ -71,6 +79,33 @@ def _check(
     return all(limiter.hit(item, key, cost=n) for item in items)
 
 
+def _window_wait(
+    limiter: SlidingWindowCounterRateLimiter,
+    item: RateLimitItemPerSecond,
+    key: str,
+    count: int,
+    reserve: int,
+    now: float,
+) -> float:
+    """Seconds this window wants between calls so its allowance lasts until the window rolls.
+
+    The budget is a sliding window, so it frees continuously rather than at a reset. A caller that
+    waits for a reset would idle for a whole window; the useful wait is the interval that spreads
+    the allowance that is left over the time that is left.
+    """
+    stats = limiter.get_window_stats(item, key)
+    # The reserved floor is headroom this priority may not take, so it is not part of the allowance
+    # being spread. Ignoring it would pace as if the whole window were available and still leave the
+    # caller shed at the floor.
+    usable = max(0, stats.remaining - reserve)
+    if usable > (count - reserve) * _PACE_HEADROOM_FRACTION:
+        return 0.0
+    seconds_left = max(0.0, stats.reset_time - now)
+    if usable == 0:
+        return seconds_left
+    return seconds_left / usable
+
+
 class LimitsBackend:
     """Sliding-window-counter rate limiting over Redis with an in-memory fallback.
 
@@ -97,6 +132,23 @@ class LimitsBackend:
             # limit rather than the full one.
             shrunk = self._shrunk(policy)
             return _check(self._memory_limiter(), _items(shrunk), key, n, _reserves(policy, priority, shrunk))
+
+    def pace_seconds(self, key: str, policy: RatePolicy, priority: Priority) -> float:
+        limits = policy.limits
+        try:
+            limiter = self._redis_limiter()
+            now = time.time()
+            waits = [
+                _window_wait(limiter, item, key, count, reserve, now)
+                for item, (count, _), reserve in zip(_items(limits), limits, _reserves(policy, priority, limits))
+            ]
+        except _REDIS_ERRORS:
+            # The in-memory fallback counts one process, so its headroom is not the shared budget's
+            # and a wait derived from it would be a guess. Zero leaves the gate and the caller's own
+            # backoff behaving exactly as they do without pacing.
+            return 0.0
+        # The tightest window governs: waiting the shortest interval would exhaust every other one.
+        return max(waits, default=0.0)
 
     @staticmethod
     def _shrunk(policy: RatePolicy) -> tuple[RateLimit, ...]:

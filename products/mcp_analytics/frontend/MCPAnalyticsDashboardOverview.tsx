@@ -5,6 +5,8 @@ import { FilterBar } from 'lib/components/FilterBar'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { McpDateFilter } from './components/McpDateFilter'
@@ -43,6 +45,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
     } = useValues(mcpDashboardOverviewLogic)
     const { setDateFilter, setFilterTestAccounts, setPropertyFilters } = useActions(mcpDashboardOverviewLogic)
     const { timezone } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const theme = useChartTheme()
 
@@ -90,6 +93,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     intentClusterCount={intentClusterCount}
                     kpisLoading={kpisLoading}
                     usersLoading={usersLoading}
+                    showIntentClusters={!!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]}
                     theme={theme}
                     incompleteTail={kpiIncompleteTail}
                 />

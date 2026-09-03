@@ -21,10 +21,10 @@ from temporalio import activity
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async_pool
 from posthog.tasks.email import send_matview_failure_immediate_email
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataModelingJobEngine,
