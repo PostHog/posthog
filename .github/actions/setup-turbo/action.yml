@@ -1,70 +1,38 @@
 name: Install turbo
 description: |
-    Puts the `turbo` binary on PATH without a pnpm install. The version and the
-    tarball digest both come from pnpm-lock.yaml.
+    Puts the lockfile-pinned `turbo` binary on PATH, for a job that runs turbo
+    tasks but does not need the workspace installed.
+
+    Requires pnpm and Node on PATH already: pnpm resolves and verifies the
+    package, and turbo shells out through pnpm to launch each task.
 
 inputs:
     lockfile:
-        description: 'pnpm lockfile that pins the turbo version and digest.'
+        description: 'pnpm lockfile that pins the turbo version.'
         required: false
         default: pnpm-lock.yaml
 
 runs:
     using: composite
     steps:
-        - name: Install turbo from the pinned tarball
+        - name: Install turbo
           shell: bash
           env:
               LOCKFILE: ${{ inputs.lockfile }}
+              npm_config_fetch_retries: 3
+              npm_config_fetch_retry_mintimeout: 10000
+              npm_config_fetch_retry_maxtimeout: 60000
           run: |
               set -euo pipefail
 
-              version=$(sed -nE 's/^  turbo@([0-9]+\.[0-9]+\.[0-9]+):$/\1/p' "$LOCKFILE" | head -1)
-              if [ -z "$version" ]; then
-                  echo "::error::No pinned turbo version in $LOCKFILE"
-                  exit 1
-              fi
+              version=$(yq -e '.importers["."].devDependencies.turbo.version' "$LOCKFILE")
 
-              case "$RUNNER_OS-$RUNNER_ARCH" in
-                  Linux-X64) platform=linux-64 ;;
-                  Linux-ARM64) platform=linux-arm64 ;;
-                  macOS-X64) platform=darwin-64 ;;
-                  macOS-ARM64) platform=darwin-arm64 ;;
-                  *)
-                      echo "::error::No turbo tarball for $RUNNER_OS-$RUNNER_ARCH"
-                      exit 1
-                      ;;
-              esac
+              # Outside the workspace, so pnpm treats it as its own project and
+              # writes nothing into the checkout.
+              dir="$RUNNER_TEMP/turbo"
+              mkdir -p "$dir"
+              echo '{"name":"turbo-runner","private":true}' > "$dir/package.json"
+              pnpm --dir "$dir" add "turbo@$version" --no-lockfile
 
-              # The package block ends at the first blank line, which bounds the sed range.
-              digest=$(sed -nE "/^  '@turbo\/${platform}@${version}':\$/,/^\$/{s/.*integrity: (sha512-[A-Za-z0-9+\/=]+).*/\1/p;}" "$LOCKFILE" | head -1)
-              if [ -z "$digest" ]; then
-                  echo "::error::No integrity digest for @turbo/${platform}@${version} in $LOCKFILE"
-                  exit 1
-              fi
-
-              # Unpack outside the PATH directory so it holds nothing but the binary.
-              dest="$RUNNER_TEMP/turbo-bin"
-              unpacked="$RUNNER_TEMP/turbo-unpacked"
-              mkdir -p "$dest" "$unpacked"
-              tarball="$RUNNER_TEMP/turbo.tgz"
-              curl --fail --silent --show-error --location \
-                  --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
-                  "https://registry.npmjs.org/@turbo/${platform}/-/${platform}-${version}.tgz" \
-                  --output "$tarball"
-
-              actual="sha512-$(openssl dgst -sha512 -binary "$tarball" | openssl base64 -A)"
-              if [ "$actual" != "$digest" ]; then
-                  echo "::error::turbo tarball digest mismatch; expected $digest, got $actual"
-                  exit 1
-              fi
-
-              tar xzf "$tarball" -C "$unpacked"
-              binary=$(find "$unpacked" -type f -name turbo -perm -u+x | head -1)
-              if [ -z "$binary" ]; then
-                  echo "::error::No turbo binary in the tarball"
-                  exit 1
-              fi
-              install -m 0755 "$binary" "$dest/turbo"
-              echo "$dest" >> "$GITHUB_PATH"
-              "$dest/turbo" --version
+              echo "$dir/node_modules/.bin" >> "$GITHUB_PATH"
+              "$dir/node_modules/.bin/turbo" --version
