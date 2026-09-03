@@ -714,6 +714,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         )
 
     def record_partition_measurement(self, max_partition_bytes: int) -> None:
+        # Deferred: this module loads during django.setup() and the util pulls in temporalio.
         from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
 
         self.sync_type_config = retry_on_db_connection_drop(
