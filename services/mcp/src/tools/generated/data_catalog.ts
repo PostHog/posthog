@@ -324,6 +324,69 @@ const dataCatalogMetricCreate = (): ToolBase<
     },
 })
 
+const DataCatalogMetricDeleteSchema = () => {
+    const DataCatalogMetricsDestroyParams = orvalSchemas.DataCatalogMetricsDestroyParams()
+    return DataCatalogMetricsDestroyParams.omit({ project_id: true })
+}
+
+const DataCatalogMetricDeleteSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const dataCatalogMetricDeletePrepare = (): ToolBase<
+    ReturnType<typeof DataCatalogMetricDeleteSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'data-catalog-metric-delete-prepare',
+    schema: DataCatalogMetricDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogMetricDeleteSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'data-catalog-metric-delete',
+            actionLabel: 'delete metric',
+            messageTemplate: "About to delete metric '{name}'. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const dataCatalogMetricDeleteExecute = (): ToolBase<typeof DataCatalogMetricDeleteSchemaExecute, unknown> => ({
+    name: 'data-catalog-metric-delete-execute',
+    schema: DataCatalogMetricDeleteSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof DataCatalogMetricDeleteSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof DataCatalogMetricDeleteSchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'data-catalog-metric-delete',
+                codec: __runtime.codec,
+                ledger: __runtime.ledger,
+                stash: __runtime.stash,
+                expectedScope: { projectId: String(__scopeProjectId) },
+            }
+        )
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/`,
+        })
+        return result
+    },
+})
+
 const DataCatalogMetricRunSchema = () => {
     const DataCatalogMetricsRunCreateBody = orvalSchemas.DataCatalogMetricsRunCreateBody()
     const DataCatalogMetricsRunCreateParams = orvalSchemas.DataCatalogMetricsRunCreateParams()
@@ -723,6 +786,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-catalog-metric-approve-prepare': dataCatalogMetricApprovePrepare,
     'data-catalog-metric-approve-execute': dataCatalogMetricApproveExecute,
     'data-catalog-metric-create': dataCatalogMetricCreate,
+    'data-catalog-metric-delete-prepare': dataCatalogMetricDeletePrepare,
+    'data-catalog-metric-delete-execute': dataCatalogMetricDeleteExecute,
     'data-catalog-metric-run': dataCatalogMetricRun,
     'data-catalog-metric-update': dataCatalogMetricUpdate,
     'data-catalog-metrics-refresh-from-insight-create': dataCatalogMetricsRefreshFromInsightCreate,
