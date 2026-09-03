@@ -3,7 +3,7 @@ import React, { useEffect, useMemo } from 'react'
 import { useChartHover } from '../../core/chart-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useLatest } from '../../core/hooks/useLatest'
-import type { BarChartConfig, ChartTheme, LineChartConfig, Series, TooltipContext } from '../../core/types'
+import type { BarChartConfig, ChartTheme, LineChartConfig, Series, TooltipContext, ValueDomain } from '../../core/types'
 import { BarChart } from '../BarChart/BarChart'
 import { LineChart } from '../LineChart/LineChart'
 
@@ -28,6 +28,9 @@ export interface SparklineProps {
     fillOpacity?: number
     /** Dash the line from this index onward (e.g. an in-progress trailing period). Omit for a fully solid line. */
     dashedFromIndex?: number
+    /** Value-axis domain control — omit for data-derived auto-scaling. Pin both ends to keep
+     *  separate sparklines comparable (e.g. a column of per-provider rates all read against 0–100). */
+    valueDomain?: ValueDomain
     /** Fires the hovered index, or -1 when not hovering. */
     onHoverIndexChange?: (index: number) => void
     /** Tooltip content renderer. Sparkline tooltips are off by default; supplying this enables them. */
@@ -72,6 +75,7 @@ function SparklineInner({
     fill = false,
     fillOpacity = 0.35,
     dashedFromIndex,
+    valueDomain,
     onHoverIndexChange,
     tooltip,
     className,
@@ -111,8 +115,9 @@ function SparklineInner({
                   }
                 : { showCrosshair: true, margins: LINE_MARGINS }),
             ...(hasTooltip ? {} : { tooltip: { enabled: false } }),
+            ...(valueDomain ? { valueDomain } : {}),
         }),
-        [type, hasTooltip]
+        [type, hasTooltip, valueDomain]
     )
     const wrapperStyle = useMemo<React.CSSProperties | undefined>(() => (fill ? undefined : { height }), [fill, height])
 
