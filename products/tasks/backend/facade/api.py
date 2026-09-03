@@ -7752,55 +7752,6 @@ def provision_default_channels(team_id: int, user_id: int) -> contracts.Provisio
     )
 
 
-CHANNEL_RECENT_TASK_AUTHOR_WINDOW = timedelta(hours=2)
-CHANNEL_RECENT_TASK_AUTHOR_LIMIT = 3
-
-
-def list_recent_task_authors(team_id: int, user_id: int | None) -> list[contracts.ChannelRecentTaskAuthorDTO]:
-    if user_id is None:
-        return []
-
-    cutoff = django_timezone.now() - CHANNEL_RECENT_TASK_AUTHOR_WINDOW
-    tasks = (
-        _visible_task_qs(team_id, user_id)
-        .filter(
-            archived=False,
-            channel_id__isnull=False,
-            created_by_id__isnull=False,
-            internal=False,
-            last_activity_at__gte=cutoff,
-        )
-        .exclude(created_by_id=user_id)
-    )
-    tasks = (
-        tasks.only("id", "channel_id", "created_by_id", "last_activity_at")
-        .prefetch_related(Prefetch("created_by", queryset=User.objects.only(*_TASK_CREATED_BY_FIELDS)))
-        .order_by("channel_id", "created_by_id", "-last_activity_at", "-id")
-        .distinct("channel_id", "created_by_id")
-    )
-
-    authors_by_channel: dict[UUID, list[contracts.ChannelRecentTaskAuthorDTO]] = {}
-    for task in tasks:
-        if task.channel_id is None or task.created_by is None or task.last_activity_at is None:
-            continue
-        user = _user_basic_info(task.created_by)
-        if user is None:
-            continue
-        authors_by_channel.setdefault(task.channel_id, []).append(
-            contracts.ChannelRecentTaskAuthorDTO(
-                channel_id=task.channel_id,
-                user=user,
-                last_activity_at=task.last_activity_at,
-            )
-        )
-
-    recent_authors: list[contracts.ChannelRecentTaskAuthorDTO] = []
-    for authors in authors_by_channel.values():
-        authors.sort(key=lambda author: author.last_activity_at, reverse=True)
-        recent_authors.extend(authors[:CHANNEL_RECENT_TASK_AUTHOR_LIMIT])
-    return recent_authors
-
-
 def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDTO]:
     """Every space the requester can see, by name. ``starred`` reflects the requester's
     stars. Creates nothing, which is what lets a caller gate on a space existing."""

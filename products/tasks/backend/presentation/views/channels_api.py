@@ -34,7 +34,6 @@ from products.tasks.backend.presentation.serializers import (
     ChannelFeedMessageWriteSerializer,
     ChannelInstructionsSerializer,
     ChannelInstructionsWriteSerializer,
-    ChannelRecentTaskAuthorSerializer,
     ChannelSerializer,
     ChannelStarWriteSerializer,
     ChannelUpdateSerializer,
@@ -88,14 +87,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # GET /instructions/ and /context_generation/ are reads; the PUT/PATCH/DELETE
     # method mappings resolve to their own action names, so they go in the write
     # bucket by name.
-    scope_object_read_actions = [
-        "list",
-        "retrieve",
-        "instructions",
-        "instructions_versions",
-        "context_generation",
-        "recent_task_authors",
-    ]
+    scope_object_read_actions = ["list", "retrieve", "instructions", "instructions_versions", "context_generation"]
     scope_object_write_actions = [
         "create",
         "provision_defaults",
@@ -133,25 +125,6 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list(self, request, *args, **kwargs):
         channels = tasks_facade.list_channels(self.team_id, self._user_id())
         return Response(ChannelSerializer(channels, many=True).data)
-
-    @extend_schema(
-        request=None,
-        responses={
-            200: OpenApiResponse(
-                response=ChannelRecentTaskAuthorSerializer(many=True),
-                description="Recent task authors grouped by channel",
-            )
-        },
-        summary="List recent task authors by channel",
-        description=(
-            "Returns up to three authors per visible channel with task activity in the last two hours. "
-            "The response excludes the requesting user."
-        ),
-    )
-    @action(methods=["GET"], detail=False, url_path="recent_task_authors", pagination_class=None)
-    def recent_task_authors(self, request: Request, **kwargs) -> Response:
-        authors = tasks_facade.list_recent_task_authors(self.team_id, self._user_id())
-        return Response(ChannelRecentTaskAuthorSerializer(authors, many=True).data)
 
     @extend_schema(
         request=None,

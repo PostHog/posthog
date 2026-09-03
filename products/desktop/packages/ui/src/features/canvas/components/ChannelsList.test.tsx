@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
     authorId?: number;
   }[],
   currentUserId: 999 as number | undefined,
+  currentUserUuid: "current-user" as string | undefined,
   totals: {} as Record<string, number>,
   unreadSessions: {} as Record<string, number>,
   blockedSessions: {} as Record<string, number>,
@@ -71,7 +72,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useBlockedSessionCount", () => ({
     mocks.blockedSessions[channelId ?? ""] ?? 0,
 }));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
-  useCurrentUser: () => ({ data: { id: mocks.currentUserId } }),
+  useCurrentUser: () => ({
+    data: { id: mocks.currentUserId, uuid: mocks.currentUserUuid },
+  }),
+}));
+vi.mock("@posthog/ui/features/auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => ({}),
 }));
 // The row menu's spaces list and filing mutation are tRPC-backed; the flag
 // lookup sits behind a service provider that isn't mounted here.

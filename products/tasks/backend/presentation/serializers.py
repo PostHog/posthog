@@ -28,7 +28,6 @@ from products.tasks.backend.facade.contracts import (
     ChannelDTO,
     ChannelFeedMessageDTO,
     ChannelInstructionsDTO,
-    ChannelRecentTaskAuthorDTO,
     DesktopAccessReason,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
@@ -2082,15 +2081,6 @@ class ChannelSerializer(DataclassSerializer):
             "starred",
             "system_role",
         ]
-
-
-class ChannelRecentTaskAuthorSerializer(DataclassSerializer):
-    channel_id = serializers.UUIDField(help_text="Channel that contains the recently active task.")
-    user = TaskUserBasicInfoSerializer(help_text="User who created a task with recent activity in this channel.")
-    last_activity_at = serializers.DateTimeField(help_text="Most recent activity on a task created by this user.")
-
-    class Meta:
-        dataclass = ChannelRecentTaskAuthorDTO
 
 
 class OnboardingSessionSerializer(serializers.Serializer):

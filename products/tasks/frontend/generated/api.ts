@@ -15,7 +15,6 @@ import type {
     ChannelFeedMessageWriteApi,
     ChannelInstructionsDTOApi,
     ChannelInstructionsWriteApi,
-    ChannelRecentTaskAuthorDTOApi,
     ChannelStarWriteApi,
     ChannelWriteApi,
     ConnectionTokenResponseApi,
@@ -1181,24 +1180,6 @@ export const taskChannelsProvisionDefaultsCreate = async (
     return apiMutator<ProvisionedChannelsApi>(getTaskChannelsProvisionDefaultsCreateUrl(projectId), {
         ...options,
         method: 'POST',
-    })
-}
-
-export const getTaskChannelsRecentTaskAuthorsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/task_channels/recent_task_authors/`
-}
-
-/**
- * Returns up to three authors per visible channel with task activity in the last two hours. The response excludes the requesting user.
- * @summary List recent task authors by channel
- */
-export const taskChannelsRecentTaskAuthorsRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<ChannelRecentTaskAuthorDTOApi[]> => {
-    return apiMutator<ChannelRecentTaskAuthorDTOApi[]>(getTaskChannelsRecentTaskAuthorsRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
     })
 }
 

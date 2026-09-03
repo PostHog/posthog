@@ -1358,15 +1358,6 @@ export interface ProvisionedChannelsApi {
     general_created: boolean
 }
 
-export interface ChannelRecentTaskAuthorDTOApi {
-    /** Channel that contains the recently active task. */
-    channel_id: string
-    /** User who created a task with recent activity in this channel. */
-    user: TaskUserBasicInfoApi
-    /** Most recent activity on a task created by this user. */
-    last_activity_at: string
-}
-
 export interface TeachingCanvasApi {
     /** The teaching canvas that was resolved or created. */
     canvas_id: string
