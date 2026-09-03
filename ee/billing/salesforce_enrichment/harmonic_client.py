@@ -35,13 +35,8 @@ class HarmonicCompanyLookup:
 # Harmonic documents this as the per-call cap on /enrichment_status URNs.
 _ENRICHMENT_STATUS_BATCH_SIZE = 50
 
-# enrich_companies_batch fires this many lookups concurrently per wave, re-pacing before each one,
-# so a wave that lands after the budget has been drawn down actually waits instead of bursting.
+# Sized under the BATCH lane's share of the per-second budget, so a whole wave is admitted.
 _ENRICH_WAVE_SIZE = 10
-
-# Bounds how many times enrich_companies_batch retries a domain the egress limiter sheds, so a
-# sustained budget crunch degrades to a bounded number of misses within one call rather than
-# retrying forever.
 _ENRICH_MAX_ATTEMPTS = 3
 
 
@@ -236,8 +231,7 @@ class AsyncHarmonicClient:
         return HarmonicCompanyLookup(company=None, enrichment_urn=not_found_urn)
 
     async def _enrich_company_by_domain_observing_denial(self, domain: str) -> Optional[dict[str, Any]]:
-        """Batch-path lookup that lets a HarmonicEgressBudgetExhausted denial propagate instead of
-        folding it into the same None enrich_company_by_domain returns for a genuine miss.
+        """Lookup for the batch path, which must see a denial rather than a miss.
 
         Delegates to enrich_company_by_domain_strict for its shed-always-wins precedence: a shed on
         one domain variation is never treated as a not-found even when a sibling variation returned
@@ -316,16 +310,11 @@ class AsyncHarmonicClient:
     async def enrich_companies_batch(self, domains: list[str]) -> list[dict[str, Any] | None]:
         """Enrich multiple domains concurrently, in waves paced against the shared egress budget.
 
-        Pacing is recomputed before each wave rather than once for the whole batch: pace_seconds
-        reads live limiter state, so only a wave that actually finds the budget consumed waits.
-        Pacing once up front and then gathering the whole batch would let a later wave burst past
-        the budget the instant an earlier wave (or unrelated traffic) had drawn it down, the same
-        defect as not pacing at all, just delayed.
+        Pacing is recomputed per wave because pace_seconds reads live limiter state, so a wave that
+        finds the budget already drawn down waits for it.
 
-        A domain the limiter sheds mid-wave is not a miss: enrich_company_by_domain would fold that
-        denial into the same None a genuine not-found returns, and callers that persist results
-        (e.g. as a Salesforce account update) cannot tell the two apart. So a shed domain is retried
-        in a later wave, up to _ENRICH_MAX_ATTEMPTS, instead of being recorded immediately.
+        A shed domain is retried in a later wave rather than recorded: callers persist these results
+        against a Salesforce account, and a shed means Harmonic was never asked.
 
         Args:
             domains: List of company domains to enrich

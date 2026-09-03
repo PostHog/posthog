@@ -883,7 +883,6 @@ async def enrich_accounts_chunked_async(
     total_failed = 0
     update_records = []
 
-    # Process in batches; each Harmonic call is gated by the shared egress limiter (BATCH priority).
     async with AsyncHarmonicClient(priority=Priority.BATCH, source="salesforce_enrichment_bulk") as harmonic_client:
         for batch_start in range(0, len(account_data), HARMONIC_BATCH_SIZE):
             batch_end = min(batch_start + HARMONIC_BATCH_SIZE, len(account_data))

@@ -4,9 +4,8 @@ Harmonic bills one account-wide rate limit — there is one ``HARMONIC_API_KEY``
 instance, not one per installation or team — so every call anywhere in the codebase draws from a
 single shared budget under the constant key ``harmonic:account:default``.
 
-Seeded from observed production throughput rather than the conflicting 5 and 10 req/s figures
-that were quoted in code comments here before, neither of which was ever enforced. Treat it as a
-starting point and tune it against the rate-limit headers this domain records.
+Harmonic publishes no rate limit, so the budget is an operator ceiling to tune against the
+rate-limit headers this domain records.
 
 Two very different consumers share this budget, so the priority lanes matter:
 - CRITICAL (interactive): signup enrichment and the ICP re-enrichment sweep run inside a
