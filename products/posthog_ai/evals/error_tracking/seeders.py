@@ -313,6 +313,7 @@ def _insert_session_replay_summary(
             "block_last_timestamps": [last_timestamp],
             "retention_period_days": 30,
             "is_deleted": 0,
+            "surfacing_score": None,
             "_timestamp": first_timestamp.timestamp(),
         },
     )
