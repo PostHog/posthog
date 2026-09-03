@@ -2773,10 +2773,10 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
 
 
 class TestSignalReportPrEndpoints(APIBaseTest):
-    def _create_report(self) -> SignalReport:
+    def _create_report(self, report_status: str = SignalReport.Status.READY) -> SignalReport:
         return SignalReport.objects.create(
             team=self.team,
-            status=SignalReport.Status.READY,
+            status=report_status,
             title="Test report",
             summary="Test summary",
             signal_count=1,
@@ -2955,6 +2955,27 @@ class TestSignalReportPrEndpoints(APIBaseTest):
             source="signals_pr_detail",
             priority=Priority.NORMAL,
         )
+
+    @parameterized.expand(
+        [
+            ("checks", "_checks_url", "get_pull_request_checks", "checks"),
+            ("comments", "_comments_url", "get_pull_request_comments", "comments"),
+        ]
+    )
+    def test_pr_reads_serve_a_suppressed_report(self, _name, url_attr, fetch_name, key):
+        # The Archive tab renders the PR panel of a dismissed report, so both read-only PR
+        # endpoints must reach a suppressed report by ID like `retrieve` does.
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        getattr(github.return_value, fetch_name).return_value = {"success": True, key: []}
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.get(getattr(self, url_attr)(str(report.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {key: []}
 
     def test_pr_checks_maps_upstream_failure_to_502(self):
         report = self._create_report()
