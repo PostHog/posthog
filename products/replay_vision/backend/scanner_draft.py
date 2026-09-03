@@ -16,6 +16,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal, cast
 
 from django.conf import settings
+from django.db.models import Q
 
 import structlog
 import posthoganalytics
@@ -26,6 +27,7 @@ from pydantic import BaseModel, Field
 from posthog.schema import RecordingsQuery
 
 from posthog.llm.semantic_enrichment import get_team_business_context
+from posthog.models import EventDefinition
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -81,6 +83,92 @@ _MIN_SCREEN_FILTER_CHARS = 3
 # v2 filter pages become ONE multi-value visited_page property, which ORs its values, so several are
 # safe. More than this and the filter stops describing one flow.
 _MAX_FILTER_PAGES = 5
+# Replaces a collapsed ":id" run when building the page regex. Matches one path segment, so the
+# literal segments on both sides of the id stay anchored to the real URL structure.
+_ID_WILDCARD = "[^/]+"
+# The goal-based briefing lists this many of the team's events as general context. A large product
+# has thousands of custom events, so this is a sample, not the catalogue.
+_MAX_BASELINE_EVENTS = 100
+# Events whose names match the goal's own words, added on top of the baseline. Ranking cannot
+# surface a rare-but-relevant event: on a large product "survey sent" is the 591st busiest event,
+# so no baseline length reaches it, while matching the word "survey" finds it at once.
+_MAX_GOAL_MATCHED_EVENTS = 30
+# Goal words shorter than this match too much of the catalogue to be a useful lookup.
+_MIN_GOAL_TERM_CHARS = 4
+# Only the first terms are looked up, so a long goal stays one bounded query.
+_MAX_GOAL_TERMS = 8
+# Words common to almost any goal. Matching them returns arbitrary events rather than the ones the
+# user means, and crowds out the terms that carry the intent.
+_GOAL_STOPWORDS = frozenset(
+    {
+        "about",
+        "after",
+        "also",
+        "before",
+        "being",
+        "does",
+        "doing",
+        "done",
+        "during",
+        "each",
+        "every",
+        "find",
+        "from",
+        "have",
+        "having",
+        "into",
+        "just",
+        "know",
+        "like",
+        "look",
+        "made",
+        "make",
+        "many",
+        "more",
+        "most",
+        "onto",
+        "over",
+        "page",
+        "pages",
+        "people",
+        "person",
+        "product",
+        "recording",
+        "recordings",
+        "scanner",
+        "scanners",
+        "session",
+        "sessions",
+        "show",
+        "site",
+        "some",
+        "someone",
+        "than",
+        "that",
+        "their",
+        "them",
+        "then",
+        "there",
+        "these",
+        "they",
+        "this",
+        "those",
+        "through",
+        "user",
+        "users",
+        "want",
+        "wants",
+        "watch",
+        "watching",
+        "what",
+        "when",
+        "where",
+        "which",
+        "will",
+        "with",
+        "would",
+    }
+)
 
 
 class DraftError(Exception):
@@ -625,7 +713,12 @@ Pick the single type that best fits the goal, then draft the scanner:
   - filter_pages: the pages list is what the product actually calls things, so map the goal's words
     onto their closest real pages, including synonyms: someone saying "money" or "payments" means the
     billing pages. Pick up to 5, each copied EXACTLY from the briefing's pages list. They OR together:
-    a session that visited ANY of them is scanned, so cover the flow rather than picking one page.
+    a session that visited ANY of them is scanned. Pick the MOST SPECIFIC page that matches the goal.
+    Do NOT also add a parent of a page you already picked: "/experiments/new" is the creation page, so
+    adding "/experiments" as well widens the scan to everyone browsing the experiments section, which
+    a goal about creation does not want. Use several pages only when the goal genuinely spans distinct
+    pages (a checkout moving through cart, shipping, and payment), never to add a broader page around a
+    specific one.
   - filter_events: when a specific action is the sharpest signal for the goal, pick the one or two
     custom events that mark it, each copied EXACTLY from the briefing's events list. An event is often
     more precise than a page for "did the user DO X" (e.g. an event fired when a flow starts).
@@ -720,19 +813,78 @@ def _build_user_content_v2(
     return "\n".join(lines)
 
 
-def _page_filter_value(pathname: str) -> str | None:
-    """The `icontains` filter value for a grounded page, or None when the page cannot filter.
+def _goal_terms(goal: str) -> list[str]:
+    """The words in a goal worth looking up as event names, longest first.
 
-    The grounding list collapses identifier segments to ":id", but real URLs contain the real IDs, so
-    a value holding ":id" matches nothing. The prefix up to the first ":id" still matches every such
-    URL — broader than the exact page, and under OR semantics broader only adds sessions.
+    Longest first because a specific word ("checkout") is a better lookup than a vague one
+    ("flow"), and only the first few terms are searched.
     """
-    value = pathname.split(":id")[0] if ":id" in pathname else pathname
-    if len(value.strip().replace("/", "")) < _MIN_SCREEN_FILTER_CHARS:
-        # `icontains` on "/" or a two-letter prefix matches nearly every URL: it would render as a
-        # narrowing filter while narrowing nothing.
+    words = {w for w in re.findall(r"[a-z0-9]+", goal.lower()) if len(w) >= _MIN_GOAL_TERM_CHARS}
+    ranked = sorted(words - _GOAL_STOPWORDS, key=lambda w: (-len(w), w))
+    return ranked[:_MAX_GOAL_TERMS]
+
+
+def _events_for_goal(team: Team, goal: str) -> list[str]:
+    """Custom event names to show the model: a baseline sample, widened by the goal's own words.
+
+    The baseline alone cannot cover a large product. Ranking does not rescue it either, because the
+    event a goal needs is often rare: "survey sent" is the 591st busiest event on a product with
+    2,332 of them, so it sits outside any baseline worth putting in a prompt, while its name matches
+    the word "survey" immediately.
+
+    Matching only widens what the model can see. The model still chooses, and `_grounded` still
+    drops anything it invents, so a term that matches the wrong events costs prompt space rather
+    than correctness.
+    """
+    base_qs = EventDefinition.objects.filter(team_id=team.id, last_seen_at__isnull=False).exclude(name__startswith="$")
+    baseline: list[str] = []
+    try:
+        baseline = list(base_qs.order_by("-last_seen_at").values_list("name", flat=True)[:_MAX_BASELINE_EVENTS])
+    except Exception:
+        logger.warning("replay_vision.scanner_draft.baseline_events_failed", team_id=team.id, exc_info=True)
+
+    terms = _goal_terms(goal)
+    if not terms:
+        return baseline
+
+    matched: list[str] = []
+    try:
+        name_matches = Q()
+        for term in terms:
+            name_matches |= Q(name__icontains=term)
+        matched = list(
+            base_qs.filter(name_matches)
+            .order_by("-last_seen_at")
+            .values_list("name", flat=True)[:_MAX_GOAL_MATCHED_EVENTS]
+        )
+    except Exception:
+        # A failed lookup costs the goal-matched events, not the draft.
+        logger.warning("replay_vision.scanner_draft.goal_events_failed", team_id=team.id, exc_info=True)
+
+    # Matched first: they are the ones the goal actually points at, and the briefing is read in order.
+    return list(dict.fromkeys([*matched, *baseline]))
+
+
+def _page_filter_regex(pathname: str) -> str | None:
+    """A ClickHouse regex matching real URLs for a collapsed grounding path, or None when the path
+    cannot narrow.
+
+    The grounding list collapses identifier segments to ":id", but real URLs hold real IDs. Replacing
+    each ":id" with a single-segment wildcard keeps the WHOLE path specific: the collapsed page
+    "/project/:id/replay-vision/scanners" becomes a regex matching "/project/<id>/replay-vision/
+    scanners" and nothing broader. Matching a single static substring instead would lose the segments
+    around the id and could collapse to a bare prefix that matches every page.
+    """
+    # The literal segments, ignoring the ":id" runs, are the only real content to match on. A path
+    # with too little (e.g. "/", "/:id", or "/ab") would match nearly every URL, so draft no filter
+    # rather than one that narrows nothing. Any other shape is kept: the scanner watches the
+    # customer's product, so we don't assume their URL structure.
+    static_chars = len(pathname.replace(":id", "").replace("/", ""))
+    if static_chars < _MIN_SCREEN_FILTER_CHARS:
         return None
-    return value
+    # Escape the literal parts so a path character like "." or "-" cannot act as a regex
+    # metacharacter, then rejoin with the id wildcard.
+    return _ID_WILDCARD.join(re.escape(part) for part in pathname.split(":id"))
 
 
 def _strip_page_count(page: str) -> str:
@@ -743,15 +895,16 @@ def _strip_page_count(page: str) -> str:
 def _v2_query(pathnames: Sequence[str], events: Sequence[str]) -> dict[str, Any] | None:
     """The scanner's recording filter from the grounded pages and events.
 
-    Pages become ONE multi-value `visited_page` property (its values OR). Events go in the `events`
-    list, where each event ANDs, with the other events and with the page property. The estimate the
-    caller runs, and the review page's Save-at-zero gate, catch an over-constrained AND before it
-    ever becomes a scanner.
+    Pages become ONE multi-value `visited_page` property (its values OR). Each value is a regex that
+    matches the collapsed page against real URLs, with ":id" runs wildcarded. Events go in the
+    `events` list, where each event ANDs, with the other events and with the page property. The
+    estimate the caller runs, and the review page's Save-at-zero gate, catch an over-constrained AND
+    before it ever becomes a scanner.
     """
     query: dict[str, Any] = {"kind": "RecordingsQuery"}
-    values = list(dict.fromkeys(v for p in pathnames if (v := _page_filter_value(p)) is not None))
+    values = list(dict.fromkeys(v for p in pathnames if (v := _page_filter_regex(p)) is not None))
     if values:
-        query["properties"] = [{"type": "recording", "key": "visited_page", "value": values, "operator": "icontains"}]
+        query["properties"] = [{"type": "recording", "key": "visited_page", "value": values, "operator": "regex"}]
     if events:
         # The shape the replay filter UI produces for an event condition.
         query["events"] = [{"id": event, "name": event, "type": "events", "order": 0} for event in events]
@@ -912,7 +1065,7 @@ def draft_scanner_from_goal_v2(
         # A draft grounded only in events still beats no draft; the filter just cannot name pages.
         logger.warning("replay_vision.scanner_draft.visited_paths_failed", team_id=team.id, exc_info=True)
         pages = ()
-    events = _product_taxonomy(team).events
+    events = _events_for_goal(team, goal)
     company = (
         " / ".join(part for part in [team.organization.name, team.project.name if team.project else ""] if part)
         if include_business_context

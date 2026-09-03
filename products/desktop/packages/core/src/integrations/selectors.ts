@@ -1,4 +1,4 @@
-export interface IntegrationAccount {
+interface IntegrationAccount {
   name?: string;
   type?: string;
 }

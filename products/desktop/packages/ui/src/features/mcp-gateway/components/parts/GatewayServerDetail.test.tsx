@@ -289,14 +289,16 @@ describe("GatewayServerDetail", () => {
     // one toggle renders: the caller's own.
     expect(
       screen.getAllByRole("radiogroup", {
-        name: "Which runs use your connection",
+        name: "Who can use this connection",
       }),
     ).toHaveLength(1);
     expect(
       screen.getByText(/shared to the team by Grace Hopper/),
     ).toBeInTheDocument();
 
-    await user.click(screen.getByRole("radio", { name: "All team agents" }));
+    await user.click(
+      screen.getByRole("radio", { name: "Everyone in this project" }),
+    );
 
     expect(mocks.setAgentAccess).toHaveBeenCalledWith({
       accountId: "sa-1",

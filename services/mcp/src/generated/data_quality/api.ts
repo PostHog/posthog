@@ -11,7 +11,7 @@ import * as zod from 'zod'
 /**
  * Create a check on this table or view, or refine the one already carrying the same fingerprint. Re-creating a semantically identical check returns 200 and the existing row, never a duplicate.
  */
-export const WarehouseSavedQueriesChecksCreateParams = /* @__PURE__ */ zod.object({
+export const WarehouseSavedQueriesChecksCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -20,9 +20,11 @@ export const WarehouseSavedQueriesChecksCreateParams = /* @__PURE__ */ zod.objec
     saved_query_id: zod.string(),
 })
 
-export const warehouseSavedQueriesChecksCreateBodyNameMax = 128
+export const warehouseSavedQueriesChecksCreateBodyNameOneMax = 128
 
-export const warehouseSavedQueriesChecksCreateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseSavedQueriesChecksCreateBodyNameOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseSavedQueriesChecksCreateBodyNameTwoMax = 0
+
 export const warehouseSavedQueriesChecksCreateBodyColumnNameMax = 400
 
 export const warehouseSavedQueriesChecksCreateBodyAiModelMax = 128
@@ -30,12 +32,16 @@ export const warehouseSavedQueriesChecksCreateBodyAiModelMax = 128
 export const warehouseSavedQueriesChecksCreateBodyConfidenceMin = 0
 export const warehouseSavedQueriesChecksCreateBodyConfidenceMax = 1
 
-export const WarehouseSavedQueriesChecksCreateBody = /* @__PURE__ */ zod
+export const WarehouseSavedQueriesChecksCreateBody = () => zod
     .object({
         name: zod
-            .string()
-            .max(warehouseSavedQueriesChecksCreateBodyNameMax)
-            .regex(warehouseSavedQueriesChecksCreateBodyNameRegExp)
+            .union([
+                zod
+                    .string()
+                    .max(warehouseSavedQueriesChecksCreateBodyNameOneMax)
+                    .regex(warehouseSavedQueriesChecksCreateBodyNameOneRegExp),
+                zod.string().max(warehouseSavedQueriesChecksCreateBodyNameTwoMax),
+            ])
             .optional()
             .describe('Optional identifier-safe handle, unique per project. Omit to address the check by id.'),
         description: zod.string().optional().describe('Why this check exists and what a failure means.'),
@@ -90,7 +96,7 @@ export const WarehouseSavedQueriesChecksCreateBody = /* @__PURE__ */ zod
 /**
  * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
-export const WarehouseSavedQueriesChecksPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const WarehouseSavedQueriesChecksPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data quality check.'),
     project_id: zod
         .string()
@@ -100,9 +106,11 @@ export const WarehouseSavedQueriesChecksPartialUpdateParams = /* @__PURE__ */ zo
     saved_query_id: zod.string(),
 })
 
-export const warehouseSavedQueriesChecksPartialUpdateBodyNameMax = 128
+export const warehouseSavedQueriesChecksPartialUpdateBodyNameOneMax = 128
 
-export const warehouseSavedQueriesChecksPartialUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseSavedQueriesChecksPartialUpdateBodyNameOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseSavedQueriesChecksPartialUpdateBodyNameTwoMax = 0
+
 export const warehouseSavedQueriesChecksPartialUpdateBodyColumnNameMax = 400
 
 export const warehouseSavedQueriesChecksPartialUpdateBodyAiModelMax = 128
@@ -110,12 +118,16 @@ export const warehouseSavedQueriesChecksPartialUpdateBodyAiModelMax = 128
 export const warehouseSavedQueriesChecksPartialUpdateBodyConfidenceMin = 0
 export const warehouseSavedQueriesChecksPartialUpdateBodyConfidenceMax = 1
 
-export const WarehouseSavedQueriesChecksPartialUpdateBody = /* @__PURE__ */ zod
+export const WarehouseSavedQueriesChecksPartialUpdateBody = () => zod
     .object({
         name: zod
-            .string()
-            .max(warehouseSavedQueriesChecksPartialUpdateBodyNameMax)
-            .regex(warehouseSavedQueriesChecksPartialUpdateBodyNameRegExp)
+            .union([
+                zod
+                    .string()
+                    .max(warehouseSavedQueriesChecksPartialUpdateBodyNameOneMax)
+                    .regex(warehouseSavedQueriesChecksPartialUpdateBodyNameOneRegExp),
+                zod.string().max(warehouseSavedQueriesChecksPartialUpdateBodyNameTwoMax),
+            ])
             .optional()
             .describe('Optional identifier-safe handle, unique per project. Omit to address the check by id.'),
         description: zod.string().optional().describe('Why this check exists and what a failure means.'),
@@ -171,7 +183,7 @@ export const WarehouseSavedQueriesChecksPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * CRUD for one subject's checks, plus the actions that run them and report on them.
  */
-export const WarehouseSavedQueriesChecksDestroyParams = /* @__PURE__ */ zod.object({
+export const WarehouseSavedQueriesChecksDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data quality check.'),
     project_id: zod
         .string()
@@ -184,7 +196,7 @@ export const WarehouseSavedQueriesChecksDestroyParams = /* @__PURE__ */ zod.obje
 /**
  * Run this check now. Returns the suite run to poll for the report.
  */
-export const WarehouseSavedQueriesChecksRunCreateParams = /* @__PURE__ */ zod.object({
+export const WarehouseSavedQueriesChecksRunCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data quality check.'),
     project_id: zod
         .string()
@@ -197,7 +209,7 @@ export const WarehouseSavedQueriesChecksRunCreateParams = /* @__PURE__ */ zod.ob
 /**
  * Recent run history for this check, newest first.
  */
-export const WarehouseSavedQueriesChecksRunsListParams = /* @__PURE__ */ zod.object({
+export const WarehouseSavedQueriesChecksRunsListParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data quality check.'),
     project_id: zod
         .string()
@@ -210,7 +222,7 @@ export const WarehouseSavedQueriesChecksRunsListParams = /* @__PURE__ */ zod.obj
 /**
  * The check types this project can author, with the JSON schema of each type's config.
  */
-export const WarehouseSavedQueriesChecksCheckTypesListParams = /* @__PURE__ */ zod.object({
+export const WarehouseSavedQueriesChecksCheckTypesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -222,7 +234,7 @@ export const WarehouseSavedQueriesChecksCheckTypesListParams = /* @__PURE__ */ z
 /**
  * Create a check on this table or view, or refine the one already carrying the same fingerprint. Re-creating a semantically identical check returns 200 and the existing row, never a duplicate.
  */
-export const WarehouseTablesChecksCreateParams = /* @__PURE__ */ zod.object({
+export const WarehouseTablesChecksCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -231,9 +243,11 @@ export const WarehouseTablesChecksCreateParams = /* @__PURE__ */ zod.object({
     table_id: zod.string(),
 })
 
-export const warehouseTablesChecksCreateBodyNameMax = 128
+export const warehouseTablesChecksCreateBodyNameOneMax = 128
 
-export const warehouseTablesChecksCreateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseTablesChecksCreateBodyNameOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseTablesChecksCreateBodyNameTwoMax = 0
+
 export const warehouseTablesChecksCreateBodyColumnNameMax = 400
 
 export const warehouseTablesChecksCreateBodyAiModelMax = 128
@@ -241,12 +255,16 @@ export const warehouseTablesChecksCreateBodyAiModelMax = 128
 export const warehouseTablesChecksCreateBodyConfidenceMin = 0
 export const warehouseTablesChecksCreateBodyConfidenceMax = 1
 
-export const WarehouseTablesChecksCreateBody = /* @__PURE__ */ zod
+export const WarehouseTablesChecksCreateBody = () => zod
     .object({
         name: zod
-            .string()
-            .max(warehouseTablesChecksCreateBodyNameMax)
-            .regex(warehouseTablesChecksCreateBodyNameRegExp)
+            .union([
+                zod
+                    .string()
+                    .max(warehouseTablesChecksCreateBodyNameOneMax)
+                    .regex(warehouseTablesChecksCreateBodyNameOneRegExp),
+                zod.string().max(warehouseTablesChecksCreateBodyNameTwoMax),
+            ])
             .optional()
             .describe('Optional identifier-safe handle, unique per project. Omit to address the check by id.'),
         description: zod.string().optional().describe('Why this check exists and what a failure means.'),
@@ -301,7 +319,7 @@ export const WarehouseTablesChecksCreateBody = /* @__PURE__ */ zod
 /**
  * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
-export const WarehouseTablesChecksPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const WarehouseTablesChecksPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data quality check.'),
     project_id: zod
         .string()
@@ -311,9 +329,11 @@ export const WarehouseTablesChecksPartialUpdateParams = /* @__PURE__ */ zod.obje
     table_id: zod.string(),
 })
 
-export const warehouseTablesChecksPartialUpdateBodyNameMax = 128
+export const warehouseTablesChecksPartialUpdateBodyNameOneMax = 128
 
-export const warehouseTablesChecksPartialUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseTablesChecksPartialUpdateBodyNameOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseTablesChecksPartialUpdateBodyNameTwoMax = 0
+
 export const warehouseTablesChecksPartialUpdateBodyColumnNameMax = 400
 
 export const warehouseTablesChecksPartialUpdateBodyAiModelMax = 128
@@ -321,12 +341,16 @@ export const warehouseTablesChecksPartialUpdateBodyAiModelMax = 128
 export const warehouseTablesChecksPartialUpdateBodyConfidenceMin = 0
 export const warehouseTablesChecksPartialUpdateBodyConfidenceMax = 1
 
-export const WarehouseTablesChecksPartialUpdateBody = /* @__PURE__ */ zod
+export const WarehouseTablesChecksPartialUpdateBody = () => zod
     .object({
         name: zod
-            .string()
-            .max(warehouseTablesChecksPartialUpdateBodyNameMax)
-            .regex(warehouseTablesChecksPartialUpdateBodyNameRegExp)
+            .union([
+                zod
+                    .string()
+                    .max(warehouseTablesChecksPartialUpdateBodyNameOneMax)
+                    .regex(warehouseTablesChecksPartialUpdateBodyNameOneRegExp),
+                zod.string().max(warehouseTablesChecksPartialUpdateBodyNameTwoMax),
+            ])
             .optional()
             .describe('Optional identifier-safe handle, unique per project. Omit to address the check by id.'),
         description: zod.string().optional().describe('Why this check exists and what a failure means.'),
@@ -382,7 +406,7 @@ export const WarehouseTablesChecksPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * CRUD for one subject's checks, plus the actions that run them and report on them.
  */
-export const WarehouseTablesChecksDestroyParams = /* @__PURE__ */ zod.object({
+export const WarehouseTablesChecksDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data quality check.'),
     project_id: zod
         .string()
@@ -395,7 +419,7 @@ export const WarehouseTablesChecksDestroyParams = /* @__PURE__ */ zod.object({
 /**
  * Run this check now. Returns the suite run to poll for the report.
  */
-export const WarehouseTablesChecksRunCreateParams = /* @__PURE__ */ zod.object({
+export const WarehouseTablesChecksRunCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data quality check.'),
     project_id: zod
         .string()
@@ -408,7 +432,7 @@ export const WarehouseTablesChecksRunCreateParams = /* @__PURE__ */ zod.object({
 /**
  * Recent run history for this check, newest first.
  */
-export const WarehouseTablesChecksRunsListParams = /* @__PURE__ */ zod.object({
+export const WarehouseTablesChecksRunsListParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data quality check.'),
     project_id: zod
         .string()

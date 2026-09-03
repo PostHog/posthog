@@ -1,0 +1,6 @@
+{
+    "id": "RB1",
+    "real": true,
+    "source": "fresh",
+    "reasoning": "Confirmed. review_pr.py:936-938 serializes only the bare boolean, while the :937 comment claims it is the 'Audit trail for the carve-out ... and why'. The engine cannot record more: activities.py:451 collapses the rich inbox_review dict to bool() before the sandbox, reviewer.py:131 and review_local.py:321 carry only that bool. CommitProvenance.task_ids is parsed from author-written commit trailers (github.py:499,502-525) and serialized separately (review_pr.py:940). Refutation attempt: the linkage (signal_report_id, task_run_id, acting_user_id) is persisted server-side in ReviewRun.output (tasks.py:1176-1181,1229) beside reviewer_raw (activities.py:485-490), so a DB auditor can distinguish - which caps this at consider, but the self-contained bundle (save_json/--output-json contract) still omits why its gates ran relaxed. Genuine at stated severity."
+}

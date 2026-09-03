@@ -1,4 +1,4 @@
-import http, { IncomingMessage, ServerResponse } from 'http'
+import net from 'net'
 import {
     ConsumerGlobalConfig,
     KafkaConsumer,
@@ -41,7 +41,9 @@ const RUST_ROOT = path.join(REPO_ROOT, 'rust')
 
 const TEST_TEAM_ID = 2
 const TEST_TEAM_TOKEN = `THIS IS NOT A TOKEN FOR TEAM ${TEST_TEAM_ID}`
-const INTERNAL_API_SECRET = 'rust-node-ingestion-e2e-secret'
+// Each worker serves its WorkerIngest stream on its HTTP port plus this offset;
+// the Rust consumer derives the stream address the same way.
+const GRPC_PORT_OFFSET = 1
 const POSTGRES_URL = 'postgres://posthog:posthog@localhost:5432'
 const NODE_WORKER_COUNT = 2
 const RUST_BATCH_SIZE = 10
@@ -79,7 +81,6 @@ let outputTopicStartWatermarks = new Map<string, TopicWatermarks>()
 describe('Rust ingestion consumer with Node ingestion API workers', () => {
     let clickhouse: Clickhouse
     let services: ServiceProcess[] = []
-    let proxies: IngestionApiProxy[] = []
 
     beforeAll(() => {
         configureParentTestEnv()
@@ -99,12 +100,12 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
     })
 
     afterEach(async () => {
-        await Promise.allSettled([
-            ...services.map((service) => service.stop()),
-            ...proxies.map((proxy) => proxy.stop()),
-        ])
+        await Promise.allSettled(services.map((service) => service.stop()))
+        // stop() returns when the direct child (pnpm) exits; the node process it spawned
+        // can still be draining its gRPC listener. Do not let the next test allocate
+        // ports while they are held.
+        await waitForPortsFree(workerPortsInUse.splice(0))
         services = []
-        proxies = []
         outputTopicStartWatermarks = new Map()
     })
 
@@ -112,26 +113,6 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
         await resetTestDatabase()
         await clickhouse.resetTestDatabase()
         clickhouse.close()
-    })
-
-    test('Node ingestion API requires internal auth and validates batches', async () => {
-        const worker = await startNodeIngestionApiWorker('node-worker-contract')
-        services.push(worker.service)
-
-        const authResponse = await worker.service.request(`${worker.url}/ingest`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ batch_id: 'auth-check', messages: [] }),
-        })
-        expect(authResponse.statusCode).toBe(401)
-
-        const emptyBatchResponse = await worker.service.request(`${worker.url}/ingest`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Internal-Api-Secret': INTERNAL_API_SECRET },
-            body: JSON.stringify({ batch_id: 'empty-batch-check', messages: [] }),
-        })
-        expect(emptyBatchResponse.statusCode).toBe(400)
-        await waitForTopicMessageCount(KAFKA_EVENTS_JSON, 0)
     })
 
     test('Rust consumer ingests Kafka events through multiple real Node ingestion API workers', async () => {
@@ -175,49 +156,6 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
                     0
                 )
             ).toBeGreaterThanOrEqual(NODE_WORKER_COUNT)
-        } finally {
-            await producer.disconnect()
-        }
-    })
-
-    test('Rust consumer retries a transient Node ingestion API failure without duplicate output', async () => {
-        const workers = await startNodeWorkerSet(services)
-        const proxy = await IngestionApiProxy.start('node-worker-transient-failure-proxy', workers[0].url, {
-            failNextIngestRequests: 1,
-        })
-        proxies.push(proxy)
-
-        const proxiedWorkers = [{ service: workers[0].service, url: proxy.url }, workers[1]]
-        const producer = await KafkaProducerWrapper.create(undefined)
-        const team = { ...DEFAULT_TEAM, id: TEST_TEAM_ID, api_token: TEST_TEAM_TOKEN }
-        const events = buildBatchBoundaryEvents(team, 'rust node e2e transient failure event', 'transient')
-
-        try {
-            await produceEvents(producer, events)
-            const { rustConsumer, rustMetricsPort, groupId } = await startRustConsumerForWorkers(
-                services,
-                proxiedWorkers
-            )
-            await waitForEvents(clickhouse, events)
-            await assertKafkaIngestionState(groupId, events)
-
-            await waitForExpect(async () => {
-                const metrics = await fetchMetrics(rustConsumer, rustMetricsPort)
-                expect(
-                    getPrometheusSample(metrics, {
-                        name: 'ingestion_consumer_transport_requests_total',
-                        labels: { worker: proxy.url, status: 'error' },
-                    })
-                ).toBeGreaterThanOrEqual(1)
-                expect(
-                    getPrometheusSample(metrics, {
-                        name: 'ingestion_consumer_transport_retries_total',
-                        labels: { worker: proxy.url },
-                    })
-                ).toBeGreaterThanOrEqual(1)
-            }, 30_000)
-            expect(proxy.failedIngestRequests).toBe(1)
-            expect(proxy.forwardedIngestRequests).toBeGreaterThanOrEqual(1)
         } finally {
             await producer.disconnect()
         }
@@ -468,8 +406,28 @@ async function startRustNodeStack(
     return { workers, ...rust }
 }
 
+// Every port a worker has listened on this test, so afterEach can wait for them to be
+// released before the next test allocates.
+const workerPortsInUse: number[] = []
+
 async function startNodeIngestionApiWorker(name: string, port?: number): Promise<NodeWorker> {
-    const workerPort = port ?? (await getFreePort())
+    // A free-port check is a snapshot: another socket can take the port before the
+    // worker binds it. Unpinned starts retry with a fresh pair; pinned restarts wait
+    // for the previous holder to let go (see restartNodeIngestionApiWorker).
+    for (let attempt = 1; ; attempt++) {
+        const workerPort = port ?? (await getFreeWorkerPort())
+        try {
+            return await spawnNodeIngestionApiWorker(name, workerPort)
+        } catch (error) {
+            const addressInUse = error instanceof Error && error.message.includes('EADDRINUSE')
+            if (port !== undefined || !addressInUse || attempt >= 3) {
+                throw error
+            }
+        }
+    }
+}
+
+async function spawnNodeIngestionApiWorker(name: string, workerPort: number): Promise<NodeWorker> {
     const service = new ServiceProcess(name, 'pnpm', ['exec', 'tsx', 'src/index.ts'], {
         cwd: NODEJS_ROOT,
         env: {
@@ -479,7 +437,7 @@ async function startNodeIngestionApiWorker(name: string, port?: number): Promise
             NODE_ENV: 'dev',
             PLUGIN_SERVER_MODE: 'ingestion-api',
             HTTP_SERVER_PORT: workerPort.toString(),
-            INTERNAL_API_SECRET,
+            INGESTION_API_GRPC_PORT: (workerPort + GRPC_PORT_OFFSET).toString(),
             OTEL_SDK_DISABLED: 'true',
             DISABLE_OPENTELEMETRY_TRACING: 'true',
             LOG_LEVEL: 'warn',
@@ -491,7 +449,44 @@ async function startNodeIngestionApiWorker(name: string, port?: number): Promise
 
     const url = `http://127.0.0.1:${workerPort}`
     await service.waitForHttpOk(`${url}/_ready`)
+    // Only a worker that actually bound its ports owns them; a failed attempt's pair
+    // belongs to whatever foreign socket caused the collision.
+    workerPortsInUse.push(workerPort, workerPort + GRPC_PORT_OFFSET)
     return { service, url }
+}
+
+// A worker needs two adjacent free ports: HTTP, and HTTP + GRPC_PORT_OFFSET for the stream.
+async function getFreeWorkerPort(): Promise<number> {
+    for (let attempt = 0; attempt < 20; attempt++) {
+        const port = await getFreePort()
+        if (await isPortFree(port + GRPC_PORT_OFFSET)) {
+            return port
+        }
+    }
+    throw new Error('could not find adjacent free ports for a worker')
+}
+
+function isPortFree(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+        const server = net.createServer()
+        server.once('error', () => resolve(false))
+        server.listen(port, '127.0.0.1', () => server.close(() => resolve(true)))
+    })
+}
+
+// Poll until every port can be bound. A stopped worker's node process releases its
+// listeners only after its graceful shutdown (gRPC drain), which outlives the pnpm
+// wrapper that ServiceProcess.stop() waits on.
+async function waitForPortsFree(ports: number[], timeoutMs = 15_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    for (const port of ports) {
+        while (!(await isPortFree(port))) {
+            if (Date.now() > deadline) {
+                throw new Error(`port ${port} was not released within ${timeoutMs}ms`)
+            }
+            await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+    }
 }
 
 async function restartNodeIngestionApiWorker(
@@ -500,6 +495,7 @@ async function restartNodeIngestionApiWorker(
     name: string
 ): Promise<NodeWorker> {
     const port = Number(new URL(worker.url).port)
+    await waitForPortsFree([port, port + GRPC_PORT_OFFSET])
     const restartedWorker = await startNodeIngestionApiWorker(name, port)
     services.push(restartedWorker.service)
     return restartedWorker
@@ -528,9 +524,7 @@ function startRustIngestionConsumer(
             CONSUMER_MAX_BACKGROUND_TASKS: '1',
             INGESTION_WORKER_CONCURRENT_BATCHES: '1',
             WORKER_ADDRESSES: workers.join(','),
-            INTERNAL_API_SECRET,
-            HTTP_TIMEOUT_MS: '10000',
-            MAX_RETRIES: '1',
+            INGESTION_WORKER_GRPC_PORT_OFFSET: GRPC_PORT_OFFSET.toString(),
             WORKER_PROBE_INTERVAL_MS: '250',
             WORKER_DEAD_DECLARATION_MS: '750',
             WORKER_MIN_STATE_DURATION_MS: '100',
@@ -1087,123 +1081,4 @@ function kafkaHeadersToRecord(headers: Message['headers']): Record<string, strin
             Object.entries(header).map(([key, value]) => [key, value?.toString() ?? ''])
         )
     )
-}
-
-class IngestionApiProxy {
-    failedIngestRequests = 0
-    forwardedIngestRequests = 0
-
-    private constructor(
-        private readonly name: string,
-        private readonly targetUrl: string,
-        readonly url: string,
-        private readonly server: http.Server,
-        private failNextIngestRequests: number
-    ) {}
-
-    static async start(
-        name: string,
-        targetUrl: string,
-        { failNextIngestRequests }: { failNextIngestRequests: number }
-    ): Promise<IngestionApiProxy> {
-        const port = await getFreePort()
-        const server = http.createServer()
-        const proxy = new IngestionApiProxy(name, targetUrl, `http://127.0.0.1:${port}`, server, failNextIngestRequests)
-        server.on('request', (req, res) => {
-            void proxy.handle(req, res)
-        })
-
-        await new Promise<void>((resolve, reject) => {
-            server.once('error', reject)
-            server.listen(port, '127.0.0.1', () => resolve())
-        })
-
-        return proxy
-    }
-
-    async stop(): Promise<void> {
-        if (!this.server.listening) {
-            return
-        }
-
-        await new Promise<void>((resolve, reject) => {
-            this.server.close((error) => {
-                if (error) {
-                    reject(error)
-                } else {
-                    resolve()
-                }
-            })
-        })
-    }
-
-    private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-        try {
-            const path = req.url ?? '/'
-            if (req.method === 'POST' && path.startsWith('/ingest') && this.failNextIngestRequests > 0) {
-                this.failNextIngestRequests--
-                this.failedIngestRequests++
-                res.writeHead(500, { 'Content-Type': 'application/json' })
-                res.end(JSON.stringify({ status: 'error', accepted: 0, error: `${this.name} injected failure` }))
-                return
-            }
-
-            if (req.method === 'POST' && path.startsWith('/ingest')) {
-                this.forwardedIngestRequests++
-            }
-
-            await this.forward(req, res)
-        } catch (error) {
-            if (res.headersSent) {
-                res.destroy(error instanceof Error ? error : new Error(String(error)))
-                return
-            }
-
-            res.writeHead(502, { 'Content-Type': 'application/json' })
-            res.end(
-                JSON.stringify({
-                    status: 'error',
-                    accepted: 0,
-                    error: error instanceof Error ? error.message : String(error),
-                })
-            )
-        }
-    }
-
-    private async forward(req: IncomingMessage, res: ServerResponse): Promise<void> {
-        const body = await readRequestBody(req)
-        const target = new URL(req.url ?? '/', this.targetUrl)
-        const headers = { ...req.headers, host: target.host }
-
-        await new Promise<void>((resolve, reject) => {
-            const proxiedReq = http.request(
-                target,
-                {
-                    method: req.method,
-                    headers,
-                },
-                (proxiedRes) => {
-                    res.writeHead(proxiedRes.statusCode ?? 502, proxiedRes.headers)
-                    proxiedRes.pipe(res)
-                    proxiedRes.on('error', reject)
-                    res.on('error', reject)
-                    proxiedRes.on('end', resolve)
-                }
-            )
-
-            proxiedReq.on('error', reject)
-            if (body.length > 0) {
-                proxiedReq.write(body)
-            }
-            proxiedReq.end()
-        })
-    }
-}
-
-async function readRequestBody(req: IncomingMessage): Promise<Buffer> {
-    const chunks: Buffer[] = []
-    for await (const chunk of req) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-    }
-    return Buffer.concat(chunks)
 }

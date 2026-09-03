@@ -3,7 +3,7 @@ import { Flex, Text } from "@radix-ui/themes";
 import type { WorktreeEntry } from "./WorktreeRow";
 import { WorktreeRow } from "./WorktreeRow";
 
-export interface WorktreeGroup {
+interface WorktreeGroup {
   folderPath: string;
   worktrees: WorktreeEntry[];
 }

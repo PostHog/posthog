@@ -594,6 +594,7 @@ the row lists both.
 | rki_covid                        | HTTP                        | requests                                                        | ✅                          |
 | roark                            | HTTP                        | requests                                                        | ✅                          |
 | rocketlane                       | HTTP                        | requests                                                        | ✅                          |
+| rokt_ads                         | HTTP                        | requests                                                        | ✅                          |
 | rollbar                          | HTTP                        | requests                                                        | ✅                          |
 | rootly                           | HTTP                        | requests                                                        | ✅                          |
 | rss                              | HTTP                        | requests                                                        | ✅                          |
@@ -977,6 +978,7 @@ doesn't conflict with concurrent PRs.
 - dayforce
 - db2
 - deelflows
+- demodesk
 - deno_deploy
 - depot
 - deputy
@@ -1382,6 +1384,7 @@ doesn't conflict with concurrent PRs.
 - starburst
 - statsig
 - stockx
+- strato
 - strava
 - streamlabs
 - sumsub

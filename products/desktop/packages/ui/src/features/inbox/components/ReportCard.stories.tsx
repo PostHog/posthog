@@ -17,7 +17,7 @@ const report = (overrides: Partial<SignalReport> = {}): SignalReport => ({
   priority: "P2",
   actionability: "immediately_actionable",
   is_suggested_reviewer: true,
-  source_products: ["session_replay"],
+  source_products: ["replay_vision"],
   ...overrides,
 });
 

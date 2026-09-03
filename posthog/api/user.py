@@ -47,11 +47,7 @@ from two_factor.utils import default_device
 
 from posthog.schema import UserUIConfiguration
 
-from posthog.api.email_verification import (
-    EmailVerifier,
-    email_verification_code_verifier,
-    email_verification_token_generator,
-)
+from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
     ToolbarOAuthState,
@@ -237,37 +233,23 @@ class PendingInviteSerializer(serializers.Serializer):
 
 
 class VerifyEmailRequestSerializer(serializers.Serializer):
-    """Request body for POST /api/users/verify_email/. Exactly one of token or code is required."""
+    """Request body for POST /api/users/verify_email/."""
 
-    # A string, not a UUIDField: the E2E test sentinel is not a UUID, and an unknown uuid must
-    # answer the same way as a wrong credential rather than as a shape error.
+    # A string, not a UUIDField: an unknown uuid must answer the same way as a wrong code rather
+    # than as a shape error.
     uuid = serializers.CharField(help_text="UUID of the user whose email is being verified.")
-    token = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text="Verification token from the emailed link. Required unless a code is provided.",
-    )
     code = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text="The 6-digit verification code emailed at signup. Whitespace, invisible characters, "
+        help_text="The 6-digit verification code from the email. Whitespace, invisible characters, "
         "and grouping hyphens are removed and compatibility digits are folded to ASCII before checking.",
     )
 
     def validate_code(self, value: str) -> str:
-        if not value:
-            return value
         # Same rule as the login code: exactly 6 digits after normalization, so malformed input is
         # rejected here and never reaches the attempt budget.
         cleaned = normalize_verification_code(value)
         if not re.fullmatch(r"\d{6}", cleaned):
             raise serializers.ValidationError("Enter the 6-digit code from your email.")
         return cleaned
-
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if not attrs.get("token") and not attrs.get("code"):
-            raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
-        return attrs
 
 
 class OnboardingSkipRequestSerializer(serializers.Serializer):
@@ -896,23 +878,11 @@ class UserSerializer(serializers.ModelSerializer):
                     code="sso_enforced_new_email",
                 )
             validated_data.pop("email", None)  # staged as pending_email below, not written to `email` directly
-            # Serialize concurrent email changes for this user under a row lock so the token is
-            # minted against one consistent pending_email. Without it, interleaved requests can
-            # bind a token to one address but deliver its verification email to another.
-            with transaction.atomic():
-                User.objects.select_for_update().get(pk=instance.pk)
-                instance.pending_email = new_email
-                instance.save(update_fields=["pending_email"])
-                token = email_verification_token_generator.make_token(instance)
-            # Send after the transaction commits (never inside the atomic block), pinning the
-            # recipient to the captured address so a later pending_email change can't redirect
-            # this verification email. The code path stores that address as the code's target,
-            # so a stale code stops verifying once a different address is staged.
-            if not (
-                EmailVerifier.use_verification_code(instance)
-                and email_verification_code_verifier.send_code(instance, target_email=new_email)
-            ):
-                EmailVerifier.send_verification_email(instance, token, target_email=new_email)
+            instance.pending_email = new_email
+            instance.save(update_fields=["pending_email"])
+            # The code is bound to the captured address, so a concurrent email change cannot
+            # redirect this code: once a different address is staged, the code stops verifying.
+            email_verification_code_verifier.send_code(instance, target_email=new_email)
 
         if validated_data.get("notification_settings"):
             validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
@@ -1255,54 +1225,44 @@ class UserViewSet(
     def verify_email(self, request, **kwargs):
         body = VerifyEmailRequestSerializer(data=request.data if isinstance(request.data, dict) else {})
         body.is_valid(raise_exception=True)
-        token = body.validated_data.get("token") or None
-        code = body.validated_data.get("code") or None
+        code = body.validated_data["code"]
         user_uuid = body.validated_data["uuid"]
-
-        # Special handling for E2E tests
-        if settings.E2E_TESTING and user_uuid == "e2e_test_user" and token == "e2e_test_token":
-            return {"success": True, "token": token}
 
         try:
             user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
         except User.DoesNotExist:
             user = None
 
-        # A replay of a spent token or code (double click, scanner prefetch) is not a failure:
-        # the address is verified. Do not create a session - no valid credential was presented.
+        # A replay of a spent code (double submit) is not a failure: the address is verified.
+        # Do not create a session - no valid credential was presented.
         if user and user.is_email_verified is True and not user.pending_email:
             return Response({"success": True, "requires_login": True})
 
-        if code and not token:
-            if not user:
-                raise serializers.ValidationError(
-                    {"code": ["This verification code is invalid or has expired."]},
-                    code="invalid_code",
-                )
-            attempts = email_verification_code_verifier.reserve_attempt(user)
-            if email_verification_code_verifier.attempts_exceeded(attempts):
-                # Refuse until the budget expires, but keep the code: anyone with the uuid can
-                # reach this endpoint, and deleting the code here would let them block the user.
-                raise serializers.ValidationError(
-                    {"code": ["Too many incorrect attempts. Try again later."]},
-                    code="too_many_attempts",
-                )
-            if not email_verification_code_verifier.check_code(user, code):
-                raise serializers.ValidationError(
-                    {"code": ["This verification code is invalid or has expired."]},
-                    code="invalid_code",
-                )
-            email_verification_code_verifier.invalidate(user)
-        elif not user or not token or not EmailVerifier.check_token(user, token):
+        if not user:
             raise serializers.ValidationError(
-                {"token": ["This verification token is invalid or has expired."]},
-                code="invalid_token",
+                {"code": ["This code is invalid or has expired."]},
+                code="invalid_code",
             )
+        attempts = email_verification_code_verifier.reserve_attempt(user)
+        if email_verification_code_verifier.attempts_exceeded(attempts):
+            # Refuse until the budget expires, but keep the code: anyone with the uuid can
+            # reach this endpoint, and deleting the code here would let them block the user.
+            raise serializers.ValidationError(
+                {"code": ["Too many incorrect attempts. Try again later."]},
+                code="too_many_attempts",
+            )
+        if not email_verification_code_verifier.check_code(user, code):
+            raise serializers.ValidationError(
+                {"code": ["This code is invalid or has expired."]},
+                code="invalid_code",
+            )
+        email_verification_code_verifier.invalidate(user)
 
-        # The swap needs a credential issued for the staged address. A token always is (its hash
-        # includes pending_email). A code is only for a verified user; an unverified user's code
-        # proves the account address, so their staged change stays pending.
-        if user.pending_email and (token or user.is_email_verified):
+        # An unverified user's code proves the account address, not the staged one, so their
+        # staged change stays pending until they verify it with a code sent to the new address.
+        # A legacy account (is_email_verified None) counts as verified, like in the login flow
+        # and in the verifier.
+        if user.pending_email and user.is_email_verified is not False:
             old_email = user.email
             with transaction.atomic():
                 user.email = user.pending_email
@@ -1320,21 +1280,21 @@ class UserViewSet(
         user_has_passkeys = has_passkeys(user)
         passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
         if default_device(user) or passkeys_enabled_for_2fa:
-            return Response({"success": True, "token": token, "requires_2fa": True})
+            return Response({"success": True, "requires_2fa": True})
 
         # Don't hand a non-SSO session to an account whose domain enforces SSO — verifying an email
         # must not become a password-backend login path around the IdP. The user logs in via SSO.
         if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
-            return Response({"success": True, "token": token, "requires_sso": True})
+            return Response({"success": True, "requires_sso": True})
 
         # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
         if not resolve_login_organization(user):
-            return Response({"success": True, "token": token, "requires_login": True})
+            return Response({"success": True, "requires_login": True})
 
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(self.request)
         report_user_logged_in(user)
-        return Response({"success": True, "token": token})
+        return Response({"success": True})
 
     @action(
         methods=["POST"],
@@ -1361,7 +1321,7 @@ class UserViewSet(
                     "Email is already verified.",
                     code="already_verified",
                 )
-            EmailVerifier.create_token_and_send_email_verification(user)
+            email_verification_code_verifier.send_code(user)
 
         return Response({"success": True})
 

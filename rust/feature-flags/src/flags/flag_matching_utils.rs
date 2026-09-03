@@ -166,8 +166,10 @@ pub fn populate_missing_initial_properties(properties: &mut HashMap<String, Valu
 ///
 /// Web SDKs (posthog-js) report the OS as `$os`; mobile SDKs report it as
 /// `$os_name`. Ingestion normalizes `$os_name` -> `$os` at write time
-/// (`personInitialAndUTMProperties` in nodejs/src/utils/db/utils.ts), but that
-/// only covers newly-written rows — historical and un-normalized person rows can
+/// (`normalizeOsAlias` in nodejs/src/common/utils/event.ts for the event's own
+/// `$os`, `personInitialAndUTMProperties` in nodejs/src/common/utils/db/utils.ts
+/// for the person row), but that only covers newly-written rows, and it excludes
+/// `$is_server` events; historical and un-normalized person rows can
 /// carry only one of the two keys. Flag matching does exact-key lookups, so
 /// without this a mobile person whose row has only `$os_name` never matches an
 /// `$os` filter (and vice versa). The mirror is bidirectional so either filter

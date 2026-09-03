@@ -1,7 +1,11 @@
 import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const openTaskInput = vi.hoisted(() => vi.fn());
+
+vi.mock("@posthog/ui/router/useOpenTask", () => ({ openTaskInput }));
 
 vi.mock("@posthog/ui/features/command-center/hooks/useAvailableTasks", () => ({
   useAvailableTasks: () => [],
@@ -40,6 +44,10 @@ function expectPopupWidth(input: HTMLElement) {
 }
 
 describe("TaskSelector", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("keeps the task popup wider than its compact trigger", () => {
     renderSelector();
 
@@ -52,5 +60,13 @@ describe("TaskSelector", () => {
     await userEvent.click(screen.getByRole("button", { name: "Terminal" }));
 
     expectPopupWidth(screen.getByPlaceholderText("Search folders..."));
+  });
+
+  it("opens the full task composer for a new task", async () => {
+    renderSelector();
+
+    await userEvent.click(screen.getByRole("button", { name: "New task" }));
+
+    expect(openTaskInput).toHaveBeenCalledOnce();
   });
 });

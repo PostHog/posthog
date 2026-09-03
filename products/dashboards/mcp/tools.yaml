@@ -247,6 +247,21 @@ tools:
             Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use
             dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved; see the
             layout parameter to force a 2-column or full-width grid instead.
+    dashboard-saved-views-create:
+        operation: dashboard_saved_views_create
+        enabled: false
+    dashboard-saved-views-destroy:
+        operation: dashboard_saved_views_destroy
+        enabled: false
+    dashboard-saved-views-list:
+        operation: dashboard_saved_views_list
+        enabled: false
+    dashboard-saved-views-partial-update:
+        operation: dashboard_saved_views_partial_update
+        enabled: false
+    dashboard-saved-views-update:
+        operation: dashboard_saved_views_update
+        enabled: false
     dashboard-templates-copy-between-projects-create:
         operation: dashboard_templates_copy_between_projects_create
         enabled: false

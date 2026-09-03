@@ -3,6 +3,7 @@ import re
 from typing import Any, get_args
 
 from django.core.exceptions import ImproperlyConfigured
+from django.db import models
 
 from drf_spectacular.drainage import warn as spectacular_warn
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
@@ -234,6 +235,19 @@ class _PropertyFilterBase(serializers.Serializer):
     )
 
 
+class StringMatchOperator(models.TextChoices):
+    EXACT = "exact", "exact"
+    IS_NOT = "is_not", "is_not"
+    ICONTAINS = "icontains", "icontains"
+    NOT_ICONTAINS = "not_icontains", "not_icontains"
+    STARTS_WITH = "starts_with", "starts_with"
+    NOT_STARTS_WITH = "not_starts_with", "not_starts_with"
+    ENDS_WITH = "ends_with", "ends_with"
+    NOT_ENDS_WITH = "not_ends_with", "not_ends_with"
+    REGEX = "regex", "regex"
+    NOT_REGEX = "not_regex", "not_regex"
+
+
 class StringPropertyFilterSerializer(_PropertyFilterBase):
     """Matches string values with text-oriented operators."""
 
@@ -242,18 +256,7 @@ class StringPropertyFilterSerializer(_PropertyFilterBase):
         required=True,
     )
     operator = serializers.ChoiceField(
-        choices=[
-            "exact",
-            "is_not",
-            "icontains",
-            "not_icontains",
-            "starts_with",
-            "not_starts_with",
-            "ends_with",
-            "not_ends_with",
-            "regex",
-            "not_regex",
-        ],
+        choices=StringMatchOperator.choices,
         default="exact",
         required=False,
         help_text="String comparison operator.",
@@ -291,6 +294,12 @@ class ArrayPropertyFilterSerializer(_PropertyFilterBase):
     )
 
 
+class DateOperator(models.TextChoices):
+    IS_DATE_EXACT = "is_date_exact", "is_date_exact"
+    IS_DATE_BEFORE = "is_date_before", "is_date_before"
+    IS_DATE_AFTER = "is_date_after", "is_date_after"
+
+
 class DatePropertyFilterSerializer(_PropertyFilterBase):
     """Matches date/datetime values with date-specific operators."""
 
@@ -299,18 +308,23 @@ class DatePropertyFilterSerializer(_PropertyFilterBase):
         required=True,
     )
     operator = serializers.ChoiceField(
-        choices=["is_date_exact", "is_date_before", "is_date_after"],
+        choices=DateOperator.choices,
         default="is_date_exact",
         required=False,
         help_text="Date comparison operator.",
     )
 
 
+class ExistenceOperator(models.TextChoices):
+    IS_SET = "is_set", "is_set"
+    IS_NOT_SET = "is_not_set", "is_not_set"
+
+
 class ExistencePropertyFilterSerializer(_PropertyFilterBase):
     """Checks whether a property is set or not, without comparing values."""
 
     operator = serializers.ChoiceField(
-        choices=["is_set", "is_not_set"],
+        choices=ExistenceOperator.choices,
         required=True,
         help_text="Existence check operator.",
     )
@@ -369,7 +383,7 @@ class FeatureFlagFilterPropertyGenericSchemaSerializer(_FeatureFlagFilterPropert
 
 class FeatureFlagFilterPropertyExistsSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
     operator = serializers.ChoiceField(
-        choices=["is_set", "is_not_set"],
+        choices=ExistenceOperator.choices,
         required=True,
         help_text="Existence operator.",
     )
@@ -557,6 +571,11 @@ class FeatureFlagFiltersSchemaSerializer(serializers.Serializer):
 property_help_text = "Filter events by event property, person property, cohort, groups and more."
 
 
+class PropertyGroupOperator(models.TextChoices):
+    AND = "AND", "AND"
+    OR = "OR", "OR"
+
+
 class PropertySerializer(serializers.Serializer):
     def run_validation(self, data=fields.empty):
         if isinstance(data, list):
@@ -618,7 +637,7 @@ Or you can create more complicated queries with AND and OR:
 }
 ```
 """,
-        choices=["AND", "OR"],
+        choices=PropertyGroupOperator.choices,
         default="AND",
     )
     values = PropertyItemSerializer(many=True, required=True)

@@ -168,10 +168,15 @@ const agentStubRouter = router({
       z.object({
         apiHost: z.string(),
         adapter: z.enum(["claude", "codex"]).default("claude"),
+        allHarnessModels: z.boolean().optional(),
       }),
     )
     .query(({ input }) =>
-      getWebPreviewConfigOptions(input.apiHost, input.adapter),
+      getWebPreviewConfigOptions(
+        input.apiHost,
+        input.adapter,
+        input.allHarnessModels,
+      ),
     ),
 });
 
@@ -529,5 +534,3 @@ export const webHostRouter = router({
   slackIntegration: slackIntegrationRouter,
   workspace: workspaceStubRouter,
 });
-
-export type WebHostRouter = typeof webHostRouter;

@@ -14,6 +14,8 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import EventDefinition, PropertyDefinition, Team
 
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
+
 logger = getLogger(__name__)
 
 # How a suggested name is rendered back into the marked range for a one-click fix:
@@ -110,7 +112,11 @@ def validate_taxonomy_references(
         if visitor.event_literals:
             warnings.extend(
                 _warnings_for_unknown_references(
-                    "Event", visitor.event_literals, EventDefinition.objects.filter(team=team)
+                    "Event",
+                    visitor.event_literals,
+                    EventDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+                        effective_project_id=team.project_id
+                    ),
                 )
             )
 
@@ -123,7 +129,9 @@ def validate_taxonomy_references(
                     _warnings_for_unknown_references(
                         "Property",
                         property_references,
-                        PropertyDefinition.objects.filter(team=team, type=PropertyDefinition.Type.EVENT),
+                        PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+                            effective_project_id=team.project_id, type=PropertyDefinition.Type.EVENT
+                        ),
                     )
                 )
     except DatabaseError:

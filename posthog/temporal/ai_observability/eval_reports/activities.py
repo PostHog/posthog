@@ -3,6 +3,7 @@
 import time
 import datetime as dt
 from collections import defaultdict
+from itertools import batched
 from typing import TYPE_CHECKING, NamedTuple
 from zoneinfo import ZoneInfo
 
@@ -159,7 +160,9 @@ def _fetch_count_triggered_eval_report_candidate_groups() -> list[list[str]]:
         .values_list("id", "team_id")
     ):
         ids_by_team[team_id].append(str(pk))
-    return [chunk for ids in ids_by_team.values() for chunk in _chunk(ids, COUNT_TRIGGER_QUERY_WIDTH)]
+    return [
+        list(chunk) for ids in ids_by_team.values() for chunk in batched(ids, COUNT_TRIGGER_QUERY_WIDTH, strict=False)
+    ]
 
 
 def _load_count_triggered_report(report_id: str) -> "EvaluationReport | None":
@@ -227,10 +230,6 @@ def _check_count_triggered_eval_report_sync(
     return CheckCountTriggeredEvalReportOutput(report_id=report_id, due=count >= report.trigger_threshold)
 
 
-def _chunk(items: list, size: int) -> list[list]:
-    return [items[index : index + size] for index in range(0, len(items), size)]
-
-
 def _check_count_triggered_eval_reports_batch(
     report_ids: list[str],
     now: dt.datetime | None = None,
@@ -287,7 +286,7 @@ def _check_count_triggered_eval_reports_batch(
         # have a comparable window — one stale report no longer sets the scan's lower
         # bound for every other report queued alongside it.
         entries.sort(key=lambda entry: entry[2])
-        for chunk in _chunk(entries, COUNT_TRIGGER_QUERY_WIDTH):
+        for chunk in batched(entries, COUNT_TRIGGER_QUERY_WIDTH, strict=False):
             counts = _count_eval_results_for_reports_with_split_retry(
                 team,
                 [

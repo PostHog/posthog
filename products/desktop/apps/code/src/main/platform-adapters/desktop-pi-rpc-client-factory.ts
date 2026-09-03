@@ -73,7 +73,6 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     return createPiRpcClient({
       model: input.model,
       sessionFile: input.sessionFile,
-      projectTrusted: input.projectTrusted,
       taskContext,
       enrichment: {
         apiUrl: enrichmentApiUrl,

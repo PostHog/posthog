@@ -5,7 +5,7 @@ export type FetchImplementation = (
   init?: RequestInit,
 ) => Promise<Response>;
 
-export type ApiFetcherConfig = {
+type ApiFetcherConfig = {
   getAccessToken: () => Promise<string>;
   refreshAccessToken: () => Promise<string>;
   appVersion: string;

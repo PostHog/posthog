@@ -1,3 +1,5 @@
+import { urls } from 'scenes/urls'
+
 export interface EarlyStats {
     totalCalls: number
     distinctTools: number
@@ -16,6 +18,7 @@ export interface ChecklistItem {
     detail: string
     status: ChecklistStatus
     docsUrl: string
+    appLink?: { to: string; label: string }
 }
 
 const DOCS = {
@@ -66,13 +69,17 @@ export function buildChecklist(stats: EarlyStats): ChecklistItem[] {
         },
         {
             key: 'missing-capability',
-            title: 'Unmet demand reporting',
+            title: 'Missing capability reporting',
             detail:
                 stats.missingCapabilityReports > 0
                     ? `Agents have filed ${stats.missingCapabilityReports} missing-capability report${stats.missingCapabilityReports === 1 ? '' : 's'}.`
                     : 'No missing-capability reports yet. Enable reportMissing so agents can tell you which tools they wish you had.',
             status: stats.missingCapabilityReports > 0 ? 'ok' : 'pending',
             docsUrl: DOCS.missingCapability,
+            appLink:
+                stats.missingCapabilityReports > 0
+                    ? { to: urls.mcpAnalyticsMissingCapabilities(), label: 'Read the reports' }
+                    : undefined,
         },
     ]
 }

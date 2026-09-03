@@ -27,17 +27,17 @@ pub struct Args {
     #[clap(flatten)]
     pub conflict: UploadConflictArgs,
 
-    /// How the release is associated with exceptions. `symbol-set` is the default. It stamps the
-    /// release id onto the uploaded maps. An exception then takes the release of the maps its
-    /// frames resolved against. EXPERIMENTAL `event` leaves the maps release-independent. Each
-    /// event then resolves its own release from the app version and namespace the SDK already
-    /// sends, so the release coordinates must match the app's. Both modes create the release.
+    /// How the release is associated with exceptions. `event` is the default. It leaves the maps
+    /// release-independent. Each event then resolves its own release from the app version and
+    /// namespace the SDK already sends, so the release coordinates must match the app's.
+    /// `symbol-set` stamps the release id onto the uploaded maps instead, and an exception then
+    /// takes the release of the maps its frames resolved against. Both modes create the release.
     /// Also settable via `POSTHOG_RELEASE_MODE`.
     #[arg(
         long,
         env = "POSTHOG_RELEASE_MODE",
         value_enum,
-        default_value = "symbol-set"
+        default_value = "event"
     )]
     pub release_mode: ReleaseMode,
 }
@@ -60,15 +60,16 @@ pub fn upload(args: &Args) -> Result<()> {
         );
     }
 
+    // `--info-plist` fills the same fields the check below reads, and it fills them here rather
+    // than inside `get_release_for_maps`. Checking the raw args warns about a missing release that
+    // the run goes on to create.
+    let release = release.resolve_info_plist()?;
+
     // Event mode leaves nothing on the symbol set for the server to use. An exception then
     // resolves its release only from the app metadata on the event. Coordinates that come from
     // git instead of explicit flags do not match that metadata. The exception then reports no
-    // release, and nothing in the output says so. The build number counts as a coordinate: the
-    // server packs it into the version it keys on, so a release without one matches no event that
-    // carries `$app_build`.
-    if *release_mode == ReleaseMode::Event
-        && (release.name.is_none() || release.version.is_none() || release.build.is_none())
-    {
+    // release, and nothing in the output says so.
+    if *release_mode == ReleaseMode::Event && !release.event_coordinates_complete() {
         warn!(
             "--release-mode=event resolves each exception's release from the app's namespace and \
              version. Pass --release-name, --release-version and --build matching the app's bundle \

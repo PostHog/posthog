@@ -44,11 +44,20 @@ import { unzipSync } from "fflate";
 import { Hono } from "hono";
 import { z } from "zod";
 import packageJson from "../../package.json" with { type: "json" };
-import { POSTHOG_METHODS, POSTHOG_NOTIFICATIONS } from "../acp-extensions";
+import {
+  POSTHOG_METHODS,
+  POSTHOG_NOTIFICATIONS,
+  type SteerDeclineCause,
+} from "../acp-extensions";
 import {
   createAcpConnection,
   type InProcessAcpConnection,
 } from "../adapters/acp-connection";
+import { BENJAMIN_UPSTREAM_COMMIT } from "../adapters/benjamin/instruction";
+import {
+  appendBenjaminGuidance,
+  isBenjaminEnabled,
+} from "../adapters/benjamin-guidance";
 import { setAlwaysAskMcpServers } from "../adapters/claude/mcp/tool-metadata";
 import {
   getSessionJsonlPath,
@@ -70,6 +79,7 @@ import {
   SIGNED_MERGE_QUALIFIED_TOOL_NAME,
   SIGNED_REWRITE_QUALIFIED_TOOL_NAME,
 } from "../adapters/signed-commit-shared";
+import { appendSte100Guidance } from "../adapters/ste100-guidance";
 import type { PermissionMode } from "../execution-mode";
 import { DEFAULT_CODEX_MODEL, fetchGatewayModels } from "../gateway-models";
 import { OtelRunTelemetry } from "../otel-telemetry";
@@ -123,7 +133,7 @@ import {
   checkoutExistingPullRequest,
   type ExistingPrCheckoutResult,
 } from "./pr-checkout";
-import { resolveRtkSavings } from "./rtk-savings";
+import { createRtkSavingsNotification } from "./rtk-savings";
 import { RunUsageAccumulator } from "./run-usage";
 import { jsonRpcRequestSchema, validateCommandParams } from "./schemas";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
@@ -134,6 +144,7 @@ const agentErrorClassificationSchema = z.enum([
   "upstream_connection_error",
   "upstream_timeout",
   "upstream_provider_failure",
+  "content_block_rejection",
   "turn_ended_without_response",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
@@ -150,6 +161,12 @@ const upstreamProviderFailureClassifications =
     "upstream_timeout",
     "upstream_provider_failure",
   ]);
+
+type TurnFailureDisposition =
+  | "terminal"
+  | "recoverable"
+  | "retryable_delivery"
+  | "retryable_followup";
 
 const errorWithClassificationSchema = z.object({
   data: z.object({ classification: agentErrorClassificationSchema }),
@@ -388,7 +405,8 @@ function getTaskRunStateString(
 type SteerDeclineReason =
   | "startup_turn"
   | "no_active_turn"
-  | "adapter_rejected";
+  | "adapter_rejected"
+  | `adapter_${SteerDeclineCause}`;
 
 /** Which delivery routes a Slack run has, as resolved by the backend from flags and Slack scopes. */
 type SlackArtifactDelivery = "none" | "message" | "canvas_file";
@@ -503,6 +521,8 @@ export class AgentServer {
   private config: AgentServerConfig;
   private sessionReadyBootMs?: number;
   private sessionInitMs?: number;
+  private httpReadyBootMs?: number;
+  private commandDispatchedRunId?: string;
   private barrierReleasedAtMs?: number;
   private bootTracker: AgentBootTracker;
   private logger: Logger;
@@ -635,7 +655,11 @@ export class AgentServer {
 
   constructor(config: AgentServerConfig) {
     this.config = config;
-    this.bootTracker = new AgentBootTracker(config.runId);
+    this.bootTracker = new AgentBootTracker(
+      config.runId,
+      undefined,
+      config.launcherToProcessMs,
+    );
     this.posthogExecPermissionRegexSource =
       config.posthogExecPermissionRegex ??
       DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE;
@@ -954,9 +978,11 @@ export class AgentServer {
           port: this.config.port,
         },
         () => {
+          this.httpReadyBootMs = Math.round(process.uptime() * 1000);
+          this.bootTracker.markHttpReady(this.httpReadyBootMs);
           this.logger.debug(
             `HTTP server listening on port ${this.config.port}`,
-            { bootMs: Math.round(process.uptime() * 1000) },
+            { bootMs: this.httpReadyBootMs },
           );
           resolve();
         },
@@ -1296,6 +1322,7 @@ export class AgentServer {
           ];
           const promptMeta: Record<string, unknown> = {
             ...(builtPrompt.meta ?? {}),
+            ...(messageId ? { messageId } : {}),
             ...(hostContext.length > 0
               ? { prContext: hostContext.join("\n\n") }
               : {}),
@@ -1320,7 +1347,13 @@ export class AgentServer {
                 resolveDelivery(outcome);
                 return outcome;
               }
-              declineReason = "adapter_rejected";
+              const cause = (
+                result._meta as { steerDeclineCause?: unknown } | undefined
+              )?.steerDeclineCause;
+              declineReason =
+                typeof cause === "string"
+                  ? (`adapter_${cause}` as SteerDeclineReason)
+                  : "adapter_rejected";
             }
             const outcome = {
               stopReason: "steer_declined",
@@ -1369,6 +1402,7 @@ export class AgentServer {
               }
             } else {
               const runPrompt = () => {
+                this.emitFirstCommandDispatched();
                 const promptResult = commandSession.clientConnection.prompt({
                   sessionId: commandSession.acpSessionId,
                   prompt,
@@ -1424,12 +1458,12 @@ export class AgentServer {
             }
           } catch (error) {
             await commandSession.logWriter.flushAll();
-            const { recoverable } = await this.handleTurnFailure(
+            const failureDisposition = await this.handleTurnFailure(
               commandSession.payload,
               "followup",
               error,
             );
-            if (!recoverable) {
+            if (failureDisposition !== "recoverable") {
               throw error;
             }
             commitDelivery();
@@ -1694,7 +1728,11 @@ export class AgentServer {
       return;
     }
 
-    this.bootTracker = new AgentBootTracker(payload.run_id);
+    this.bootTracker = new AgentBootTracker(
+      payload.run_id,
+      this.httpReadyBootMs,
+      this.config.launcherToProcessMs,
+    );
     this.initializationPromise = this._doInitializeSession(
       payload,
       sseController,
@@ -2235,6 +2273,9 @@ export class AgentServer {
     this.posthogAPI
       .updateTaskRun(payload.task_id, payload.run_id, {
         status: "in_progress",
+        ...(isBenjaminEnabled() && {
+          state: { benjamin_version: BENJAMIN_UPSTREAM_COMMIT },
+        }),
       })
       .catch((err) =>
         this.logger.debug("Failed to set task run to in_progress", err),
@@ -2310,6 +2351,7 @@ export class AgentServer {
       if (!session) {
         throw new Error("Agent session ended before the turn could be sent");
       }
+      this.emitFirstCommandDispatched();
       const attempt = continueInterruptedTurn
         ? {
             sessionId: session.acpSessionId,
@@ -2357,37 +2399,52 @@ export class AgentServer {
     payload: JwtPayload,
     phase: "initial" | "resume" | "followup",
     error: unknown,
-  ): Promise<{ recoverable: boolean }> {
+  ): Promise<TurnFailureDisposition> {
     const { classification, message } = this.extractErrorClassification(error);
     const isUpstreamFailure =
       upstreamProviderFailureClassifications.has(classification);
+    const isTurnWithoutResponse =
+      classification === "turn_ended_without_response";
     const displayMessage = isUpstreamFailure
       ? UPSTREAM_PROVIDER_FAILURE_MESSAGE
       : message || "Agent error";
-    const recoverable =
-      isUpstreamFailure &&
-      phase === "followup" &&
-      this.getEffectiveMode(payload) === "interactive";
+    const isInteractiveFollowup =
+      phase === "followup" && this.getEffectiveMode(payload) === "interactive";
+    const retryableFollowup = isTurnWithoutResponse && isInteractiveFollowup;
+    const retryableDelivery =
+      classification === "content_block_rejection" && phase === "followup";
+    const recoverable = isUpstreamFailure && isInteractiveFollowup;
     const expectedIdleTransportClosure =
       recoverable && /^ACP connection closed$/i.test(message.trim());
+    const suppressClientError =
+      retryableFollowup || expectedIdleTransportClosure;
 
     this.logger.error(`send_${phase}_task_message_failed`, {
       classification,
       message,
       recoverable,
+      retryableDelivery,
     });
 
-    if (!expectedIdleTransportClosure) {
+    if (retryableDelivery) {
+      return "retryable_delivery";
+    }
+
+    if (!suppressClientError) {
       this.broadcastTurnFailure(classification, displayMessage);
     }
 
     if (recoverable) {
       this.broadcastTurnComplete("error_recoverable");
-      return { recoverable: true };
+      return "recoverable";
+    }
+
+    if (retryableFollowup) {
+      return "retryable_followup";
     }
 
     await this.signalTaskComplete(payload, "error", displayMessage);
-    return { recoverable: false };
+    return "terminal";
   }
 
   private broadcastTurnFailure(
@@ -3829,7 +3886,13 @@ export class AgentServer {
     );
     const userPrompt = this.config.claudeCode?.systemPrompt;
 
-    return buildCloudSessionSystemPrompt(cloudAppend, userPrompt);
+    const sessionPrompt = buildCloudSessionSystemPrompt(
+      cloudAppend,
+      userPrompt,
+    );
+    return this.getCloudInteractionOrigin() === "slack"
+      ? appendSte100Guidance(sessionPrompt)
+      : sessionPrompt;
   }
 
   private buildCodexInstructions(
@@ -3839,7 +3902,7 @@ export class AgentServer {
       typeof systemPrompt === "string" ? systemPrompt : systemPrompt.append;
     // Codex has no command-rewrite hook (see rtk-guidance.ts), so RTK is
     // adopted through the developer instructions instead.
-    return appendRtkGuidanceForCodex(instructions);
+    return appendBenjaminGuidance(appendRtkGuidanceForCodex(instructions));
   }
 
   /**
@@ -4166,7 +4229,19 @@ You may have no repository checked out, or no credentials to push and open a pul
     const taskId = this.config.taskId;
     const shouldAutoCreatePr = this.shouldAutoPublishCloudChanges();
     const isSlack = this.getCloudInteractionOrigin() === "slack";
-    const identityInstructions = isSlack
+    // Every instruction in this section runs through `gh`, so a sandbox holding no
+    // GitHub token cannot act on any of it. An empty token is an explicit logout.
+    const hasGithubToken = Boolean(resolveGithubToken());
+    const githubIdentityInstructions = hasGithubToken
+      ? `
+# Whose GitHub account you are using
+\`gh\` is authenticated as the person you are working for, so let GitHub resolve who that is. To put them on an issue or pull request, self-assign:
+  \`gh issue create --assignee "@me"\`, \`gh pr create --assignee "@me"\`, \`gh issue edit <number> --add-assignee "@me"\`
+To \`@\`-mention them in a body or a comment, read their handle with \`gh api user --jq .login\`. Read it once per reply rather than reusing one from an earlier reply, because a different person can take over between replies and \`gh\` follows that change.
+If the command fails, or returns a name ending in \`[bot]\`, you are acting as the PostHog app rather than as a person: ask them for their GitHub login instead of assigning or mentioning anyone.
+`
+      : "";
+    const slackIdentityInstructions = isSlack
       ? `
 # Identity
 You are the PostHog Slack app, PostHog's agent for helping users with their product data and coding tasks from Slack. When introducing yourself or referring to yourself in messages to the user, identify as "PostHog Slack app". Do NOT refer to yourself as Claude, an Anthropic assistant, or any underlying model name.
@@ -4193,6 +4268,7 @@ To ping a Slack user, reuse a \`<@U…|displayname>\` token that already appears
 You can also open pull requests directly from this Slack thread. When the user's question describes a problem with a plausible code-side fix — a bug visible in errors or logs, missing or broken instrumentation, a broken funnel step traceable to UI code, a stale config that lives in a repo — end your reply with a one-sentence offer to open a PR for the fix and ask if they want you to proceed. Skip the offer for pure data lookups with no actionable code change (e.g. "what was DAU yesterday?"), and skip it when the fix would clearly live outside any repo you can reach.
 `
       : "";
+    const identityInstructions = `${slackIdentityInstructions}${githubIdentityInstructions}`;
     const signedCommitInstructions = `
 ## Committing (signed commits required)
 Commits MUST be signed. \`git commit\` and \`git push\` are blocked in this environment.
@@ -4287,7 +4363,7 @@ When you create a non-code file the user should be able to download (such as a r
 
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
-    const prMentionSafetyInstruction = `   - **Never guess a GitHub identity.** Do NOT \`@\`-mention, tag, assign, request review from, or attribute the PR to a person (in the title, description, commit message, or reviewers) using a name or handle taken from Slack or this thread. A Slack display name or handle is NOT a GitHub username. Finding a similar-looking handle in the repo's git history, CODEOWNERS, or existing PRs/issues does NOT confirm it belongs to this person: repository presence proves the handle exists, not that it is the person you mean, so treating it as a match still \`@\`-tags an unrelated account (e.g. Slack "Ross" is not necessarily GitHub \`@ross\`, even if some \`@ross\` has committed to the repo). Only \`@\`-mention a GitHub \`@handle\` the user gave you explicitly in this thread. Otherwise refer to people by plain-text name, or omit the mention entirely.`;
+    const prMentionSafetyInstruction = `   - **Never guess a GitHub identity.** Do NOT \`@\`-mention, tag, assign, request review from, or attribute the PR to a person (in the title, description, commit message, or reviewers) using a name or handle taken from Slack or this thread. A Slack display name or handle is NOT a GitHub username. Finding a similar-looking handle in the repo's git history, CODEOWNERS, or existing PRs/issues does NOT confirm it belongs to this person: repository presence proves the handle exists, not that it is the person you mean, so treating it as a match still \`@\`-tags an unrelated account (e.g. Slack "Ross" is not necessarily GitHub \`@ross\`, even if some \`@ross\` has committed to the repo). Only \`@\`-mention a GitHub \`@handle\` the user gave you explicitly in this thread, or one you read from \`gh api user --jq .login\`, which authenticates as the person you are working for. Otherwise refer to people by plain-text name, or omit the mention entirely.`;
     // Slack- and inbox-originated PRs are attributed to PostHog, not the
     // PostHog Desktop app — they come from the Slack app / Self-driving
     // inbox, which users know as "PostHog".
@@ -5201,8 +5277,9 @@ ${commonInstructions}
       ...(checkout ? [checkout] : []),
       ...ownedBranchesFromOutput(freshOutput),
     ];
-    // GitHub App installation tokens (all cloud runs) can't read `gh api user`, so
-    // ghLogin is null there and the head-branch match is what proves ownership.
+    // Bot-authored runs hold a GitHub App installation token, which can't read
+    // `gh api user`, so ghLogin is null there and the head-branch match is what proves
+    // ownership. User-authored runs carry the actor's own token and do resolve a login.
     const owned = wasCreatedByThisRun({
       createdAt: attribution.createdAt,
       nowMs: Date.now(),
@@ -5406,31 +5483,17 @@ ${commonInstructions}
     this.rtkSavingsAttempted = true;
 
     try {
-      const savings = await (
-        this.config.resolveRtkSavings ?? resolveRtkSavings
-      )();
-      if (!savings) return;
-
-      this.eventStreamSender.enqueue({
-        type: "notification",
-        timestamp: new Date().toISOString(),
-        notification: {
-          jsonrpc: "2.0",
-          method: POSTHOG_NOTIFICATIONS.RTK_SAVINGS,
-          params: {
-            task_id: this.config.taskId,
-            run_id: this.config.runId,
-            team_id: this.config.projectId,
-            counter_id: this.config.taskId,
-            cumulative_commands: savings.totalCommands,
-            cumulative_input_tokens: savings.inputTokens,
-            cumulative_output_tokens: savings.outputTokens,
-            cumulative_tokens_saved: savings.tokensSaved,
-            runtime_adapter: this.config.runtimeAdapter,
-            model: this.config.model,
-          },
-        },
+      const notification = await createRtkSavingsNotification({
+        taskId: this.config.taskId,
+        runId: this.config.runId,
+        teamId: this.config.projectId,
+        runtimeAdapter: this.config.runtimeAdapter,
+        model: this.config.model,
+        resolveSavings: this.config.resolveRtkSavings,
       });
+      if (notification) {
+        this.eventStreamSender.enqueue(notification);
+      }
     } catch (error) {
       this.logger.debug("Failed to emit rtk savings", { error });
     }
@@ -5519,6 +5582,24 @@ ${commonInstructions}
       // `this.session` assignment) or before its SSE controller attaches.
       this.pendingEvents.push(event);
     }
+  }
+
+  private emitFirstCommandDispatched(): void {
+    if (!this.session) return;
+    const runId = this.session.payload.run_id;
+    if (this.commandDispatchedRunId === runId) return;
+    this.commandDispatchedRunId = runId;
+    const notification = {
+      jsonrpc: "2.0" as const,
+      method: POSTHOG_NOTIFICATIONS.COMMAND_DISPATCHED,
+      params: {},
+    };
+    this.broadcastEvent({
+      type: "notification",
+      timestamp: new Date().toISOString(),
+      notification,
+    });
+    this.session.logWriter.appendRawLine(runId, JSON.stringify(notification));
   }
 
   private flushPreSessionEvents(): void {

@@ -22,11 +22,11 @@ pytestmark = pytest.mark.django_db
 
 TEAM = 987654
 
-# The test database is built from rust/persons_migrations, which declares
-# posthog_person_new_uuid_idx as UNIQUE. Production does not have it -- that divergence
-# is the entire reason this command exists, and it means the test database physically
-# rejects the duplicate rows we need to seed. Recreate the index non-unique so the
-# fixture holds what production holds, and restore it afterwards.
+# The test database declares a UNIQUE (team_id, uuid) index, so it physically rejects the
+# duplicate rows these tests need to seed. Drop to a non-unique index for the fixture and
+# restore it afterwards. The duplicates this command repairs accumulated while production
+# carried a non-unique index. Production enforces uniqueness, so the command operates on
+# historical rows rather than newly created ones.
 DROP_UNIQUE_UUID_INDEX = "DROP INDEX IF EXISTS posthog_person_new_uuid_idx"
 CREATE_NON_UNIQUE_UUID_INDEX = "CREATE INDEX posthog_person_new_uuid_idx ON posthog_person (team_id, uuid)"
 RESTORE_UNIQUE_UUID_INDEX = "CREATE UNIQUE INDEX posthog_person_new_uuid_idx ON posthog_person (team_id, uuid)"

@@ -148,7 +148,7 @@ with an honest denominator.
 ```sql
 SELECT
     countIf(conclusion = 'success') AS ok,
-    countIf(conclusion IN ('failure', 'timed_out')) AS fail,
+    countIf(conclusion IN ('failure', 'timed_out', 'startup_failure', 'stale')) AS fail,
     round(100.0 * fail / nullIf(ok + fail, 0), 2) AS fail_pct
 FROM engineering_analytics_ci_job_history
 WHERE repo_name = '<repo>'
@@ -162,8 +162,9 @@ Scope by repository and workflow as well as job: the view unions every connected
 names repeat across workflows (`Desktop Tests Pass` fails under two), so a job-only filter pools
 unrelated attempts into the denominator.
 
-`timed_out` counts as a failure, the same set every other rate in this product uses. `cancelled` and
-`skipped` are absent from `ok + fail` on purpose: neither reached a verdict, and both are common
+`failure`, `timed_out`, `startup_failure`, and `stale` are decisive failures, the same set every
+other workflow-run rate in this product uses. `cancelled`, `skipped`, `neutral`, and `action_required`
+are absent from `ok + fail` on purpose: none reached a pass-or-fail verdict, and they are common
 enough here (superseded pushes, path filters) to halve the rate if counted.
 
 A percentage alone can't tell an old flake from a live outage. Break the same window down by hour:
@@ -172,7 +173,7 @@ A percentage alone can't tell an old flake from a live outage. Break the same wi
 SELECT
     toStartOfHour(created_at) AS hour,
     countIf(conclusion = 'success') AS ok,
-    countIf(conclusion IN ('failure', 'timed_out')) AS fail
+    countIf(conclusion IN ('failure', 'timed_out', 'startup_failure', 'stale')) AS fail
 FROM engineering_analytics_ci_job_history
 WHERE repo_name = '<repo>'
   AND workflow_name = '<failing workflow name>'
@@ -200,7 +201,7 @@ FROM engineering_analytics_ci_job_history
 WHERE startsWith(head_branch, 'trunk-merge/pr-<n>/')
   AND created_at >= now() - INTERVAL 7 DAY
   AND created_at_raw >= '<8 days ago, YYYY-MM-DD>'
-ORDER BY conclusion IN ('failure', 'timed_out') DESC, created_at DESC
+ORDER BY conclusion IN ('failure', 'timed_out', 'startup_failure', 'stale') DESC, created_at DESC
 ```
 
 Each `<uuid>` is one queue attempt; a PR kicked twice has two. The failing `job_name` feeds query 7.

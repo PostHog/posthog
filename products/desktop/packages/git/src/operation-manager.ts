@@ -40,7 +40,7 @@ interface RepoState {
   lastAccess: number;
 }
 
-export interface ExecuteOptions {
+interface ExecuteOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
   waitForExternalLock?: boolean;
@@ -167,12 +167,3 @@ export function getGitOperationManager(): GitOperationManagerImpl {
   }
   return instance;
 }
-
-export function resetGitOperationManager(): void {
-  if (instance) {
-    instance.destroy();
-    instance = null;
-  }
-}
-
-export type GitOperationManager = GitOperationManagerImpl;

@@ -88,6 +88,7 @@ export function useActivitySelection(): ActivitySelection | null {
 }
 
 /** Read the selection outside React (the chrome's imperative paths). */
+/** Not wired to a caller yet. The @public tag stops knip from reporting it. */
 export function getActivitySelection(): ActivitySelection | null {
   const router = getRouterOrNull();
   if (!router) return null;

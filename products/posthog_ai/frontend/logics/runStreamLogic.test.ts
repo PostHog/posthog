@@ -1662,14 +1662,66 @@ describe('runStreamLogic', () => {
             expect(logic.values.isThinking).toEqual(false)
         })
 
-        it('re-raises on a follow-up turn opened by a human message, with no new run_started', () => {
+        // A follow-up on the same run starts a new turn with no second run_started frame. It reaches
+        // the thread as this composer's optimistic echo, as a wire user turn in one of its two forms,
+        // or — for a follow-up sent from Slack, where the live stream carries no user turn at all —
+        // only as the agent's first output.
+        it.each([
+            ['this composer', (): void => logic.actions.pushHumanMessage('and the mobile funnel?')],
+            [
+                'a wire _posthog/user_message',
+                (): void =>
+                    logic.actions.ingestAcpFrame(
+                        notification('_posthog/user_message', { content: 'and the mobile funnel?' })
+                    ),
+            ],
+            [
+                'a wire session/update user_message',
+                (): void =>
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({ sessionUpdate: 'user_message', content: { text: 'and the mobile funnel?' } })
+                    ),
+            ],
+            [
+                'the agent producing output',
+                (): void =>
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({
+                            sessionUpdate: 'agent_message_chunk',
+                            messageId: 'm2',
+                            content: { text: 'On' },
+                        })
+                    ),
+            ],
+        ])('re-raises on a follow-up turn opened by %s, with no new run_started', (_case, sendFollowUp) => {
             logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
             logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
             expect(logic.values.isThinking).toEqual(false)
 
-            // A follow-up on the same run starts a new turn — no second run_started frame arrives.
-            logic.actions.pushHumanMessage('and the mobile funnel?')
+            sendFollowUp()
             expect(logic.values.isThinking).toEqual(true)
+        })
+
+        it('re-raises for a queued follow-up whose user turn precedes the prior turn_complete', () => {
+            logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            // A follow-up sent while the first turn is still running is persisted when it is received,
+            // so the replayed log carries it before that turn's completion.
+            logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'and mobile?' }))
+            logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+            expect(logic.values.isThinking).toEqual(false)
+
+            logic.actions.ingestAcpFrame(
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm2', content: { text: 'On' } })
+            )
+            expect(logic.values.isThinking).toEqual(true)
+        })
+
+        it('stays off after turn_complete on an update that does not mean the agent is generating', () => {
+            logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+
+            logic.actions.ingestAcpFrame(sessionUpdate({ sessionUpdate: 'current_mode_update', currentModeId: 'auto' }))
+            expect(logic.values.isThinking).toEqual(false)
         })
 
         it('is on during the cold-boot queued window before the first run_started', async () => {
@@ -1946,6 +1998,45 @@ describe('runStreamLogic', () => {
             await flushPromises()
 
             expect(logic.values.sseStatus).toEqual('error')
+        })
+    })
+
+    describe('connection state across runs', () => {
+        // A follow-up on a finished run opens a successor with a stream of its own. The finished
+        // run's sentinel flag and resume cursor must not carry into it: the flag gates the drop
+        // handler, and the cursor addresses a different Redis stream.
+        it("opens a successor run on fresh connection state, not the finished run's", async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
+            await MockStream.latest().emitStreamEnd()
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-2', startLatest: false })
+
+            expect(MockStream.latest().options.lastEventId).toBeUndefined()
+            await MockStream.latest().emitOpen()
+
+            const opened = MockStream.connections.length
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            expect(logic.values.sseStatus).toEqual('reconnecting')
+            jest.advanceTimersByTime(2000)
+            expect(MockStream.connections.length).toEqual(opened + 1)
+            jest.useRealTimers()
+        })
+
+        it('leaves a dead stream closed when a follow-up starts a turn', async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
+            await MockStream.latest().emitStreamEnd()
+            expect(logic.values.sseStatus).toEqual('closed')
+            const opened = MockStream.connections.length
+
+            logic.actions.pushHumanMessage('and one more thing')
+
+            expect(MockStream.connections.length).toEqual(opened)
         })
     })
 
@@ -2357,6 +2448,36 @@ describe('runStreamLogic', () => {
                     ],
                 },
             ])
+        })
+
+        it('clears currentProgress when a step finishes so the milestone label never sticks as live status', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        sessionId: 's',
+                        step: 'agent',
+                        status: 'in_progress',
+                        label: 'Starting agent',
+                        group: 'setup:run-1',
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentProgress).toEqual('Starting agent')
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        sessionId: 's',
+                        step: 'agent',
+                        status: 'completed',
+                        label: 'Started agent',
+                        group: 'setup:run-1',
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentProgress).toBeNull()
         })
 
         it('falls back to detail when label is absent', async () => {

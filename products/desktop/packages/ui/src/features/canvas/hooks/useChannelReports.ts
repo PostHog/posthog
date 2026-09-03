@@ -31,6 +31,7 @@ export interface ChannelReportsFilters {
   status: ReportStatusFilter;
 }
 
+/** Not wired to a caller yet. The @public tag stops knip from reporting it. */
 export const EMPTY_CHANNEL_REPORTS_FILTERS: ChannelReportsFilters = {
   search: "",
   relevantToMeOnly: false,
@@ -44,6 +45,7 @@ export const EMPTY_CHANNEL_REPORTS_FILTERS: ChannelReportsFilters = {
  * unfiltered list is both noisy and expensive to render; one funnel click
  * widens to everything.
  */
+/** Not wired to a caller yet. The @public tag stops knip from reporting it. */
 export const DEFAULT_CHANNEL_REPORTS_FILTERS: ChannelReportsFilters = {
   ...EMPTY_CHANNEL_REPORTS_FILTERS,
   relevantToMeOnly: true,

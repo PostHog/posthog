@@ -80,10 +80,6 @@ def resolve_run_preferences(
     own applies to whichever model the run was already going to use. Either can be
     absent, and a request we can't honour — a model that isn't on offer, an effort the
     model doesn't support — leaves the run on its saved preferences.
-
-    Note that `resolve_ai_preferences` yields nothing at all for a workspace that
-    hasn't enabled `slack-app-home`, so there the chain is the Slack default plus
-    whatever the mention asked for.
     """
     override_model = override.model if override else None
     override_effort = override.reasoning_effort if override else None

@@ -145,7 +145,7 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
     # another, and without this the watchdog would count that whole sequence against a single
     # budget and fail a cell that is working correctly.
     if claims.run_id:
-        touch_run_progress(claims.team_id, claims.run_id)
+        touch_run_progress(claims.team_id, claims.notebook_short_id, claims.run_id)
     team = Team.objects.get(id=claims.team_id)
     user = User.objects.filter(id=claims.user_id).first() if claims.user_id else None
 

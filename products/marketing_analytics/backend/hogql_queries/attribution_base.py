@@ -9,7 +9,15 @@ drifting on what a journey is.
 from functools import cached_property
 from typing import Generic
 
-from posthog.schema import BaseMathType, MarketingAnalyticsAttributionPathsQuery, MarketingAnalyticsAttributionQuery
+from posthog.schema import (
+    BaseMathType,
+    ConversionGoalFilter1,
+    ConversionGoalFilter2,
+    ConversionGoalFilter3,
+    MarketingAnalyticsAttributionPathsQuery,
+    MarketingAnalyticsAttributionQuery,
+    PropertyMathType,
+)
 
 from posthog.hogql import ast
 
@@ -17,11 +25,18 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS, MIN_ATTRIBUTION_WINDOW_DAYS
 
 from .attribution_weights import DAY_IN_SECONDS
+from .conversion_goal_conditions import conversion_goal_condition
 from .marketing_analytics_base_query_runner import ResponseType
 from .session_breakdown_base import MarketingSessionBreakdownQueryRunnerBase
 
+ConversionGoal = ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3
+
 # Both runners collect per-person arrays under this name before diverging.
 PERSON_ARRAYS_CTE = "person_arrays"
+
+# The person's conversion total, carried alongside the arrays because MAX_CONVERSIONS_PER_PERSON can
+# make the array shorter than it.
+PERSON_CONVERSION_COUNT = "conversion_count"
 
 # Ceiling on how many sessions of one person can earn credit. Bots and shared devices would otherwise
 # fan out touchpoints x conversions far enough to dominate the query. Touchpoints are sorted before
@@ -31,10 +46,89 @@ PERSON_ARRAYS_CTE = "person_arrays"
 # table; this way they keep their credit, and only first touch becomes approximate for such a person.
 MAX_TOUCHPOINTS_PER_PERSON = 500
 
+# The same ceiling for the other side of the fan-out. Without it, a person with many conversions
+# multiplies the two downstream ARRAY JOINs by an unbounded factor, which is the shape that makes the
+# query run out of memory. The most recent are kept for the mirror of the reason above: a conversion
+# is credited by touchpoints that precede it, and the recent ones are those with touchpoints still in
+# the collected window.
+MAX_CONVERSIONS_PER_PERSON = 500
+
 
 class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[ResponseType], Generic[ResponseType]):
     # Narrower than the session-breakdown base's union: everything below reads attribution-only fields.
     query: MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery
+
+    @cached_property
+    def goal(self) -> ConversionGoal:
+        """The requested goal, found among the team's configured goals.
+
+        Data warehouse goals are rejected rather than silently mis-attributed: their conversions live in
+        a warehouse table keyed by distinct_id, but these queries collect conversions from one `events`
+        scan grouped by person_id, so there is nothing to join them on here.
+        """
+        all_goals = self._get_team_conversion_goals()
+        goals, skipped_goals = self._filter_invalid_conversion_goals(all_goals)
+        self._valid_conversion_goals_count = len(goals)
+
+        for goal in goals:
+            if goal.conversion_goal_id == self.query.conversionGoalId:
+                if goal.kind == "DataWarehouseNode":
+                    raise ValueError(
+                        f"Conversion goal '{goal.conversion_goal_name}' is backed by a data warehouse table, "
+                        "which attribution doesn't support yet. Pick an event or action goal."
+                    )
+                return goal
+
+        # Only one goal is queried at a time, so another goal being unusable is not this query's problem.
+        # Only report it when it's the goal that was actually asked for.
+        skipped = next((g for g in all_goals if g.conversion_goal_id == self.query.conversionGoalId), None)
+        if skipped is not None:
+            reason = next(
+                (s.message for s in skipped_goals if s.conversion_goal_id == self.query.conversionGoalId), None
+            )
+            raise ValueError(reason or f"Conversion goal '{skipped.conversion_goal_name}' can't be attributed")
+
+        raise ValueError(f"Conversion goal '{self.query.conversionGoalId}' not found for this team")
+
+    @cached_property
+    def conversion_condition(self) -> ast.Expr:
+        """True for an event row that counts as a conversion for this goal.
+
+        Shared with the Dashboard's pipeline so the two can't drift on what a conversion is, which
+        includes the goal's own property filters: a goal scoped to purchases over $100 has to mean that
+        here too, or this table reports a different number than the Dashboard for the same goal.
+
+        Cached because the query references it three times, and the action branch hits Postgres.
+        """
+        goal = self.goal
+        condition = conversion_goal_condition(goal, self.team)
+        if condition is None:
+            # Validation already rejected the goals with nothing to match on, so what's left is an
+            # action-based goal whose action was deleted.
+            raise ValueError(
+                f"Conversion goal '{goal.conversion_goal_name}' points to an action that no longer exists. "
+                "Update the goal in marketing analytics settings, or pick another goal."
+            )
+        return condition
+
+    def _conversion_value_expr(self) -> ast.Expr:
+        """Value of one conversion: the goal's math property under SUM math, otherwise 1.
+
+        Mirrors `ConversionGoalProcessor._get_conversion_value_expr` — these must stay in lockstep, or
+        the same goal would report different revenue on the Dashboard and here.
+        """
+        goal = self.goal
+        math_type = goal.math
+        if math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum"):
+            if goal.math_property:
+                return ast.Call(
+                    name="coalesce",
+                    args=[
+                        ast.Call(name="toFloat", args=[ast.Field(chain=["events", "properties", goal.math_property])]),
+                        ast.Constant(value=0.0),
+                    ],
+                )
+        return ast.Call(name="toFloat", args=[ast.Constant(value=1)])
 
     @property
     def lookback_window_days(self) -> int:
@@ -91,7 +185,7 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
             ),
         ]
 
-    def _build_converters_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
+    def _build_converters_select(self, date_range: QueryDateRange, *, with_bounds: bool = False) -> ast.SelectQuery:
         """Persons who converted in the window.
 
         This is not an optimization — it is what makes the query affordable. Widening touchpoints from
@@ -99,8 +193,32 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
         it to converters (typically low single-digit percent of persons) more than pays that back. Removing
         this semi-join changes no results and costs one to two orders of magnitude more.
         """
+        select: list[ast.Expr] = [ast.Field(chain=["events", "person_id"])]
+        if with_bounds:
+            # The window of conversions this person can credit. A touchpoint outside it earns nothing,
+            # so carrying the bounds lets the caller drop it before it reaches the arrays.
+            select.append(
+                ast.Alias(
+                    alias="first_conversion",
+                    expr=ast.Call(
+                        name="min",
+                        args=[ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])],
+                    ),
+                )
+            )
+            # Only the repeat-conversion mode needs an upper end of its own; see the caller.
+            if self.allows_multiple_conversions_per_visitor:
+                select.append(
+                    ast.Alias(
+                        alias="last_conversion",
+                        expr=ast.Call(
+                            name="max",
+                            args=[ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])],
+                        ),
+                    )
+                )
         return ast.SelectQuery(
-            select=[ast.Field(chain=["events", "person_id"])],
+            select=select,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
                 exprs=[
@@ -145,6 +263,35 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
             ],
         )
 
+        # Only the repeat-conversion mode can credit anything after the person's first conversion; the
+        # other mode keeps that conversion alone, so `first_conversion` closes the window on both sides.
+        upper_bound_field = "last_conversion" if self.allows_multiple_conversions_per_visitor else "first_conversion"
+        session_start = ast.Call(
+            name="toUnixTimestamp", args=[ast.Field(chain=["events", "session", "$start_timestamp"])]
+        )
+        window_opens = ast.ArithmeticOperation(
+            left=ast.Field(chain=["conv_bounds", "first_conversion"]),
+            op=ast.ArithmeticOperationOp.Sub,
+            right=ast.Constant(value=self.attribution_window_seconds),
+        )
+
+        # A session that starts before this person's window opens, or after their last creditable
+        # conversion, earns credit from none of them, so it never has to enter the array. Bounds the
+        # session start rather than the event timestamp because that is the value stored as the
+        # touchpoint: a session starting before the last conversion is creditable even when its only
+        # pageview lands after it.
+        creditable_touchpoint = ast.And(
+            exprs=[
+                self._touchpoint_condition(),
+                ast.CompareOperation(left=session_start, op=ast.CompareOperationOp.GtEq, right=window_opens),
+                ast.CompareOperation(
+                    left=session_start,
+                    op=ast.CompareOperationOp.LtEq,
+                    right=ast.Field(chain=["conv_bounds", upper_bound_field]),
+                ),
+            ]
+        )
+
         # Sorted before truncating: `groupUniqArray` is hash-backed, so its order is unrelated to time and
         # slicing it raw would keep an arbitrary subset. The negative offset takes the tail of the sorted
         # array, i.e. the most recent sessions — see MAX_TOUCHPOINTS_PER_PERSON for why that direction.
@@ -166,7 +313,7 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
                                         self._breakdown_expr(),
                                     ]
                                 ),
-                                self._touchpoint_condition(),
+                                creditable_touchpoint,
                             ],
                         )
                     ],
@@ -174,6 +321,11 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
                 ast.Constant(value=-MAX_TOUCHPOINTS_PER_PERSON),
             ],
         )
+
+        # The person's conversion total before MAX_CONVERSIONS_PER_PERSON truncates the array. The
+        # footers report "N of M" as an exact count, so M has to be counted here rather than off the
+        # capped array; a conversion the cap removed is reported as unattributed, not as absent.
+        conversion_count: ast.Expr = ast.Call(name="length", args=[ast.Field(chain=["conversions"])])
 
         if not self.allows_multiple_conversions_per_visitor:
             # One conversion per person: keep the earliest in the window, so the models attribute the
@@ -186,21 +338,51 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
                     ast.Constant(value=1),
                 ],
             )
+        else:
+            conversion_count = ast.Call(
+                name="countIf",
+                args=[
+                    ast.And(
+                        exprs=[
+                            self.conversion_condition,
+                            *self._get_where_conditions(date_range, date_field="events.timestamp"),
+                        ]
+                    )
+                ],
+            )
+            conversions = ast.Call(
+                name="arraySlice",
+                args=[
+                    ast.Call(name="arraySort", args=[conversions]),
+                    ast.Constant(value=-MAX_CONVERSIONS_PER_PERSON),
+                ],
+            )
 
         return ast.SelectQuery(
             select=[
                 ast.Field(chain=["events", "person_id"]),
                 ast.Alias(alias="conversions", expr=conversions),
+                ast.Alias(alias=PERSON_CONVERSION_COUNT, expr=conversion_count),
                 ast.Alias(alias="touchpoints", expr=touchpoints),
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                next_join=ast.JoinExpr(
+                    join_type="INNER JOIN",
+                    table=self._build_converters_select(date_range, with_bounds=True),
+                    alias="conv_bounds",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            left=ast.Field(chain=["events", "person_id"]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Field(chain=["conv_bounds", "person_id"]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
             where=ast.And(
                 exprs=[
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["events", "person_id"]),
-                        op=ast.CompareOperationOp.In,
-                        right=self._build_converters_select(date_range),
-                    ),
                     ast.Or(
                         exprs=[
                             ast.And(
@@ -213,6 +395,21 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
                                 exprs=[
                                     self._pageview_condition(),
                                     *self._lookback_date_conditions(date_range),
+                                    # Narrower than the lookback bound above, and per person: an event
+                                    # before this person's window opens belongs to a session that
+                                    # started before it too, so no conversion of theirs can credit it.
+                                    #
+                                    # Reads the event timestamp, not the session start the touchpoint
+                                    # is keyed on, so the scan drops these rows without the session
+                                    # join having to resolve them first. The upper end has no such
+                                    # cheap form and is applied on the collected array instead.
+                                    ast.CompareOperation(
+                                        left=ast.Call(
+                                            name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]
+                                        ),
+                                        op=ast.CompareOperationOp.GtEq,
+                                        right=window_opens,
+                                    ),
                                 ]
                             ),
                         ]
@@ -225,6 +422,24 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
                 op=ast.CompareOperationOp.Gt,
                 right=ast.Constant(value=0),
             ),
+        )
+
+    def _total_conversions_expr(self, conversion_index: str) -> ast.Expr:
+        """The exact conversion total, for a footer reading a CTE exploded by conversion.
+
+        Counting the exploded rows would report the capped total. Every row of one person carries that
+        person's true count instead, so summing it on the first index alone counts each person once.
+        """
+        return ast.Call(
+            name="sumIf",
+            args=[
+                ast.Field(chain=[PERSON_CONVERSION_COUNT]),
+                ast.CompareOperation(
+                    left=ast.Field(chain=[conversion_index]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value=1),
+                ),
+            ],
         )
 
     def _in_window_touchpoints_expr(self, conversion_time: ast.Expr) -> ast.Expr:

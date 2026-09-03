@@ -173,7 +173,10 @@ function PersonColumnCellWithRedirect({ person }: { person: PersonData | null | 
     )
 }
 
-export function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
+// Resolves a person from its distinct id through the shared batched loader, so a query that lists
+// distinct ids does not have to carry person properties. Falls back to the distinct id alone while
+// the batch is in flight and when the person cannot be found.
+function useLazyPerson(distinctId: string): PersonData {
     const { personsCache, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
     const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
 
@@ -185,30 +188,25 @@ export function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JS
         }
     }, [currentTeamId, cached, distinctId, ensurePersonLoaded])
 
-    const personData: PersonData = cached
-        ? { distinct_id: cached.distinct_id, properties: cached.properties }
-        : { distinct_id: distinctId }
+    return cached ? { distinct_id: cached.distinct_id, properties: cached.properties } : { distinct_id: distinctId }
+}
+
+export function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
+    const personData = useLazyPerson(distinctId)
 
     return <PersonColumnCell person={personData} />
 }
 
+function LazyPersonColumnCellWithRedirect({ distinctId }: { distinctId: string }): JSX.Element {
+    const personData = useLazyPerson(distinctId)
+
+    return <PersonColumnCellWithRedirect person={personData} />
+}
+
 // Avatar only (no name) for inline use beside a title; a click still opens the
-// full person popover. Shares the lazy person loader with LazyPersonColumnCell.
+// full person popover.
 export function LazyPersonAvatar({ distinctId }: { distinctId: string }): JSX.Element {
-    const { personsCache, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
-    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
-
-    const cached = personsCache[distinctId]
-
-    useEffect(() => {
-        if (currentTeamId && cached === undefined) {
-            ensurePersonLoaded(distinctId)
-        }
-    }, [currentTeamId, cached, distinctId, ensurePersonLoaded])
-
-    const personData: PersonData = cached
-        ? { distinct_id: cached.distinct_id, properties: cached.properties }
-        : { distinct_id: distinctId }
+    const personData = useLazyPerson(distinctId)
 
     return (
         <PersonDisplay person={personData}>
@@ -367,7 +365,7 @@ function AIOutputCell({ eventData }: { eventData: EventData }): JSX.Element {
     )
 }
 
-const getEventData = (record: unknown, query?: DataTableNode | DataVisualizationNode): EventData | undefined => {
+export const getEventData = (record: unknown, query?: DataTableNode | DataVisualizationNode): EventData | undefined => {
     // Object format (TracesQuery results)
     if (record && typeof record === 'object' && !Array.isArray(record) && 'uuid' in record) {
         const uuid = record.uuid
@@ -375,10 +373,14 @@ const getEventData = (record: unknown, query?: DataTableNode | DataVisualization
             return undefined
         }
         const props = 'properties' in record && typeof record.properties === 'object' ? record.properties : null
+        const traceId = (props as Record<string, unknown> | null)?.$ai_trace_id
+        const timestamp = 'timestamp' in record ? record.timestamp : undefined
         return {
             uuid,
             input: (props as Record<string, unknown> | null)?.$ai_input,
             output: (props as Record<string, unknown> | null)?.$ai_output_choices,
+            traceId: typeof traceId === 'string' ? traceId : undefined,
+            timestamp: typeof timestamp === 'string' ? timestamp : undefined,
         }
     }
 
@@ -388,16 +390,22 @@ const getEventData = (record: unknown, query?: DataTableNode | DataVisualization
         const uuidIdx = select.findIndex((c) => c === 'uuid')
         const inputIdx = select.findIndex((c) => c === 'properties.$ai_input' || c === 'properties.$ai_input[-1]')
         const outputIdx = select.findIndex((c) => c === 'properties.$ai_output_choices')
+        const traceIdIdx = select.findIndex((c) => c === 'properties.$ai_trace_id')
+        const timestampIdx = select.findIndex((c) => c === 'timestamp')
 
         const uuid = record[uuidIdx]
         if (typeof uuid !== 'string') {
             return undefined
         }
 
+        const traceId = traceIdIdx >= 0 ? record[traceIdIdx] : undefined
+        const timestamp = timestampIdx >= 0 ? record[timestampIdx] : undefined
         return {
             uuid,
             input: inputIdx >= 0 ? record[inputIdx] : undefined,
             output: outputIdx >= 0 ? record[outputIdx] : undefined,
+            traceId: typeof traceId === 'string' ? traceId : undefined,
+            timestamp: typeof timestamp === 'string' ? timestamp : undefined,
         }
     }
 
@@ -597,18 +605,8 @@ export const aiObservabilityColumnRenderers: Record<string, QueryContextColumn> 
     __llm_person: {
         title: 'Person',
         render: ({ value }) => {
-            // User data from HogQL query comes as a tuple [distinct_id, created_at, properties_json]
-            if (Array.isArray(value) && value.length >= 3) {
-                const [distinctId, , propertiesJson] = value
-                let properties: Record<string, unknown> = {}
-
-                try {
-                    properties = typeof propertiesJson === 'string' ? JSON.parse(propertiesJson) : {}
-                } catch {
-                    // Ignore parsing errors
-                }
-
-                return <PersonColumnCellWithRedirect person={{ distinct_id: distinctId, properties }} />
+            if (typeof value === 'string' && value) {
+                return <LazyPersonColumnCellWithRedirect distinctId={value} />
             }
 
             return <PersonColumnCellWithRedirect person={null} />

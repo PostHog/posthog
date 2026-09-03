@@ -16,6 +16,7 @@ import { useMemo } from "react";
 export function useCostChecklist(): CostChecklistItem[] {
   const defaultModelId = useSettingsStore((state) => state.lastUsedModel);
   const completed = useSettingsStore((state) => state.costChecklistDone);
+  const ste100Enabled = useSettingsStore((state) => state.ste100Enabled);
   const { images, customImagesEnabled, customImagesDisabled } =
     useSandboxCustomImages();
   const skills = useSkills();
@@ -39,6 +40,7 @@ export function useCostChecklist(): CostChecklistItem[] {
   return buildCostChecklist({
     defaultModelId,
     hasCustomImage,
+    ste100Enabled,
     skills: skillsLoaded
       ? LEAN_SKILLS.map((skill) => ({
           skillId: skill.skillId,

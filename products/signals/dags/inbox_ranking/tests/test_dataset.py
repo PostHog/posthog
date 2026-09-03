@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 import pyarrow as pa
 from parameterized import parameterized
 
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.signals.backend.models import SignalReport
 from products.signals.dags.inbox_ranking import common
 from products.signals.dags.inbox_ranking.dataset.dag import (
@@ -16,8 +17,10 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
     spine_report_filter,
 )
 from products.signals.dags.inbox_ranking.dataset.queries import (
+    IMPRESSIONS_SQL,
     LABEL_DEFAULTS,
     LABEL_STREAMS,
+    LABELED_REPORT_IDS_SQL,
     STATUS_COLUMNS,
     STATUS_SQL,
     hogql_rows,
@@ -160,10 +163,10 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
         "impressions": [(UUID_A, T1.replace(tzinfo=None), 5, 2, 3, 1, ["error_tracking"])],
         "opens": [(UUID_A.upper(), T2, 4, 2), (UUID_B, T2, 1, 1)],
         "actions": [
-            ("bogus-id", 1, T1, 1, T1, 1, 1, 1, T1, 1, T1),
+            ("bogus-id", 1, T1, 1, T1, 1, 1, 1, T1, 1, T1, 1, T1),
             # Distinct values per column, so a shifted or swapped ACTIONS_SQL/ACTIONS_COLUMNS
             # position lands a wrong value in some asserted field below.
-            (UUID_B, 5, T1, 0, None, 0, 0, 2, T1, 3, T2),
+            (UUID_B, 5, T1, 0, None, 0, 0, 2, T1, 3, T2, 4, T1),
         ],
         "status_changes": [],
         "pr_events": [],
@@ -189,6 +192,8 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
     assert r2["first_reviewer_added_at"] == T1
     assert r2["reviewer_remove_count"] == 3
     assert r2["first_reviewer_removed_at"] == T2
+    assert r2["resolve_click_count"] == 4
+    assert r2["first_resolve_clicked_at"] == T1
 
 
 @pytest.mark.parametrize("alias_first", [True, False])
@@ -349,6 +354,27 @@ class TestSpineInclusion(BaseTest):
         assert in_spine == {promoted, born_visible}
         assert promoted_after_cutoff not in in_spine
         assert created_after_cutoff not in in_spine
+
+
+class TestImpressionsStream(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand([("labeled_ids", LABELED_REPORT_IDS_SQL), ("impressions", IMPRESSIONS_SQL)])
+    def test_impressions_survive_a_numeric_property_definition(self, _name, sql):
+        # Another event in the same project sending `impressions` as a number types the project-wide
+        # definition as Numeric, which made HogQL cast the impressions array to Float64 and fail
+        # the query with a ClickHouse type error.
+        PropertyDefinition.objects.create(
+            team=self.team, name="impressions", property_type="Numeric", type=PropertyDefinition.Type.EVENT
+        )
+        _create_event(
+            team=self.team,
+            event="Inbox reports impressed",
+            distinct_id="user-1",
+            timestamp=T1,
+            properties={"impressions": [{"report_id": UUID_A, "rank": 1, "source_products": ["error_tracking"]}]},
+        )
+
+        rows = hogql_rows(sql, team=self.team, query_type="test", snapshot_end=SNAPSHOT_END)
+        assert [row[0] for row in rows] == [UUID_A]
 
 
 class TestStatusStream(ClickhouseTestMixin, BaseTest):

@@ -1,9 +1,8 @@
 ---
 name: signals-scout-health-checks
 description: >
-  Signals scout over PostHog's own health checks. Reads the project's active health issues,
-  bundles them by kind, weights by blast radius, and files the ones genuinely worth acting on
-  as reports in the inbox.
+  Signals scout over PostHog's own health checks. Bundles the project's active health issues by
+  kind, weights them by blast radius, and surfaces the ones worth acting on.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the health-issues read tools

@@ -17,7 +17,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
-import { SKILL_NAME_MAX_LENGTH } from 'products/skills/frontend/skillConstants'
+import { SKILL_DESCRIPTION_MAX_LENGTH, SKILL_NAME_MAX_LENGTH } from 'products/skills/frontend/skillConstants'
 
 import {
     ScoutCreateInitialValues,
@@ -167,7 +167,7 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                         <LemonTextArea
                             minRows={2}
                             maxRows={4}
-                            maxLength={4096}
+                            maxLength={SKILL_DESCRIPTION_MAX_LENGTH}
                             placeholder="Investigates recurring checkout failures and reports meaningful changes."
                             data-attr="scout-create-description"
                         />

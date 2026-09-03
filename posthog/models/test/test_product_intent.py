@@ -621,7 +621,6 @@ class TestProductIntent(BaseTest):
         upl = user_product_lists.get()
         assert upl.product_path == "Session replay"
         assert upl.enabled is True
-        assert upl.reason == UserProductList.Reason.PRODUCT_INTENT
 
     def test_register_creates_user_product_list_entries_for_multiple_product_intent(self):
         ProductIntent.register(
@@ -636,9 +635,6 @@ class TestProductIntent(BaseTest):
 
         enabled = [upl.enabled for upl in user_product_lists]
         assert all(enabled)
-
-        reasons = [upl.reason for upl in user_product_lists]
-        assert all(reason == UserProductList.Reason.PRODUCT_INTENT for reason in reasons)
 
     def test_register_ignores_product_key_without_products(self):
         ProductIntent.register(
@@ -719,54 +715,6 @@ class TestProductIntent(BaseTest):
             self.team, ProductKey.SURVEYS, ProductIntentContext.QUICK_START_PRODUCT_SELECTED, self.user
         )
         assert UserProductList.objects.filter(user=self.user, team=self.team).count() == 0
-
-    def test_register_with_onboarding_context_creates_user_product_list_with_onboarding_reason(self):
-        self.user.allow_sidebar_suggestions = True
-        self.user.save()
-
-        ProductIntent.register(
-            team=self.team,
-            product_type=ProductKey.SESSION_REPLAY,
-            context=ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___PRIMARY,
-            user=self.user,
-            is_onboarding=True,
-        )
-
-        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
-        assert user_product_lists.count() == 1
-        assert user_product_lists.get().reason == UserProductList.Reason.ONBOARDING
-
-    def test_register_with_quick_start_context_creates_user_product_list_with_onboarding_reason(self):
-        self.user.allow_sidebar_suggestions = True
-        self.user.save()
-
-        ProductIntent.register(
-            team=self.team,
-            product_type=ProductKey.SESSION_REPLAY,
-            context=ProductIntentContext.QUICK_START_PRODUCT_SELECTED,
-            user=self.user,
-            is_onboarding=True,
-        )
-
-        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
-        assert user_product_lists.count() == 1
-        assert user_product_lists.get().reason == UserProductList.Reason.ONBOARDING
-
-    def test_register_without_onboarding_context_creates_user_product_list_with_product_intent_reason(self):
-        self.user.allow_sidebar_suggestions = True
-        self.user.save()
-
-        ProductIntent.register(
-            team=self.team,
-            product_type=ProductKey.SESSION_REPLAY,
-            context=ProductIntentContext.SESSION_REPLAY_SET_FILTERS,
-            user=self.user,
-            is_onboarding=False,
-        )
-
-        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
-        assert user_product_lists.count() == 1
-        assert user_product_lists.get().reason == UserProductList.Reason.PRODUCT_INTENT
 
     def _make_ai_generation_event_definition(self) -> EventDefinition:
         return EventDefinition.objects.create(team=self.team, name="$ai_generation")

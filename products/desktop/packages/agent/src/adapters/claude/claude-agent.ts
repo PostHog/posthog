@@ -41,6 +41,7 @@ import {
   type Options,
   type Query,
   query,
+  type SDKMessage,
   type SDKUserMessage,
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -51,6 +52,8 @@ import {
   isMethod,
   POSTHOG_METHODS,
   POSTHOG_NOTIFICATIONS,
+  type SteerDeclineCause,
+  steerDeclined,
 } from "../../acp-extensions";
 import {
   createEnrichment,
@@ -106,6 +109,7 @@ import {
   taskStateToPlanEntries,
 } from "./conversion/task-state";
 import type { EnrichedReadCache } from "./hooks";
+import type { MachineClaudeAuth } from "./machine-auth";
 import { createLocalToolsMcpServer } from "./mcp/local-tools";
 import {
   clearMcpToolMetadataCache,
@@ -243,13 +247,13 @@ function confirmConsumedSteers(turn: Turn): void {
 }
 
 /** Report every steer left on a finishing turn as undelivered so callers redeliver it. */
-function declinePendingSteers(turn: Turn): void {
+function declinePendingSteers(turn: Turn, cause: SteerDeclineCause): void {
   if (turn.steerTimer) {
     clearTimeout(turn.steerTimer);
     turn.steerTimer = undefined;
   }
   for (const steer of turn.pendingSteers.values()) {
-    steer.settle(false);
+    steer.settle(false, cause);
   }
   turn.pendingSteers.clear();
 }
@@ -340,11 +344,16 @@ export interface ClaudeAcpAgentOptions {
   posthogApiConfig?: PostHogAPIConfig;
   /** Explicit gateway config — avoids global process.env mutation across concurrent sessions. */
   gatewayEnv?: GatewayEnv;
+  machineAuth?: MachineClaudeAuth;
   /** Per-session context wiki mount — avoids global process.env mutation across concurrent sessions. */
   contextWiki?: ContextWikiEnv;
 }
 
 export class ClaudeAcpAgent extends BaseAcpAgent {
+  protected override usesMachineAuth(): boolean {
+    return !!this.options?.machineAuth;
+  }
+
   readonly adapterName = "claude";
   declare session: Session;
   toolUseCache: ToolUseCache;
@@ -606,15 +615,19 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       // Decline before pushing, so the message is redelivered rather than also
       // applied by a later turn.
       if (!owner) {
-        return { stopReason: "end_turn", _meta: { steer: false } };
+        return steerDeclined("no_owner_turn");
       }
       // Only a declined steer is redelivered, so acking on submission loses any
       // steer the SDK never folds in. Wait for the model to act on it instead.
       const ack = new Promise<PromptResponse>((resolve) => {
         owner.pendingSteers.set(promptUuid, {
           consumed: false,
-          settle: (reachedModel) =>
-            resolve({ stopReason: "end_turn", _meta: { steer: reachedModel } }),
+          settle: (reachedModel, cause) =>
+            resolve(
+              reachedModel
+                ? { stopReason: "end_turn", _meta: { steer: true } }
+                : steerDeclined(cause ?? "turn_ended_first"),
+            ),
         });
       });
       this.session.input.push(userMessage);
@@ -622,7 +635,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       return ack;
     }
     if (isSteer) {
-      return { stopReason: "end_turn", _meta: { steer: false } };
+      return steerDeclined(
+        this.session.compacting ? "compacting" : "no_in_flight_turn",
+      );
     }
 
     if (!hasInFlightTurns && !isLocalOnlyCommand) {
@@ -687,7 +702,48 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
     const input = head.pendingInput;
     head.pendingInput = undefined;
+    head.dispatchedAt = performance.now();
     session.input.push(input);
+  }
+
+  /** Time the window between handing a prompt to the SDK and the SDK's first
+   *  emission for it. Nothing crosses the wire during that window, so without
+   *  this line a slow first turn cannot be attributed after the fact: the log
+   *  names both how long the wait was and which message ended it, which
+   *  separates pre-model setup (a `commands_changed` skill rescan, for
+   *  example) from the model call itself. */
+  private timeFirstSdkMessage(
+    session: Session,
+    sessionId: string,
+    message: SDKMessage,
+  ): void {
+    const turn =
+      session.activeTurn ?? session.turnQueue.find((t) => !t.settled);
+    if (turn?.dispatchedAt === undefined || turn.firstMessageTimed) {
+      return;
+    }
+    turn.firstMessageTimed = true;
+    this.logger.debug("First SDK message after prompt dispatch", {
+      sessionId,
+      waitMs: Math.max(0, Math.round(performance.now() - turn.dispatchedAt)),
+      messageType: message.type,
+      messageSubtype: (message as { subtype?: string }).subtype,
+    });
+  }
+
+  /** Time to the first assistant message, which is the first output a person
+   *  sees. Reported once per turn so a slow turn splits into the wait before
+   *  the model answered and the tool work after it. */
+  private timeFirstModelOutput(session: Session, sessionId: string): void {
+    const turn = session.activeTurn;
+    if (turn?.dispatchedAt === undefined || turn.firstOutputTimed) {
+      return;
+    }
+    turn.firstOutputTimed = true;
+    this.logger.debug("First model output after prompt dispatch", {
+      sessionId,
+      waitMs: Math.max(0, Math.round(performance.now() - turn.dispatchedAt)),
+    });
   }
 
   private ensureConsumer(sessionId: string): void {
@@ -876,7 +932,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         return;
       }
       turn.settled = true;
-      declinePendingSteers(turn);
+      declinePendingSteers(
+        turn,
+        session.cancelled ? "cancelled" : "turn_ended_first",
+      );
       if (session.forceCancelTimer) {
         clearTimeout(session.forceCancelTimer);
         session.forceCancelTimer = undefined;
@@ -907,7 +966,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         return;
       }
       turn.settled = true;
-      declinePendingSteers(turn);
+      declinePendingSteers(turn, "turn_failed");
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
       session.currentTurnTraceId = undefined;
@@ -935,7 +994,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       for (const turn of turns) {
         if (!turn.settled) {
           turn.settled = true;
-          declinePendingSteers(turn);
+          declinePendingSteers(turn, "turn_failed");
           turn.reject(error);
         }
       }
@@ -980,7 +1039,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           for (const queued of [...session.turnQueue]) {
             if (!queued.settled) {
               queued.settled = true;
-              declinePendingSteers(queued);
+              declinePendingSteers(
+                queued,
+                session.cancelled ? "cancelled" : "turn_failed",
+              );
               queued.reject(
                 RequestError.internalError(undefined, SESSION_ENDED_MESSAGE),
               );
@@ -990,6 +1052,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           this.closeQueryStream(session);
           return;
         }
+
+        this.timeFirstSdkMessage(session, sessionId, message);
 
         if (
           session.emitRawSDKMessages &&
@@ -1144,7 +1208,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   },
                 });
                 head.settled = true;
-                declinePendingSteers(head);
+                declinePendingSteers(head, "turn_failed");
                 session.turnQueue = session.turnQueue.filter((t) => t !== head);
                 this.dispatchQueuedInput(session);
                 head.resolve({ stopReason: "end_turn" });
@@ -1463,6 +1527,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             }
 
             if (message.type === "assistant") {
+              this.timeFirstModelOutput(session, sessionId);
               // Subagent output is a separate model context, so it is no
               // evidence the steer reached this turn's model.
               if (session.activeTurn && message.parent_tool_use_id === null) {
@@ -1635,7 +1700,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         continue;
       }
       turn.settled = true;
-      declinePendingSteers(turn);
+      declinePendingSteers(turn, "cancelled");
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       if (!turn.pendingInput) {
         session.pendingOrphanResults += 1;
@@ -1868,7 +1933,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController: newAbortController,
         // `rest.model` is the creation-time value; the user may have switched
         // models since, so re-root the new Query on the live session model.
-        ...rerootedModelOptions(session.modelId, rest.fallbackModel),
+        ...rerootedModelOptions(
+          session.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const newInput = new Pushable<SDKUserMessage>();
@@ -2092,7 +2161,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController,
         // `rest.model` is the creation-time value; the user may have
         // switched models since, so answer on the live session model.
-        ...rerootedModelOptions(this.session.modelId, rest.fallbackModel),
+        ...rerootedModelOptions(
+          this.session.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const oneShot = query({
@@ -2202,7 +2275,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController: newAbortController,
         // `rest.model` is the creation-time value; the user may have switched
         // models since, so re-root the new Query on the live session model.
-        ...rerootedModelOptions(prev.modelId, rest.fallbackModel),
+        ...rerootedModelOptions(
+          prev.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const newInput = new Pushable<SDKUserMessage>();
@@ -2593,7 +2670,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const input = new Pushable<SDKUserMessage>();
 
-    const settingsManager = new SettingsManager(cwd);
+    const settingsManager = new SettingsManager(
+      cwd,
+      !!this.options?.machineAuth,
+    );
     await settingsManager.initialize();
 
     // The session's explicit pick outranks the shared claude settings file:
@@ -2736,6 +2816,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       getCurrentModelId: () => this.session?.modelId,
       gatewayEnv: this.options?.gatewayEnv,
       traceparentHookNonce,
+      machineAuth: this.options?.machineAuth,
       bedrockGatewayVariant,
       contextWiki: this.options?.contextWiki,
       onTaskStateChange: async () => {

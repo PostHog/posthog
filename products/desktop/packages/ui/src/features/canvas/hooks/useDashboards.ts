@@ -21,13 +21,8 @@ import {
 } from "./spaceQueryPolicy";
 
 const log = logger.scope("dashboards");
-
 // The naming helpers moved to @posthog/core (CanvasApplicationService uses them
 // for auto-naming); re-exported here for the UI surfaces that import them.
-export {
-  isPlaceholderCanvasName,
-  UNTITLED_CANVAS_NAME,
-} from "@posthog/core/canvas/canvasNaming";
 
 /** Saved canvases for a channel. */
 export function useDashboards(
@@ -72,31 +67,6 @@ export function useAllCanvases(): {
     }),
   );
   return { dashboards: data ?? [], isLoading };
-}
-
-/**
- * Warm the dashboards-list cache for a channel ahead of opening it (e.g. on
- * hover), so expanding the channel shows its canvases without a cold fetch.
- * Respects the same staleTime, so it no-ops when the data is already fresh.
- */
-export function usePrefetchDashboards(): (channelId: string) => void {
-  const trpc = useHostTRPC();
-  const queryClient = useQueryClient();
-  return useCallback(
-    (channelId: string) => {
-      void queryClient.prefetchQuery(
-        trpc.dashboards.list.queryOptions(
-          { channelId },
-          {
-            gcTime: SPACE_QUERY_GC_TIME_MS,
-            meta: AUTH_SCOPED_QUERY_META,
-            staleTime: SPACE_QUERY_STALE_TIME_MS,
-          },
-        ),
-      );
-    },
-    [trpc, queryClient],
-  );
 }
 
 /** A single saved canvas record (metadata + lifecycle pointers). */
