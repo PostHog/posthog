@@ -157,9 +157,9 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
 
         self._forward(report, removed=("bob",))
 
-        added_told, removed_told = _logins_already_told(self.team.id, "")
-        assert added_told == set()
-        assert removed_told == {"bob"}
+        already_told = _logins_already_told(self.team.id, "")
+        assert already_told.added == set()
+        assert already_told.removed == {"bob"}
 
     def test_memory_holder_search_is_one_bounded_query(self) -> None:
         # The generic artefacts API caps neither the reviewer list nor a login, so a removal can carry

@@ -126,6 +126,14 @@ class ForwardedCorrectionNotes:
     targets_resolved: int
 
 
+@frozen
+class _LoginsAlreadyTold:
+    """The logins a target was already told about inside the window, split by direction."""
+
+    added: set[str]
+    removed: set[str]
+
+
 _NOTHING_FORWARDED = ForwardedCorrectionNotes(note_ids=(), targets_resolved=0)
 
 
@@ -182,9 +190,9 @@ def _forward(*, team: Team, correction: ReviewerCorrection) -> ForwardedCorrecti
     expires_at = timezone.now() + DERIVED_NOTE_TTL
     note_ids: list[str] = []
     for skill_name in targets:
-        added_told, removed_told = _logins_already_told(canonical_team.id, skill_name)
-        added = tuple(login for login in added_logins if login not in added_told)
-        removed = tuple(login for login in removed_logins if login not in removed_told)
+        already_told = _logins_already_told(canonical_team.id, skill_name)
+        added = tuple(login for login in added_logins if login not in already_told.added)
+        removed = tuple(login for login in removed_logins if login not in already_told.removed)
         if not added and not removed:
             continue
         content = _build_note_content(
@@ -288,7 +296,7 @@ def _actor_login(team_id: int, actor: User) -> str | None:
     return get_org_member_github_logins_by_user_uuid(team_id, [str(actor.uuid)]).get(str(actor.uuid))
 
 
-def _logins_already_told(team_id: int, skill_name: str) -> tuple[set[str], set[str]]:
+def _logins_already_told(team_id: int, skill_name: str) -> _LoginsAlreadyTold:
     """The logins this target was already told about inside the window, split by direction.
 
     Suppression is per action, not per login: an added login must not suppress a later removal of the
@@ -313,7 +321,7 @@ def _logins_already_told(team_id: int, skill_name: str) -> tuple[set[str], set[s
                 added_told |= _quoted_logins(paragraph)
             elif paragraph.startswith(_REMOVED_SECTION_PREFIX):
                 removed_told |= _quoted_logins(paragraph)
-    return added_told, removed_told
+    return _LoginsAlreadyTold(added=added_told, removed=removed_told)
 
 
 def _quoted_logins(content: str) -> set[str]:
