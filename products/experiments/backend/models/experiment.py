@@ -154,6 +154,11 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     class Meta:
         db_table = "posthog_experiment"
+        indexes = [
+            # Scheduled jobs select live experiments by these three columns. Without the index
+            # each run walks the whole table, so the cost grows with the table, not the result.
+            models.Index(fields=["deleted", "status", "start_date"], name="posthog_experiment_sched_idx"),
+        ]
 
     def __str__(self):
         return self.name or "Untitled"
