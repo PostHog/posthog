@@ -61,15 +61,16 @@ const ROOTS = [
         ],
     },
     {
-        root: 'src/scenes/App.tsx',
-        label: 'app shell (preloaded by every page, including /login and /signup)',
-        // The backend preloads this closure for logged-out pages too (preload-manifest.json
-        // `js`), so it is the whole JS cost of /login. 2026-09-03: 3.31 MiB eager output (2.33 MiB
-        // JS + the App stylesheet) after making ProductEmptyStateGate lazy (it dragged the
-        // authenticated navigation in) and cutting the query-utils -> ActionFilterRow ->
-        // dashboardLogic import chain; it was 7.5 MiB of JS before. ~15% headroom so routine
-        // churn doesn't trip the warn; ratchet down on a split win.
-        budgetBytes: 3_990_000,
+        // index.tsx imports App and bootApp as sibling dynamic imports, so neither alone is what
+        // a logged-out page downloads: measure the deduplicated union of all three closures.
+        root: ['src/index.tsx', 'src/scenes/App.tsx', 'src/scenes/bootApp.ts'],
+        label: 'logged-out boot: index + App + bootApp (preloaded by every page, including /login)',
+        // The backend preloads the App closure for logged-out pages too (preload-manifest.json
+        // `js`), so this is the whole JS cost of /login. 2026-09-03: 5.14 MiB eager output = 2.55 MiB
+        // JS (37 chunks) + the three entries' stylesheets (2.60 MiB, of which only index's is linked
+        // at runtime; the others are esbuild's per-entry copies). Before this stack the JS alone was
+        // 7.5 MiB. ~15% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
+        budgetBytes: 5_900_000,
         forbidden: [
             'node_modules/monaco-editor/',
             // Authenticated-only code. Either of these on the App path means a component that
@@ -276,25 +277,34 @@ for (const verifySubstr of new Set(ROOTS.flatMap((r) => r.forbidden.map(forbidde
     }
 }
 
-for (const { root, label, budgetBytes, forbidden } of ROOTS) {
-    const entry = entryChunk(root)
-    if (!entry) {
-        const candidates = Object.values(outputs)
-            .map((c) => c.entryPoint)
-            .filter((e) => e && e.endsWith(path.basename(root)))
-            .slice(0, 5)
-        const message = `Root '${root}' is not an entry chunk in the metafile. Was it moved, or is it no longer a code-split boundary? Candidates: ${candidates.join(', ')}`
+for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
+    // A root is one entry module, or several whose closures are downloaded together.
+    const rootModules = Array.isArray(rootSpec) ? rootSpec : [rootSpec]
+    const root = rootModules.join(' + ')
+    const entries = rootModules.map((module) => ({ module, entry: entryChunk(module) }))
+    const missing = entries.filter(({ entry }) => !entry)
+    if (missing.length > 0) {
+        const message = missing
+            .map(({ module }) => {
+                const candidates = Object.values(outputs)
+                    .map((c) => c.entryPoint)
+                    .filter((e) => e && e.endsWith(path.basename(module)))
+                    .slice(0, 5)
+                return `Root '${module}' is not an entry chunk in the metafile. Was it moved, or is it no longer a code-split boundary? Candidates: ${candidates.join(', ')}`
+            })
+            .join('\n')
         report.errors.push(message)
         fail(message)
         continue
     }
+    const eagerChunks = new Set(entries.flatMap(({ entry }) => [...eagerChunkClosure(entry)]))
 
     // Attribute each input module the bytes it actually contributes to the eager chunks —
     // tree-shaken modules contribute nothing, so a barrel only counts its used exports.
     const eagerBytesByFile = new Map()
     const cssBundlesSeen = new Set()
     let totalBytes = 0
-    for (const chunk of eagerChunkClosure(entry)) {
+    for (const chunk of eagerChunks) {
         totalBytes += outputs[chunk].bytes
         // esbuild attaches a JS chunk's stylesheet via `cssBundle`, not an `imports` edge, so
         // the chunk walk never reaches it — but it's downloaded before render, so count each
@@ -331,7 +341,15 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
     }
     const forbiddenHits = []
     if (hitFiles.size > 0) {
-        const { parentOf } = eagerClosure(inputs, root)
+        // One parent map across all root modules; a module reachable from several keeps its first chain.
+        const parentOf = new Map()
+        for (const module of rootModules) {
+            for (const [child, parent] of eagerClosure(inputs, module).parentOf) {
+                if (!parentOf.has(child)) {
+                    parentOf.set(child, parent)
+                }
+            }
+        }
         for (const [module, hit] of hitFiles) {
             forbiddenHits.push({ module, chain: chainTo(parentOf, hit) })
         }
