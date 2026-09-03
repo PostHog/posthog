@@ -23,7 +23,7 @@ function modelRoleLabel(model: string): string {
     if (model === 'gemini-3.5-flash-lite') {
         return 'Cheapest tier. Best for simple yes/no checks.'
     }
-    if (model === 'gemini-3.7-flash') {
+    if (model === 'gemini-3.8-flash') {
         return 'Most capable tier. Best for nuanced scoring or summaries.'
     }
     if (model === 'gemini-3-flash-preview') {

@@ -178,6 +178,8 @@ function createMockEditor(): any {
         getModel: () => null,
         getSelection: () => null,
         getPosition: () => null,
+        // A live editor has a DOM node; the logic reads this to skip writes to a disposed editor.
+        getDomNode: () => document.createElement('div'),
     }
 }
 
