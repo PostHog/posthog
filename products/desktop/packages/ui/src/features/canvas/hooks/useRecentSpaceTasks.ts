@@ -7,6 +7,7 @@ import {
   liveUuidsFromTasks,
   NO_LIVE_UUIDS,
   presenceByChannel,
+  shouldShowUserPresence,
 } from "@posthog/core/canvas/presence";
 import type { Task, UserBasic } from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
@@ -368,14 +369,14 @@ export function spacePeople(
   tasks: Pick<Task, "created_by">[],
   createdBy: UserBasic | null,
   limit: number,
-  excludedUserUuid?: string,
+  currentUserUuid?: string,
 ): UserBasic[] {
   const people: UserBasic[] = [];
   const seen = new Set<string>();
   const add = (user: UserBasic | null | undefined) => {
     if (
       !user ||
-      user.uuid === excludedUserUuid ||
+      !shouldShowUserPresence(user.uuid, currentUserUuid) ||
       seen.has(user.uuid) ||
       people.length >= limit
     )
@@ -463,7 +464,7 @@ export function useSpacePresence(): ReadonlyMap<string, ChannelPresence> {
     const fresh = presenceByChannel(live, {
       now,
       limit: SPACE_PRESENCE_LIMIT,
-      excludedUserUuid: currentUserUuid,
+      currentUserUuid,
     });
     const stable = new Map<string, ChannelPresence>();
     for (const [channelId, next] of fresh) {

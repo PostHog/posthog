@@ -4,6 +4,7 @@ import {
   PRESENCE_RECENT_WINDOW_MS,
   presenceByChannel,
   presenceTier,
+  shouldShowUserPresence,
 } from "@posthog/core/canvas/presence";
 import type { Task, UserBasic } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
@@ -39,6 +40,40 @@ describe("presenceTier", () => {
   it("treats a future timestamp (clock skew) as live", () => {
     expect(presenceTier(NOW + 60_000, NOW)).toBe("live");
   });
+});
+
+describe("shouldShowUserPresence", () => {
+  it.each([
+    {
+      case: "the current user",
+      userUuid: "a",
+      currentUserUuid: "a",
+      expected: false,
+    },
+    {
+      case: "another user",
+      userUuid: "a",
+      currentUserUuid: "b",
+      expected: true,
+    },
+    {
+      case: "an unknown current user",
+      userUuid: "a",
+      currentUserUuid: undefined,
+      expected: false,
+    },
+    {
+      case: "an unknown presence user",
+      userUuid: undefined,
+      currentUserUuid: "b",
+      expected: false,
+    },
+  ])(
+    "returns $expected for $case",
+    ({ userUuid, currentUserUuid, expected }) => {
+      expect(shouldShowUserPresence(userUuid, currentUserUuid)).toBe(expected);
+    },
+  );
 });
 
 describe("liveUuidsFromTasks", () => {
@@ -96,7 +131,7 @@ describe("presenceByChannel", () => {
         chanTask("c2", user("c"), 60_000),
         chanTask("c1", user("d"), PRESENCE_RECENT_WINDOW_MS + 1), // idle, dropped
       ],
-      { now: NOW, limit: 5 },
+      { now: NOW, limit: 5, currentUserUuid: "viewer" },
     );
     expect(map.get("c1")?.people.map((p) => p.uuid)).toEqual(["a", "b"]);
     expect(map.get("c2")?.people.map((p) => p.uuid)).toEqual(["c"]);
@@ -108,7 +143,7 @@ describe("presenceByChannel", () => {
         chanTask("c1", user("a"), 30_000), // live
         chanTask("c1", user("b"), PRESENCE_LIVE_WINDOW_MS + 60_000), // recent
       ],
-      { now: NOW, limit: 5 },
+      { now: NOW, limit: 5, currentUserUuid: "viewer" },
     );
     expect([...(map.get("c1")?.liveUuids ?? [])]).toEqual(["a"]);
   });
@@ -121,7 +156,7 @@ describe("presenceByChannel", () => {
         chanTask("c1", user("b"), 30_000),
         chanTask("c1", user("c"), 40_000),
       ],
-      { now: NOW, limit: 2 },
+      { now: NOW, limit: 2, currentUserUuid: "viewer" },
     );
     expect(map.get("c1")?.people.map((p) => p.uuid)).toEqual(["a", "b"]);
   });
@@ -130,6 +165,7 @@ describe("presenceByChannel", () => {
     const map = presenceByChannel([chanTask(null, user("a"), 0)], {
       now: NOW,
       limit: 5,
+      currentUserUuid: "viewer",
     });
     expect(map.size).toBe(0);
   });
@@ -137,7 +173,7 @@ describe("presenceByChannel", () => {
   it("excludes the current user", () => {
     const map = presenceByChannel(
       [chanTask("c1", user("a"), 30_000), chanTask("c1", user("b"), 60_000)],
-      { now: NOW, limit: 5, excludedUserUuid: "a" },
+      { now: NOW, limit: 5, currentUserUuid: "a" },
     );
     expect(map.get("c1")?.people.map((person) => person.uuid)).toEqual(["b"]);
   });

@@ -147,32 +147,27 @@ beforeEach(() => {
 
 describe("ChannelItemRow", () => {
   it.each([
-    ["the current user", "u-1", true, false],
-    ["another user", "u-2", true, true],
-    ["a user in a personal space", "u-2", false, false],
-  ])(
-    "shows presence for %s: %s",
-    (_case, authorUuid, showPresence, expected) => {
-      const author = {
-        id: 1,
-        uuid: authorUuid,
-        first_name: "Ada",
-        email: "ada@example.com",
-      };
-      renderInList(
-        <ChannelItemRow
-          actions={actions}
-          isActive={false}
-          item={item({ authorUser: author, ts: Date.now() })}
-          showPresence={showPresence}
-        />,
-      );
+    ["the current user", "u-1", false],
+    ["another user", "u-2", true],
+  ])("shows presence for %s: %s", (_case, authorUuid, expected) => {
+    const author = {
+      id: 1,
+      uuid: authorUuid,
+      first_name: "Ada",
+      email: "ada@example.com",
+    };
+    renderInList(
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={item({ authorUser: author, ts: Date.now() })}
+      />,
+    );
 
-      expect(
-        screen.queryByRole("img", { name: "Ada is working on this" }) !== null,
-      ).toBe(expected);
-    },
-  );
+    expect(
+      screen.queryByRole("img", { name: "Ada is working on this" }) !== null,
+    ).toBe(expected);
+  });
 
   // The dot vocabulary in one table: what the row's leading mark says for each
   // state a task can be in. Only the states a reader can act on get a voice —

@@ -16,6 +16,13 @@ export const PRESENCE_RECENT_WINDOW_MS = 2 * 60 * 60_000;
 
 export type PresenceTier = "live" | "recent" | "idle";
 
+export function shouldShowUserPresence(
+  userUuid: string | null | undefined,
+  currentUserUuid: string | null | undefined,
+): boolean {
+  return Boolean(userUuid && currentUserUuid && userUuid !== currentUserUuid);
+}
+
 export interface PresenceWindows {
   liveWindowMs?: number;
   recentWindowMs?: number;
@@ -89,7 +96,7 @@ interface PresenceByChannelOptions extends PresenceWindows {
   now: number;
   /** How many faces a channel keeps — the freshest, once sorted. */
   limit: number;
-  excludedUserUuid?: string;
+  currentUserUuid?: string;
 }
 
 /**
@@ -106,7 +113,7 @@ export function presenceByChannel(
   {
     now,
     limit,
-    excludedUserUuid,
+    currentUserUuid,
     liveWindowMs,
     recentWindowMs,
   }: PresenceByChannelOptions,
@@ -123,7 +130,7 @@ export function presenceByChannel(
       (t): t is { channel: string; author: UserBasic; ts: number } =>
         t.channel != null &&
         t.author != null &&
-        t.author.uuid !== excludedUserUuid &&
+        shouldShowUserPresence(t.author.uuid, currentUserUuid) &&
         !Number.isNaN(t.ts),
     )
     .sort((a, b) => b.ts - a.ts);

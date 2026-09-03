@@ -276,7 +276,6 @@ export function ChannelItemsPane({
           isActive={item.key === activeKey}
           isSelected={inSelection}
           showPinBadge={showPinBadge}
-          showPresence={hasMultipleAuthors}
           bulk={
             inSelection && selectedTaskIds.length > 1
               ? {
@@ -431,6 +430,7 @@ export function ChannelItemsPane({
           drag={pinDrag.drag}
           x={pinDrag.previewX}
           y={pinDrag.previewY}
+          currentUserUuid={currentUser?.uuid}
         />
       ) : null}
       <EditListItemAppearanceDialog

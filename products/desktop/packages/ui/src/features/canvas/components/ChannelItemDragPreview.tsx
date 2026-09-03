@@ -1,7 +1,5 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { cn } from "@posthog/quill";
-import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
-import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ChannelItemRowView } from "@posthog/ui/features/canvas/components/ChannelItemRow";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { DragBatchLabel } from "@posthog/ui/features/sidebar/components/DragBatchLabel";
@@ -28,14 +26,14 @@ export function ChannelItemDragPreview({
   drag,
   x,
   y,
+  currentUserUuid,
 }: {
   drag: PinDrag<ChannelItemModel>;
   x: MotionValue<number>;
   y: MotionValue<number>;
+  currentUserUuid?: string;
 }) {
   const prefersReducedMotion = useReducedMotion();
-  const client = useOptionalAuthenticatedClient();
-  const { data: currentUser } = useCurrentUser({ client });
   const host =
     document.querySelector<HTMLElement>(".radix-themes") ?? document.body;
   // Skips the PR lookup: that is a query into git per row, and the row under
@@ -69,7 +67,7 @@ export function ChannelItemDragPreview({
             status={status}
             isActive={false}
             showPinBadge={false}
-            currentUserUuid={currentUser?.uuid}
+            currentUserUuid={currentUserUuid}
           />
         )}
       </div>
