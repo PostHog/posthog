@@ -240,6 +240,8 @@ export interface ReusableWidgetDetailApi {
     publication_status: PublicationStatusEnumApi
     /** Current reusable widget version. */
     current_version: ReusableWidgetVersionDetailApi
+    /** Generated draft waiting for manual review, or null when no review is pending. */
+    pending_version: ReusableWidgetVersionDetailApi | null
     /** Number of immutable versions in this widget's history. */
     version_count: number
     /** Number of notebook placements using this widget. */
@@ -257,6 +259,13 @@ export interface WidgetErrorApi {
     code: string
     /** Actionable error detail. */
     detail: string
+}
+
+export interface ReusableWidgetReviewRequestApi {
+    /** Draft version being reviewed. */
+    pending_version_id: string
+    /** Published version observed when the review action started. */
+    expected_current_version_id: string
 }
 
 export interface WidgetFrameColumnApi {
@@ -1321,6 +1330,13 @@ export type ReusableWidgetsListParams = {
     limit?: number
     offset?: number
     search?: string
+}
+
+export type ReusableWidgetsDemoFrameParams = {
+    /**
+     * Immutable version whose saved demo data should be returned.
+     */
+    version_id?: string
 }
 
 export type ReusableWidgetsSourceParams = {

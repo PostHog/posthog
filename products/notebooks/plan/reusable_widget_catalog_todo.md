@@ -23,6 +23,10 @@ Editing a reusable instance is deliberate. The notebook UI and notebook agent of
 - open the reusable widget and publish a shared update; or
 - fork it into a notebook-local widget and change only that copy.
 
+A shared update is always staged as a draft. The editor reviews its runnable demo, input contract, security review,
+and source on the reusable widget page. The published version remains unchanged until the editor selects **Save
+version**. The draft can instead be discarded without changing any unpinned notebook instance.
+
 When the notebook agent needs a visualization, it can search the catalog using the user's goal, available dataframes, dataframe schemas, and widget metadata. It suggests matching widgets and their proposed bindings before inserting one. Regeneration and forking remain available when no catalog result is a good fit.
 
 ## Input contracts and instance bindings
@@ -75,6 +79,7 @@ The implementation should extend these primitives rather than introduce a parall
 - [x] Stable `<Widget id=... version=... inputs=... />` serialization.
 - [x] Follow-latest behavior, immutable version pinning, and notebook-local forking.
 - [x] Shared edits from the catalog page and rejection of accidental notebook-local shared edits.
+- [x] Manual review of generated shared-update drafts before saving a new default version.
 - [x] Per-placement input bindings with optional bounded browser Hog transformations.
 - [x] MCP search, detail, and attach operations for agent discovery and insertion.
 - [x] Focused backend, frontend logic, component, and Hog VM tests.

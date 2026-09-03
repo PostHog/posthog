@@ -289,6 +289,9 @@ class GeneratedWidget(TeamScopedRootMixin, UUIDModel):
     current_version = models.ForeignKey(
         "notebooks.GeneratedWidgetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
+    pending_version = models.ForeignKey(
+        "notebooks.GeneratedWidgetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )

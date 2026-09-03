@@ -1,5 +1,6 @@
 from products.notebooks.backend.reusable_widgets import (
     attach_reusable_widget,
+    discard_reusable_widget_version,
     fork_reusable_widget,
     get_reusable_widget,
     get_reusable_widget_status,
@@ -7,6 +8,7 @@ from products.notebooks.backend.reusable_widgets import (
     publish_reusable_widget,
     read_reusable_widget_demo_frame,
     read_reusable_widget_source,
+    save_reusable_widget_version,
     start_reusable_widget_generation,
 )
 from products.notebooks.backend.widget_models import (
@@ -41,6 +43,7 @@ __all__ = [
     "WidgetError",
     "WidgetRateLimitError",
     "attach_reusable_widget",
+    "discard_reusable_widget_version",
     "fork_reusable_widget",
     "cancel_widget_generation",
     "get_widget_status",
@@ -59,5 +62,6 @@ __all__ = [
     "publish_reusable_widget",
     "read_reusable_widget_demo_frame",
     "read_reusable_widget_source",
+    "save_reusable_widget_version",
     "start_reusable_widget_generation",
 ]

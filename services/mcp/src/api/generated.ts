@@ -75644,6 +75644,8 @@ export namespace Schemas {
       publication_status: PublicationStatusEnum;
       /** Current reusable widget version. */
       current_version: ReusableWidgetVersionDetail;
+      /** Generated draft waiting for manual review, or null when no review is pending. */
+      pending_version: ReusableWidgetVersionDetail | null;
       /** Number of immutable versions in this widget's history. */
       version_count: number;
       /** Number of notebook placements using this widget. */
@@ -75713,6 +75715,13 @@ export namespace Schemas {
          * @items.maxLength 50
          */
       tags?: string[];
+    }
+
+    export interface ReusableWidgetReviewRequest {
+      /** Draft version being reviewed. */
+      pending_version_id: string;
+      /** Published version observed when the review action started. */
+      expected_current_version_id: string;
     }
 
     export interface ReviewBlindSpotsConfig {
@@ -98606,6 +98615,13 @@ export namespace Schemas {
     limit?: number;
     offset?: number;
     search?: string;
+    };
+
+    export type ReusableWidgetsDemoFrameParams = {
+    /**
+     * Immutable version whose saved demo data should be returned.
+     */
+    version_id?: string;
     };
 
     export type ReusableWidgetsSourceParams = {
