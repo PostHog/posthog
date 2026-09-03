@@ -717,6 +717,7 @@ export interface workflowLogicActions {
                                     name?: string | undefined
                                     percentage: number
                                 }[]
+                                sticky_assignment?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1572,6 +1573,7 @@ export interface workflowLogicActions {
                                     name?: string | undefined
                                     percentage: number
                                 }[]
+                                sticky_assignment?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -2051,6 +2053,7 @@ export interface workflowLogicActions {
                       name?: string | undefined
                       percentage: number
                   }[]
+                  sticky_assignment?: boolean | undefined
               }
             | {
                   reason?: string | undefined
@@ -2430,6 +2433,7 @@ export interface workflowLogicActions {
                       name?: string | undefined
                       percentage: number
                   }[]
+                  sticky_assignment?: boolean | undefined
               }
             | {
                   reason?: string | undefined
