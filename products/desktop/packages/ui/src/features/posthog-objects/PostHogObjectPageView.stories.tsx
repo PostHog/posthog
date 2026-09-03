@@ -227,7 +227,9 @@ export const InsightChart: Story = {
       chartData: {
         type: "series",
         labels: DAYS,
-        series: [{ key: "series-0", label: "DAU", data: [24, 32, 28, 46, 51, 63, 58] }],
+        series: [
+          { key: "series-0", label: "DAU", data: [24, 32, 28, 46, 51, 63, 58] },
+        ],
         render: "line",
         isTimeSeries: true,
         interval: "day",
