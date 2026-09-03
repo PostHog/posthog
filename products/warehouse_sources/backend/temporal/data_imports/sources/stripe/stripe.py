@@ -517,6 +517,22 @@ def _rows_after_cursor(rows: list[dict[str, Any]], cursor: Optional[str]) -> lis
     return rows[ids.index(cursor) + 1 :]
 
 
+def _meter_summary_row(summary: Mapping[str, Any], customer: str) -> dict[str, Any]:
+    """One summary, stamped with the customer Stripe leaves off it, and with a float total.
+
+    Stripe types `aggregated_value` as a float but serializes a whole total as a JSON integer, so a
+    sweep that reads only whole totals creates an int64 column. The first fractional total then
+    fails to write, because delta-rs cannot change a column type in place. Recovery costs more here
+    than for other tables: the reset re-syncs without a watermark, so it reaches back only
+    `METER_SUMMARY_INITIAL_LOOKBACK_DAYS` and every older day is lost.
+    """
+    row = {**summary, "customer": customer}
+    value = row.get("aggregated_value")
+    if value is not None:
+        row["aggregated_value"] = float(value)
+    return row
+
+
 def _meter_event_summary_lister(client: StripeClient, window: _MeterSummaryWindow) -> Callable[..., ListObject[Any]]:
     """`/v1/billing/meters/{id}/event_summaries` aggregates one meter, for one customer, over one
     time range, and it has no unscoped list. The sweep walks subscriptions, so a single parent names
@@ -542,7 +558,7 @@ def _meter_event_summary_lister(client: StripeClient, window: _MeterSummaryWindo
                     "limit": params.get("limit", DEFAULT_LIMIT),
                 },
             )
-            rows.extend({**summary, "customer": customer} for summary in summaries.auto_paging_iter())
+            rows.extend(_meter_summary_row(summary, customer) for summary in summaries.auto_paging_iter())
         return cast(ListObject[Any], _RowList(_rows_after_cursor(rows, params.get("starting_after"))))
 
     return _list

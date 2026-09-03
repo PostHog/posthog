@@ -1985,6 +1985,13 @@ class TestMeterEventSummaryFanout:
             ("mtr_a", "cus_2", "sub_metered")
         ]
 
+    def test_a_whole_total_is_still_written_as_a_float(self):
+        # Stripe serializes a whole total as a JSON integer, so a sweep that only sees whole totals
+        # would create an integer column. The first fractional total could then not be written, and
+        # the reset that recovers the sync drops every day older than the initial lookback.
+        rows, _ = self._run([self._subscription("sub_1", "cus_1", [{"recurring": {"meter": "mtr_a"}}])])
+        assert rows and all(isinstance(row["aggregated_value"], float) for row in rows)
+
     def test_a_meter_on_several_items_is_asked_for_once(self):
         # Both items bill the same usage series, so a second call would only double the volume.
         _, requested = self._run(
