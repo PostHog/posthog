@@ -19,7 +19,7 @@ const App = lazy(() =>
     Promise.all([retryBootImport(() => import('scenes/App')), retryBootImport(() => import('scenes/bootApp'))]).then(
         ([appModule, bootModule]) => {
             requireBootExport(bootModule, 'bootApp')()
-            return { default: appModule.App }
+            return { default: requireBootExport(appModule, 'App') }
         }
     )
 )

@@ -16,17 +16,18 @@ function isMinifiedBootModuleEvaluationError(error: unknown): boolean {
 }
 
 /**
- * Reads an export that the boot path must call off a freshly-imported module.
+ * Reads an export that the boot path needs off a freshly-imported module.
  *
- * A stale chunk can resolve without the export it should carry. A call to the missing export throws
- * inside the import's `.then` handler, where neither `retryBootImport` nor `isChunkLoadError` sees
- * it, so `ChunkLoadErrorBoundary` skips its one-time reload and the person gets the fatal error
- * screen. Mark the failure as a chunk-load error, so the boundary reloads once.
+ * A stale chunk can resolve without the export it should carry, and the failure then surfaces where
+ * neither `retryBootImport` nor `isChunkLoadError` sees it: a call to a missing function throws
+ * inside the import's `.then` handler, and a missing component reaches React as an undefined element
+ * type. Either way `ChunkLoadErrorBoundary` skips its one-time reload and the person gets the fatal
+ * error screen. Mark the failure as a chunk-load error, so the boundary reloads once.
  */
 export function requireBootExport<T extends object, K extends keyof T>(module: T, exportName: K): NonNullable<T[K]> {
     const value = module[exportName]
     if (typeof value !== 'function') {
-        const error = new TypeError(`Boot module resolved without a ${String(exportName)} export`)
+        const error = new TypeError(`Boot chunk resolved without its ${String(exportName)} export`)
         markAsChunkLoadError(error)
         throw error
     }

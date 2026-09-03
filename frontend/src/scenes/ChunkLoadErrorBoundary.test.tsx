@@ -107,14 +107,17 @@ describe('ChunkLoadErrorBoundary', () => {
         ).not.toBeInTheDocument()
     })
 
-    it('reloads when a boot chunk resolves without its export', async () => {
+    it.each([
+        ['the boot chunk arrives without bootApp', { App: () => <div>app</div> }],
+        ['the app chunk arrives without App', { bootApp: () => {} }],
+    ])('reloads when %s', async (_label, staleChunk) => {
         const reload = jest.fn()
         // The shape of the entry's lazy factory (frontend/src/index.tsx) against a stale chunk:
-        // the module loads, but the export the boot path must call is gone.
-        const StaleBootApp = lazy(() =>
-            Promise.resolve<{ bootApp?: () => void }>({}).then((bootModule) => {
-                requireBootExport(bootModule, 'bootApp')()
-                return { default: () => <div>app</div> }
+        // the module loads, but an export the boot path needs is gone.
+        const StaleApp = lazy(() =>
+            Promise.resolve<{ bootApp?: () => void; App?: () => JSX.Element }>(staleChunk).then((module) => {
+                requireBootExport(module, 'bootApp')()
+                return { default: requireBootExport(module, 'App') }
             })
         )
 
@@ -123,7 +126,7 @@ describe('ChunkLoadErrorBoundary', () => {
                 <TestErrorBoundary>
                     <ChunkLoadErrorBoundary reload={reload}>
                         <Suspense fallback={<div>loading</div>}>
-                            <StaleBootApp />
+                            <StaleApp />
                         </Suspense>
                     </ChunkLoadErrorBoundary>
                 </TestErrorBoundary>
@@ -131,7 +134,7 @@ describe('ChunkLoadErrorBoundary', () => {
         })
 
         expect(reload).toHaveBeenCalledTimes(1)
-        expect(screen.queryByText(/without a bootApp export/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/resolved without its/)).not.toBeInTheDocument()
     })
 
     it('lets non-chunk errors bubble to the parent error boundary', () => {
