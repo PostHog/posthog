@@ -410,6 +410,12 @@ class DatabricksClient:
                     "Please check that your client_id and client_secret are valid.",
                     retryable=False,
                 ) from err
+            # An SDK error the SDK could not parse carries a request log with the raw response body
+            # and a request to file a bug on the SDK issue tracker. Neither helps the user.
+            if isinstance(err, DatabricksError):
+                raise DatabricksConnectionError(
+                    "Failed to connect to Databricks. Please check that your connection details are valid."
+                ) from err
             raise DatabricksConnectionError(f"Failed to connect to Databricks: {err}") from err
 
         return result

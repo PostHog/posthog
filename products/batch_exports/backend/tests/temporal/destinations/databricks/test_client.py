@@ -276,16 +276,42 @@ class TestConnect:
         self, client: DatabricksClient, fast_backoff, mock_sql_connect: MockDatabricksSqlConnect
     ):
         client.connect_max_attempts = 2
-        mock_sql_connect.sql_connect.side_effect = InternalError("unexpected response from the OIDC endpoint")
+        # An SDK error the SDK could not parse looks like this: a bug-tracker prompt followed by a
+        # request log holding the raw response body.
+        mock_sql_connect.sql_connect.side_effect = InternalError(
+            "unable to parse response. This is likely a bug in the Databricks SDK for Python or the "
+            "underlying API. Please report this issue with the following debugging information to "
+            "the SDK issue tracker at https://github.com/databricks/databricks-sdk-py/issues. "
+            "Request log:```GET /oidc/.well-known/oauth-authorization-server\n"
+            "< 500 Internal Server Error\n"
+            "< <html><body>gateway is unavailable</body></html>```"
+        )
 
         with (
             patch.object(client, "_check_host_reachable", new=AsyncMock()),
-            pytest.raises(DatabricksConnectionError, match="Failed to connect to Databricks"),
+            pytest.raises(DatabricksConnectionError) as exc_info,
         ):
             async with client.connect():
                 pass
 
+        message = str(exc_info.value)
+        assert "Please check that your connection details are valid" in message
+        assert "issue tracker" not in message
+        assert "gateway is unavailable" not in message
         assert mock_sql_connect.sql_connect.call_count == 2
+
+    async def test_keeps_sql_error_detail_in_connection_error(
+        self, client: DatabricksClient, fast_backoff, mock_sql_connect: MockDatabricksSqlConnect
+    ):
+        client.connect_max_attempts = 1
+        mock_sql_connect.sql_connect.side_effect = OperationalError("Warehouse is stopped")
+
+        with (
+            patch.object(client, "_check_host_reachable", new=AsyncMock()),
+            pytest.raises(DatabricksConnectionError, match="Warehouse is stopped"),
+        ):
+            async with client.connect():
+                pass
 
 
 class TestQueryBuilders:
