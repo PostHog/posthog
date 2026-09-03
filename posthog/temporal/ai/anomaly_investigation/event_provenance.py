@@ -20,6 +20,7 @@ from typing import Any
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
@@ -27,6 +28,15 @@ from posthog.models import Team
 from posthog.temporal.ai.anomaly_investigation.metric_definition import unwrap_query_source
 
 logger = structlog.get_logger(__name__)
+
+
+@frozen
+class _LibProvenance:
+    """Per-SDK emission counts for one event: how much one `$lib` sent, and by how many actors."""
+
+    lib: str
+    events: int
+    actors: int
 
 PROVENANCE_WINDOW_DAYS = 7
 # `$lib` cardinality for a single event is a handful of values, so this only ever trims
@@ -93,7 +103,7 @@ def describe_event_provenance(*, team: Team, event: str) -> str:
     return "\n".join(lines)
 
 
-def _query_provenance(*, team: Team, event: str) -> list[tuple[str, int, int]]:
+def _query_provenance(*, team: Team, event: str) -> list[_LibProvenance]:
     response = execute_hogql_query(
         query=(
             "SELECT properties.$lib AS lib, count() AS events, uniq(distinct_id) AS actors "
@@ -108,9 +118,14 @@ def _query_provenance(*, team: Team, event: str) -> list[tuple[str, int, int]]:
             "limit": ast.Constant(value=MAX_DESCRIBED_LIBS + 1),
         },
     )
-    return [(str(row[0] or "unset"), int(row[1]), int(row[2])) for row in response.results or []]
+    return [
+        _LibProvenance(lib=str(row[0] or "unset"), events=int(row[1]), actors=int(row[2]))
+        for row in response.results or []
+    ]
 
 
-def _describe_row(row: tuple[str, int, int]) -> str:
-    lib, events, actors = row
-    return f"`$lib` {lib}: {events:,} events from {actors:,} distinct actors ({events / actors:.1f} events per actor)"
+def _describe_row(row: _LibProvenance) -> str:
+    return (
+        f"`$lib` {row.lib}: {row.events:,} events from {row.actors:,} distinct actors "
+        f"({row.events / row.actors:.1f} events per actor)"
+    )
