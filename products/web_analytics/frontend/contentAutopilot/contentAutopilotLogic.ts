@@ -620,7 +620,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                         proposalId,
                         {
                             proposed_markdown: values.proposedMarkdown,
-                            content_package: { ...proposal.content_package, markdown: values.proposedMarkdown },
+                            content_package: proposal.content_package,
                         }
                     )
                 },

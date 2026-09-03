@@ -268,10 +268,7 @@ describe('contentAutopilotLogic', () => {
 
         expect(mockProposalsEdit).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), EXAMPLE_PROPOSAL.id, {
             proposed_markdown: '# Reviewed web analytics guide',
-            content_package: {
-                ...EXAMPLE_PROPOSAL.content_package,
-                markdown: '# Reviewed web analytics guide',
-            },
+            content_package: EXAMPLE_PROPOSAL.content_package,
         })
         expect(mockProposalsList).toHaveBeenCalledTimes(1)
         expect(mountedLogic.values.selectedProposalId).toBeNull()
