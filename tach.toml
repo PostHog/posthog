@@ -883,6 +883,9 @@ depends_on = [
     "products.notifications",
     "products.posthog_ai",
     "products.signals",
+    # Skills attached to workflow task nodes are read at fire time. The skills
+    # product has no facade, so this matches how review_hog and signals reach LLMSkill.
+    "products.skills",
     "products.slack_app", "products.access_control",
 ]
 layer = "modules"
@@ -1063,6 +1066,8 @@ expose = [
     "backend\\.temporal\\.ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_CANARY_ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_CANARY_WORKFLOWS",
+    "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES",
+    "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS",
     "backend\\.temporal\\.WORKFLOWS",
     "backend\\.temporal\\.recalculation_metrics.*",
     "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",

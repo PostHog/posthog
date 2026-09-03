@@ -4302,13 +4302,20 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_create_text_tile_adds_markdown_tile_to_dashboard(self):
+    @parameterized.expand(
+        [
+            ("text", "text", "## Section heading\n\nIntro markdown."),
+            ("image", "image", "![Dashboard image](https://example.com/image.png)"),
+        ]
+    )
+    def test_create_text_tile_accepts_tile_types(self, _name: str, tile_type: str, tile_body: str) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/create_text_tile/",
             {
-                "body": "## Section heading\n\nIntro markdown.",
+                "type": tile_type,
+                "body": tile_body,
                 "layouts": {"sm": {"x": 0, "y": 0, "w": 12, "h": 1}},
             },
             content_type="application/json",
@@ -4317,14 +4324,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         body = response.json()
         self.assertIsNotNone(body["id"])
         self.assertIsNone(body["insight"])
-        self.assertEqual(body["text"]["body"], "## Section heading\n\nIntro markdown.")
+        self.assertEqual(body["text"]["body"], tile_body)
         self.assertEqual(body["layouts"]["sm"], {"x": 0, "y": 0, "w": 12, "h": 1})
 
         dashboard_response = self.client.get(f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/")
         self.assertEqual(dashboard_response.status_code, status.HTTP_200_OK)
         tiles = dashboard_response.json()["tiles"]
         self.assertEqual(len(tiles), 1)
-        self.assertEqual(tiles[0]["text"]["body"], "## Section heading\n\nIntro markdown.")
+        self.assertEqual(tiles[0]["text"]["body"], tile_body)
 
     def test_create_text_tile_without_layouts_uses_default(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")

@@ -267,7 +267,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/clickhouse-migrations` — any ClickHouse migration
 - `/adopting-generated-api-types` — any frontend file using `lib/api`, `api.get<`, `api.create<`, or handwritten API types
 - `/writing-ui-components` — creating, moving, splitting, or restructuring any component or file under `frontend/src/` or `products/*/frontend/`, extracting or promoting a shared component, or renaming frontend symbols or feature vocabulary
-- `/writing-tests` — adding or substantially changing any test (pytest, Jest, or Playwright)
+- `/writing-tests` — any change to what a test asserts or sets up (pytest, Jest, or Playwright), down to one fixture or one assertion added to an existing block; renames, formatting, and import sorts are exempt
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
 - `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
 - `/writing-pr-descriptions` — writing or editing any PR body, before `gh pr create` or `gh pr edit --body`
@@ -284,6 +284,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - [`products/conversations/skills/organizing-conversations-code/SKILL.md`](products/conversations/skills/organizing-conversations-code/SKILL.md) — adding, moving, renaming, or reviewing files under `products/conversations/`
 - `/integrating-with-posthog-ai` — making a product surface work with PostHog AI: injecting scene context or custom instructions, reacting to the agent's tool calls, or rendering your product's tool cards in a thread
 - `/sending-notifications` — adding notification support
+- `/adding-activity-logging` — adding activity logging (the audit trail) to a model, writing or changing a `model_activity_signal` receiver or an activity describer, auditing which write paths of a model are logged, or debugging a change that is missing from the activity log
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
 - `/writing-evals` — adding or changing eval suites, cases, scorers, or seeders under `products/posthog_ai/evals/` or `products/*/evals/`, touching the harness in `products/posthog_ai/eval_harness/`, or running those evals
 - [`ee/hogai/eval/AGENTS.md`](ee/hogai/eval/AGENTS.md) — writing eval cases or fixture data by hand anywhere (not a skill, and not covered by `/writing-evals`): where that data may come from, and why anonymizing a real conversation does not make it publishable

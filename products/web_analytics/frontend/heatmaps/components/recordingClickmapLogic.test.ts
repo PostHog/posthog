@@ -71,8 +71,8 @@ describe('recordingClickmapLogic', () => {
             jest.restoreAllMocks()
         })
 
-        it('aggregates counts per event type from chains resolving to the same element', () => {
-            const boxes = computeClickmapBoxes(
+        it('aggregates counts per event type from chains resolving to the same element', async () => {
+            const { boxes } = await computeClickmapBoxes(
                 [
                     statsRow({ count: 10 }),
                     statsRow({ count: 3, hash: 'rage', type: '$rageclick' }),
@@ -80,7 +80,7 @@ describe('recordingClickmapLogic', () => {
                 ],
                 snapshotDocument,
                 null,
-                ['data-attr']
+                { dataAttributes: ['data-attr'] }
             )
             expect(boxes).toHaveLength(1)
             expect(boxes[0]).toMatchObject({
@@ -93,8 +93,8 @@ describe('recordingClickmapLogic', () => {
             })
         })
 
-        it('produces one box per matched element, sorted by count descending', () => {
-            const boxes = computeClickmapBoxes(
+        it('produces one box per matched element, sorted by count descending', async () => {
+            const { boxes } = await computeClickmapBoxes(
                 [
                     statsRow({ count: 2 }),
                     statsRow({
@@ -113,13 +113,13 @@ describe('recordingClickmapLogic', () => {
                 ],
                 snapshotDocument,
                 null,
-                ['data-attr']
+                { dataAttributes: ['data-attr'] }
             )
             expect(boxes.map((box) => box.count)).toEqual([9, 2])
         })
 
-        it('drops chains that match nothing in the snapshot', () => {
-            const boxes = computeClickmapBoxes(
+        it('drops chains that match nothing in the snapshot', async () => {
+            const { boxes } = await computeClickmapBoxes(
                 [
                     statsRow({
                         count: 5,
@@ -128,17 +128,17 @@ describe('recordingClickmapLogic', () => {
                 ],
                 snapshotDocument,
                 null,
-                ['data-attr']
+                { dataAttributes: ['data-attr'] }
             )
             expect(boxes).toHaveLength(0)
         })
 
-        it('offsets boxes by the snapshot scroll position', () => {
-            const boxes = computeClickmapBoxes(
+        it('offsets boxes by the snapshot scroll position', async () => {
+            const { boxes } = await computeClickmapBoxes(
                 [statsRow({ count: 1 })],
                 snapshotDocument,
                 { scrollX: 5, scrollY: 200 },
-                ['data-attr']
+                { dataAttributes: ['data-attr'] }
             )
             expect(boxes[0]).toMatchObject({ top: 210, left: 25 })
         })
