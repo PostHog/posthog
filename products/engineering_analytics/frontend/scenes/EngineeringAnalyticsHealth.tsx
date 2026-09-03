@@ -105,7 +105,7 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
                     )}
                     {githubTeam && (
                         <span className="text-xs text-tertiary">
-                            The team filter narrows the merge to deploy figures. Deploy counts stay repo-wide.
+                            The team filter narrows the lead time figures. Deploy counts stay repo-wide.
                         </span>
                     )}
                     {dora?.latest_deploy_status_at && (
@@ -132,22 +132,22 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
                     loading={firstLoad}
                 />
                 <MetricTile
-                    label="Merge to deploy"
-                    tooltip={`Median wait from a PR's merge to the first successful deployment containing it, over ${dora?.deployed_pr_count ?? 0} deployed PRs (bots and drafts excluded). Not full commit-to-deploy lead time: pre-merge time is on the Overview tab.`}
+                    label="Open to deploy"
+                    tooltip={`Median from a PR's open to the first successful deployment containing it, over ${dora?.deployed_pr_count ?? 0} deployed PRs (bots and drafts excluded). The full lead time: the box plots below split it into open to merge and merge to deploy.`}
                     value={
-                        dora?.median_merge_to_deploy_seconds != null
-                            ? compactAgeLabel(dora.median_merge_to_deploy_seconds)
+                        dora?.median_open_to_deploy_seconds != null
+                            ? compactAgeLabel(dora.median_open_to_deploy_seconds)
                             : '—'
                     }
                     delta={{
                         value: percentChange(
-                            dora?.median_merge_to_deploy_seconds,
-                            dora?.median_merge_to_deploy_seconds_prev
+                            dora?.median_open_to_deploy_seconds,
+                            dora?.median_open_to_deploy_seconds_prev
                         ),
                         goodWhenDown: true,
                     }}
                     sub={
-                        dora && dora.median_merge_to_deploy_seconds == null
+                        dora && dora.median_open_to_deploy_seconds == null
                             ? 'No PRs were deployed in this window.'
                             : undefined
                     }

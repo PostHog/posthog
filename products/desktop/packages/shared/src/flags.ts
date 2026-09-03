@@ -20,6 +20,8 @@ export const PROJECT_BLUEBIRD_FLAG = "project-bluebird";
 export const CHANNELS_LAYOUT_FLAG = "code-spaces-layout";
 // Gates the Loops feature: the sidebar Loops space and the per-channel Loops tab.
 export const LOOPS_FLAG = "loops";
+/** Desktop Loops read and write workflows (`hog_flows`) instead of the loops API. */
+export const LOOPS_HOG_FLOWS_FLAG = "loops-hog-flows";
 export const DESKTOP_HOME_FLAG = "desktop-home-flag";
 export const SAVED_SEARCHES_RAIL_FLAG = "posthog-desktop-saved-searches-rail";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";

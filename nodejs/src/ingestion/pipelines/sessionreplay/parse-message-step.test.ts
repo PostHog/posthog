@@ -4,7 +4,13 @@ import { gzip } from 'zlib'
 
 import { PipelineResultType } from '~/ingestion/framework/results'
 
-import { ParseMessageStepInput, createParseMessageStep, decompressMessageValue } from './parse-message-step'
+import { SessionRecordingIngesterMetrics } from './metrics'
+import {
+    ParseMessageStepInput,
+    createParseMessageStep,
+    decompressMessageValue,
+    observeClockSkew,
+} from './parse-message-step'
 import { SessionReplayHeaders } from './pipeline-types'
 
 const compressWithGzip = promisify(gzip)
@@ -25,6 +31,8 @@ describe('createParseMessageStep', () => {
         snapshotSource?: string
         lib?: string
         distinctId?: string
+        sentAt?: string
+        now?: string
     }): string {
         const event = {
             event: '$snapshot_items',
@@ -41,6 +49,12 @@ describe('createParseMessageStep', () => {
         }
         if (options.distinctId !== undefined) {
             rawMessage.distinct_id = options.distinctId
+        }
+        if (options.sentAt !== undefined) {
+            rawMessage.sent_at = options.sentAt
+        }
+        if (options.now !== undefined) {
+            rawMessage.now = options.now
         }
         return JSON.stringify(rawMessage)
     }
@@ -592,6 +606,67 @@ describe('createParseMessageStep', () => {
         if (result.type === PipelineResultType.OK) {
             expect(result.value.parsedMessage.session_id).toBe(expectedSessionId)
         }
+    })
+
+    describe('clock skew', () => {
+        const HOUR_MS = 60 * 60 * 1000
+        const serverNow = '2023-01-01T00:00:00.000Z'
+        let observeSpy: jest.SpyInstance
+        let unmeasuredSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            observeSpy = jest.spyOn(SessionRecordingIngesterMetrics, 'observeMessageClockSkew').mockImplementation()
+            unmeasuredSpy = jest
+                .spyOn(SessionRecordingIngesterMetrics, 'incrementMessageClockSkewUnmeasured')
+                .mockImplementation()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            ['reads 1h ahead of the server', '2023-01-01T01:00:00.000Z', 'device_ahead', 3600],
+            ['reads 1h behind the server', '2022-12-31T23:00:00.000Z', 'device_behind', 3600],
+            ['agrees with the server', serverNow, 'device_ahead', 0],
+        ])('records the offset when the device clock %s', (_desc, sentAt, direction, seconds) => {
+            observeClockSkew(sentAt, serverNow)
+
+            expect(observeSpy).toHaveBeenCalledWith(direction, seconds)
+            expect(unmeasuredSpy).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['capture recorded no sent_at', undefined, serverNow],
+            ['sent_at is unparseable', 'not-a-date', serverNow],
+            ['capture recorded no now', '2023-01-01T01:00:00.000Z', undefined],
+        ])('counts the message as unmeasured when %s', (_desc, sentAt, now) => {
+            observeClockSkew(sentAt, now)
+
+            expect(observeSpy).not.toHaveBeenCalled()
+            expect(unmeasuredSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('reports no offset for a buffered upload from a correctly clocked device', async () => {
+            const step = createParseMessageStep()
+            const now = Date.now()
+            const uploadedAt = new Date(now).toISOString()
+            const payload = createSnapshotPayload({
+                sessionId: 'session-1',
+                // Buffering, not a wrong clock: the Kafka message time would read this as an hour of skew.
+                snapshotItems: [{ type: 2, timestamp: now - HOUR_MS }],
+                distinctId: 'user-123',
+                sentAt: uploadedAt,
+                now: uploadedAt,
+            })
+            const input = createInput(0, 1, payload, undefined, { timestamp: now })
+
+            const result = await step(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(result.warnings).toHaveLength(0)
+            expect(observeSpy).toHaveBeenCalledWith('device_ahead', 0)
+        })
     })
 
     describe('decompressMessageValue lz4 hardening', () => {

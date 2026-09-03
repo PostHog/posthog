@@ -724,7 +724,7 @@ class PropertyDefinitionViewSet(
                 QueryContext(
                     project_id=self.project_id,
                     table=(
-                        "ee_enterprisepropertydefinition FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id"
+                        "posthog_propertydefinition LEFT JOIN ee_enterprisepropertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id"
                         if EE_AVAILABLE
                         else "posthog_propertydefinition"
                     ),

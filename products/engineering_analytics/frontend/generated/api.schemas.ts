@@ -288,6 +288,16 @@ export interface DoraOverviewApi {
      * @nullable
      */
     median_merge_to_deploy_seconds_prev: number | null
+    /**
+     * Median seconds from a PR's open to the first successful deployment containing it — the full open-to-deploy lead time over the same deployed-PR population as median_merge_to_deploy_seconds. Null when nothing deployed in the window.
+     * @nullable
+     */
+    median_open_to_deploy_seconds: number | null
+    /**
+     * Previous-window twin of median_open_to_deploy_seconds.
+     * @nullable
+     */
+    median_open_to_deploy_seconds_prev: number | null
     /** PRs first deployed in the window — the population behind the merge-to-deploy median and box plot. */
     deployed_pr_count: number
     /** Previous-window twin of deployed_pr_count. */
@@ -1360,7 +1370,7 @@ export interface TeamCIActivityApi {
 }
 
 export interface TeamCIHealthItemApi {
-    /** Owning team slug (the CODEOWNERS handle minus '@PostHog/', e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
+    /** Owning team slug from the repo's owners.yaml map (e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
     owner_team: string
     /** Owned tests one commit was seen both failing and passing in the window: the same proof, and the same word, that flaky_tests calls a confirmed_flake. Compare with flaky_test_count_prior for the delta. */
     flaky_test_count: number
@@ -1382,8 +1392,31 @@ export interface TeamCIHealthItemApi {
     quarantined_failed_run_count: number
     /** Same count over the prior window. */
     quarantined_failed_run_count_prior: number
-    /** Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window. */
-    last_seen_at: string
+    /**
+     * Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window. Null for a team present only through the census (no CI signal recorded).
+     * @nullable
+     */
+    last_seen_at: string | null
+    /**
+     * Test files the team owns per the daily owners.yaml census. Null until a census event exists for the repository.
+     * @nullable
+     */
+    test_file_count?: number | null
+    /**
+     * The latest census value at or before the window start, for the trend.
+     * @nullable
+     */
+    test_file_count_prior?: number | null
+    /**
+     * Merged PRs authored by the team's members in the window, bots excluded. Null when the team_members snapshot isn't synced, or for 'unowned'.
+     * @nullable
+     */
+    merged_pr_count?: number | null
+    /**
+     * Same count over the prior window.
+     * @nullable
+     */
+    merged_pr_count_prior?: number | null
 }
 
 export interface TeamCIHealthListApi {
@@ -1437,9 +1470,9 @@ export interface TrunkQuarantinedTestApi {
     runner: string
     /** Runner-native test id reconstructed from Trunk's (file, classname, name) key. */
     nodeid: string
-    /** Repo-relative path of the test file, as Trunk reports it. */
+    /** Repo-relative path of the test file, empty when neither the repository nor Trunk places it. */
     file: string
-    /** Owning team slug from the per-test CI spans' emission-time stamp, or 'unowned' when no in-retention span carries one. */
+    /** Owning team slug from the repository's ownership files, or 'unowned' when the test's file cannot be placed or no team claims its path. */
     owner_team: string
     /** Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'. */
     status: string
@@ -1465,6 +1498,8 @@ export interface TrunkQuarantineDebtApi {
     tests: TrunkQuarantinedTestApi[]
     /** False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error. */
     available: boolean
+    /** False when the repository's ownership files could not be read, so every test reads as 'unowned' for that reason rather than because no team claims it. */
+    owners_resolved: boolean
     /** Days a quarantine may stand before it counts as overdue. */
     ttl_days: number
     /** The 'owner/name' repository the debt was read for; test file paths are relative to it. */
@@ -1997,6 +2032,10 @@ export type EngineeringAnalyticsTeamCiHealthParams = {
      * An unrecovered test counts toward regression_test_count once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3. Does not affect flaky_test_count, which needs proof, not a threshold.
      */
     min_failed_prs?: number
+    /**
+     * Restrict the roster to one owning team slug (or 'unowned'). The cheap way to read a single team's rollup.
+     */
+    owner_team?: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

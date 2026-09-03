@@ -86,6 +86,7 @@ from products.data_warehouse.backend.facade.tasks import (
     send_external_data_failure_digest_catchup,
 )
 from products.endpoints.backend.facade.tasks import deactivate_stale_materializations
+from products.engineering_analytics.backend.facade.tasks import TEST_CENSUS_CRONTAB, emit_test_ownership_census
 from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
     cleanup_stale_flags_expiry_tracking_task,
@@ -1002,6 +1003,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="0"),
         prune_old_streamlit_app_versions.s(),
         name="prune old streamlit app versions",
+    )
+
+    sender.add_periodic_task(
+        TEST_CENSUS_CRONTAB,
+        emit_test_ownership_census.s(),
+        name="engineering analytics daily test ownership census",
     )
 
     # Stamphog daily merged-PR digest fan-out.
