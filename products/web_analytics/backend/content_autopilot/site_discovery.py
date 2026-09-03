@@ -4,6 +4,7 @@ from html.parser import HTMLParser
 from typing import TypedDict
 from urllib.parse import urljoin, urlparse, urlunparse
 
+import idna
 import defusedxml.ElementTree as ET
 from defusedxml.common import DefusedXmlException
 from defusedxml.ElementTree import ParseError as DefusedParseError
@@ -78,6 +79,22 @@ class _SiteNameParser(HTMLParser):
             self.title += data
 
 
+def _canonical_host(hostname: str) -> str:
+    """Return the host in the ASCII form the transport connects to.
+
+    `requests` IDNA-encodes a non-ASCII host before it opens the connection, so the
+    Unicode and the punycode spelling of one site must compare equal here too. An IP
+    literal and every other ASCII host stay as they are.
+    """
+    host = hostname.lower().removesuffix(".")
+    if host.isascii():
+        return host
+    try:
+        return idna.encode(host, uts46=True).decode("ascii")
+    except idna.IDNAError:
+        return host
+
+
 def normalize_site_origin(raw_url: str) -> str:
     invalid = ValueError("Enter a valid http or https site URL.")
     stripped = raw_url.strip()
@@ -85,7 +102,7 @@ def normalize_site_origin(raw_url: str) -> str:
         raise invalid
     try:
         parsed = urlparse(stripped)
-        hostname = (parsed.hostname or "").lower().removesuffix(".")
+        hostname = _canonical_host(parsed.hostname or "")
         port = parsed.port
     except ValueError as error:
         raise invalid from error
@@ -102,13 +119,13 @@ def _origin_key(url: str) -> str | None:
     try:
         parsed = urlparse(url)
         scheme = parsed.scheme.lower()
-        hostname = (parsed.hostname or "").lower()
+        hostname = _canonical_host(parsed.hostname or "")
         port = parsed.port
     except ValueError:
         return None
     if scheme not in _DEFAULT_PORTS or not hostname or parsed.username or parsed.password:
         return None
-    return f"{scheme}://{hostname.removesuffix('.')}:{port if port is not None else _DEFAULT_PORTS[scheme]}"
+    return f"{scheme}://{hostname}:{port if port is not None else _DEFAULT_PORTS[scheme]}"
 
 
 def has_same_public_origin(first_url: str, second_url: str) -> bool:
@@ -120,7 +137,7 @@ def _public_host(url: str) -> str:
     try:
         parsed = urlparse(url)
         scheme = parsed.scheme.lower()
-        hostname = (parsed.hostname or "").lower().removesuffix(".")
+        hostname = _canonical_host(parsed.hostname or "")
     except ValueError:
         return ""
     if scheme not in _DEFAULT_PORTS or not hostname or parsed.username or parsed.password:
@@ -198,7 +215,9 @@ def _verified_sitemaps(candidates: list[str], *, deadline: float, budget: _Reque
         except PublicUrlFetchError:
             continue
         if _is_sitemap(fetched.text):
-            verified.append(fetched.url)
+            # Record the candidate, not the redirect target: every candidate is already
+            # same-origin with the profile domain, which is what profile creation accepts.
+            verified.append(candidate)
     return list(dict.fromkeys(verified))
 
 
