@@ -247,7 +247,6 @@ function StatTiles({
     const errors = summary?.errors ?? 0
     const errorRate = calls ? (errors / calls) * 100 : 0
     const errorRateDaily = daily.calls.map((c, i) => (c ? (daily.errors[i] / c) * 100 : 0))
-    const sparkLabels = daily.labels.map((label) => formatBucketLabel(label, interval))
 
     const tiles: {
         label: string
@@ -314,11 +313,12 @@ function StatTiles({
                     key={tile.label}
                     {...tile}
                     loading={loading}
-                    labels={sparkLabels}
+                    labels={daily.labels}
+                    interval={interval}
                     theme={theme}
                     restingSubtitle={dateRangeLabel}
                     sparklineHeight={40}
-                    sparklineDashedFromIndex={incompleteTail ? sparkLabels.length - 1 : undefined}
+                    sparklineDashedFromIndex={incompleteTail ? daily.labels.length - 1 : undefined}
                 />
             ))}
         </div>
