@@ -2,7 +2,6 @@ import os
 import json
 import uuid
 from pathlib import Path
-from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -2300,6 +2299,8 @@ def test_mint_fails_closed_when_the_gateway_ignores_the_model_pin(team, stamphog
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 120, "sha120a")
     mint = MagicMock(side_effect=[_mint_response(201, {"token": "phe_run"}), _mint_response(200, {"revoked": True})])
+    unpinned_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned")._value.get()
+    ok_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get()
 
     with (
         override_settings(**_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5"]),
@@ -2314,6 +2315,8 @@ def test_mint_fails_closed_when_the_gateway_ignores_the_model_pin(team, stamphog
     _, revoke_call = mint.call_args_list
     assert revoke_call.args == ("https://ai-gateway.test/v1/tokens/revoke",)
     assert revoke_call.kwargs["json"] == {"token": "phe_run"}
+    assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned")._value.get() == unpinned_before + 1
+    assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get() == ok_before
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -2363,7 +2366,7 @@ def test_scoped_token_is_revoked_when_the_sandbox_phase_fails(team, stamphog_cha
     # a live token minted for it, and the token dies with the attempt.
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 123, "sha123a")
-    broken_sandbox: Any = fakes.make_fake_sandbox_class(fakes.approved_engine_output())
+    broken_sandbox = fakes.make_fake_sandbox_class(fakes.approved_engine_output())
     broken_sandbox.create_error = RuntimeError("modal is down")
     mint = MagicMock(side_effect=[_mint_response(201, {"token": "phe_run"}), _mint_response(200, {"revoked": True})])
 

@@ -221,7 +221,7 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
                         AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned").inc()
                         raise RuntimeError(
                             "The gateway minted the reviewer token without the required model pin; "
-                            "hosted reviews require the LLM gateway"
+                            "the gateway must support allowed_models before the reviewer model list is set"
                         )
                     AI_GATEWAY_TOKEN_MINTS.labels(result="ok").inc()
                     return token
@@ -241,7 +241,7 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
 
 
 def _release_reviewer_token(gateway: AIGatewayConfig | None, token: str) -> None:
-    """Best-effort revoke once the sandbox is gone; the TTL outlives the review by design.
+    """Best-effort revoke of a token the run no longer needs; the TTL outlives the review by design.
 
     A failure only logs (the token then expires) and never changes the run's outcome. A legacy
     OAuth token is a row this worker created, so it is deleted here.
