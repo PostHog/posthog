@@ -3,7 +3,7 @@ import { Properties } from '~/plugin-scaffold'
 
 import { resolveModelCostForProvider, resolveProviderAliases } from './provider-matching'
 import { manualCostsByModel, openRouterCostsByModel } from './providers'
-import type { ModelCostByProvider, ModelCostRow, ResolvedModelCost } from './providers/types'
+import type { ModelCost, ModelCostByProvider, ModelCostRow, ResolvedModelCost } from './providers/types'
 
 // Work around for new gemini models that require special cost calculations
 const SPECIAL_COST_MODELS = ['gemini-2.5-pro-preview']
@@ -71,11 +71,16 @@ const resolveBedrockInferenceProfileProvider = (
     return regionalProviders.length === 1 ? regionalProviders[0] : provider
 }
 
+// The rates OpenAI halves on flex. Per-request, web-search, image, and audio charges bill the
+// same on every tier.
+const FLEX_HALVED_RATE_FIELDS = ['prompt_token', 'completion_token', 'cache_read_token', 'cache_write_token'] as const
+
 /**
- * The OpenRouter sync lands service-tier pricing as `<provider>-flex` cost keys on the base
- * model row, so a flex event resolves that key first and falls back to the provider's standard
- * rates when the model has no flex pricing. Other service_tier values ("auto", "default",
- * "priority"/"fast") have no dedicated keys and price as standard.
+ * OpenAI bills the flex service tier at half the standard token rates, uniformly across its
+ * flex-capable models (https://developers.openai.com/api/docs/pricing?latest-pricing=flex).
+ * Applying the rule ourselves keeps the calculation independent of how OpenRouter models
+ * service tiers; if OpenAI ever prices a tier per model, this is the function to revisit.
+ * Other service_tier values ("auto", "default", "priority"/"fast") price as standard.
  */
 const resolveTieredModelCost = (
     providerCosts: ModelCostByProvider,
@@ -83,16 +88,21 @@ const resolveTieredModelCost = (
     serviceTier: unknown,
     model: string
 ): ResolvedModelCost | undefined => {
-    if (serviceTier === 'flex' && provider) {
-        const flexKey = `${resolveProviderAliases(provider)}-flex`
-        const flexCost = providerCosts[flexKey]
+    const resolved = resolveModelCostForProvider(providerCosts, provider, model)
 
-        if (flexCost) {
-            return { model, provider: flexKey, cost: flexCost }
+    if (!resolved || serviceTier !== 'flex' || !provider || resolveProviderAliases(provider) !== 'openai') {
+        return resolved
+    }
+
+    const halved: ModelCost = { ...resolved.cost }
+    for (const rateField of FLEX_HALVED_RATE_FIELDS) {
+        const rate = resolved.cost[rateField]
+        if (rate !== undefined) {
+            halved[rateField] = rate / 2
         }
     }
 
-    return resolveModelCostForProvider(providerCosts, provider, model)
+    return { ...resolved, cost: halved }
 }
 
 export const findCostFromModel = (model: string, properties: Properties): CostModelResult | undefined => {
