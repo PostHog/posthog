@@ -94,7 +94,7 @@ export function AccountNotesExpansion({ accountId }: { accountId: string }): JSX
     ]
 
     return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2" data-attr="account-notes">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <LemonInput
                     type="search"

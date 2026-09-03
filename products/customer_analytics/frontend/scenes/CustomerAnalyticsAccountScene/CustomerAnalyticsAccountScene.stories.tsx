@@ -1,6 +1,4 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { waitFor, within } from '@testing-library/dom'
-import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -72,7 +70,7 @@ const meta: Meta = {
         ],
         pageUrl: urls.customerAnalyticsAccount(ACCOUNT_ID),
         testOptions: {
-            waitForSelector: '[data-attr="customer-analytics-account-scene"]',
+            waitForSelector: ['[data-attr="customer-analytics-account-scene"]', '[data-attr="account-notes"]'],
             viewport: { width: 1280, height: 900 },
         },
     },
@@ -96,47 +94,6 @@ type Story = StoryObj<{}>
 
 export const Default: Story = {
     render: () => <App />,
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        const configureTabsButton = canvasElement.querySelector(
-            '[data-attr="account-detail-configure-tabs"]'
-        ) as HTMLElement
-        const addViewButton = canvasElement.querySelector('[data-attr="account-detail-add-view"]') as HTMLElement
-
-        await userEvent.click(configureTabsButton)
-        await waitFor(() => {
-            if (!document.body.querySelector('.LemonModal')) {
-                throw new Error('Configure tabs dialog did not open')
-            }
-        })
-        const configureTabsDialog = within(document.body.querySelector('.LemonModal') as HTMLElement)
-        await configureTabsDialog.findByText('Configure tabs')
-        await configureTabsDialog.findByText('This feature is a work in progress.')
-        await userEvent.click(configureTabsDialog.getByText('Okay'))
-        await waitFor(() => {
-            if (document.body.querySelector('.LemonModal')) {
-                throw new Error('Configure tabs dialog did not close')
-            }
-        })
-
-        await userEvent.click(addViewButton)
-        await waitFor(() => {
-            if (!document.body.querySelector('.LemonModal')) {
-                throw new Error('Add view dialog did not open')
-            }
-        })
-        const addViewDialog = within(document.body.querySelector('.LemonModal') as HTMLElement)
-        await addViewDialog.findByText('Add view')
-        await addViewDialog.findByText('This feature is a work in progress.')
-        await userEvent.click(addViewDialog.getByText('Okay'))
-        await waitFor(() => {
-            if (document.body.querySelector('.LemonModal')) {
-                throw new Error('Add view dialog did not close')
-            }
-        })
-
-        await canvas.findByText('Implementation planning')
-    },
 }
 
 export const Narrow: Story = {

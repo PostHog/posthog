@@ -1,13 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -21,6 +20,7 @@ import { AccountLogo } from '../../components/Accounts/AccountLogo'
 import { CustomerAnalyticsScene } from '../../CustomerAnalyticsScene'
 import { customerAnalyticsFeaturePreviewGate } from '../../featurePreviewGate'
 import type { AccountApi } from '../../generated/api.schemas'
+import { AccountDetailActions } from './AccountDetailActions'
 import {
     CustomerAnalyticsAccountSceneLogicProps,
     customerAnalyticsAccountSceneLogic,
@@ -35,13 +35,6 @@ export const scene: SceneExport<CustomerAnalyticsAccountSceneLogicProps> = {
 
 function getAccountLogoDomain(account: AccountApi): string | null {
     return account.properties?.website_domain ?? account.properties?.email_domains?.[0] ?? null
-}
-
-function openWorkInProgressDialog(title: string): void {
-    LemonDialog.open({
-        title,
-        content: 'This feature is a work in progress.',
-    })
 }
 
 export function CustomerAnalyticsAccountScene(): JSX.Element {
@@ -135,26 +128,7 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
                             externalId={account.external_id ?? ''}
                             activeTab={activeTab}
                             onChange={setActiveTab}
-                            rightSlot={
-                                <>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        data-attr="account-detail-configure-tabs"
-                                        onClick={() => openWorkInProgressDialog('Configure tabs')}
-                                    >
-                                        Configure tabs
-                                    </LemonButton>
-                                    <LemonButton
-                                        type="primary"
-                                        size="small"
-                                        data-attr="account-detail-add-view"
-                                        onClick={() => openWorkInProgressDialog('Add view')}
-                                    >
-                                        Add view
-                                    </LemonButton>
-                                </>
-                            }
+                            rightSlot={<AccountDetailActions />}
                         />
                     </main>
                 </div>
