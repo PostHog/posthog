@@ -1,6 +1,7 @@
 import hmac
 import time
 import hashlib
+import threading
 from datetime import UTC, datetime
 
 from django.conf import settings
@@ -10,6 +11,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
+from cachetools import TTLCache
 from prometheus_client import Counter
 from rest_framework import status
 from rest_framework.request import Request
@@ -73,11 +75,19 @@ _CONFIGURED_APP_IDS_CACHE_SECONDS = 60
 # A token that resolves to no team costs a Redis miss and then a Postgres query on every request,
 # and the lookup has no negative cache of its own. A misconfigured mobile client repeats the same
 # unknown token on every app open, so that query runs at the client's retry rate indefinitely.
-# Remember the rejection instead, keyed on a hash so the raw token never reaches Redis.
+#
+# This cache is in-process and size-bounded, not in Redis. The token is request-controlled and this
+# endpoint is public, so a Redis key per submitted value would let anyone grow the shared cache and
+# evict unrelated entries. A TTLCache holds at most _INVALID_TOKEN_CACHE_SIZE entries per worker and
+# evicts its own oldest, so the memory cost is fixed no matter what callers send.
 #
 # The TTL is short on purpose. A token can become valid, for example when a project is recreated,
 # and this bounds how long such a token keeps being rejected after that.
 _INVALID_TOKEN_CACHE_SECONDS = 60
+_INVALID_TOKEN_CACHE_SIZE = 2048
+_invalid_token_cache: TTLCache = TTLCache(maxsize=_INVALID_TOKEN_CACHE_SIZE, ttl=_INVALID_TOKEN_CACHE_SECONDS)
+# cachetools is not thread-safe and Granian serves requests on threads within a worker.
+_invalid_token_lock = threading.Lock()
 _PUSH_INTEGRATION_KINDS = ("firebase", "apns")
 
 VALID_PLATFORMS = ("android", "ios")
@@ -100,24 +110,16 @@ _encrypted_fields = EncryptedFieldMixin()
 _VERIFICATION_MODE_PRECEDENCE = {"disabled": 0, "optional": 1, "required": 2}
 
 
-def _invalid_token_key(api_key: str) -> str:
-    return f"push_subscriptions:invalid_token:{_api_key_fingerprint(api_key)}"
-
-
 def _is_known_invalid_token(api_key: str) -> bool:
-    """True when this token was resolved to no team recently. Fails open: a cache error must reject
-    nothing on its own, so the caller falls through to the real lookup."""
-    try:
-        return cache.get(_invalid_token_key(api_key)) is not None
-    except Exception:
-        return False
+    """True when this worker resolved this token to no team recently. Stores a fingerprint rather
+    than the token itself, so the raw value is never held."""
+    with _invalid_token_lock:
+        return _api_key_fingerprint(api_key) in _invalid_token_cache
 
 
 def _remember_invalid_token(api_key: str) -> None:
-    try:
-        cache.set(_invalid_token_key(api_key), 1, _INVALID_TOKEN_CACHE_SECONDS)
-    except Exception:
-        pass
+    with _invalid_token_lock:
+        _invalid_token_cache[_api_key_fingerprint(api_key)] = True
 
 
 def _is_first_discard_in_window(team_id: int) -> bool:

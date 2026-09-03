@@ -18,6 +18,7 @@ from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.team.team_caching import set_team_in_cache
 
+from products.messaging.backend.api import push_subscriptions
 from products.messaging.backend.api.push_identity_tokens import sign_push_identity_token, sign_push_identity_token_es256
 from products.messaging.backend.api.push_subscriptions import (
     PUSH_SUBSCRIPTION_DISCARD_COUNTER,
@@ -69,6 +70,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         # every test in the process shares. Tests here reuse one team id, so without this a test that
         # logged a discard would suppress the line another test asserts on.
         cache.clear()
+        push_subscriptions._invalid_token_cache.clear()
 
     def _post(self, data: dict, api_key: str | None = None):
         payload = {**data, "api_key": api_key or self.team.api_token}
