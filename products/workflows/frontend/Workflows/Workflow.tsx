@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { LemonBanner, LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { HogFlowEditor } from './hogflows/HogFlowEditor'
+import { hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
 import { getLinearWorkflowActionIds } from './hogflows/linearWorkflow'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowStatusBar } from './WorkflowStatusBar'
@@ -13,8 +15,10 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
         workflowLogic(props)
     )
     const { loadWorkflow, keepMyWorkflowVersion } = useActions(workflowLogic(props))
-    const [editorLayout, setEditorLayout] = useState<'simple' | 'advanced'>('simple')
-    const canUseSimpleLayout = !!getLinearWorkflowActionIds(workflow)
+    const { editorLayout } = useValues(hogFlowEditorLogic(props))
+    const { setEditorLayout } = useActions(hogFlowEditorLogic(props))
+    const linearViewEnabled = useFeatureFlag('WORKFLOWS_LINEAR_VIEW')
+    const canUseSimpleLayout = linearViewEnabled && !!getLinearWorkflowActionIds(workflow)
     const effectiveEditorLayout = editorLayout === 'simple' && canUseSimpleLayout ? 'simple' : 'advanced'
 
     return (
@@ -23,6 +27,7 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
                 {...props}
                 editorLayout={effectiveEditorLayout}
                 canUseSimpleLayout={canUseSimpleLayout}
+                showEditorLayoutToggle={linearViewEnabled}
                 onEditorLayoutChange={setEditorLayout}
             />
             {/* Brief working/disabled overlay while we reconcile to an edit made elsewhere (clean state). */}
