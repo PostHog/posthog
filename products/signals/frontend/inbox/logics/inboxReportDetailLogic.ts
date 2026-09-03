@@ -262,8 +262,8 @@ export interface inboxReportDetailLogicValues {
     feedbackNoteSubmitting: boolean
     feedbackSentiment: InboxReportFeedbackSentiment | null
     hasImplementationPr: boolean
-    implementationSlotClaim: ImplementationSlotClaim | null
     hasPersonalGithub: boolean
+    implementationSlotClaim: ImplementationSlotClaim | null
     inlineThreadCount: number
     inlineThreadsByFile: Record<string, ReviewThread[]>
     isReResearch: boolean
