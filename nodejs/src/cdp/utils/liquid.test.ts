@@ -250,6 +250,33 @@ describe('LiquidRenderer', () => {
         })
     })
 
+    describe('resource limits', () => {
+        it.each([
+            [
+                'exponential string growth',
+                "{% assign s = 'aaaaaaaa' %}{% for i in (1..40) %}{% assign s = s | append: s %}{% endfor %}{{ s | size }}",
+                'memory alloc limit exceeded',
+            ],
+            [
+                'CPU-bound nested loop',
+                '{% assign a = (1..100) %}{% for i in a %}{% for j in a %}{% for k in a %}{% for l in a %}{% endfor %}{% endfor %}{% endfor %}{% endfor %}',
+                'template render limit exceeded',
+            ],
+            ['oversized template source', '{{ person.name }}'.padEnd(200_000, ' '), 'parse length limit exceeded'],
+        ])('rejects a template with %s instead of blocking the process', (_name, template, expectedError) => {
+            expect(() => LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toThrow(expectedError)
+        })
+
+        it('renders normally after a rejected template', () => {
+            expect(() =>
+                LiquidRenderer.renderWithHogFunctionGlobals('{{ person.name }}'.padEnd(200_000, ' '), globals)
+            ).toThrow('parse length limit exceeded')
+            expect(LiquidRenderer.renderWithHogFunctionGlobals('Hello {{ person.name }}!', globals)).toBe(
+                'Hello test_person!'
+            )
+        })
+    })
+
     describe('renderWithHogFunctionGlobals', () => {
         it('renders with hog function globals', () => {
             const template = 'Event: {{ event.event }}, Person: {{ person.name }}'

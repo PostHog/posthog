@@ -1661,8 +1661,8 @@ importers:
         specifier: ^0.7.15
         version: 0.7.16
       liquidjs:
-        specifier: ^10.27.0
-        version: 10.27.0
+        specifier: ^10.27.2
+        version: 10.29.0
       lodash:
         specifier: ^4.18.1
         version: 4.18.1
@@ -18179,6 +18179,11 @@ packages:
     engines: {node: '>=16'}
     hasBin: true
 
+  liquidjs@10.29.0:
+    resolution: {integrity: sha512-pCVOhs6FLAR8su3ItJ07diN26t6W5dHQRnmTMy8HPyTFuv1+oSCVJIGp5pGjfQyOZfh50KswvKtMTp6p4JEIdw==}
+    engines: {node: '>=16'}
+    hasBin: true
+
   listr2@8.2.5:
     resolution: {integrity: sha512-iyAZCeyD+c1gPyE9qpFu8af0Y+MRtmKOncdGoA2S5EY8iFq99dmmvkNnHiWo+pj0s7yH7l3KPIgee77tKpXPWQ==}
     engines: {node: '>=18.0.0'}
@@ -30833,7 +30838,7 @@ snapshots:
       escape-goat: 3.0.0
       google-libphonenumber: 3.2.40
       kafkajs: 2.2.4
-      liquidjs: 10.27.0
+      liquidjs: 10.29.0
       lodash: 4.18.1
       lru-cache: 10.4.3
       ssh2-sftp-client: 10.0.3
@@ -30870,7 +30875,7 @@ snapshots:
       cheerio: 1.0.0
       dayjs: 1.11.11(patch_hash=2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852)
       escape-goat: 3.0.0
-      liquidjs: 10.27.0
+      liquidjs: 10.29.0
       lodash: 4.18.1
     transitivePeerDependencies:
       - encoding
@@ -39870,6 +39875,10 @@ snapshots:
       - supports-color
 
   liquidjs@10.27.0:
+    dependencies:
+      commander: 10.0.1
+
+  liquidjs@10.29.0:
     dependencies:
       commander: 10.0.1
 
