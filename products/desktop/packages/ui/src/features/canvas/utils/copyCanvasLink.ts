@@ -10,11 +10,10 @@ import { canvasShareUrl } from "@posthog/ui/utils/posthogLinks";
  * Copy a canvas's shareable https link (`<instance>/code/canvas/<channelId>/
  * <dashboardId>`) to the clipboard, toasting success or failure. Shared by every
  * "Copy link" affordance (canvas toolbar, dashboards grid) so the link format
- * and feedback stay in one place. Unlike the inbox/scout copy actions — which
- * copy the raw `<scheme>://` deep link — this copies an https link that resolves
- * to a web interstitial, so it opens for anyone whether or not they have the
- * desktop app. Inbox links likewise use browser-accessible PostHog URLs; scout
- * links still copy their raw app scheme.
+ * and feedback stay in one place. This copies an https link that resolves to a
+ * web interstitial, so it opens for anyone whether or not they have the desktop
+ * app. Inbox users choose between web and Desktop links; scout links copy their
+ * raw app scheme.
  */
 export async function copyCanvasLink(
   channelId: string,

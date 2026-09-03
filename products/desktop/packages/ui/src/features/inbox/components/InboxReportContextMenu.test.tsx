@@ -242,7 +242,7 @@ describe("InboxReportContextMenu", () => {
     expect(mocks.openDismissDialog).toHaveBeenCalledWith("already_fixed");
   });
 
-  it("wires restore and copy link actions", async () => {
+  it("wires the restore action", async () => {
     const user = userEvent.setup();
     const report = makeReport({ status: "suppressed" });
     openMenu(report);
@@ -252,10 +252,20 @@ describe("InboxReportContextMenu", () => {
     // the row and unmounts this menu, so a mutation callback could be skipped.
     expect(mocks.trackAction).toHaveBeenCalledWith("restore");
     expect(mocks.restore).toHaveBeenCalledWith(report.id);
+  });
 
-    fireEvent.contextMenu(screen.getByText("Report one"));
-    await user.click(screen.getByText("Copy link"));
-    expect(mocks.copyLink).toHaveBeenCalledWith(report);
+  it.each(["web", "desktop"] as const)("copies the %s link", async (target) => {
+    const user = userEvent.setup();
+    const report = makeReport({ status: "suppressed" });
+    openMenu(report);
+
+    await user.hover(screen.getByText("Copy link"));
+    fireEvent.click(
+      await screen.findByText(
+        target === "web" ? "Copy web link" : "Copy desktop link",
+      ),
+    );
+    expect(mocks.copyLink).toHaveBeenCalledWith(report, target);
     expect(mocks.trackAction).toHaveBeenCalledWith("copy_link");
   });
 });
