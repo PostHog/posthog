@@ -2,6 +2,7 @@ import type {
   EvidenceDetailSection,
   ExperimentResultsPresentation,
 } from "@posthog/api-client/evidence-previews";
+import type { FlagAudience } from "@posthog/api-client/flag-audience";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import {
   type ChartHeadlineStat,
@@ -43,6 +44,8 @@ export interface EvidenceCardData {
   };
   sections?: EvidenceDetailSection[];
   experimentResults?: ExperimentResultsPresentation;
+  /** Who a feature flag reaches, as a readable rules table. */
+  flagAudience?: FlagAudience;
   /** A dashboard's tiles, each resolvable to a live insight chart. */
   tiles?: Array<{ shortId: string; name: string | null }>;
   /** Canonical id when it differs from the cited one (a flag cited by key). */

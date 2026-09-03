@@ -346,6 +346,7 @@ export function ArtifactPreview({
       <PostHogObjectPage
         metadata={liveReferenceMetadata ?? previewData.metadata}
         fallbackName={name}
+        taskId={taskId}
       />
     );
   }

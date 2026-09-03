@@ -7,6 +7,13 @@
 // stays a thin "fetch by kind, shape result" dispatch.
 
 import type { SignalReport } from "@posthog/shared/domain-types";
+import {
+  type FlagAudience,
+  flagReachLabel,
+  type ResolvedPerson,
+  shapeFlagAudience,
+  targetedDistinctIds,
+} from "./flag-audience";
 import type { Schemas } from "./generated";
 
 export interface EvidenceDetailField {
@@ -108,6 +115,8 @@ export interface EvidencePreview {
   };
   sections?: EvidenceDetailSection[];
   experimentResults?: ExperimentResultsPresentation;
+  /** Who a feature flag reaches, as a readable rules table. */
+  flagAudience?: FlagAudience;
   /**
    * A dashboard's tiles, each resolvable to a live insight chart, so a full
    * page can render the metrics themselves rather than describe them.
@@ -269,8 +278,12 @@ function surveyQuestionSummary(question: unknown): string | null {
   return type ? `${prompt} (${humanizeStatus(type)})` : prompt;
 }
 
-export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
+export function shapeFlagPreview(
+  flag: Schemas.FeatureFlag,
+  people: Map<string, ResolvedPerson> = new Map(),
+): EvidencePreview {
   const name = flag.name?.trim();
+  const audience = shapeFlagAudience(flag, people);
 
   const facts: string[] = [];
   const filters = isRecord(flag.filters) ? flag.filters : {};
@@ -298,19 +311,12 @@ export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
     : isMultivariate
       ? "Multivariate"
       : "Boolean";
-  const singleRollout =
-    groups.length === 1 && isRecord(groups[0])
-      ? groups[0].rollout_percentage
-      : null;
   const stats: Array<{ label: string; value: string }> = [
-    ...(typeof singleRollout === "number"
-      ? [{ label: "Rollout", value: `${singleRollout}%` }]
-      : groups.length > 1
-        ? [{ label: "Release conditions", value: String(groups.length) }]
-        : []),
+    { label: "Reach", value: flagReachLabel(audience) },
     ...(variants > 0 ? [{ label: "Variants", value: String(variants) }] : []),
     { label: "Type", value: flagType },
   ];
+  const distinctIds = targetedDistinctIds(flag);
   return {
     title: flag.key,
     detail: name || undefined,
@@ -319,13 +325,10 @@ export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
       : { label: "Disabled", tone: "neutral" },
     facts,
     stats,
+    flagAudience: audience,
     sections: [
       ...detailSection("Configuration", [
         ["Type", flagType],
-        [
-          "Release conditions",
-          groups.length ? count(groups.length, "condition") : "All users",
-        ],
         [
           "Evaluation runtime",
           flag.evaluation_runtime === "all"
@@ -344,17 +347,22 @@ export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
               : "Disabled",
         ],
         [
+          "Used by",
+          flag.experiment_set?.length
+            ? count(flag.experiment_set.length, "experiment")
+            : null,
+        ],
+        [
           "Last called",
           flag.last_called_at ? formatDay(flag.last_called_at) : null,
         ],
+        [
+          distinctIds.length === 1
+            ? "Targeted distinct ID"
+            : "Targeted distinct IDs",
+          distinctIds.length > 0 ? distinctIds.join(", ") : null,
+        ],
       ]),
-      ...detailSection(
-        "Release conditions",
-        groups.map((group, index) => [
-          `Set ${index + 1}`,
-          flagConditionSummary(group),
-        ]),
-      ),
     ],
     resolvedId: String(flag.id),
   };

@@ -111,6 +111,7 @@ import {
   type FetchImplementation,
   requestErrorStatus,
 } from "./fetcher";
+import { type ResolvedPerson, targetedDistinctIds } from "./flag-audience";
 import { createApiClient, type Schemas } from "./generated";
 import type {
   McpAgentGrantScope,
@@ -1100,6 +1101,12 @@ function optionalString(value: unknown): string | null {
 // alike — never a business-specific message, so it's less actionable than the
 // endpoint's own fallback plus status code.
 const DRF_GENERIC_NOT_FOUND_DETAIL = "Not found.";
+/** One request per targeted distinct id; flags listing more stay raw past this. */
+const MAX_RESOLVED_FLAG_PEOPLE = 10;
+
+function isPropertyRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 /** Unwrap the shared fetcher's `Failed request: [<status>] <json>` into the endpoint's clean message. */
 function extractRequestErrorMessage(error: unknown, fallback: string): string {
@@ -6792,6 +6799,50 @@ export class PostHogAPIClient {
    * back to a static reference. Query-backed kinds (hogql, insight) resolve
    * in the UI instead, where chart shaping lives.
    */
+  /**
+   * People behind the distinct ids a flag targets, keyed by distinct id. A
+   * lookup that fails leaves its id unresolved so the raw id still renders.
+   */
+  private async resolveFlagPeople(
+    projectId: string,
+    flag: Schemas.FeatureFlag,
+  ): Promise<Map<string, ResolvedPerson>> {
+    const ids = targetedDistinctIds(flag).slice(0, MAX_RESOLVED_FLAG_PEOPLE);
+    const entries = await Promise.all(
+      ids.map(async (distinctId): Promise<[string, ResolvedPerson] | null> => {
+        try {
+          const page = await this.api.get(
+            "/api/projects/{project_id}/persons/",
+            {
+              path: { project_id: projectId },
+              query: { distinct_id: distinctId, limit: 1 },
+            },
+          );
+          const person = page.results?.[0];
+          if (!person) return null;
+          const properties = isPropertyRecord(person.properties)
+            ? person.properties
+            : {};
+          const email =
+            typeof properties.email === "string" ? properties.email : null;
+          return [
+            distinctId,
+            {
+              uuid: person.uuid,
+              name: person.name || email || distinctId,
+              email,
+            },
+          ];
+        } catch {
+          return null;
+        }
+      }),
+    );
+    return new Map(
+      entries.filter((entry): entry is [string, ResolvedPerson] => !!entry),
+    );
+  }
+
   async getEvidencePreview(
     kind: string,
     id: string,
@@ -6817,9 +6868,10 @@ export class PostHogAPIClient {
           flag = page.results.find((entry) => entry.key === id);
         }
         if (!flag) return null;
-        // Depth: PostHog's own staleness verdict, and whether anything still
-        // evaluates the flag (7-day call volume).
-        const [status, volume] = await Promise.all([
+        // Depth: PostHog's own staleness verdict, whether anything still
+        // evaluates the flag (7-day call volume), and the people behind any
+        // distinct ids the flag targets directly, so the page can name them.
+        const [status, volume, people] = await Promise.all([
           this.api
             .get("/api/projects/{project_id}/feature_flags/{id}/status/", {
               path: { project_id: projectId, id: flag.id },
@@ -6829,9 +6881,10 @@ export class PostHogAPIClient {
             kind: "HogQLQuery",
             query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(flag.key)}' AND timestamp >= now() - INTERVAL 7 DAY GROUP BY day ORDER BY day`,
           }).catch(() => ({})),
+          this.resolveFlagPeople(projectId, flag),
         ]);
         return decorateFlagPreview(
-          shapeFlagPreview(flag),
+          shapeFlagPreview(flag, people),
           status,
           gridRows(volume),
         );
