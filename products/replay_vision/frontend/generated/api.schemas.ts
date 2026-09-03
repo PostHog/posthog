@@ -684,12 +684,16 @@ export interface ObservationSearchResponseApi {
 
 export interface VisionQuotaApi {
     /**
-     * Credits the org may spend per billing period (1 credit = $0.01). Null when billing has synced the product with no spend limit: uncapped.
+     * Credits the organization may spend per billing period (1 credit = $0.01). 0 is a hard block: no observation can start. Null when billing has synced the product with no spend limit: uncapped.
      * @nullable
      */
     readonly credit_limit: number | null
-    /** Credits spent this period: succeeded observations from the receipt ledger plus reserved in-flight observations. */
+    /** `credits_settled` plus `credits_reserved`: the organization's total draw on `credit_limit` this period, across every project. */
     readonly credits_used: number
+    /** Credits posted to the receipt ledger by succeeded observations and finished prompt-test sessions this period, across every project in the organization. Deleting an observation never refunds these. */
+    readonly credits_settled: number
+    /** Credits held by in-flight observations and running prompt tests across every project in the organization. Released without charge when the work fails, settled into `credits_settled` when it succeeds. */
+    readonly credits_reserved: number
     /**
      * `credit_limit - credits_used`, floored at 0. Null when uncapped.
      * @nullable
@@ -703,12 +707,28 @@ export interface VisionQuotaApi {
     readonly period_end: string
     /** `scanners_monthly_credits` plus `backfills_committed_credits`. Kept as the single headline number; prefer the two components when pro-rating, since only the scanner half is a monthly rate. */
     readonly projected_monthly_credits: number
-    /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. A monthly rate: only the part falling in the days left of the period lands this period. Scanners without a computed estimate contribute 0. */
+    /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. A capped scanner contributes at most what its own credit limit has left this period, folded back into a 30-day rate. A monthly rate: only the part falling in the days left of the period lands this period. Scanners without a computed estimate contribute 0. */
     readonly scanners_monthly_credits: number
     /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
     readonly backfills_committed_credits: number
     /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
     readonly free_monthly_credits: number
+}
+
+export interface VisionSpendDayApi {
+    /** UTC calendar day. */
+    readonly date: string
+    /** Credits settled by observations created on this day across every project in the organization; 0 when none. */
+    readonly credits: number
+}
+
+export interface VisionSpendSeriesApi {
+    /** First moment of the current quota period (UTC). */
+    readonly period_start: string
+    /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
+    readonly period_end: string
+    /** One entry per UTC day from `period_start` through today, in order, zero-filled for days without spend. */
+    readonly days: readonly VisionSpendDayApi[]
 }
 
 /**
@@ -736,14 +756,14 @@ export const ScannerProviderEnumApi = {
 /**
  * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
  * * `gemini-3-flash-preview` - Gemini 3 Flash
- * * `gemini-3.7-flash` - Gemini 3.7 Flash
+ * * `gemini-3.8-flash` - Gemini 3.8 Flash
  */
 export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
 
 export const ScannerModelEnumApi = {
     Gemini35FlashLite: 'gemini-3.5-flash-lite',
     Gemini3FlashPreview: 'gemini-3-flash-preview',
-    Gemini37Flash: 'gemini-3.7-flash',
+    Gemini38Flash: 'gemini-3.8-flash',
 } as const
 
 /**
@@ -851,7 +871,7 @@ export interface ReplayScannerApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -866,10 +886,15 @@ export interface ReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_observations: number | null
+    /**
+     * When `estimated_monthly_observations` was last computed. Null means the estimate is being recomputed after a config change or has never run, so the stored number may be stale.
+     * @nullable
+     */
+    readonly estimated_at: string | null
     /** Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`. */
     readonly credits_per_observation: number
     /**
-     * `estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.
+     * `estimated_monthly_observations` priced at `credits_per_observation`, capped at `credit_limit` when one is set. Null until the estimate is first computed.
      * @nullable
      */
     readonly estimated_monthly_credits: number | null
@@ -964,7 +989,7 @@ export interface PatchedReplayScannerApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model?: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -979,10 +1004,15 @@ export interface PatchedReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_observations?: number | null
+    /**
+     * When `estimated_monthly_observations` was last computed. Null means the estimate is being recomputed after a config change or has never run, so the stored number may be stale.
+     * @nullable
+     */
+    readonly estimated_at?: string | null
     /** Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`. */
     readonly credits_per_observation?: number
     /**
-     * `estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.
+     * `estimated_monthly_observations` priced at `credits_per_observation`, capped at `credit_limit` when one is set. Null until the estimate is first computed.
      * @nullable
      */
     readonly estimated_monthly_credits?: number | null
@@ -1673,7 +1703,7 @@ export interface SignalScoutSlackDestinationApi {
      * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
      */
     users?: string[] | null
-    /** When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
+    /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
     thread_reports?: boolean
 }
 
@@ -1996,7 +2026,7 @@ export interface DraftScannerResponseApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model: ScannerModelEnumApi | null
     /**
      * Goal-based flow only: the monthly credit cap, set to `monthly_credit_budget` so a mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow.
@@ -2014,7 +2044,7 @@ export interface DraftScannerResponseApi {
  * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
  */
 export interface EstimateRequestApi {
-    /** Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate against all recordings. */
+    /** Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate scans a recent window (`window_days` in the response) and scales it to 30 days. Omit to estimate against all recordings. */
     query?: unknown
     /**
      * 0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).
@@ -2037,7 +2067,7 @@ export interface EstimateRequestApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model?: ScannerModelEnumApi
     /** Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user. */
     experiment_targeting?: ScannerExperimentTargetingApi | null
@@ -2047,11 +2077,11 @@ export interface EstimateRequestApi {
  * Forward-looking volume and credit-cost estimate for a proposed scanner.
  */
 export interface EstimateResponseApi {
-    /** Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality filter but before random sampling. */
+    /** Distinct sessions matching the query within the scanned window (`window_days`), after the sampling_mode quality filter but before random sampling. */
     matched_sessions_in_window: number
-    /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
+    /** Days of recordings the estimate scanned before scaling to 30. Up to a week (shorter when the query's operand rules out sampling); smaller when the team has fewer days of recordings. */
     window_days: number
-    /** Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate. */
+    /** Projected monthly observations: quality-filtered matched sessions scaled from `window_days` to 30 days, times sampling_rate. */
     estimated_observations_per_month: number
     /** Credits one observation costs at the proposed `model` (1 credit = $0.01). */
     credits_per_observation: number
@@ -2093,7 +2123,7 @@ export interface InlineScanRequestApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model?: ScannerModelEnumApi
 }
 

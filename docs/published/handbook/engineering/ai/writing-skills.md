@@ -386,6 +386,43 @@ Because both repositories are updated from the same `dist/skills.zip` on every m
 you don't need to handle distribution yourself –
 merge your skill and it shows up in both places on the next CI run.
 
+### Context-mill skills override this repo's
+
+This repo is not the only source of shipped skills.
+[`PostHog/context-mill`](https://github.com/PostHog/context-mill) assembles the "omnibus" skills
+from posthog.com docs and publishes them as `skills-mcp-resources.zip`:
+`instrument-integration`, `instrument-product-analytics`, `instrument-feature-flags`,
+`instrument-error-tracking`, `instrument-llm-analytics`, and `instrument-logs`.
+These are the skills behind PostHog Desktop's setup buttons and the wizard.
+
+Every consumer below unzips `dist/skills.zip` first and then unzips context-mill on top,
+so **context-mill wins on any skill they both define**.
+A same-named skill added here would have its `SKILL.md` overwritten
+while its extra reference files survived as orphans in the other source's directory.
+The Desktop harness bundle is the exception: it packages context-mill alone,
+so a skill from this repo is absent there rather than overwritten.
+
+| Consumer                              | Merge site                                                                                                                    |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| PostHog Desktop build                 | `products/desktop/apps/code/vite-main-plugins.mts` (`copyPosthogPlugin`)                                                      |
+| PostHog Desktop runtime, every 30 min | `products/desktop/packages/workspace-server/src/services/posthog-plugin/update-skills-saga.ts`                                |
+| Desktop harness bundle                | `products/desktop/packages/harness/tsup.config.ts` – context-mill only, this repo's skills are absent rather than overwritten |
+| Tasks sandbox base image              | `.github/workflows/cd-sandbox-base-image.yml`                                                                                 |
+| Tasks golden snapshot                 | `.github/workflows/cd-tasks-golden-snapshot.yml`                                                                              |
+| `PostHog/skills` mirror               | that repo's `.github/workflows/sync-omnibus.yml`                                                                              |
+| `PostHog/ai-plugin` plugin            | that repo's `.github/workflows/sync-skills.yml`                                                                               |
+
+Note what is missing from that list: local builds.
+`LocalSkillsCache.ensure_built()` renders only `products/*/skills/` and wipes the dist dir first,
+so a locally built sandbox has no omnibus skills at all.
+An eval or manual run that depends on one has to overlay context-mill itself,
+or check for the skill and fail loudly – see `products/feature_flags/evals/eval_instrument_flags.py`.
+
+So before you write a skill, check the omnibus names above.
+If your job is one of them, change the context-mill source.
+Product teams take ownership of a skill tree there with a CODEOWNERS entry;
+several already have.
+
 ## Testing
 
 To test a product skill locally with Claude Code, sync it to `.agents/skills/`:

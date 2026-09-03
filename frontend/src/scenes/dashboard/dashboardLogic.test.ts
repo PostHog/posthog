@@ -2720,6 +2720,36 @@ describe('dashboardLogic', () => {
             expect(updated.last_refresh).toEqual(originalLastRefresh)
         })
 
+        it('preserves cached columns and types when a bare PATCH returns them null', async () => {
+            // SQL tiles draw from columns and types rather than result, and pick their axes from
+            // columns. Blanking those leaves the tile with nothing to draw.
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                columns: ['day', 'total'],
+                types: [
+                    ['day', 'DateTime'],
+                    ['total', 'UInt64'],
+                ],
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                name: 'renamed via bare patch',
+                columns: null,
+                types: null,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            const updated = logic.values.insightTiles[0].insight!
+            expect(updated.name).toEqual('renamed via bare patch')
+            expect(updated.columns).toEqual(['day', 'total'])
+            expect(updated.types).toEqual([
+                ['day', 'DateTime'],
+                ['total', 'UInt64'],
+            ])
+        })
+
         it('replaces cached chart data when a full refresh returns non-null result', async () => {
             const newResult = [{ data: 'fresh' }]
             const newLastRefresh = '2024-01-01T00:00:00Z'

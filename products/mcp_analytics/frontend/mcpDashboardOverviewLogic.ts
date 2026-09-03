@@ -5,6 +5,13 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
+import {
+    type ComparisonWindow,
+    buildBucketKeys,
+    buildComparisonWindow,
+    lastBucketIsInProgress,
+    normalizeBucket,
+} from 'lib/utils/timeBuckets'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -21,7 +28,6 @@ import { AnyPropertyFilter, IntervalType, TeamType } from '~/types'
 import type { TeamPublicType } from '../../../frontend/src/types'
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
-import { BUCKET_FORMAT, buildBucketKeys, lastBucketIsInProgress, normalizeBucket, resolveWindow } from './timeBuckets'
 
 export interface DateFilter {
     dateFrom: string | null
@@ -267,9 +273,8 @@ export function deltaPct(current: number, previous: number): number | null {
     return ((current - previous) / previous) * 100
 }
 
-// Window resolution, bucket keys, and the BUCKET_FORMAT contract are shared with the tab/detail
-// surfaces — see ./timeBuckets. The dashboard adds only the KPI-comparison window below, built on
-// those shared primitives.
+// Window resolution, bucket keys, the comparison window, and the bucket-key format are shared with the
+// tab and detail surfaces. See lib/utils/timeBuckets.
 
 // Project the daily success/error rows onto the full set of buckets, defaulting empty buckets to 0.
 export function buildDailyActivity(rows: ActivityRow[], bucketKeys: string[]): DailyActivity {
@@ -281,35 +286,11 @@ export function buildDailyActivity(rows: ActivityRow[], bucketKeys: string[]): D
     }
 }
 
-export interface KpiWindow {
-    dateFrom: string
-    dateTo: string
-    currentStartBucket: string
-}
-
-// Extend the resolved window back by an equal number of `interval` buckets so a
-// single query returns both the selected period and its prior period.
-// `currentStartBucket` is the cutoff `buildKPIs` splits on — formatted to match
-// dateTrunc's DateTime output.
-export function buildKpiWindow(dateFilter: DateFilter, timezone: string, interval: IntervalType): KpiWindow {
-    const { start, end } = resolveWindow(dateFilter.dateFrom, dateFilter.dateTo, timezone)
-    // The selected period covers the inclusive buckets [start, end] — one more than
-    // end.diff(start). Step the prior window back by that same count so the two
-    // halves of the comparison span an equal number of buckets.
-    const selectedBuckets = Math.max(1, end.diff(start, interval) + 1)
-    const priorStart = start.subtract(selectedBuckets, interval)
-    return {
-        dateFrom: priorStart.toISOString(),
-        dateTo: end.toISOString(),
-        currentStartBucket: start.startOf(interval).format(BUCKET_FORMAT),
-    }
-}
-
 // Merge the dashboard's active filters with a doubled comparison window's date range.
 // Shared by the KPI and Users loaders so both tiles are scoped to the exact same window —
 // the tile-parity the reload test asserts. Keep the two loaders reading from here so the
 // window/filter plumbing can't drift between them.
-function kpiWindowFilters(queryFilters: HogQLFilters, kpiWindow: KpiWindow): HogQLFilters {
+function kpiWindowFilters(queryFilters: HogQLFilters, kpiWindow: ComparisonWindow): HogQLFilters {
     return { ...queryFilters, dateRange: { date_from: kpiWindow.dateFrom, date_to: kpiWindow.dateTo } }
 }
 
@@ -662,7 +643,12 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             {
                 loadKPIs: async (_: void, breakpoint) => {
                     const { interval } = values
-                    const kpiWindow = buildKpiWindow(values.dateFilter, values.timezone, interval)
+                    const kpiWindow = buildComparisonWindow(
+                        values.dateFilter.dateFrom,
+                        values.dateFilter.dateTo,
+                        values.timezone,
+                        interval
+                    )
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: KPI_QUERY.replace('__BUCKET__', bucketExpr(interval)),
@@ -679,12 +665,17 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             {
                 loadUsers: async (_: void, breakpoint): Promise<KPIMetric> => {
                     const { interval, timezone } = values
-                    const kpiWindow = buildKpiWindow(values.dateFilter, timezone, interval)
+                    const kpiWindow = buildComparisonWindow(
+                        values.dateFilter.dateFrom,
+                        values.dateFilter.dateTo,
+                        timezone,
+                        interval
+                    )
                     // Split the doubled window at the selected period's start. currentStartBucket is
-                    // interval-aligned (buildKpiWindow → start.startOf(interval)), so comparing the raw
+                    // interval-aligned (buildComparisonWindow truncates to the bucket start), so comparing the raw
                     // `timestamp` against toDateTime(bucket, tz) lands on the same instant as the KPI
                     // tiles' dateTrunc bucket-string split — keeping this count consistent with them.
-                    // (For rolling sub-day ranges the two halves can differ by up to one interval, the
+                    // (For rolling sub-day ranges the two halves can differ by up to two intervals, the
                     // same bounded skew the KPI tiles already carry; splitting on the raw start instead
                     // would equalize the halves but desync Users from the other tiles, so don't.)
                     const curStart = `toDateTime('${kpiWindow.currentStartBucket}', '${timezone}')`

@@ -397,6 +397,35 @@ function looksLikeUnwrappedPayload(
     return wrapped.error.issues.every((issue) => issue.path.length > 1 && String(issue.path[0]) === key)
 }
 
+/**
+ * Names the top-level keys a non-strict schema dropped, so a caller told `id` is
+ * missing can see that the key it did send — `scanner_id` — was discarded rather
+ * than read. Without this the caller is told only that a parameter it never used
+ * is missing, has nothing to correct, and retries the same call.
+ *
+ * Reports only that the keys were not accepted. It deliberately does not claim
+ * one of them was meant as the missing parameter: matching `scanner_id` to a
+ * missing `id` by name holds on `vision-scanners-get`, where the value is right
+ * and only the name is wrong, but on a tool keyed by an observation id the same
+ * key carries the wrong value entirely, and advising a rename would send the
+ * caller further off course. Which key to use instead belongs in the tool's
+ * description, where it can say so per tool.
+ *
+ * Returns key names only, never values — the message is returned to the caller
+ * and recorded as the analytics error message.
+ */
+function undeclaredKeys(input: unknown, schema: ZodObjectAny | undefined): string[] {
+    if (!schema || typeof input !== 'object' || input === null || Array.isArray(input)) {
+        return []
+    }
+    const declared = declaredPropertyNames(schema)
+    return Object.keys(input).filter((key) => !declared.has(key))
+}
+
+/** Bound on how many dropped keys the message names, so a caller sending a large
+ *  undeclared payload cannot inflate the analytics error message. */
+const MAX_DROPPED_KEYS_NAMED = 5
+
 /** Turns a Zod validation failure into a short, field-named message the model
  *  can act on. Without it, a missing/`undefined` path segment slips through to
  *  the HTTP layer and the API returns a generic 404 that reads as "entity does
@@ -414,12 +443,23 @@ export function formatInputValidationError(
     input?: unknown,
     schema?: ZodObjectAny
 ): string {
+    // A strict schema rejects unknown keys instead of dropping them, and the
+    // `unrecognized_keys` branch below already names them.
+    const keysWereRejected = error.issues.some((issue) => issue.code === 'unrecognized_keys')
     const parts = error.issues.map((issue) => {
         const path = issue.path.map(String).join('.')
         if (issue.code === 'invalid_type') {
             if ('input' in issue && issue.input === undefined) {
                 if (looksLikeUnwrappedPayload(issue.path, input, schema)) {
                     return `missing required parameter: ${path}; the fields you sent belong inside it, so resend them as {"${path}": {...}}`
+                }
+                const dropped = keysWereRejected ? [] : undeclaredKeys(input, schema)
+                if (dropped.length) {
+                    const named = dropped
+                        .slice(0, MAX_DROPPED_KEYS_NAMED)
+                        .map((key) => `"${key}"`)
+                        .join(', ')
+                    return `missing required parameter: ${path}; this tool ignored these keys it does not accept: ${named}`
                 }
                 return `missing required parameter: ${path}`
             }

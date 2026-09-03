@@ -1290,6 +1290,12 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
                 self.var_id_2: {"variableId": self.var_id_2, "code_name": "end_ts", "value": "2024-02-01"},
             },
         }
+        v2_dag_ids_patcher = mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            side_effect=lambda candidate_dag_ids=None: set(candidate_dag_ids or []),
+        )
+        v2_dag_ids_patcher.start()
+        self.addCleanup(v2_dag_ids_patcher.stop)
 
     def _create_endpoint_with_variables(self, name="range-endpoint"):
         from products.product_analytics.backend.facade.models import InsightVariable

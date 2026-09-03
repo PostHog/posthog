@@ -5,6 +5,7 @@ from autoevals.llm import LLMClassifier
 from autoevals.partial import ScorerWithPartial
 from autoevals.ragas import AnswerSimilarity
 from braintrust import Score
+from pydantic import BaseModel
 
 from posthog.schema import AssistantMessage, AssistantToolCall, NodeKind
 
@@ -184,6 +185,25 @@ Details matter greatly here - including math types or property types - so be har
         )
 
 
+MAX_JUDGE_JSON_SCHEMA_CHARS = 100_000
+
+
+def build_judge_json_schema(query_kind: NodeKind, query_model: type[BaseModel]) -> str:
+    """Serialize a query schema for an LLM judge, keeping `$ref`s instead of inlining shared definitions.
+
+    Insight toolkits dereference their schemas because the query generator's tool call needs a flat one.
+    That repeats the property filter unions inside every series node and roughly doubles the size, while
+    a judge reads references just as well.
+    """
+    json_schema_str = json.dumps(query_model.model_json_schema())
+    if len(json_schema_str) > MAX_JUDGE_JSON_SCHEMA_CHARS:
+        raise ValueError(
+            f"JSON schema of {query_kind} has blown up in size, are you sure you want to put this into an LLM? "
+            "You CAN increase this limit if you're sure"
+        )
+    return json_schema_str
+
+
 class QueryAndPlanAlignment(LLMClassifier):
     """Evaluate if the generated SQL query aligns with the plan generated in the previous step."""
 
@@ -213,13 +233,8 @@ class QueryAndPlanAlignment(LLMClassifier):
             return Score(name=self._name(), score=0.0, metadata={"reason": "Query failed to be generated"})
         return super()._run_eval_sync(serialize_output(output), serialize_output(expected), **kwargs)
 
-    def __init__(self, query_kind: NodeKind, json_schema: dict, evaluation_criteria: str, **kwargs):
-        json_schema_str = json.dumps(json_schema)
-        if len(json_schema_str) > 100_000:
-            raise ValueError(
-                f"JSON schema of {query_kind} has blown up in size, are you sure you want to put this into an LLM? "
-                "You CAN increase this limit if you're sure"
-            )
+    def __init__(self, query_kind: NodeKind, query_model: type[BaseModel], evaluation_criteria: str, **kwargs):
+        json_schema_str = build_judge_json_schema(query_kind, query_model)
         super().__init__(
             name="query_and_plan_alignment",
             prompt_template="""

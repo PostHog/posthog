@@ -2,7 +2,8 @@ import uuid
 from typing import TypeVar
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+
+from django.test import override_settings
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
@@ -11,7 +12,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ValidationVerdict,
     parse_artefact_content,
 )
-from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, ReviewArm
+from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, REVIEW_ARMS_BY_TIER, ReviewTier
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
@@ -36,9 +37,10 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_verdicts,
     upsert_review_report,
 )
+from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL, TRIGGER_UI
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Commit
-from products.tasks.backend.facade.run_config import ReasoningEffort, RuntimeAdapter
+from products.signals.backend.enums import ReportPriority
 
 _ContentT = TypeVar("_ContentT")
 
@@ -126,43 +128,123 @@ class TestUpsertReviewReport(BaseTest):
         assert report.status == ReviewReport.Status.ACTIVE
         assert report.run_count == 1  # the turn still finalizes fully; only the idle write is deferred
 
-    def test_review_arm_is_drawn_once_and_sticky_across_turns(self) -> None:
-        # Sticky-per-report is the arm draw's core invariant: a redraw on the update path would
-        # flip a report's reviewer between turns, poisoning per-arm metrics and feeding one arm's
-        # findings into the other's "already covered" injection. The drawn arm deliberately differs
-        # from the default pins on every field so a loader that silently falls back cannot pass.
-        sonnet = ReviewArm(
-            runtime_adapter=RuntimeAdapter.CLAUDE,
-            model="claude-sonnet-5",
-            reasoning_effort=ReasoningEffort.XHIGH,
-            initial_permission_mode=None,
-        )
-        with patch("products.review_hog.backend.reviewer.persistence.draw_review_arm", return_value=sonnet):
-            report_id = upsert_review_report(
-                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata()
-            )
+    def _routing(self, report_id: str) -> tuple[str | None, str | None, str | None]:
         report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
-        assert (
-            report.review_runtime_adapter,
-            report.review_model,
-            report.review_reasoning_effort,
-            report.review_initial_permission_mode,
-        ) == ("claude", "claude-sonnet-5", "xhigh", None)
-        # Through the real loader, not just the raw columns: the values_list → resolve positional
-        # coupling would otherwise silently fall every off-default report back to the default pins.
-        assert load_review_arm(team_id=self.team.id, report_id=report_id) == sonnet
-        assert load_review_arm(team_id=self.team.id, report_id=str(uuid.uuid4())) == DEFAULT_REVIEW_ARM
+        return report.review_tier, report.review_signal_priority, report.review_reasoning_effort
 
-        with patch(
-            "products.review_hog.backend.reviewer.persistence.draw_review_arm", return_value=DEFAULT_REVIEW_ARM
-        ) as redraw:
-            assert (
-                upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
-                == report_id
+    def test_review_tier_is_decided_at_creation_and_only_a_human_trigger_lifts_it(self) -> None:
+        # The tier's invariants: decided once from the creating turn's provenance (a Signals link
+        # makes it an agent PR, routed by the priority handed in), sticky across re-turns even when
+        # the report is re-judged, and lifted only when a person asks. A re-decision on the update
+        # path would flip a report's reviewer between turns and feed a cheap turn's findings into a
+        # stronger turn's "already covered" injection; a downgrade would hand a person a cheap review.
+        signal_report_id = str(uuid.uuid4())
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+            report_id = upsert_review_report(
+                team_id=self.team.id,
+                repository="o/r",
+                pr_url="u",
+                pr_metadata=_pr_metadata(),
+                signal_report_id=signal_report_id,
+                trigger_source=TRIGGER_INBOX,
+                signal_priority=ReportPriority.P2,
             )
-        assert redraw.call_count == 0  # the update path must not even draw
-        report.refresh_from_db()
-        assert report.review_model == "claude-sonnet-5"
+            assert self._routing(report_id) == ("agent_p2", "P2", "medium")
+            # Through the real loader, not just the raw columns: the values_list → resolve positional
+            # coupling would otherwise silently fall every off-default report back to the default pins.
+            assert (
+                load_review_arm(team_id=self.team.id, report_id=report_id) == REVIEW_ARMS_BY_TIER[ReviewTier.AGENT_P2]
+            )
+            assert load_review_arm(team_id=self.team.id, report_id=str(uuid.uuid4())) == DEFAULT_REVIEW_ARM
+
+            # An inbox re-turn after a re-judgment keeps the tier and the priority the decision used.
+            upsert_review_report(
+                team_id=self.team.id,
+                repository="o/r",
+                pr_url="u",
+                pr_metadata=_pr_metadata(),
+                signal_report_id=signal_report_id,
+                trigger_source=TRIGGER_INBOX,
+                signal_priority=ReportPriority.P0,
+            )
+            assert self._routing(report_id) == ("agent_p2", "P2", "medium")
+
+            # The resolution stage upserts under the person's trigger too; a resolve-only request
+            # reviews nothing, so without the review turn's opt-in the tier must hold.
+            upsert_review_report(
+                team_id=self.team.id,
+                repository="o/r",
+                pr_url="u",
+                pr_metadata=_pr_metadata(),
+                trigger_source=TRIGGER_UI,
+            )
+            assert self._routing(report_id) == ("agent_p2", "P2", "medium")
+
+            # A person's label review lifts the report to the human tier for this and every later turn...
+            upsert_review_report(
+                team_id=self.team.id,
+                repository="o/r",
+                pr_url="u",
+                pr_metadata=_pr_metadata(),
+                trigger_source=TRIGGER_LABEL,
+                lift_tier_on_human_trigger=True,
+            )
+            assert self._routing(report_id) == ("human", "P2", "xhigh")
+            assert load_review_arm(team_id=self.team.id, report_id=report_id) == DEFAULT_REVIEW_ARM
+
+            # ...and a later inbox turn never lowers it back.
+            upsert_review_report(
+                team_id=self.team.id,
+                repository="o/r",
+                pr_url="u",
+                pr_metadata=_pr_metadata(),
+                signal_report_id=signal_report_id,
+                trigger_source=TRIGGER_INBOX,
+                signal_priority=ReportPriority.P3,
+                lift_tier_on_human_trigger=True,
+            )
+            assert self._routing(report_id) == ("human", "P2", "xhigh")
+
+    def test_unknown_persisted_tier_degrades_instead_of_crashing_the_upsert(self) -> None:
+        # `review_tier` is an unconstrained column, so a newer deploy can persist a tier value this
+        # deploy can't parse. The update-path read runs on every turn, before the lift condition, so
+        # a raise would fail the turn and its retries. It must degrade to "no lift", not crash.
+        report_id = upsert_review_report(
+            team_id=self.team.id,
+            repository="o/r",
+            pr_url="u",
+            pr_metadata=_pr_metadata(),
+            trigger_source=TRIGGER_INBOX,
+        )
+        ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(review_tier="agent_p9_from_the_future")
+
+        upsert_review_report(
+            team_id=self.team.id,
+            repository="o/r",
+            pr_url="u",
+            pr_metadata=_pr_metadata(),
+            trigger_source=TRIGGER_LABEL,
+            lift_tier_on_human_trigger=True,
+        )
+        # The unparseable value is left as-is: the lift is skipped rather than raising or relabeling.
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).review_tier == "agent_p9_from_the_future"
+
+    def test_tiered_arms_stay_on_the_default_outside_the_rollout_teams(self) -> None:
+        # The tier is recorded for every team (so the label stays truthful and the tiers can be
+        # compared on their traffic), but only the dogfood teams run the cheaper arm; a gate that
+        # leaks the arm would cut review strength for teams nobody enrolled.
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id + 1]):
+            report_id = upsert_review_report(
+                team_id=self.team.id,
+                repository="o/r",
+                pr_url="u",
+                pr_metadata=_pr_metadata(),
+                signal_report_id=str(uuid.uuid4()),
+                trigger_source=TRIGGER_INBOX,
+                signal_priority=ReportPriority.P3,
+            )
+        assert self._routing(report_id) == ("agent_p3_p4", "P3", "xhigh")
+        assert load_review_arm(team_id=self.team.id, report_id=report_id) == DEFAULT_REVIEW_ARM
 
     def test_author_login_is_stamped_on_create_and_refreshed_each_turn(self) -> None:
         # The "For you" scope's authored-PRs match rides this stamp. It must track the PR's current
