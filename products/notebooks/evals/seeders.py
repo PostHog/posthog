@@ -28,7 +28,7 @@ from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person
 
 from products.notebooks.evals.synthesizer import CHURN_TOKEN, SIGNUP_EVENT, ChurnAccount, build_churn_needle
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.api import soft_delete_tables
 
 # Realistic props for the planted file events, so a churn query that groups or filters on
 # file properties still sees well-formed rows. Fixed values keep the seed deterministic.
@@ -125,8 +125,7 @@ def _event_properties(event: str, account: ChurnAccount) -> dict[str, Any]:
 
 
 def _hide_stale_warehouse_tables(team_id: int) -> None:
-    for table in DataWarehouseTable.objects.filter(team_id=team_id, name__in=_STALE_WAREHOUSE_TABLES):
-        table.soft_delete()
+    soft_delete_tables(team_id, _STALE_WAREHOUSE_TABLES)
 
 
 def seed_churn_signal(context: CustomPromptSandboxContext) -> dict[str, Any]:
