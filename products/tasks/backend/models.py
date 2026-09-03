@@ -3350,6 +3350,20 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
             ),
             # For per-team/per-origin re-aggregation once pricing decides which origins bill.
             models.Index(fields=["team", "user_attributed_at"], name="sandbox_session_team_attr_idx"),
+            # The billable compute report pins provenance, origin, and attribution across
+            # every team, so the partial condition holds only the rows it can bill. Both
+            # arms of its overlap test read this one index: `ended_at > begin` is a range
+            # on the leading column, and `ended_at IS NULL` is one contiguous group in
+            # which `ttl_expires_at > begin` is a range on the second column.
+            models.Index(
+                fields=["ended_at", "ttl_expires_at"],
+                condition=models.Q(
+                    client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+                    origin_product__in=[Task.OriginProduct.USER_CREATED, Task.OriginProduct.LOOP],
+                    user_attributed_at__isnull=False,
+                ),
+                name="sandbox_session_billable_idx",
+            ),
         ]
 
     def __str__(self):
