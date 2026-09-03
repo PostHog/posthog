@@ -13,7 +13,8 @@ import datetime as dt
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Exists, F, OuterRef, Q, QuerySet
+from django.db.models import DateTimeField, Exists, F, OuterRef, Q, QuerySet, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 import structlog
@@ -47,6 +48,7 @@ VIEWED_WITHIN = dt.timedelta(days=14)
 REFRESH_INTERVAL = dt.timedelta(hours=6)
 # The view stamp is one Postgres write per scope per this window, whatever the page traffic.
 _VIEW_STAMP_THROTTLE = dt.timedelta(hours=1)
+_EPOCH = dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
 # Daily model-call counter across every refresh run, the backstop against a bug that makes every scanner look stale.
 _BUDGET_TTL_S = 2 * 24 * 3600
 # Cross-scanner search merges phrases from this many of the team's most recently active scanners.
@@ -126,9 +128,11 @@ def stale_suggestion_candidates(limit: int) -> QuerySet[ReplayScanner]:
     at least one observation newer than their watermark. Most recently viewed first. Whether there are enough
     new observations to spend a model call on is decided per scanner in `refresh_scanner_suggestions`."""
     now = timezone.now()
+    # A scanner with no watermark yet counts every observation as new.
+    watermark = Coalesce(OuterRef("search_suggestions_watermark"), Value(_EPOCH), output_field=DateTimeField())
     newer_observation = ReplayObservation.objects.filter(
-        scanner_id=OuterRef("pk"), status=ObservationStatus.SUCCEEDED
-    ).filter(Q(created_at__gt=OuterRef("search_suggestions_watermark")) | Q(search_suggestions_watermark__isnull=True))
+        scanner_id=OuterRef("pk"), status=ObservationStatus.SUCCEEDED, created_at__gt=watermark
+    )
     return (
         ReplayScanner.objects.filter(
             search_last_viewed_at__gte=now - VIEWED_WITHIN,

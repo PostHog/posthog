@@ -1,3 +1,4 @@
+import uuid
 import datetime as dt
 
 from unittest.mock import MagicMock, patch
@@ -70,11 +71,12 @@ class _SuggestionsTestCase(_VisionAPITestCase):
         created_at: dt.datetime | None = None,
         snapshot: dict | None = None,
     ) -> None:
+        batch = uuid.uuid4().hex[:6]
         for idx in range(count):
             obs = ReplayObservation.objects.create(
                 team=self.team,
                 scanner=scanner,
-                session_id=f"{scanner.name}-{snapshot is not None}-{idx}",
+                session_id=f"{scanner.name}-{batch}-{idx}",
                 scanner_snapshot=snapshot or snapshot_for(scanner),
                 triggered_by=ObservationTrigger.SCHEDULE,
                 status=ObservationStatus.SUCCEEDED,
