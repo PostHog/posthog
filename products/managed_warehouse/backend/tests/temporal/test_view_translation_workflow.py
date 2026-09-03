@@ -14,6 +14,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
     TrinoCompiledQuery,
+    TrinoExpansionMode,
 )
 from products.managed_warehouse.backend.models import (
     DuckgresServer,
@@ -216,7 +217,10 @@ class TestManagedWarehouseViewTranslationActivities(BaseTest):
         changed.query = {"kind": "HogQLQuery", "query": "SELECT edited"}
         changed.save(update_fields=["query"])
 
-        def compile_query(_team_id: int, query: HogQLQuery, **_kwargs: object) -> TrinoCompiledQuery:
+        compile_kwargs: list[dict[str, object]] = []
+
+        def compile_query(_team_id: int, query: HogQLQuery, **kwargs: object) -> TrinoCompiledQuery:
+            compile_kwargs.append(kwargs)
             if query.query == "SELECT bad":
                 raise ValueError("unsupported expression")
             return TrinoCompiledQuery(sql="SELECT translated", values={"value": 1}, hogql=query.query)
@@ -240,6 +244,10 @@ class TestManagedWarehouseViewTranslationActivities(BaseTest):
         assert results["bad_view"].status == ManagedWarehouseViewTranslationResult.Status.FAILED
         assert results["good_view"].status == ManagedWarehouseViewTranslationResult.Status.COMPILED
         assert results["good_view"].trino_sql == "SELECT translated"
+        assert results["good_view"].normalized_hogql == "SELECT good"
+        assert len(compile_kwargs) == 2
+        assert all(kwargs["expansion_mode"] == TrinoExpansionMode.DJANGO for kwargs in compile_kwargs)
+        assert all(kwargs["include_hogql"] is True for kwargs in compile_kwargs)
         assert results["changed_view"].status == ManagedWarehouseViewTranslationResult.Status.STALE
         assert DataWarehouseSavedQuery.objects.get(id=saved_queries[1].id).query == {
             "kind": "HogQLQuery",

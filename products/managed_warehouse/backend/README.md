@@ -61,7 +61,7 @@ The workflows share the same infrastructure and configuration. Workers running t
 
 ## Managed view translation pass
 
-The `managed-warehouse.translate-views` Temporal workflow performs a best-effort HogQL-to-Trino compilation pass for an existing managed warehouse. It snapshots active views and materialized views for control-plane-enabled teams in the organization, excluding endpoint queries. Each result is stored in `ManagedWarehouseViewTranslationResult`; it does not replace the saved query's canonical HogQL, execute SQL, or create Trino objects.
+The `managed-warehouse.translate-views` Temporal workflow performs a best-effort HogQL-to-Trino compilation pass for an existing managed warehouse. It snapshots active views and materialized views for control-plane-enabled teams in the organization, excluding endpoint queries. Each view compiles through the managed-warehouse compiler facade in Django expansion mode, so references to other saved queries and copied warehouse tables resolve to their DuckLake relations. Each result is stored in `ManagedWarehouseViewTranslationResult`; it does not replace the saved query's canonical HogQL, execute SQL, or create Trino objects.
 
 Provisioning does not start this workflow. To run it, add a `Managed warehouse view translation job` row in Django admin and select the provisioned organization. Choose `Entire organization` to snapshot every eligible view, or choose `Selected views` and enter the saved-query UUIDs to test. The admin starts the workflow after the row commits. Only one pending or running job may exist for an organization.
 

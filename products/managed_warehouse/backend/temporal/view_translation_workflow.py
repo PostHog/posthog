@@ -20,6 +20,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.facade.client import compile_hogql_to_trino_sql
+from products.managed_warehouse.backend.facade.contracts import TrinoExpansionMode
 from products.managed_warehouse.backend.facade.cp_teams import list_org_team_memberships
 from products.managed_warehouse.backend.models import (
     DuckgresServer,
@@ -170,11 +171,15 @@ def compile_managed_warehouse_team_views_activity(job_id: str, team_id: int) -> 
 
         try:
             query = HogQLQuery.model_validate(saved_query.query)
+            # Views reference other saved queries and warehouse tables, which only the
+            # Django-backed expansion can map to their DuckLake relations.
             compiled = compile_hogql_to_trino_sql(
                 team_id,
                 query,
                 team=team,
                 bypass_warehouse_access_control=True,
+                include_hogql=True,
+                expansion_mode=TrinoExpansionMode.DJANGO,
             )
         except Exception as error:
             ManagedWarehouseViewTranslationResult.all_teams.filter(id=result.id).update(
