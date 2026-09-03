@@ -70,7 +70,12 @@ class TestSelectAllIncremental:
         assert "DROP TABLE" not in result.sql
         assert result.params == {"incremental_value": "2025'; DROP TABLE x; --"}
 
-    def test_initial_value_used_when_last_value_is_none(self) -> None:
+    def test_no_incremental_predicate_when_last_value_is_none(self) -> None:
+        """A run with no stored cursor must read the whole table.
+
+        Filtering on the type's initial value would drop every row whose cursor is
+        NULL, and the cursor then advances past them so no later run returns them.
+        """
         result = self.builder.select_all(
             schema="mydb",
             table_name="messages",
@@ -78,8 +83,23 @@ class TestSelectAllIncremental:
             incremental_field_type=IncrementalFieldType.Integer,
             incremental_last_value=None,
         )
-        assert isinstance(result.params, dict)
-        assert result.params["incremental_value"] == 0
+        assert "WHERE" not in result.sql
+        assert "ORDER BY `created_at` ASC" in result.sql
+        assert result.params == {}
+
+    def test_row_filters_still_apply_when_last_value_is_none(self) -> None:
+        """Dropping the incremental predicate must not drop the row filters with it."""
+        result = self.builder.select_all(
+            schema="mydb",
+            table_name="messages",
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            incremental_last_value=None,
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=18, category=ColumnTypeCategory.INTEGER)],
+        )
+        assert "WHERE `age` > %(row_filter_0)s" in result.sql
+        assert "incremental_value" not in result.sql
+        assert result.params == {"row_filter_0": 18}
 
     def test_incremental_field_type_required(self) -> None:
         with pytest.raises(ValueError, match="incremental_field_type is required"):
