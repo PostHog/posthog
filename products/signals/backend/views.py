@@ -948,9 +948,10 @@ class SignalReportViewSet(
     # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
     # returning 404 — matching the existing contract.
     # `viewed` follows `retrieve` for the same reason: the Dismissed tab's detail view records its
-    # open like any other.
+    # open like any other. `pr_checks` and `pr_comments` are there because that same view renders the
+    # read-only PR panel whatever the report's status is.
     _SUPPRESSED_VISIBLE_ACTIONS = frozenset(
-        {"state", "bulk_state", "retrieve", "signals", "refund", "feedback", "viewed"}
+        {"state", "bulk_state", "retrieve", "signals", "refund", "feedback", "viewed", "pr_checks", "pr_comments"}
     )
 
     # Human-readable explanation per bulk outcome, surfaced in each result's `detail` field
@@ -1123,7 +1124,8 @@ class SignalReportViewSet(
         # `Exists` over `tasks.TaskRun` evaluated once per candidate report (which made the inbox
         # PR-tab count scan the whole `ready` set per PR'd run).
         return SignalReport.reports_for_task_ids_filter(
-            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter())
+            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter()),
+            team_id=self.team.id,
         )
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
@@ -1604,10 +1606,10 @@ class SignalReportViewSet(
             edit_artefacts.append(SummaryChange(old_summary=report.summary, new_summary=data["summary"]))
             report.summary = data["summary"]
             update_fields.append("summary")
-            # The suggested questions were written against the prose this edit replaces, so they go
+            # The suggested prompts were written against the prose this edit replaces, so they go
             # down with it — the same rule the research pipeline applies when it rewrites a summary.
-            # Leaving them would offer questions about a report that no longer says what they ask
-            # about, and this field is read-only here, so nothing could take them back down.
+            # Leaving them would offer prompts about a report that no longer says what they point
+            # at, and this field is read-only here, so nothing could take them back down.
             if report.suggested_prompts:
                 report.suggested_prompts = []
                 update_fields.append("suggested_prompts")

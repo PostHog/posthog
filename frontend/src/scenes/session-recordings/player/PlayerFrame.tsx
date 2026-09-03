@@ -53,14 +53,9 @@ export const PlayerFrame = (): JSX.Element => {
             // exactly, so it measures the same box either way.
             const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
 
-            const { scale, zoom, transform } = getPlayerFrameScale(parentDimensions, dimensions, isIOS())
+            const { scale, transform } = getPlayerFrameScale(parentDimensions, dimensions)
 
             const wrapperStyle = player.replayer.wrapper.style
-            if (zoom === null) {
-                wrapperStyle.removeProperty('zoom')
-            } else {
-                wrapperStyle.setProperty('zoom', zoom)
-            }
             if (transform === null) {
                 wrapperStyle.removeProperty('transform')
             } else {
@@ -139,7 +134,7 @@ export const PlayerFrame = (): JSX.Element => {
         // Click indicator duration scales with playback speed: 1/3s at 1x, 1/6s at 2x, etc.
         <div
             ref={containerRef}
-            className={clsx('PlayerFrame ph-no-capture PlayerFrame--llm-highlight')}
+            className={clsx('PlayerFrame ph-no-capture PlayerFrame--llm-highlight', isIOS() && 'PlayerFrame--ios')}
             style={
                 {
                     '--player-frame-click-duration': `${BASE_CLICK_INDICATOR_DURATION_S / speed}s`,

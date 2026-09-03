@@ -77,7 +77,7 @@ export function useSidebarData({
     useTaskSummaries(summaryIds, { enabled: !showAllUsers });
   const { data: fullTasks = [], isLoading: isTasksLoading } = useTasks(
     { showAllUsers, showInternal },
-    { enabled: showAllUsers },
+    { enabled: showAllUsers, subscribed: showAllUsers },
   );
   const { data: slackTasks = [] } = useSlackTasks({
     enabled: !showAllUsers,

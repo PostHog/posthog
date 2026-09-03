@@ -1305,12 +1305,15 @@ class LeadTimeBucket:
     # PRs whose first post-merge successful deployment landed in this bucket.
     deployed_pr_count: int
     # Distribution of the stage's duration, in seconds, over those PRs — the six-number
-    # summary a box plot draws (box p25→p75, median line, mean marker, whiskers).
+    # summary a box plot draws (box p25→p75, median line, mean marker, whiskers), plus
+    # p5/p95, the whisker pair the outlier-excluding view draws instead of min/max.
     min_seconds: float | None
+    p05_seconds: float | None
     p25_seconds: float | None
     p50_seconds: float | None
     mean_seconds: float | None
     p75_seconds: float | None
+    p95_seconds: float | None
     max_seconds: float | None
 
 
@@ -1333,13 +1336,14 @@ class DoraOverview:
 
     # False when the deployments/deployment_statuses tables aren't synced for the selected repo.
     deploy_data_available: bool
-    # What the environment filter resolved to: 'production' (deployments GitHub marks
-    # production_environment), an exact environment name (the one the caller passed, or —
-    # when nothing is marked production — the busiest persistent environment, so a multi-region
-    # repo doesn't multiply every count), or 'persistent' (no persistent environment deployed in
-    # the window at all, so every non-transient one counts). Transient environments (ephemeral
-    # per-PR previews) never join a default scope. The scope resolves from deployments in the
-    # scan window, so two different windows can resolve different scopes and are not always comparable.
+    # What the environment filter resolved to: the exact environment name(s) it matches —
+    # the caller's picks (comma-joined when several), or by default the busiest environment
+    # GitHub marks production, falling back to the busiest persistent environment, so a
+    # multi-region repo doesn't multiply every count — or 'persistent' (no persistent
+    # environment deployed in the window at all, so every non-transient one counts). Transient
+    # environments (ephemeral per-PR previews) never join a default scope. The scope resolves
+    # from deployments in the scan window, so two different windows can resolve different
+    # scopes and are not always comparable.
     environment_scope: str
     # Distinct persistent environments deployed to in the scan window, most-deployed first — the
     # picker's options. Transient environments are omitted but stay reachable by exact name.
@@ -1399,7 +1403,8 @@ class DoraOverview:
     # Open-to-deploy distribution over the same deployed PRs and buckets: the full open → first
     # successful deploy span the two stages above compose into.
     open_to_deploy_series: list[LeadTimeBucket]
-    # Bucket width of every series, chosen to fit the window: 'hour', 'day', or 'week'.
+    # Bucket width of every series: the caller's granularity when given, else chosen to fit
+    # the window: 'hour', 'day', or 'week'.
     series_granularity: str
 
 

@@ -10,6 +10,10 @@
     overflow: hidden;
     background-color: var(--color-bg-3000-dark);
 
+    &--ios {
+        touch-action: pan-x pan-y;
+    }
+
     // Under REPLAY_PLAYER_OWN_DOCUMENT the wrapper renders inside this frame's document, which
     // this stylesheet cannot reach. The rules below are duplicated in
     // posthog/templates/replay_player_frame/index.html until the flag is removed and this copy goes.

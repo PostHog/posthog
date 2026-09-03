@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from drf_spectacular.openapi import AutoSchema
@@ -7,6 +7,7 @@ from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -54,6 +55,17 @@ from products.tasks.backend.presentation.serializers import (
     TaskThreadMessageWriteSerializer,
     TeachingCanvasSerializer,
 )
+
+
+class ChannelListPagination(LimitOffsetPagination):
+    """Opt-in paging for the channel list. ``default_limit = None`` keeps the plain
+    array that clients read today when no ``limit`` is sent; a caller that asks for a
+    page gets the standard ``count``/``next``/``previous`` envelope instead. ``list``
+    instantiates it directly, so the other paged actions on the viewset keep the
+    project-wide paginator."""
+
+    default_limit = None
+
 
 # Shared by the PUT and PATCH verbs on /instructions/ — same request/response contract,
 # PATCH is an alias for clients that can't send PUT.
@@ -119,12 +131,17 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description=(
             "All live public channels plus the requester's personal #me channel when it exists, "
             "sorted by name. Listing does not provision; call provision_defaults to create the "
-            "default channels."
+            "default channels. Send `limit` (with `offset`) for one page and a `count`/`next` "
+            "envelope; without `limit` the response is the full array of channels."
         ),
     )
     def list(self, request, *args, **kwargs):
         channels = tasks_facade.list_channels(self.team_id, self._user_id())
-        return Response(ChannelSerializer(channels, many=True).data)
+        paginator = ChannelListPagination()
+        page = paginator.paginate_queryset(cast(Any, channels), request, view=self)
+        if page is None:
+            return Response(ChannelSerializer(channels, many=True).data)
+        return paginator.get_paginated_response(ChannelSerializer(page, many=True).data)
 
     @extend_schema(
         request=None,
