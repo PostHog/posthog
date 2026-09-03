@@ -91,13 +91,26 @@ describe('log-pattern-mask', () => {
             ['a month name without a time', 'Jan 2 rows written', 'Jan <N> rows written'],
             ['a weekday with a time but no date', 'Mon 03:04:05 tick', 'Mon <N>:<N>:<N> tick'],
             ['a day of month above 31', 'Jan 32 03:04:05 x', 'Jan <N> <N>:<N>:<N> x'],
-            // A severity word fits the optional zone slot, so a bare four-digit year would let
-            // `ctime` swallow the severity and the count behind it, merging an ERROR line with a
-            // WARN one.
+            // A severity word has the shape of a zone, and a count has the shape of a year, so an
+            // open zone or year lets `ctime` take both out of the pattern and merge an ERROR line
+            // with a WARN one. The count here sits inside the year range the rule accepts, which is
+            // where an open zone alone still loses it.
             [
                 'a severity word and the count behind it',
-                'Mon Jan  2 03:04:05 ERROR 1234 connections',
+                'Mon Jan  2 03:04:05 ERROR 2341 connections',
                 '<TIMESTAMP> ERROR <N> connections',
+            ],
+            [
+                'a count that reads exactly like this year',
+                'Mon Jan  2 03:04:05 WARN 2026 connections',
+                '<TIMESTAMP> WARN <N> connections',
+            ],
+            // An unlisted zone costs grouping, not correctness: the date still masks, and the zone
+            // and year stay rather than disappearing with it.
+            [
+                'a zone outside the known set, which falls to the month rule',
+                'booted Mon Jan  2 03:04:05 XYZQ 2026 ok',
+                'booted <TIMESTAMP> XYZQ <N> ok',
             ],
             [
                 'an impossible day in an http date',
@@ -349,7 +362,7 @@ describe('log-pattern-mask', () => {
          */
         const SHAPE_DIGESTS: Record<number, string> = {
             3: 'd7b045b1054244d1',
-            4: 'a8c98220e1e99e88',
+            4: '357baaab19f622df',
         }
 
         /**

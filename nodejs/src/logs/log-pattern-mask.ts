@@ -53,10 +53,16 @@ const MONTH = '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)'
 const WEEKDAY = '(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)'
 const DAY_OF_MONTH = '(?:0?[1-9]|[12]\\d|3[01])'
 const TIME_OF_DAY = '\\d{2}:\\d{2}:\\d{2}'
-// A real year, not any four digits. `ctime` reads the field after an optional zone, and a bare
-// `\d{4}` lets a severity word pass as the zone and the count behind it pass as the year, which
-// takes both out of the pattern and merges an ERROR line with a WARN one.
-const YEAR = '(?:19|2\\d)\\d{2}'
+const YEAR = '(?:19|20)\\d{2}'
+// `ctime` ends on an optional zone and a year, which is the same shape as an uppercase word and a
+// count. Both fields are spelled out so the rule cannot take the second reading: a severity word is
+// not a zone, and a count is not a year. Leaving either open merges an ERROR line with a WARN one,
+// because the zone and the count both leave the pattern with the date.
+//
+// `httpdate` already enumerates its zone. A zone missing from this list costs grouping, not
+// correctness: the line falls to `syslogtime`, which masks the date and leaves the zone and year.
+const ZONE =
+    '(?:UT|UTC|GMT|Z|E[SD]T|C[SD]T|M[SD]T|P[SD]T|AK[SD]T|H[SD]T|A[SD]T|N[SD]T|CES?T|EES?T|WES?T|BST|IST|MSK|JST|KST|HKT|SGT|ICT|AE[SD]T|AC[SD]T|AWST|NZ[SD]T|SAST|WAT|CAT|EAT|BRT|ART|GST|PKT)'
 
 export const MASK_RULES: readonly MaskRule[] = [
     {
@@ -108,7 +114,7 @@ export const MASK_RULES: readonly MaskRule[] = [
     },
     {
         name: 'ctime',
-        pattern: `\\b${WEEKDAY} ${MONTH} {1,2}${DAY_OF_MONTH} ${TIME_OF_DAY}(?: [A-Z]{2,5})? ${YEAR}`,
+        pattern: `\\b${WEEKDAY} ${MONTH} {1,2}${DAY_OF_MONTH} ${TIME_OF_DAY}(?: ${ZONE})? ${YEAR}`,
         replacement: '<TIMESTAMP>',
     },
     {
