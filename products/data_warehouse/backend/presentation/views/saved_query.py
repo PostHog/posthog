@@ -2096,13 +2096,15 @@ def _reachable_node_ids(team_id: int, start_node_ids: set[str], *, upstream: boo
     out of it to their targets.
     """
     edges = Edge.objects.filter(team_id=team_id)
-    near, far = ("target_id", "source_id") if upstream else ("source_id", "target_id")
 
     reached: set[str] = set()
     frontier = set(start_node_ids)
     depth = 0
     while frontier and (max_depth is None or depth < max_depth):
-        neighbor_ids = edges.filter(**{f"{near}__in": frontier}).values_list(far, flat=True)
+        if upstream:
+            neighbor_ids = edges.filter(target_id__in=frontier).values_list("source_id", flat=True)
+        else:
+            neighbor_ids = edges.filter(source_id__in=frontier).values_list("target_id", flat=True)
         frontier = {str(neighbor_id) for neighbor_id in neighbor_ids} - reached - start_node_ids
         reached |= frontier
         depth += 1
