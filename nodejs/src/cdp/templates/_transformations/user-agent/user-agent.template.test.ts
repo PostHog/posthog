@@ -46,6 +46,18 @@ describe('user-agent.template', () => {
         expect(result.properties.$os).toBe('iOS')
     })
 
+    it('reads $raw_user_agent and leaves it in place', async () => {
+        const globals = tester.createGlobals({ event: { properties: { $raw_user_agent: IPHONE_UA } } })
+
+        const result = await invoke({}, globals)
+
+        expect(result.properties.$device).toBe('iPhone')
+        expect(result.properties.$device_type).toBe('Mobile')
+        expect(result.properties.$os).toBe('iOS')
+        // Bot detection and the ad destinations read this property after this transformation.
+        expect(result.properties.$raw_user_agent).toBe(IPHONE_UA)
+    })
+
     it('does not overwrite existing browser properties by default', async () => {
         const globals = tester.createGlobals({
             event: { properties: { $useragent: CHROME_UA, $browser: 'firefox' } },
