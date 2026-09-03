@@ -166,7 +166,7 @@ export function OnboardingExitModal(): JSX.Element {
                     <p className="m-0 text-xs text-muted uppercase tracking-wide font-semibold">Preview</p>
                     <div className="rounded-lg border border-primary bg-surface-primary overflow-hidden">
                         <div className="flex items-center gap-2 px-3 py-2 border-b border-primary bg-surface-secondary">
-                            <HedgehogMailbox className="w-8 h-6 object-contain shrink-0" />
+                            <HedgehogMailbox className="h-9 -my-1.5 shrink-0" />
                             <span className="text-xs font-semibold">PostHog invitation</span>
                         </div>
                         <div className="p-3 flex flex-col gap-2">

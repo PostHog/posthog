@@ -19,7 +19,9 @@ export function OnboardingExitAction(): JSX.Element {
     return (
         <div className="mt-8 mx-auto max-w-md w-full">
             <div className="flex items-center gap-3 p-3 rounded-lg border border-primary bg-surface-primary">
-                <HedgehogMailbox className="w-16 h-11 object-contain shrink-0" />
+                {/* The hoggie PNG frames the drawing with about 40% empty height, so the box is
+                    sized past the row and the negative margin pulls that padding back out. */}
+                <HedgehogMailbox className="h-20 -my-3 shrink-0" />
                 <div className="flex-1 text-left min-w-0">
                     <p className="m-0 text-sm font-semibold">Not the one setting this up?</p>
                     <p className="m-0 text-xs text-muted">Hand setup over to a teammate to finish.</p>
