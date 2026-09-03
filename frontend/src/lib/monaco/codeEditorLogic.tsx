@@ -149,7 +149,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
     })),
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         metadata: [
             null as null | [string, HogQLMetadataResponse],
             {
@@ -211,14 +211,30 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
 
                     const markerOffset = props.metadataQueryOffset ?? 0
 
+                    // The response describes `query` as it sat at `markerOffset`. The editor text can
+                    // change while the request is in flight, for example when you open an insight into
+                    // the editor. Markers from this response would then land on unrelated characters,
+                    // so keep the ones we have. The request for the new text paints the correct markers.
+                    if (model.getValue().slice(markerOffset, markerOffset + query.length) !== query) {
+                        return values.modelMarkers
+                    }
+
+                    // A notice can come back without a position. Do not stretch such a notice over the
+                    // full statement, because that makes the whole editor red. Anchor it to the first
+                    // character of the statement, and stop at the end of that line.
+                    const firstCharacter = Math.max(query.search(/\S/), 0)
+
                     function noticeToMarker(error: HogQLNotice, severity: MarkerSeverity): ModelMarker {
-                        const start = model!.getPositionAt((error.start ?? 0) + markerOffset)
-                        const end = model!.getPositionAt((error.end ?? query.length) + markerOffset)
+                        const startOffset = error.start ?? firstCharacter
+                        const lineEnd = query.indexOf('\n', startOffset)
+                        const endOffset = error.end ?? (lineEnd === -1 ? query.length : lineEnd)
+                        const start = model!.getPositionAt(startOffset + markerOffset)
+                        const end = model!.getPositionAt(endOffset + markerOffset)
                         return {
-                            start: error.start ?? 0,
+                            start: startOffset,
                             startLineNumber: start.lineNumber,
                             startColumn: start.column,
-                            end: error.end ?? query.length,
+                            end: endOffset,
                             endLineNumber: end.lineNumber,
                             endColumn: end.column,
                             message: error.message ?? 'Unknown error',
