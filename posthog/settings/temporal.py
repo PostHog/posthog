@@ -25,8 +25,6 @@ MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
     "MAX_CONCURRENT_WORKFLOW_TASKS", None, optional=True, type_cast=int
 )
 MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES", None, optional=True, type_cast=int)
-# No-deploy rollback lever for flex-tier cluster labeling; workers read it at boot.
-LLMA_LABELING_FLEX_ENABLED: bool = get_from_env("LLMA_LABELING_FLEX_ENABLED", True, type_cast=str_to_bool)
 # Batch trace summarization model; overridable so a fleet-wide model rollback is a config change
 # plus a worker restart, not a deploy.
 LLMA_SUMMARIZATION_MODEL: str = get_from_env("LLMA_SUMMARIZATION_MODEL", "gpt-5-nano")

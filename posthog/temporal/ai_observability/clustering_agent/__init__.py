@@ -10,11 +10,9 @@ each individual agent so per-level prompt iteration stays local.
 
 from collections.abc import Mapping
 
-from django.conf import settings
-
 from langchain_openai import ChatOpenAI
 
-from posthog.llm.flex import FLEX_CAPABLE_MODELS
+from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS
 from posthog.temporal.ai_observability.llm_endpoint import build_langchain_chat_client
 from posthog.temporal.ai_observability.trace_clustering.constants import NOISE_CLUSTER_ID
 from posthog.temporal.ai_observability.trace_clustering.models import ClusterLabel
@@ -47,10 +45,10 @@ def get_labeling_llm(
     Labeling runs as a daily batch, so allowlisted models request the flex
     service tier for half-price tokens. The SDK's retries recover transient
     flex refusals; a run that still fails falls to the callers' default labels
-    and the next day's batch. If the flex tier misbehaves fleet-wide, set
-    ``LLMA_LABELING_FLEX_ENABLED=false`` on the worker and restart: no deploy.
+    and the next day's batch. Rolling flex back is a one-line revert plus a
+    deploy, matching the summarization rollout's trade-off.
     """
-    use_flex = flex and settings.LLMA_LABELING_FLEX_ENABLED and model in FLEX_CAPABLE_MODELS
+    use_flex = flex and model in FLEX_CAPABLE_MODELS
     return build_langchain_chat_client(
         model,
         LABELING_FLEX_CALL_TIMEOUT if use_flex else min(timeout, LABELING_STANDARD_CALL_TIMEOUT),

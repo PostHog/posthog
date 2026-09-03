@@ -8,8 +8,8 @@ from openai import APIConnectionError, APIError, APIStatusError, InternalServerE
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from rest_framework import exceptions
 
-from posthog.llm.flex import FLEX_CAPABLE_MODELS
 from posthog.llm.gateway_client import build_openai_client, team_distinct_id
+from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS
 
 from ..constants import SUMMARIZATION_FLEX_TIMEOUT, SUMMARIZATION_TIMEOUT
 from ..models import OpenAIModel, SummarizationMode

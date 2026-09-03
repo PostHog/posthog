@@ -229,18 +229,3 @@ class TestBuildOpenAIChatClient:
         assert standard_client.service_tier is None
         assert standard_client.request_timeout == LABELING_STANDARD_CALL_TIMEOUT
         assert standard_client.max_retries == 1
-
-    def test_kill_switch_disables_flex_without_a_deploy(self):
-        from posthog.temporal.ai_observability.clustering_agent import get_labeling_llm
-
-        with override_settings(
-            DEBUG=True,
-            AI_GATEWAY_URL=GATEWAY_URL,
-            AI_GATEWAY_API_KEY=GATEWAY_KEY,
-            LLMA_LABELING_FLEX_ENABLED=False,
-        ):
-            client = get_labeling_llm("gpt-5.4", 600.0, trace_id="t", session_id="s", properties={}, distinct_id="d")
-
-        assert client.service_tier is None
-        # The lever lands on the bounded standard shape, not the old 600s x 3-attempt one.
-        assert client.max_retries == 1
