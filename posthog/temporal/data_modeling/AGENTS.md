@@ -1,24 +1,27 @@
 # Data-modeling Temporal workflows
 
 Temporal workflows and activities that materialize data-modeling saved queries.
-Two implementations live here side by side during the v1 → v2 migration.
+v2 is the only backend. The v1 code stays registered until its schedules are removed.
 
-## v1 — FROZEN
+## v1 — dead, pending removal
 
 - `run_workflow.py` (1814-line monolith).
-- Dispatched from `products/data_modeling/backend/presentation/views/node.py` when
-  `_is_v2_backend_enabled(...)` is false.
-- Almost all US teams are still on v1; almost all EU teams are on v2.
+- Node and saved-query interactive paths always start v2. No production or management-command
+  call site creates a `data-modeling-run` schedule. Endpoint compatibility paths can still trigger
+  a pre-existing schedule until the v1 control cleanup lands.
+- `RunWorkflow` stays in `WORKFLOWS` (`__init__.py`) on purpose. A schedule that points at a
+  deregistered workflow type keeps firing, fails its workflow task, and writes no job row, so
+  the workflow can only be removed after its schedules are gone.
 
 **Do not extend v1.** No new features, no refactors, no new error types.
-Bug fixes that affect both versions can land here, but treat that as the
-exception — the goal is to keep the migration window small.
+The v1 code exists only until its schedules are removed.
 
 ## v2 — active
 
 - `workflows/materialize_view.py` and `workflows/execute_dag.py`.
 - Activities in `activities/*.py`.
-- Dispatched when `_is_v2_backend_enabled(...)` is true.
+- Node `run` starts `data-modeling-execute-dag`. Node `materialize` and saved-query `run` start
+  `data-modeling-materialize-view` through `start_node_materialization`.
 
 All new work targets v2: new activities, new error types, configuration knobs,
 reliability fixes, and tests.
