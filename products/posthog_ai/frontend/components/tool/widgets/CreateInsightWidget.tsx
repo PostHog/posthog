@@ -1,7 +1,11 @@
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
+
 import { DataToolRow } from '../DataToolRow'
 import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
 import type { ToolRendererProps } from '../toolRegistry'
-import { extractVisualizationArtifact } from './extractors'
+import { extractInsightDashboardRevealTarget, extractVisualizationArtifact } from './extractors'
 import { VisualizationWidget, getArtifactOpenTarget } from './VisualizationWidget'
 
 /**
@@ -18,10 +22,25 @@ export function CreateInsightWidget(props: ToolRendererProps): JSX.Element {
     }
 
     const target = getArtifactOpenTarget(artifact.envelope, artifact.content)
+    const revealTarget = extractInsightDashboardRevealTarget(message)
+    const extraActions = revealTarget ? (
+        <LemonButton
+            to={urls.dashboard(revealTarget.dashboardId, revealTarget.insightShortId)}
+            size="xsmall"
+            data-attr="posthog-ai-show-insight-on-dashboard"
+        >
+            Show on dashboard
+        </LemonButton>
+    ) : null
 
     return (
         <DataToolRow {...props}>
-            <VisualizationWidget content={artifact.content} openUrl={target.url} openTooltip={target.tooltip} />
+            <VisualizationWidget
+                content={artifact.content}
+                openUrl={target.url}
+                openTooltip={target.tooltip}
+                extraActions={extraActions}
+            />
         </DataToolRow>
     )
 }

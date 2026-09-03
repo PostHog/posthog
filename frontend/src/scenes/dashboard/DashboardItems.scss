@@ -11,6 +11,14 @@
     }
 }
 
+[data-dashboard-tile-highlighted='true'] {
+    border-color: var(--color-accent);
+    outline: 1px solid var(--color-accent);
+    transition:
+        border-color 200ms ease,
+        outline-color 200ms ease;
+}
+
 .react-grid-layout {
     position: relative;
     transition: height 100ms ease;

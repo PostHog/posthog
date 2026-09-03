@@ -8,7 +8,7 @@ import { MessageTemplate } from '../../../messages/MessageTemplate'
 import { DataToolRow } from '../DataToolRow'
 import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
 import type { ToolRendererProps } from '../toolRegistry'
-import { extractDashboard } from './extractors'
+import { extractDashboard, extractDashboardMutationRevealTarget } from './extractors'
 
 /**
  * Dashboard create / update tool calls. v1 is a status line + "View dashboard" CTA (a full
@@ -18,12 +18,16 @@ import { extractDashboard } from './extractors'
 export function UpsertDashboardWidget(props: ToolRendererProps): JSX.Element {
     const { message } = props
     const dashboard = message.status === 'completed' ? extractDashboard(message) : null
+    const revealTarget = message.status === 'completed' ? extractDashboardMutationRevealTarget(message) : null
 
-    if (!dashboard) {
+    if (!dashboard || (message.resolvedKey === 'dashboard-update' && !revealTarget)) {
         return <GenericMcpToolRenderer {...props} />
     }
 
-    const to = dashboard.url ?? (dashboard.id !== undefined ? urls.dashboard(dashboard.id) : undefined)
+    const revealsTile = revealTarget?.tileId !== undefined
+    const to = revealsTile
+        ? urls.dashboard(revealTarget.dashboardId, undefined, revealTarget.tileId)
+        : (dashboard.url ?? (dashboard.id !== undefined ? urls.dashboard(dashboard.id) : undefined))
 
     return (
         <DataToolRow {...props}>
@@ -36,12 +40,12 @@ export function UpsertDashboardWidget(props: ToolRendererProps): JSX.Element {
                     {to && (
                         <LemonButton
                             to={to}
-                            targetBlank
-                            icon={<IconOpenInNew />}
+                            targetBlank={!revealsTile}
+                            icon={revealsTile ? undefined : <IconOpenInNew />}
                             size="xsmall"
-                            tooltip="Open dashboard"
+                            tooltip={revealsTile ? undefined : 'Open dashboard'}
                         >
-                            View dashboard
+                            {revealsTile ? 'Show on dashboard' : 'View dashboard'}
                         </LemonButton>
                     )}
                 </div>

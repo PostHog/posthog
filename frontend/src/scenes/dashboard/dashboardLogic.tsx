@@ -5,6 +5,8 @@ import {
     actions,
     connect,
     events,
+    getPluginContext,
+    isBreakpoint,
     kea,
     key,
     listeners,
@@ -16,6 +18,7 @@ import {
 } from 'kea'
 import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
+import type { KeaLoadersOptions } from 'kea-loaders'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import uniqBy from 'lodash.uniqby'
@@ -196,6 +199,20 @@ export enum DashboardLoadAction {
     Update = 'update',
 }
 
+export interface DashboardAiSyncRequest {
+    generation: number
+    requestToken: symbol
+}
+
+export interface DashboardLoadPayload {
+    action: DashboardLoadAction
+    dashboardAiSync?: DashboardAiSyncRequest
+}
+
+export interface OwnedDashboardLoadPayload extends DashboardLoadPayload {
+    dashboardLoadRequestToken: symbol
+}
+
 export enum RefreshDashboardItemsAction {
     /** Automatic or manual refresh of the dashboard. */
     Refresh = 'refresh',
@@ -328,6 +345,7 @@ export interface dashboardLogicValues {
     hasUrlFilters: boolean
     hasVariables: boolean
     highlightedInsightId: any
+    highlightedTileId: number | null
     initialVariablesLoaded: boolean
     insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
     intermittentFilters: DashboardFilter
@@ -516,15 +534,13 @@ export interface dashboardLogicActions {
     forceRefreshIfStale: () => {
         value: true
     }
-    loadDashboard: (payload: { action: DashboardLoadAction }) => {
-        action: DashboardLoadAction
-    }
+    loadDashboard: (payload: DashboardLoadPayload) => OwnedDashboardLoadPayload
     loadDashboardFailure: (
         error: string,
-        errorObject?: any
+        errorObject?: unknown
     ) => {
         error: string
-        errorObject?: any
+        errorObject: unknown
     }
     loadDashboardMetadataSuccess: (dashboard: DashboardType<QueryBasedInsightModel> | null) => {
         dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
@@ -554,15 +570,11 @@ export interface dashboardLogicActions {
         }
     }
     loadDashboardSuccess: (
-        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
-        payload?: {
-            action: DashboardLoadAction
-        }
+        dashboard: DashboardType<QueryBasedInsightModel> | null,
+        payload?: DashboardLoadPayload
     ) => {
         dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
-        payload?: {
-            action: DashboardLoadAction
-        }
+        payload: DashboardLoadPayload | undefined
     }
     loadingDashboardItemsStarted: (action: DashboardLoadAction) => {
         action: DashboardLoadAction
@@ -1128,6 +1140,7 @@ export interface dashboardLogicMeta {
         isRefreshingQueued: (refreshStatus: Record<string, RefreshStatus>) => (id: string) => boolean
         isRefreshing: (refreshStatus: Record<string, RefreshStatus>) => (id: string) => boolean
         highlightedInsightId: (searchParams: Record<string, any>) => any
+        highlightedTileId: (searchParams: Record<string, any>) => number | null
         sortedDates: (insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]) => Dayjs[]
         oldestRefreshed: (sortedDates: Dayjs[], pageVisibility: boolean) => Dayjs | null
         effectiveLastRefresh: (lastDashboardRefresh: Dayjs | null, oldestRefreshed: Dayjs | null) => Dayjs | null
@@ -1250,7 +1263,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /**
          * Dashboard loading and dashboard tile refreshes.
          */
-        loadDashboard: (payload: { action: DashboardLoadAction }) => payload,
+        loadDashboard: (payload: DashboardLoadPayload): OwnedDashboardLoadPayload => ({
+            ...payload,
+            dashboardLoadRequestToken: Symbol('dashboardLoadRequest'),
+        }),
+        loadDashboardSuccess: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            payload?: DashboardLoadPayload
+        ) => ({ dashboard, payload }),
+        loadDashboardFailure: (error: string, errorObject?: unknown) => ({ error, errorObject }),
         /** Load dashboard with streaming tiles approach. */
         loadDashboardStreaming: (payload: { action: DashboardLoadAction; manualDashboardRefresh?: boolean }) => payload,
         /** Dashboard metadata loaded successfully. */
@@ -1461,33 +1482,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboard: [
             null as DashboardType<QueryBasedInsightModel> | null,
             {
-                loadDashboard: async ({ action }, breakpoint) => {
-                    actions.loadingDashboardItemsStarted(action)
-
-                    await breakpoint(200)
-
-                    try {
-                        const apiUrl = values.apiUrl('force_cache', values.filtersOverrideForLoad, values.urlVariables)
-                        const dashboardResponse: Response = await api.getResponse(apiUrl)
-                        const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
-
-                        actions.setInitialLoadResponseBytes(getResponseBytes(dashboardResponse))
-
-                        if (!dashboard || typeof dashboard !== 'object' || typeof dashboard.id !== 'number') {
-                            throw new Error('Dashboard response was empty or invalid')
-                        }
-
-                        return getQueryBasedDashboard(dashboard)
-                    } catch (error: any) {
-                        if (error.status === 404) {
-                            return null
-                        }
-                        if (isAccessDeniedError(error)) {
-                            actions.setAccessDeniedToDashboard()
-                        }
-                        throw error
-                    }
-                },
                 loadDashboardStreaming: async ({ action }, breakpoint) => {
                     actions.loadingDashboardItemsStarted(action)
                     await breakpoint(200)
@@ -1966,6 +1960,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboard: [
             null as DashboardType<QueryBasedInsightModel> | null,
             {
+                loadDashboardSuccess: (_, { dashboard }) => dashboard,
                 dashboardNotFound: () => null,
                 setAccessDeniedToDashboard: () => null,
                 updateLayouts: (state, { layouts }) => {
@@ -2898,6 +2893,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             () => [router.selectors.searchParams],
             (searchParams: Record<string, any>) => searchParams.highlightInsightId,
         ],
+        highlightedTileId: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, unknown>): number | null => {
+                const value = searchParams.highlightTileId
+                return typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : null
+            },
+        ],
         sortedDates: [
             (s) => [s.insightTiles],
             (
@@ -3295,6 +3297,87 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        loadDashboard: async (payload: OwnedDashboardLoadPayload, breakpoint) => {
+            const { action, dashboardLoadRequestToken } = payload
+            const requestDisposables = cache.disposables
+            const loaderLogic = dashboardLogic({ id: props.id })
+            const { onStart, onSuccess, onFailure } = getPluginContext<KeaLoadersOptions>('loaders')
+            const ownsDashboardLoad = (): boolean =>
+                !requestDisposables.isDisposed && cache.dashboardLoadRequestToken === dashboardLoadRequestToken
+
+            cache.dashboardLoadRequestToken = dashboardLoadRequestToken
+            onStart?.({ actionKey: 'loadDashboard', reducerKey: 'dashboard', logic: loaderLogic })
+            actions.loadingDashboardItemsStarted(action)
+
+            await breakpoint(200)
+
+            try {
+                const apiUrl = values.apiUrl('force_cache', values.filtersOverrideForLoad, values.urlVariables)
+                const dashboardResponse: Response = await api.getResponse(apiUrl)
+                const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
+                const responseBytes = getResponseBytes(dashboardResponse)
+
+                await breakpoint()
+                if (!ownsDashboardLoad()) {
+                    return
+                }
+
+                actions.setInitialLoadResponseBytes(responseBytes)
+
+                if (!dashboard || typeof dashboard !== 'object' || typeof dashboard.id !== 'number') {
+                    throw new Error('Dashboard response was empty or invalid')
+                }
+
+                const queryBasedDashboard = getQueryBasedDashboard(dashboard)
+                onSuccess?.({
+                    response: queryBasedDashboard,
+                    actionKey: 'loadDashboard',
+                    reducerKey: 'dashboard',
+                    logic: loaderLogic,
+                })
+                if (!ownsDashboardLoad()) {
+                    return
+                }
+                actions.loadDashboardSuccess(queryBasedDashboard, payload)
+            } catch (error: any) {
+                if (isBreakpoint(error)) {
+                    throw error
+                }
+
+                const isNotFound = error.status === 404
+                const isAccessDenied = !isNotFound && isAccessDeniedError(error)
+
+                await breakpoint()
+                if (!ownsDashboardLoad()) {
+                    return
+                }
+
+                if (isNotFound) {
+                    onSuccess?.({
+                        response: null,
+                        actionKey: 'loadDashboard',
+                        reducerKey: 'dashboard',
+                        logic: loaderLogic,
+                    })
+                    if (!ownsDashboardLoad()) {
+                        return
+                    }
+                    actions.loadDashboardSuccess(null, payload)
+                    return
+                }
+                if (isAccessDenied) {
+                    actions.setAccessDeniedToDashboard()
+                }
+                if (!ownsDashboardLoad()) {
+                    return
+                }
+                onFailure?.({ error, actionKey: 'loadDashboard', reducerKey: 'dashboard', logic: loaderLogic })
+                if (!ownsDashboardLoad()) {
+                    return
+                }
+                actions.loadDashboardFailure(error.message, error)
+            }
+        },
         scheduleRefreshDashboardWidgets: ({ tileId }: { tileId: number }) => {
             if (!cache.widgetTileRefreshScheduler) {
                 cache.widgetTileRefreshScheduler = createDashboardWidgetTileRefreshScheduler((id) =>

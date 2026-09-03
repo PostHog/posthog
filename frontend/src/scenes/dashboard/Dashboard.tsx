@@ -23,11 +23,13 @@ import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
+import { dashboardAgentContextForPlacement } from 'products/dashboards/frontend/dashboardAgentContext'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { DashboardAiSync } from './DashboardAiSync'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
@@ -116,9 +118,7 @@ function DashboardScene({
     const { reportDashboardViewed, abortAnyRunningQuery, loadDashboard, setLayoutZoom } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
-    useAttachedContext(
-        dashboard ? [{ type: 'dashboard', key: dashboard.id, label: dashboard.name ?? undefined }] : null
-    )
+    useAttachedContext(dashboardAgentContextForPlacement(dashboard, placement))
 
     useFileSystemLogView({
         type: 'dashboard',
@@ -159,6 +159,9 @@ function DashboardScene({
             {placement == DashboardPlacement.Dashboard && (
                 <DashboardHeader loading={!dashboard && !dashboardFailedToLoad} />
             )}
+            {placement === DashboardPlacement.Dashboard && dashboard?.id ? (
+                <DashboardAiSync dashboardId={dashboard.id} />
+            ) : null}
             {placement == DashboardPlacement.Dashboard && !!dashboard?.id && (
                 <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />
             )}

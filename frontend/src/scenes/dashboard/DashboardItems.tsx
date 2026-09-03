@@ -41,6 +41,7 @@ import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType }
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 
+import { dashboardAiSyncLogic } from './dashboardAiSyncLogic'
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
 
@@ -90,6 +91,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         isRefreshingQueued,
         isRefreshing,
         highlightedInsightId,
+        highlightedTileId,
         refreshStatus,
         dashboardStreaming,
         dashboardLoading,
@@ -104,6 +106,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         scrollToBottomSignal,
     } = useValues(dashboardLogic)
     const { layoutZoom = 1 } = useValues(dashboardLogic)
+    const dashboardAiSync = dashboardAiSyncLogic({ dashboardId: dashboard?.id ?? 0 })
+    const { aiHighlightedTileIds = [] } = useValues(dashboardAiSync)
     const {
         updateLayouts,
         updateContainerWidth,
@@ -126,6 +130,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         openImageTileModal,
         openButtonTileModal,
     } = useActions(dashboardLogic)
+    const { setAiHighlightedTileIds } = useActions(dashboardAiSync)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
@@ -140,6 +145,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         ? undefined
         : () => loadDashboard({ action: DashboardLoadAction.Update })
     const refreshDashboardTile = isSharedView() ? undefined : refreshDashboardItem
+    const revealTileId =
+        highlightedTileId !== null
+            ? (tiles.find((tile) => tile.id === highlightedTileId)?.id ?? null)
+            : (tiles.find((tile) => tile.insight?.short_id === highlightedInsightId)?.id ?? null)
 
     // Tile currently being resized. Its viz is unmounted for the duration of the gesture so the chart doesn't
     // redraw on every frame as the tile's dimensions change — the dominant cost that makes resizing feel laggy.
@@ -190,6 +199,32 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             cancelAnimationFrame(secondFrame)
         }
     }, [scrollToBottomSignal])
+
+    useEffect(() => {
+        if (!revealTileId) {
+            return
+        }
+
+        setAiHighlightedTileIds([revealTileId])
+        let secondFrame = 0
+        const firstFrame = requestAnimationFrame(() => {
+            secondFrame = requestAnimationFrame(() => {
+                const selector = '[data-dashboard-tile-id="' + revealTileId + '"]'
+                const target = document.querySelector<HTMLElement>(selector)
+                if (!target) {
+                    return
+                }
+                const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+                target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' })
+                target.focus({ preventScroll: true })
+            })
+        })
+
+        return () => {
+            cancelAnimationFrame(firstFrame)
+            cancelAnimationFrame(secondFrame)
+        }
+    }, [revealTileId, setAiHighlightedTileIds])
     const className = clsx({
         'dashboard-view-mode mb-8': !layoutEditMode,
         // In edit mode, dragging is bounded to the grid's own clientHeight, which is exactly the
@@ -534,6 +569,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     >
                         {tiles?.map((tile) => {
                             const { insight, text, button_tile, widget } = tile
+                            const isHighlighted = aiHighlightedTileIds.includes(tile.id)
+                            const tileDomProps = {
+                                'data-dashboard-tile-id': String(tile.id),
+                                'data-dashboard-tile-highlighted': isHighlighted ? 'true' : undefined,
+                                tabIndex: -1,
+                            }
                             const smLayout = layouts['sm']?.find((l) => {
                                 return l.i == tile.id.toString()
                             })
@@ -568,6 +609,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         onEnterEditModeFromEdge={onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={onDragHandleMouseDown}
                                         showEditingControls={showEditingControls}
+                                        {...tileDomProps}
                                     />
                                 )
                             }
@@ -598,7 +640,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         apiErrored={apiErrored}
                                         apiError={apiError}
                                         queryId={insight.query_status?.id}
-                                        highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
+                                        highlighted={isHighlighted}
                                         updateColor={(color) => updateTileColor(tile.id, color)}
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}
                                         ribbonColor={tile.color}
@@ -620,6 +662,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
                                         showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
                                         {...commonTileProps}
+                                        {...tileDomProps}
                                     />
                                 )
                             }
@@ -645,6 +688,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
                                         onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
+                                        {...tileDomProps}
                                     />
                                 )
                             }
@@ -670,6 +714,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
                                         onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
+                                        {...tileDomProps}
                                     />
                                 )
                             }
@@ -717,6 +762,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
                                         onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
+                                        {...tileDomProps}
                                     />
                                 )
                             }

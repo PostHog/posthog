@@ -1,12 +1,12 @@
 ---
 name: managing-subscriptions
-description: 'Manage PostHog subscriptions — scheduled email, Slack, or webhook deliveries of insight or dashboard snapshots, optionally with an AI-written summary attached to each delivery. Use when the user wants to subscribe to an insight or dashboard, get an AI summary attached to those deliveries, check existing subscriptions, change delivery frequency, add or remove recipients, or stop receiving updates.'
+description: 'Manage PostHog subscriptions — scheduled email, Slack, or Microsoft Teams deliveries of insight or dashboard snapshots, optionally with an AI-written summary attached to each delivery. Use when the user wants to subscribe to an insight or dashboard, get an AI summary attached to those deliveries, check existing subscriptions, change delivery frequency, add or remove recipients, or stop receiving updates.'
 ---
 
 # Managing subscriptions
 
 This skill guides you through managing PostHog subscriptions.
-Subscriptions deliver scheduled snapshots of insights or dashboards via email, Slack, or webhook.
+Subscriptions deliver scheduled snapshots of insights or dashboards via email, Slack, or Microsoft Teams.
 
 ## When to use this skill
 
@@ -34,7 +34,7 @@ If the user says "send me this every morning", use subscriptions.
 
 When someone wants the **key numbers from an existing dashboard or insight** posted to a channel on a schedule — "post the top-line from this dashboard in #launch once a day", "send the team these metrics every morning", or even "set up a scout/bot to post this daily" — the right tool is a **dashboard (or insight) subscription**, and an AI summary is its natural companion:
 
-- Set `dashboard` (or `insight`) and deliver to Slack or email. For a **dashboard** subscription, pick the tiles via `dashboard_export_insights` — that field is dashboard-only, and an insight subscription is rejected if you send it (an insight subscription needs no tile list).
+- Set `dashboard` (or `insight`) and deliver to email, Slack, or Microsoft Teams. For a **dashboard** subscription, pick the tiles via `dashboard_export_insights` — that field is dashboard-only, and an insight subscription is rejected if you send it (an insight subscription needs no tile list).
 - **Offer the AI summary, don't assume it.** Per step 6, ask before enabling it, then set `summary_enabled: true` once the user agrees — it has AI-consent, quota, and budget gates that can reject the create, so keep it opt-in.
 - The attached **tile snapshots are exact**. The AI summary text is model-written, so treat any figure it quotes as approximate (the same drift caveat as a prompt subscription) and lean on the snapshot for exact numbers.
 
@@ -53,16 +53,16 @@ Use `subscriptions-list` with optional filters:
 
 - Filter by insight: pass the `insight` query parameter with the insight ID
 - Filter by dashboard: pass the `dashboard` query parameter with the dashboard ID
-- Filter by channel: pass `target_type` as `email`, `slack`, or `webhook`
+- Filter by channel: pass `target_type` as `email`, `slack`, or `teams`
 
 ### Creating a subscription
 
 #### Step 1: Ask the user how they want to receive it
 
-**Always ask the user whether they want email or Slack delivery** before creating a subscription.
+**Always ask the user whether they want email, Slack, or Microsoft Teams delivery** before creating a subscription.
 Do not assume a channel — ask explicitly:
 
-> Would you like to receive this via **email** or **Slack**?
+> Would you like to receive this via **email**, **Slack**, or **Microsoft Teams**?
 
 If the user says Slack, you must verify the integration is available (see step 2).
 If the user doesn't have a preference, suggest email as the simplest option.
@@ -83,7 +83,9 @@ Get it from the user context or from `org-members-list`.
 
 Slack setup requires an OAuth flow in the browser — it cannot be done via MCP.
 
-**Webhook** requires the user to provide a URL. Verify it looks like a valid URL before submitting.
+**Microsoft Teams** requires the user to provide the full webhook URL in `target_value`. Verify it looks like a valid
+URL before submitting it. Responses expose only the webhook host so the credential is not leaked; that host is not a
+valid replacement value. On an update, omit `target_value` to keep the stored URL or send a new full URL to replace it.
 
 #### Step 3: Identify the target
 
@@ -94,10 +96,10 @@ fetch the insight first with `insight-get` to get the numeric ID.
 
 | User says                               | Parameters                                                                |
 | --------------------------------------- | ------------------------------------------------------------------------- |
-| "every day" / "daily" / "every morning" | `frequency: "daily"`                                                      |
-| "every week" / "weekly"                 | `frequency: "weekly"`                                                     |
-| "every Monday"                          | `frequency: "weekly"`, `byweekday: ["monday"]`                            |
-| "every month" / "monthly"               | `frequency: "monthly"`                                                    |
+| "every day" / "daily" / "every morning" | `frequency: "daily"`, `interval: 1`                                       |
+| "every week" / "weekly"                 | `frequency: "weekly"`, `interval: 1`                                      |
+| "every Monday"                          | `frequency: "weekly"`, `interval: 1`, `byweekday: ["monday"]`             |
+| "every month" / "monthly"               | `frequency: "monthly"`, `interval: 1`                                     |
 | "twice a week"                          | `frequency: "weekly"`, `interval: 1`, `byweekday: ["monday", "thursday"]` |
 
 #### Step 5: Create with `subscriptions-create`
@@ -110,6 +112,7 @@ For an insight subscription via email:
   "target_type": "email",
   "target_value": "user@example.com",
   "frequency": "daily",
+  "interval": 1,
   "start_date": "2025-01-01T09:00:00Z"
 }
 ```
@@ -123,6 +126,7 @@ For a dashboard subscription (requires selecting which insights to include, max 
   "target_type": "email",
   "target_value": "user@example.com",
   "frequency": "weekly",
+  "interval": 1,
   "byweekday": ["monday"],
   "start_date": "2025-01-01T09:00:00Z"
 }
@@ -137,9 +141,27 @@ For Slack delivery, include the `integration_id` from step 2:
   "target_value": "#general",
   "integration_id": 789,
   "frequency": "daily",
+  "interval": 1,
   "start_date": "2025-01-01T09:00:00Z"
 }
 ```
+
+For Microsoft Teams delivery, send the full webhook URL provided by the user:
+
+```json
+{
+  "insight": 12345,
+  "target_type": "teams",
+  "target_value": "https://example.webhook.office.com/webhookb2/example-token",
+  "frequency": "daily",
+  "interval": 1,
+  "start_date": "2025-01-01T09:00:00Z"
+}
+```
+
+The five fields required on every create are `target_type`, `target_value`, `frequency`, `interval`, and `start_date`.
+`send_test_now` defaults to `true` on create, triggering one immediate delivery without changing the recurring schedule.
+Set it to `false` only when the user does not want that initial delivery.
 
 #### Step 6 (optional): Attach an AI summary
 
@@ -157,6 +179,7 @@ alongside the snapshot. Set it at create time (or toggle later via `subscription
   "target_type": "email",
   "target_value": "user@example.com",
   "frequency": "weekly",
+  "interval": 1,
   "byweekday": ["monday"],
   "start_date": "2025-01-01T09:00:00Z",
   "summary_enabled": true,
@@ -173,30 +196,40 @@ prompt subscriptions — those are AI-generated by definition (see `creating-ai-
 
 Use `subscriptions-partial-update` with the subscription ID. Common updates:
 
-- **Change frequency**: `{"frequency": "weekly", "byweekday": ["monday"]}`
-- **Add recipients**: Update `target_value` with the full comma-separated list
-- **Change channel**: Update `target_type` and `target_value` together
-- **Toggle the AI summary** (insight/dashboard subs): `{"summary_enabled": true, "summary_prompt_guide": "..."}` — same AI-data-processing and budget gates as step 6
+- **Change frequency**: `{"id": 456, "frequency": "weekly", "byweekday": ["monday"]}`
+- **Add recipients**: `{"id": 456, "target_value": "first@example.com,second@example.com"}`
+- **Change to or replace Microsoft Teams**: `{"id": 456, "target_type": "teams", "target_value": "https://example.webhook.office.com/webhookb2/example-token"}`
+- **Toggle the AI summary** (insight/dashboard subs): `{"id": 456, "summary_enabled": true, "summary_prompt_guide": "..."}` — same AI-data-processing and budget gates as step 6
+- **Pause delivery**: `{"id": 456, "enabled": false}`
 
-### Deactivating a subscription
+Every partial update requires `id`. The subscription kind is fixed: do not add `prompt`, `insight`, or `dashboard` to
+change it into another kind. For Microsoft Teams, omit `target_value` to keep the stored webhook URL; a replacement
+must be a full URL, not the host-only value returned by read tools. `send_test_now` is create-only. It is not available
+on `subscriptions-partial-update`; use `subscriptions-test-delivery-create` for an explicit later test.
 
-Subscriptions are soft-deleted. Use `subscriptions-partial-update`:
+### Deleting a subscription
+
+Use `subscriptions-delete` with the subscription ID:
 
 ```json
 {
-  "id": 456,
-  "deleted": true
+  "id": 456
 }
 ```
+
+This soft-deletes the subscription and stops future deliveries. It cannot be restored through MCP; recreate it instead.
 
 ## Defaults
 
 When the user doesn't specify details:
 
 - **Frequency**: `"daily"`
-- **Channel**: email to the current user
-- **Start date**: now (ISO 8601)
+- **Interval**: `1`
+- **Channel**: ask the user; `target_type` and `target_value` are required
+- **Start date**: now (ISO 8601); `start_date` is required
 - **Title**: auto-generated from the insight/dashboard name if not specified
+- **Initial test**: `send_test_now` defaults to `true` on create
+- **AI summary**: disabled unless the user explicitly opts in
 
 ## Error handling
 

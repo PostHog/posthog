@@ -444,6 +444,7 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
 class ReorderLayout(StrEnum):
     PRESERVE = "preserve"
     TWO_COLUMN = "two_column"
+    THREE_COLUMN = "three_column"
     FULL_WIDTH = "full_width"
 
 
@@ -458,10 +459,17 @@ class TileSize:
 
 
 DEFAULT_REORDER_TILE_SIZE = TileSize(width=DEFAULT_REORDER_TILE_WIDTH, height=DEFAULT_REORDER_TILE_HEIGHT)
+DEFAULT_TEXT_TILE_SIZE = TileSize(width=DASHBOARD_GRID_COLUMN_COUNT, height=2)
 
 
 def _existing_sm_size(tile: DashboardTile, defaults: TileSize) -> TileSize:
-    sm = (tile.layouts or {}).get("sm") if isinstance(tile.layouts, dict) else None
+    layouts = tile.layouts
+    if isinstance(layouts, str):
+        try:
+            layouts = json.loads(layouts)
+        except (TypeError, ValueError):
+            layouts = None
+    sm = layouts.get("sm") if isinstance(layouts, dict) else None
     if not isinstance(sm, dict):
         return defaults
     w, h = sm.get("w"), sm.get("h")
@@ -476,8 +484,7 @@ def _apply_reorder_layout(
     tile_map: dict[int, DashboardTile],
     layout_mode: ReorderLayout,
 ) -> None:
-    """Repack tiles. ``preserve`` keeps each tile's existing w/h and reuses the lowest-segment
-    greedy algorithm from ``frontend/src/scenes/dashboard/tileLayouts.ts``; the other modes overwrite w/h."""
+    """Repack tiles. ``preserve`` keeps each tile's existing size; forced modes set a uniform insight grid."""
     if layout_mode == ReorderLayout.TWO_COLUMN:
         for index, tile_id in enumerate(tile_order):
             row, col = divmod(index, 2)
@@ -490,6 +497,42 @@ def _apply_reorder_layout(
                 },
                 "xs": {"x": 0, "y": index * DEFAULT_REORDER_TILE_HEIGHT, "w": 1, "h": DEFAULT_REORDER_TILE_HEIGHT},
             }
+        return
+
+    if layout_mode == ReorderLayout.THREE_COLUMN:
+        sm_y = 0
+        xs_y = 0
+        column = 0
+        tile_width = DASHBOARD_GRID_COLUMN_COUNT // 3
+        for tile_id in tile_order:
+            tile = tile_map[tile_id]
+            if tile.text_id is not None:
+                if column:
+                    sm_y += DEFAULT_REORDER_TILE_HEIGHT
+                    column = 0
+                height = _existing_sm_size(tile, DEFAULT_TEXT_TILE_SIZE).height
+                tile.layouts = {
+                    "sm": {"x": 0, "y": sm_y, "w": DASHBOARD_GRID_COLUMN_COUNT, "h": height},
+                    "xs": {"x": 0, "y": xs_y, "w": 1, "h": height},
+                }
+                sm_y += height
+                xs_y += height
+                continue
+
+            tile.layouts = {
+                "sm": {
+                    "x": column * tile_width,
+                    "y": sm_y,
+                    "w": tile_width,
+                    "h": DEFAULT_REORDER_TILE_HEIGHT,
+                },
+                "xs": {"x": 0, "y": xs_y, "w": 1, "h": DEFAULT_REORDER_TILE_HEIGHT},
+            }
+            column += 1
+            xs_y += DEFAULT_REORDER_TILE_HEIGHT
+            if column == 3:
+                sm_y += DEFAULT_REORDER_TILE_HEIGHT
+                column = 0
         return
 
     if layout_mode == ReorderLayout.FULL_WIDTH:
@@ -532,7 +575,10 @@ class ReorderTilesRequestSerializer(serializers.Serializer):
     tile_order = serializers.ListField(
         child=serializers.IntegerField(),
         min_length=1,
-        help_text="Array of tile IDs in the desired display order (top to bottom, left to right).",
+        help_text=(
+            "Array of tile IDs in the desired display order (top to bottom, left to right). "
+            "The three_column layout requires exactly the tile IDs returned by dashboard-get."
+        ),
     )
     layout = serializers.ChoiceField(
         choices=[mode.value for mode in ReorderLayout],
@@ -541,7 +587,10 @@ class ReorderTilesRequestSerializer(serializers.Serializer):
         help_text=(
             "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height "
             "and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per "
-            "row). 'full_width' forces each tile to span the full 12-column row at height 5."
+            "row). 'three_column' packs non-text tiles three per row at width 4 and height 5 while keeping text and "
+            "image tiles full-width at their saved height (or rendered default height 2 when no valid height is "
+            "saved); it requires exactly the tile IDs returned by dashboard-get. 'full_width' forces each tile to span "
+            "the full 12-column row at height 5."
         ),
     )
 
@@ -2967,16 +3016,37 @@ class DashboardsViewSet(
                 {"detail": "tile_order must contain unique tile IDs"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        requested_tile_ids = set(tile_order)
 
         tiles = DashboardTile.objects.filter(dashboard=dashboard, id__in=tile_order)
         tile_map = {tile.id: tile for tile in tiles}
 
-        missing = set(tile_order) - set(tile_map.keys())
+        missing = requested_tile_ids - set(tile_map.keys())
         if missing:
             return Response(
                 {"detail": f"Tile IDs not found on this dashboard: {sorted(missing)}"},
                 status=status.HTTP_404_NOT_FOUND,
             )
+
+        if layout_mode == ReorderLayout.THREE_COLUMN:
+            visible_tile_ids = set(DashboardTile.dashboard_queryset(dashboard.tiles.all()).values_list("id", flat=True))
+            omitted_tile_ids = visible_tile_ids - requested_tile_ids
+            unexpected_tile_ids = requested_tile_ids - visible_tile_ids
+            if omitted_tile_ids or unexpected_tile_ids:
+                mismatch_details = []
+                if omitted_tile_ids:
+                    mismatch_details.append(f"Missing tile IDs: {sorted(omitted_tile_ids)}")
+                if unexpected_tile_ids:
+                    mismatch_details.append(f"Unexpected tile IDs: {sorted(unexpected_tile_ids)}")
+                return Response(
+                    {
+                        "detail": (
+                            "three_column layout requires tile_order to contain exactly the tile IDs returned by "
+                            f"dashboard-get. {' '.join(mismatch_details)}"
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         _apply_reorder_layout(tile_order, tile_map, layout_mode)
 
