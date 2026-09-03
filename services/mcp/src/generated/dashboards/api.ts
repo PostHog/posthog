@@ -107,7 +107,10 @@ export const DashboardsCreateBody = () => zod
         name: zod.string().max(dashboardsCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
+        breakdown_colors: zod
+            .array(zod.record(zod.string(), zod.unknown()))
+            .optional()
+            .describe('Custom color mapping for breakdown values, as a list of breakdown color config objects.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
@@ -289,7 +292,10 @@ export const DashboardsPartialUpdateBody = () => zod
             .describe(
                 'Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.'
             ),
-        breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
+        breakdown_colors: zod
+            .array(zod.record(zod.string(), zod.unknown()))
+            .optional()
+            .describe('Custom color mapping for breakdown values, as a list of breakdown color config objects.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.string()).optional(),
         restriction_level: zod

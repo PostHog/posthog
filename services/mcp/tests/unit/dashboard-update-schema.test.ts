@@ -30,7 +30,7 @@ describe('dashboard-update schema', () => {
     it('accepts optional dashboard PATCH write params', () => {
         const result = tool.schema.safeParse({
             id: 1,
-            breakdown_colors: { series_a: '#ff0000' },
+            breakdown_colors: [{ breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-1' }],
             data_color_theme_id: 2,
             quick_filter_ids: ['00000000-0000-4000-8000-000000000001'],
             use_template: '',

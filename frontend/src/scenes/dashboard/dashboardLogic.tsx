@@ -133,6 +133,7 @@ import {
     buildSharedBreakdownValueLookup,
     extractBreakdownValuesByTile,
     findBreakdownColorConfig,
+    getPersistedBreakdownColors,
     hasUnresolvedBreakdownTiles,
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
@@ -1549,7 +1550,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         const persistedFilters = currentDashboard.persisted_filters || {}
                         const persistedVariables = currentDashboard.persisted_variables || {}
-                        const persistedBreakdownColors = currentDashboard.breakdown_colors || []
+                        const persistedBreakdownColors = getPersistedBreakdownColors(currentDashboard)
                         const persistedThemeId = currentDashboard.data_color_theme_id ?? null
 
                         const filtersChanged = !equal(persistedFilters, values.effectiveEditBarFilters || {})
@@ -3155,7 +3156,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             ): BreakdownColorConfig[] => {
                 const merged = mergeBreakdownColorConfigs(
                     temporaryBreakdownColors,
-                    dashboard?.breakdown_colors ?? []
+                    getPersistedBreakdownColors(dashboard)
                 ).filter((config) => !!config.colorToken)
 
                 if (!autoBreakdownColorsEnabled) {
@@ -3185,7 +3186,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 temporaryDataColorThemeId: { themeId: number | null } | null,
                 dashboard: DashboardType<QueryBasedInsightModel> | null
             ): boolean => {
-                const persisted = dashboard?.breakdown_colors ?? []
+                const persisted = getPersistedBreakdownColors(dashboard)
                 const colorsChanged = temporaryBreakdownColors.some((config) => {
                     const persistedConfig = findBreakdownColorConfig(
                         persisted,

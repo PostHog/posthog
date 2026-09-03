@@ -1211,6 +1211,14 @@ class DashboardCustomizationSerializer(serializers.Serializer):
     )
 
 
+class BreakdownColorsField(serializers.ListField):
+    # Writes still require a list of objects; reads tolerate legacy rows that stored a non-list value.
+    def to_representation(self, data: Any) -> list[Any]:
+        if not isinstance(data, list):
+            return []
+        return super().to_representation(data)
+
+
 class DashboardMetadataSerializer(DashboardBasicSerializer):
     filters = serializers.SerializerMethodField()
     variables = serializers.SerializerMethodField()
@@ -1219,7 +1227,11 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
-    breakdown_colors = serializers.JSONField(required=False, help_text="Custom color mapping for breakdown values.")
+    breakdown_colors = BreakdownColorsField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Custom color mapping for breakdown values, as a list of breakdown color config objects.",
+    )
     data_color_theme_id = serializers.IntegerField(
         required=False, allow_null=True, help_text="ID of the color theme used for chart visualizations."
     )
@@ -1581,7 +1593,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if existing_dashboard and existing_dashboard.variables:
             validated_data["variables"] = existing_dashboard.variables
 
-        if existing_dashboard and existing_dashboard.breakdown_colors:
+        # A legacy row can hold a non-list here. Copying one skips field validation and crashes the copy's response.
+        if (
+            existing_dashboard
+            and isinstance(existing_dashboard.breakdown_colors, list)
+            and existing_dashboard.breakdown_colors
+        ):
             validated_data["breakdown_colors"] = existing_dashboard.breakdown_colors
 
         if existing_dashboard and existing_dashboard.data_color_theme_id:

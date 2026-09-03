@@ -2,7 +2,15 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "breakdown_colors": {
-            "description": "Custom color mapping for breakdown values."
+            "description": "Custom color mapping for breakdown values, as a list of breakdown color config objects.",
+            "items": {
+                "additionalProperties": {},
+                "propertyNames": {
+                    "type": "string"
+                },
+                "type": "object"
+            },
+            "type": "array"
         },
         "data_color_theme_id": {
             "anyOf": [

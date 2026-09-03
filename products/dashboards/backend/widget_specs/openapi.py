@@ -287,9 +287,10 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         required=False,
         help_text="Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.",
     )
-    breakdown_colors = serializers.JSONField(
+    breakdown_colors = serializers.ListField(
+        child=serializers.DictField(),
         required=False,
-        help_text="Custom color mapping for breakdown values.",
+        help_text="Custom color mapping for breakdown values, as a list of breakdown color config objects.",
     )
     data_color_theme_id = serializers.IntegerField(
         required=False,
