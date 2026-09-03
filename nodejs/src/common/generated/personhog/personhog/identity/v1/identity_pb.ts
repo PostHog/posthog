@@ -639,7 +639,8 @@ export enum MergeSourceOutcome {
 
     /**
      * Another live lifecycle operation holds this person (or the source
-     * resolved differently between classification and claim). Retryable.
+     * resolved differently between classification and claim). Retryable
+     * only while unsettled; settled means this op's answer is frozen.
      *
      * @generated from enum value: MERGE_SOURCE_OUTCOME_SKIPPED_CONFLICT = 6;
      */
