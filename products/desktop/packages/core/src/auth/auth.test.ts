@@ -111,6 +111,7 @@ describe("AuthService", () => {
     refreshToken: vi.fn(),
     startFlow: vi.fn(),
     startSignupFlow: vi.fn(),
+    startOrganizationCreationFlow: vi.fn(),
     cancelFlow: vi.fn(),
   };
 
@@ -281,6 +282,244 @@ describe("AuthService", () => {
     });
     expect(sessionPort.getCurrent()).toBeNull();
   });
+
+  it("selects the new organization after its creation flow", async () => {
+    oauthFlow.startFlow.mockResolvedValue(
+      mockTokenResponse({ scopedOrgs: ["org-1"] }),
+    );
+    oauthFlow.startOrganizationCreationFlow.mockResolvedValue(
+      mockTokenResponse({ scopedOrgs: ["org-1", "org-2"] }),
+    );
+    stubAuthFetch({
+      currentOrgId: "org-2",
+      orgs: {
+        "org-1": {
+          name: "Org 1",
+          projects: [{ id: 42, name: "Project 42" }],
+        },
+        "org-2": {
+          name: "Org 2",
+          projects: [{ id: 84, name: "Project 84" }],
+        },
+      },
+    });
+
+    await service.initialize();
+    await service.login("us");
+    expect(service.getState()).toMatchObject({
+      currentOrgId: "org-1",
+      currentProjectId: 42,
+    });
+
+    await service.createOrganization("us");
+
+    expect(service.getState()).toMatchObject({
+      currentOrgId: "org-2",
+      currentProjectId: 84,
+    });
+  });
+
+  it("blocks project changes while organization creation is in progress", async () => {
+    oauthFlow.startFlow.mockResolvedValue(
+      mockTokenResponse({ scopedOrgs: ["org-1"] }),
+    );
+    let finishOrganizationCreation = (): void => {};
+    oauthFlow.startOrganizationCreationFlow.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishOrganizationCreation = () =>
+            resolve(mockTokenResponse({ scopedOrgs: ["org-1", "org-2"] }));
+        }),
+    );
+    stubAuthFetch({
+      currentOrgId: "org-2",
+      orgs: {
+        "org-1": {
+          name: "Org 1",
+          projects: [{ id: 42, name: "Project 42" }],
+        },
+        "org-2": {
+          name: "Org 2",
+          projects: [{ id: 84, name: "Project 84" }],
+        },
+      },
+    });
+    await service.initialize();
+    await service.login("us");
+
+    const organizationCreation = service.createOrganization("us");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await expect(service.selectProject(42)).rejects.toThrow(
+      "Authentication is in progress",
+    );
+    finishOrganizationCreation();
+    await organizationCreation;
+
+    expect(service.getState()).toMatchObject({
+      currentOrgId: "org-2",
+      currentProjectId: 84,
+    });
+  });
+
+  it("does not restore organization creation after logout", async () => {
+    oauthFlow.startFlow.mockResolvedValue(
+      mockTokenResponse({ scopedOrgs: ["org-1"] }),
+    );
+    oauthFlow.startOrganizationCreationFlow.mockResolvedValue(
+      mockTokenResponse({ scopedOrgs: ["org-1", "org-2"] }),
+    );
+    stubAuthFetch({
+      currentOrgId: "org-2",
+      orgs: {
+        "org-1": {
+          name: "Org 1",
+          projects: [{ id: 42, name: "Project 42" }],
+        },
+        "org-2": {
+          name: "Org 2",
+          projects: [{ id: 84, name: "Project 84" }],
+        },
+      },
+    });
+    await service.initialize();
+    await service.login("us");
+
+    const fetchBeforeOrganizationCreation = fetch;
+    let releaseUserFetch = (): void => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.url;
+        if (url.includes("/api/users/@me/") && init?.method !== "PATCH") {
+          return new Promise<Response>((resolve) => {
+            releaseUserFetch = () =>
+              fetchBeforeOrganizationCreation(input, init).then(resolve);
+          });
+        }
+        return fetchBeforeOrganizationCreation(input, init);
+      }),
+    );
+
+    const organizationCreation = service.createOrganization("us");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await service.logout();
+    releaseUserFetch();
+    await organizationCreation;
+
+    expect(service.getState().status).toBe("anonymous");
+    expect(sessionPort.getCurrent()).toBeNull();
+  });
+
+  it("does not let a delayed organization switch replace the new organization", async () => {
+    oauthFlow.startFlow.mockResolvedValue(
+      mockTokenResponse({ scopedOrgs: ["org-1", "org-2"] }),
+    );
+    oauthFlow.startOrganizationCreationFlow.mockResolvedValue(
+      mockTokenResponse({ scopedOrgs: ["org-1", "org-2", "org-3"] }),
+    );
+    stubAuthFetch({
+      currentOrgId: "org-3",
+      orgs: {
+        "org-1": {
+          name: "Org 1",
+          projects: [{ id: 42, name: "Project 42" }],
+        },
+        "org-2": {
+          name: "Org 2",
+          projects: [{ id: 84, name: "Project 84" }],
+        },
+        "org-3": {
+          name: "Org 3",
+          projects: [{ id: 126, name: "Project 126" }],
+        },
+      },
+    });
+    await service.initialize();
+    await service.login("us");
+
+    const fetchBeforeSwitch = fetch;
+    let releaseSwitch = (): void => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.url;
+        if (url.includes("/api/users/@me/") && init?.method === "PATCH") {
+          return new Promise<Response>((resolve) => {
+            releaseSwitch = () =>
+              resolve(
+                new Response(JSON.stringify({}), {
+                  status: 200,
+                  headers: { "Content-Type": "application/json" },
+                }),
+              );
+          });
+        }
+        return fetchBeforeSwitch(input, init);
+      }),
+    );
+
+    const switchOrganization = service.switchOrg("org-2");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await service.createOrganization("us");
+    releaseSwitch();
+    await switchOrganization;
+
+    expect(service.getState()).toMatchObject({
+      currentOrgId: "org-3",
+      currentProjectId: 126,
+    });
+  });
+
+  it.each([
+    {
+      browserAccountKey: "user-2",
+      error: "Your browser is signed in to a different PostHog account",
+    },
+    {
+      browserAccountKey: null,
+      error: "PostHog could not verify your browser account",
+    },
+  ])(
+    "keeps the Desktop account when $error",
+    async ({ browserAccountKey, error }) => {
+      oauthFlow.startFlow.mockResolvedValue(
+        mockTokenResponse({ scopedOrgs: ["org-1"] }),
+      );
+      oauthFlow.startOrganizationCreationFlow.mockResolvedValue(
+        mockTokenResponse({ scopedOrgs: ["org-2"] }),
+      );
+      stubAuthFetch({
+        accountKey: "user-1",
+        currentOrgId: "org-1",
+        orgs: {
+          "org-1": {
+            name: "Org 1",
+            projects: [{ id: 42, name: "Project 42" }],
+          },
+        },
+      });
+
+      await service.initialize();
+      await service.login("us");
+
+      stubAuthFetch({
+        accountKey: browserAccountKey,
+        currentOrgId: "org-2",
+        orgs: {
+          "org-2": {
+            name: "Org 2",
+            projects: [{ id: 84, name: "Project 84" }],
+          },
+        },
+      });
+
+      await expect(service.createOrganization("us")).rejects.toThrow(error);
+      expect(service.getState()).toMatchObject({
+        currentOrgId: "org-1",
+        currentProjectId: 42,
+      });
+    },
+  );
 
   it("signs out an impersonated session when a refresh is required", async () => {
     oauthFlow.startFlow.mockResolvedValue(

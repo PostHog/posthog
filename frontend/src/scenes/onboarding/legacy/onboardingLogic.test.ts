@@ -744,6 +744,39 @@ describe('onboardingLogic — flow composition', () => {
             expect(router.values.location.pathname).toMatch(/quickstart|insight/i)
         })
 
+        it('reloads the OAuth authorization page on completion', async () => {
+            const nextPath = '/oauth/authorize?client_id=desktop&redirect_uri=posthog-code%3A%2F%2Fcallback'
+            const originalLocation = window.location
+            let currentHref = originalLocation.href
+            Object.defineProperty(window, 'location', {
+                configurable: true,
+                value: {
+                    ...originalLocation,
+                    origin: originalLocation.origin,
+                    get href() {
+                        return currentHref
+                    },
+                    set href(value: string) {
+                        currentHref = new URL(value, originalLocation.origin).href
+                    },
+                },
+            })
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+            logic.actions.setOnCompleteOnboardingRedirectUrl(nextPath)
+
+            try {
+                await expectLogic(logic, () => {
+                    completeProduct()
+                }).toFinishAllListeners()
+                expect(window.location.href).toBe(new URL(nextPath, originalLocation.origin).href)
+            } finally {
+                Object.defineProperty(window, 'location', {
+                    configurable: true,
+                    value: originalLocation,
+                })
+            }
+        })
+
         it('does not redirect on completion under the self-driving variant', async () => {
             setVariant('self-driving')
             router.actions.push(urls.default())
