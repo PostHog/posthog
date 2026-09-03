@@ -836,8 +836,14 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 }
                 cache.activeRecalculationId = recalculationId
 
+                /**
+                 * if for any reason the recalculation workflow never reaches terminal state, we need to
+                 * stop polling, and clear recalculation state. This includes any queued rerun, that will never
+                 * be fired.
+                 */
                 if (Date.now() - (cache.recalcStartMs ?? Date.now()) > MAX_POLL_DURATION_MS) {
                     actions.setRecalculatingMetricUuids([])
+                    actions.setQueuedRerun(null)
                     lemonToast.error('Recalculation appears stuck. Please reload to try again.')
                     return
                 }
@@ -856,9 +862,11 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     /**
                      * Retry on transient errors, but give up after MAX_POLL_RETRIES consecutive failures so a
                      * persistently failing endpoint can't poll forever.
+                     * If we reach the retry cap, we also need to clear queued reruns that never fire.
                      */
                     cache.pollRetryCount = (cache.pollRetryCount ?? 0) + 1
                     if (cache.pollRetryCount >= MAX_POLL_RETRIES) {
+                        actions.setQueuedRerun(null)
                         lemonToast.error('Failed to load recalculation results. Please reload to try again.')
                         return
                     }

@@ -791,6 +791,8 @@ describe('experimentMetricsLogic', () => {
 
             // Flush afterMount → 404 → trigger → poll(create), then drive enough ticks to exhaust retries.
             await jest.advanceTimersByTimeAsync(0)
+            // A config change queued a rerun while the run was in flight.
+            logic.actions.setQueuedRerun('metric_config_change')
             for (let i = 0; i < MAX_POLL_RETRIES + 2; i++) {
                 await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
             }
@@ -800,6 +802,9 @@ describe('experimentMetricsLogic', () => {
             expect(lemonToast.error).toHaveBeenCalledWith(
                 'Failed to load recalculation results. Please reload to try again.'
             )
+            // The bail clears the queued rerun so it can't strand: the terminal branch (its only consumer)
+            // never runs on a give-up path.
+            expect(logic.values.queuedRerun).toBeNull()
         })
 
         it('on a cold_run, applies partial results mid-flight before the run is terminal', async () => {
