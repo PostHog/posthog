@@ -1943,6 +1943,25 @@ export interface AccessControlFilterWarningApi {
     type?: 'access_control'
 }
 
+export type EventsScanWarningReasonApi = (typeof EventsScanWarningReasonApi)[keyof typeof EventsScanWarningReasonApi]
+
+export const EventsScanWarningReasonApi = {
+    PropertyFilterWithoutEvent: 'property_filter_without_event',
+    NoTimeBound: 'no_time_bound',
+} as const
+
+export interface EventsScanWarningApi {
+    /** End offset of the `events` reference in the query text, when known */
+    end?: number | null
+    /** Human-readable warning shown to the user */
+    message: string
+    reason: EventsScanWarningReasonApi
+    /** Start offset of the `events` reference in the query text, when known */
+    start?: number | null
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'events_scan'
+}
+
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface TrendsQueryResponseApi {
@@ -1967,7 +1986,7 @@ export interface TrendsQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export type BaseMathTypeApi = (typeof BaseMathTypeApi)[keyof typeof BaseMathTypeApi]
@@ -3188,7 +3207,7 @@ export interface FunnelsQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export type FunnelsDataWarehouseNodeApiResponse = { [key: string]: unknown } | null
@@ -3377,7 +3396,7 @@ export interface RetentionQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
@@ -3675,7 +3694,7 @@ export interface PathsQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface PathsQueryApi {
@@ -3849,7 +3868,7 @@ export interface PathsV2QueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface PathsV2QueryApi {
@@ -3922,7 +3941,7 @@ export interface StickinessQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export type StickinessComputationModeApi =
@@ -4073,7 +4092,7 @@ export interface LifecycleQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export type LifecycleDataWarehouseNodeApiResponse = { [key: string]: unknown } | null
@@ -4336,7 +4355,7 @@ export interface WebStatsTableQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface WebAnalyticsSamplingApi {
@@ -4429,7 +4448,7 @@ export interface WebOverviewQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface WebOverviewQueryApi {
@@ -4559,7 +4578,7 @@ export interface ResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface Response1Api {
@@ -4587,7 +4606,7 @@ export interface Response1Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface Response2Api {
@@ -4615,7 +4634,7 @@ export interface Response2Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface HogQLNoticeApi {
@@ -4720,8 +4739,8 @@ export interface Response3Api {
     types?: unknown[] | null
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Also carries access control warnings when a system-table query filters out objects the user can't access, and events scan warnings when a SQL query reads the events table without a filter the sort key can use. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface Response4Api {
@@ -4749,7 +4768,7 @@ export interface Response4Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface Response5Api {
@@ -4782,7 +4801,7 @@ export interface Response5Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface Response6Api {
@@ -4810,7 +4829,7 @@ export interface Response6Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface Response7Api {
@@ -4837,7 +4856,7 @@ export interface Response7Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface Response8Api {
@@ -4868,7 +4887,7 @@ export interface Response8Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface WebVitalsPathBreakdownResultItemApi {
@@ -4908,7 +4927,7 @@ export interface Response9Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface Response10Api {
@@ -4935,7 +4954,7 @@ export interface Response10Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface Response11Api {
@@ -4962,7 +4981,7 @@ export interface Response11Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface MarketingAnalyticsItemApi {
@@ -5000,7 +5019,7 @@ export interface Response12Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export type Response13ApiResults = { [key: string]: MarketingAnalyticsItemApi }
@@ -5025,7 +5044,7 @@ export interface Response13Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface Response14Api {
@@ -5053,7 +5072,7 @@ export interface Response14Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface VolumeBucketApi {
@@ -5223,7 +5242,7 @@ export interface Response15Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface PopulationApi {
@@ -5273,7 +5292,7 @@ export interface Response16Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export type ExperimentSignificanceCodeApi =
@@ -5446,7 +5465,7 @@ export interface Response19Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface Response21Api {
@@ -5473,7 +5492,7 @@ export interface Response21Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface Response22Api {
@@ -5503,7 +5522,7 @@ export interface Response22Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface AccountsTableCustomPropertyHistoryPointApi {
@@ -5576,7 +5595,7 @@ export interface Response23Api {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export type TaxonomicFilterGroupTypeApi = (typeof TaxonomicFilterGroupTypeApi)[keyof typeof TaxonomicFilterGroupTypeApi]
@@ -5737,7 +5756,7 @@ export interface EventsQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export type CompareApi = (typeof CompareApi)[keyof typeof CompareApi]
@@ -5772,7 +5791,7 @@ export interface ActorsQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface InsightActorsQueryApi {
@@ -6058,7 +6077,7 @@ export interface FunnelCorrelationResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface FunnelCorrelationQueryApi {
@@ -6659,8 +6678,8 @@ export interface HogQLQueryResponseApi {
     types?: unknown[] | null
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Also carries access control warnings when a system-table query filters out objects the user can't access, and events scan warnings when a SQL query reads the events table without a filter the sort key can use. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface HogQLVariableApi {
@@ -6776,7 +6795,7 @@ export interface GroupsQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface GroupsQueryApi {
@@ -6821,7 +6840,7 @@ export interface WebExternalClicksTableQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface WebExternalClicksTableQueryApi {
@@ -6890,7 +6909,7 @@ export interface WebBotsTableQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface WebBotsTableQueryApi {
@@ -6956,7 +6975,7 @@ export interface WebGoalsQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface WebGoalsQueryApi {
@@ -7081,7 +7100,7 @@ export interface WebVitalsPathBreakdownQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface WebVitalsPathBreakdownQueryApi {
@@ -7168,7 +7187,7 @@ export interface SessionAttributionExplorerQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface SessionAttributionExplorerQueryApi {
@@ -7209,7 +7228,7 @@ export interface SessionsQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface SessionsQueryApi {
@@ -7683,7 +7702,7 @@ export interface MarketingAnalyticsTableQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface MarketingAnalyticsTableQueryApi {
@@ -7756,7 +7775,7 @@ export interface MarketingAnalyticsAggregatedQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface MarketingAnalyticsAggregatedQueryApi {
@@ -7824,7 +7843,7 @@ export interface NonIntegratedConversionsTableQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface NonIntegratedConversionsTableQueryApi {
@@ -7927,7 +7946,7 @@ export interface ErrorTrackingQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface ErrorTrackingQueryApi {
@@ -7992,7 +8011,7 @@ export interface ErrorTrackingIssueCorrelationQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface ErrorTrackingIssueCorrelationQueryApi {
@@ -8103,7 +8122,7 @@ export interface TracesQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface TracesQueryApi {
@@ -8183,7 +8202,7 @@ export interface TraceQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface TraceQueryApi {
@@ -8252,7 +8271,7 @@ export interface SessionQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface SessionQueryApi {
@@ -8330,7 +8349,7 @@ export interface EndpointsUsageTableQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface EndpointsUsageTableQueryApi {
@@ -8379,7 +8398,7 @@ export interface AccountsQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export interface AccountsQueryApi {
@@ -8635,7 +8654,7 @@ export interface AccountsTableQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export type AccountsTableSortDirectionApi =
@@ -9200,6 +9219,8 @@ export type InsightApiResolvedDateRange = {
     readonly date_to?: string
 } | null
 
+export type InsightApiWarningsItem = { [key: string]: unknown }
+
 /**
  * Simplified serializer to speed response times when loading large amounts of objects.
  */
@@ -9301,6 +9322,8 @@ export interface InsightApi {
     readonly types: readonly unknown[] | null
     /** @nullable */
     readonly resolved_date_range: InsightApiResolvedDateRange
+    /** @nullable */
+    readonly warnings: readonly InsightApiWarningsItem[] | null
     _create_in_folder?: string
     readonly alerts: readonly unknown[]
     /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */

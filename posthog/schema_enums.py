@@ -1221,6 +1221,11 @@ class UrlMatching(Enum):
     NONE_TYPE_NONE = None
 
 
+class EventsScanWarningReason(StrEnum):
+    PROPERTY_FILTER_WITHOUT_EVENT = "property_filter_without_event"
+    NO_TIME_BOUND = "no_time_bound"
+
+
 class MultipleVariantHandling(StrEnum):
     EXCLUDE = "exclude"
     FIRST_SEEN = "first_seen"

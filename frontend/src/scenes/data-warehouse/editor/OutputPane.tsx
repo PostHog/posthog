@@ -62,6 +62,7 @@ import {
     type AccessControlFilterWarning,
     type DataTableNode,
     type DataWarehouseSyncWarning,
+    type EventsScanWarning,
     type HogQLQueryResponse,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -1051,6 +1052,7 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
     }
     const syncWarnings = warnings.filter((w): w is DataWarehouseSyncWarning => w.type === 'warehouse_sync')
     const acWarnings = warnings.filter((w): w is AccessControlFilterWarning => w.type === 'access_control')
+    const scanWarnings = warnings.filter((w): w is EventsScanWarning => w.type === 'events_scan')
     return (
         <>
             {syncWarnings.length > 0 && (
@@ -1092,6 +1094,20 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
                             {warning.message}
                         </div>
                     ))}
+                </LemonBanner>
+            )}
+            {scanWarnings.length > 0 && (
+                <LemonBanner
+                    type="warning"
+                    className="m-2 flex-shrink-0"
+                    data-attr="sql-editor-output-pane-events-scan-warnings"
+                >
+                    This query reads more of your events than it needs to:
+                    <ul className="list-disc pl-5">
+                        {scanWarnings.map((warning, index) => (
+                            <li key={index}>{warning.message}</li>
+                        ))}
+                    </ul>
                 </LemonBanner>
             )}
         </>

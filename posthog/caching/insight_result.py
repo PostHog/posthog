@@ -22,6 +22,9 @@ class InsightResult:
     types: Optional[list] = None
     # A ResolvedDateRangeResponse-shaped dict — the field carries model_dump output
     resolved_date_range: Optional[dict] = None
+    # HogQLQueryResponse-shaped warning dicts (`type` tells the kinds apart), carried so a
+    # dashboard tile can show them without re-running the query
+    warnings: Optional[list[dict]] = None
 
 
 @dataclass(frozen=True)

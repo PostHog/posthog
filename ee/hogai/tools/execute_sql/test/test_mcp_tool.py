@@ -203,3 +203,22 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         # something other than what the caller asked for.
         with self.assertRaises(MaxToolRetryableError):
             await self.tool.execute(ExecuteSQLMCPToolArgs(query="SELECT 1", sendRawQuery=True))
+
+    async def test_scan_warning_for_property_filter_without_event_name(self):
+        content = await self.tool.execute(
+            ExecuteSQLMCPToolArgs(
+                query="SELECT count() FROM events WHERE properties.plan = 'pro' AND timestamp >= now() - INTERVAL 7 DAY"
+            ),
+        )
+
+        self.assertIn("performance_warnings", content)
+        self.assertIn("Filter by event name first", content)
+
+    async def test_no_scan_warning_for_event_filtered_query(self):
+        content = await self.tool.execute(
+            ExecuteSQLMCPToolArgs(
+                query="SELECT count() FROM events WHERE event = 'paid' AND timestamp >= now() - INTERVAL 7 DAY"
+            ),
+        )
+
+        self.assertNotIn("performance_warnings", content)

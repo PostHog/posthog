@@ -1,9 +1,22 @@
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from posthog.schema import HogQLNotice
 
 from posthog.hogql import ast
+from posthog.hogql.events_scan import (
+    EventsScanReason,
+    events_seen_with_properties,
+    find_events_scans,
+    finding_fix,
+    finding_message,
+)
+
+from posthog.dataclasses import frozen
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 
 @dataclass(frozen=True)
@@ -12,16 +25,22 @@ class SubqueryFingerprint:
     where: str | None
 
 
+@frozen
+class MetadataHeuristicNotices:
+    warnings: list[HogQLNotice]
+    notices: list[HogQLNotice]
+
+
 class MetadataHeuristic:
-    def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> list[HogQLNotice]:
+    def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> MetadataHeuristicNotices:
         raise NotImplementedError()
 
 
 class SimilarSubqueryHeuristic(MetadataHeuristic):
-    def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> list[HogQLNotice]:
+    def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> MetadataHeuristicNotices:
         subqueries = _collect_join_subqueries(query)
         if not subqueries:
-            return []
+            return MetadataHeuristicNotices(warnings=[], notices=[])
 
         grouped: dict[SubqueryFingerprint, list[ast.SelectQuery]] = defaultdict(list)
         for subquery in subqueries:
@@ -50,17 +69,54 @@ class SimilarSubqueryHeuristic(MetadataHeuristic):
                     )
                 )
 
-        return warnings
+        return MetadataHeuristicNotices(warnings=warnings, notices=[])
 
 
-def run_metadata_heuristics(query: ast.SelectQuery | ast.SelectSetQuery) -> list[HogQLNotice]:
-    heuristics: list[MetadataHeuristic] = [SimilarSubqueryHeuristic()]
-    warnings: list[HogQLNotice] = []
+class EventsScanHeuristic(MetadataHeuristic):
+    """Warn when a SELECT reads `events` without a filter the sort key can use.
+
+    A property filter with no event name filter, or a missing timestamp bound, is a warning:
+    the query does far more work than the same question needs. Reading every event with no
+    filter at all is often the point of the query, so that is only a notice.
+    """
+
+    def __init__(self, team: "Team | None" = None) -> None:
+        self.team = team
+
+    def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> MetadataHeuristicNotices:
+        findings = find_events_scans(query)
+        property_names = [name for finding in findings for name in finding.property_names]
+        events_by_property = (
+            events_seen_with_properties(self.team, property_names) if self.team and property_names else {}
+        )
+
+        result = MetadataHeuristicNotices(warnings=[], notices=[])
+        for finding in findings:
+            notice = HogQLNotice(
+                message=finding_message(finding, events_by_property),
+                start=finding.start,
+                end=finding.end,
+                fix=finding_fix(finding),
+            )
+            if finding.reason == EventsScanReason.NO_EVENT_FILTER:
+                result.notices.append(notice)
+            else:
+                result.warnings.append(notice)
+        return result
+
+
+def run_metadata_heuristics(
+    query: ast.SelectQuery | ast.SelectSetQuery, team: "Team | None" = None
+) -> MetadataHeuristicNotices:
+    heuristics: list[MetadataHeuristic] = [SimilarSubqueryHeuristic(), EventsScanHeuristic(team)]
+    result = MetadataHeuristicNotices(warnings=[], notices=[])
 
     for heuristic in heuristics:
-        warnings.extend(heuristic.run(query))
+        heuristic_result = heuristic.run(query)
+        result.warnings.extend(heuristic_result.warnings)
+        result.notices.extend(heuristic_result.notices)
 
-    return warnings
+    return result
 
 
 def _collect_join_subqueries(query: ast.SelectQuery | ast.SelectSetQuery) -> list[ast.SelectQuery]:

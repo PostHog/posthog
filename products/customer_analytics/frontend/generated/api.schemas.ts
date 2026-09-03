@@ -1460,6 +1460,25 @@ export interface AccessControlFilterWarningApi {
     type?: 'access_control'
 }
 
+export type EventsScanWarningReasonApi = (typeof EventsScanWarningReasonApi)[keyof typeof EventsScanWarningReasonApi]
+
+export const EventsScanWarningReasonApi = {
+    PropertyFilterWithoutEvent: 'property_filter_without_event',
+    NoTimeBound: 'no_time_bound',
+} as const
+
+export interface EventsScanWarningApi {
+    /** End offset of the `events` reference in the query text, when known */
+    end?: number | null
+    /** Human-readable warning shown to the user */
+    message: string
+    reason: EventsScanWarningReasonApi
+    /** Start offset of the `events` reference in the query text, when known */
+    start?: number | null
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'events_scan'
+}
+
 export interface AccountsTableQueryResponseApi {
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -1485,7 +1504,7 @@ export interface AccountsTableQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | EventsScanWarningApi)[] | null
 }
 
 export type AccountsTableSortDirectionApi =

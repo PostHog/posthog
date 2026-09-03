@@ -2268,3 +2268,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(mock_sync_execute.call_count, 1)
         mock_sleep.assert_not_called()
+
+    def test_user_sql_response_warns_about_events_scans(self):
+        query = "SELECT count() FROM events WHERE properties.plan = 'pro'"
+
+        response = execute_hogql_query(query, team=self.team, query_type="HogQLQuery")
+        assert response.warnings is not None
+        self.assertEqual(
+            [(warning.type, warning.reason) for warning in response.warnings],
+            [("events_scan", "property_filter_without_event"), ("events_scan", "no_time_bound")],
+        )
+        self.assertEqual(query[response.warnings[0].start : response.warnings[0].end], "events")
+
+        # Insight runners build their own event filters, so only user-written SQL is checked
+        self.assertIsNone(execute_hogql_query(query, team=self.team).warnings)

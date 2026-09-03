@@ -40,6 +40,7 @@ import {
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { ApiError, isAccessDeniedError } from 'lib/api-error'
 import { DataColorTheme } from 'lib/colors'
+import { eventsScanWarningMessage } from 'lib/components/Cards/InsightCard/eventsScanWarning'
 import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -164,6 +165,8 @@ import {
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
+
+const EVENTS_SCAN_BANNER_SNOOZE_DAYS = 30
 
 export interface DashboardLogicProps {
     id: number
@@ -319,6 +322,8 @@ export interface dashboardLogicValues {
         variable: Variable
     }[]
     error404: boolean
+    eventsScanBannerSnoozedUntil: string | null
+    eventsScanWarningTileCount: number
     externalFilters: DashboardFilter
     filtersOverrideForLoad: DashboardFilter
     hasIntermittentFilters: boolean
@@ -363,6 +368,7 @@ export interface dashboardLogicValues {
     shouldUseStreaming: boolean
     showApplyFiltersBanner: boolean
     showButtonTileModal: boolean
+    showEventsScanBanner: boolean
     showImageTileModal: boolean
     showRetentionBanner: boolean
     showSubscriptions: boolean
@@ -907,6 +913,9 @@ export interface dashboardLogicActions {
     setWidgetRunResults: (results: Record<number, DashboardWidgetRunResultApi>) => {
         results: Record<number, DashboardWidgetRunResultApi>
     }
+    snoozeEventsScanBanner: () => {
+        value: true
+    }
     tileStreamingComplete: () => {
         value: true
     }
@@ -1046,6 +1055,14 @@ export interface dashboardLogicMeta {
             insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[],
             effectiveEditBarFilters: DashboardFilter,
             retentionMonths: number | null
+        ) => boolean
+        eventsScanWarningTileCount: (
+            insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
+        ) => number
+        showEventsScanBanner: (
+            eventsScanWarningTileCount: any,
+            eventsScanBannerSnoozedUntil: any,
+            placement: DashboardPlacement
         ) => boolean
         showRetentionBanner: (
             warningEligible: boolean,
@@ -1247,6 +1264,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
     }),
 
     actions(() => ({
+        /** Hide the events scan banner on this dashboard for a while; the per-tile icons stay. */
+        snoozeEventsScanBanner: true,
         /**
          * Dashboard loading and dashboard tile refreshes.
          */
@@ -2274,6 +2293,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     loadLayoutFromServerOnPreview,
             },
         ],
+        eventsScanBannerSnoozedUntil: [
+            null as string | null,
+            { persist: true, prefix: '1_' },
+            {
+                snoozeEventsScanBanner: () => now().add(EVENTS_SCAN_BANNER_SNOOZE_DAYS, 'day').toISOString(),
+            },
+        ],
         autoRefresh: [
             {
                 interval: AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
@@ -2637,6 +2663,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         retentionMonths,
                     })
                 ),
+        ],
+        // Tiles whose last run warned that the SQL reads the events table without a filter the sort key can use
+        eventsScanWarningTileCount: [
+            (s) => [s.insightTiles],
+            (insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]): number =>
+                (insightTiles || []).filter((tile) => !!eventsScanWarningMessage(tile.insight?.warnings)).length,
+        ],
+        showEventsScanBanner: [
+            (s) => [s.eventsScanWarningTileCount, s.eventsScanBannerSnoozedUntil, s.placement],
+            (tileCount: number, snoozedUntil: string | null, placement: DashboardPlacement): boolean =>
+                tileCount > 0 &&
+                !(snoozedUntil && dayjs(snoozedUntil).isAfter(now())) &&
+                placement !== DashboardPlacement.Public &&
+                placement !== DashboardPlacement.Export,
         ],
         showRetentionBanner: [
             (s) => [s.warningEligible, s.anyInsightExceedsRetention, s.placement],

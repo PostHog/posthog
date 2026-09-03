@@ -661,6 +661,7 @@ class InsightSerializer(InsightBasicSerializer):
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
     resolved_date_range = serializers.SerializerMethodField(read_only=True)
+    warnings = serializers.SerializerMethodField(read_only=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
     filter_override_context = serializers.SerializerMethodField(
@@ -707,6 +708,7 @@ class InsightSerializer(InsightBasicSerializer):
             "hogql",
             "types",
             "resolved_date_range",
+            "warnings",
             "_create_in_folder",
             "alerts",
             "filter_override_context",
@@ -1149,6 +1151,10 @@ class InsightSerializer(InsightBasicSerializer):
     def get_resolved_date_range(self, insight: Insight):
         return self.insight_result(insight).resolved_date_range
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField(), allow_null=True))
+    def get_warnings(self, insight: Insight):
+        return self.insight_result(insight).warnings
+
     @extend_schema_field(serializers.ListField())
     def get_alerts(self, insight: Insight):
         if insight.alertable_query_kind is None:
@@ -1338,6 +1344,7 @@ class InsightSerializer(InsightBasicSerializer):
                     query_status=cached_response.get("query_status"),
                     hogql=cached_response.get("hogql"),
                     types=cached_response.get("types"),
+                    warnings=cached_response.get("warnings"),
                 )
             else:
                 EXPORT_QUERY_CACHE_MISS.inc()

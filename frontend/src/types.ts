@@ -59,6 +59,7 @@ import type {
     EndpointQueryNode,
     HogQLQuery,
     HogQLQueryModifiers,
+    HogQLQueryResponse,
     HogQLVariable,
     InsightVizNode,
     MarketingAnalyticsConfig,
@@ -2649,6 +2650,8 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     is_cached?: boolean
     filter_override_context?: InsightFilterOverrideContextApi | null
     resolved_date_range?: ResolvedDateRangeResponse | null
+    /** Warnings from the last run, such as a SQL query that reads the events table without a usable filter */
+    warnings?: HogQLQueryResponse['warnings'] | null
     /** Only used when creating objects */
     _create_in_folder?: string | null
 }

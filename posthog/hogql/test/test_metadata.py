@@ -24,7 +24,7 @@ from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
 from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
 
-from posthog.models import EventDefinition, PropertyDefinition, Team
+from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.facade.models import InsightVariable
@@ -1238,3 +1238,24 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertFalse(any("very similar" in warning.message for warning in metadata.warnings))
+
+    def test_metadata_warns_when_events_are_read_without_a_usable_filter(self):
+        EventProperty.objects.create(team=self.team, event="paid", property="plan")
+
+        query = "SELECT count() FROM events WHERE properties.plan = 'pro'"
+        metadata = self._select(query)
+
+        self.assertEqual(len(metadata.warnings), 2)
+        property_warning, time_warning = metadata.warnings
+        self.assertIn("reads every event in its date range to check a property", property_warning.message)
+        self.assertIn("Events seen with plan: paid", property_warning.message)
+        self.assertTrue(property_warning.fix and property_warning.fix.startswith("ai_prompt:"))
+        self.assertEqual(query[property_warning.start : property_warning.end], "events")
+        self.assertIn("no timestamp bound", time_warning.message)
+
+        all_events = self._select(
+            "SELECT event, count() FROM events WHERE timestamp >= now() - INTERVAL 7 DAY GROUP BY event"
+        )
+        self.assertEqual(all_events.warnings, [])
+        self.assertEqual(len(all_events.notices), 1)
+        self.assertIn("reads every event in its date range", all_events.notices[0].message)

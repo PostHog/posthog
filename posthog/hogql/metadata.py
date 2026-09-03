@@ -83,6 +83,7 @@ def get_hogql_metadata(
         )
 
     heuristic_warnings: list[HogQLNotice] = []
+    heuristic_notices: list[HogQLNotice] = []
     context: Optional[HogQLContext] = None
 
     try:
@@ -125,7 +126,9 @@ def get_hogql_metadata(
                     )
                     hogql_ast = cast(ast.SelectQuery, replace_placeholders(hogql_ast, query.globals))
 
-            heuristic_warnings.extend(run_metadata_heuristics(hogql_ast))
+            heuristic_result = run_metadata_heuristics(hogql_ast, team)
+            heuristic_warnings.extend(heuristic_result.warnings)
+            heuristic_notices.extend(heuristic_result.notices)
             hogql_table_names = get_table_names(hogql_ast)
             heuristic_warnings.extend(validate_taxonomy_references(hogql_ast, team, hogql_table_names))
             response.table_names = hogql_table_names
@@ -171,7 +174,7 @@ def get_hogql_metadata(
     finally:
         if context is not None:
             response.warnings = [*context.warnings, *heuristic_warnings]
-            response.notices = context.notices
+            response.notices = [*context.notices, *heuristic_notices]
             if response.errors:
                 response.errors = [*context.errors, *response.errors]
             else:

@@ -12,6 +12,7 @@ import { performQuery } from '~/queries/query'
 import {
     AccessControlFilterWarning,
     DataWarehouseSyncWarning,
+    EventsScanWarning,
     HogQLQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -80,7 +81,7 @@ export interface CustomSqlPreview {
     rowCount: number
     hasMore: boolean
     /** Sources this query read that are stale, or resources access control filtered out, so the verdict is not final. */
-    warnings: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    warnings: (DataWarehouseSyncWarning | AccessControlFilterWarning | EventsScanWarning)[]
 }
 
 export interface DataQualityCheckEditorLogicProps {
