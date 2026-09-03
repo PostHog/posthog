@@ -6649,13 +6649,13 @@ snapshots:
     scenes-app-engineering-analytics-delivery-pipeline--without-deploys--light:
         hash: v1.k794b7964.5eaee687a224ef9cd7d3707391948732cacb11769bdd619f315a101abcb85de1.ymQC-4XF77SeJ0AN5SrtlyYKs8Ve29MBfz4J8FGLWtg
     scenes-app-engineering-analytics-health--health--dark:
-        hash: v1.k794b7964.0698630f83c06821e9d53560c494f1af19db540011811a1dcdc991ba671d17e1.wGW1HadqzVFD6pQY0t78xDUa_2cRYoVdw3TlTut2Msw
+        hash: v1.k794b7964.beb194c79dcda2d45e0b6cd70af895f086f3a69a0a710aab0060d162ed3ef5ec._Vs4eQgavmmj4cIZC4j2KGrex5m6E1xY_h1QWB2m7o0
     scenes-app-engineering-analytics-health--health--light:
-        hash: v1.k794b7964.6cbd8e6f7aa43598813da531f94c49b5183eb94657fde7220b5b93827c2416a8.6RZB5K8kWBt7BSu7ISVkrceeM8SrqyjEnXzL0wMol8Y
+        hash: v1.k794b7964.4c6326fdacae22c513cc4c22ba4dbeec18e64d7573befbd827a9a067b4032236.LjsN9asnLhIwhjL1nmRKaRPVMJz8p3XXMEniUPRCOJo
     scenes-app-engineering-analytics-health--health-without-deploy-data--dark:
-        hash: v1.k794b7964.e64ec2c7f4ed0762b6d3ce9d75ee14d005480b50c9717ff2186760ee44d1ed4e.TqU2tqFhhU9TAMa5r5bYL4sATkxF2gVcbY1KwoBgefE
+        hash: v1.k794b7964.fcf17a2c752c6a453a760c7becc9ce9392456414f4a7e1e8a38b66660074c558.B4MjMp8wzV3OLnnbsaCK3yFK4eOuKiMT6fSGlvr8v68
     scenes-app-engineering-analytics-health--health-without-deploy-data--light:
-        hash: v1.k794b7964.ba70bf7cbfe68960e5f69d0113958817c0730924483b2d2754d6fb4f69d75521.G4uDkutjqMoenrNbQXODQ8R5Zh3E-CMqWOGIW02FCOo
+        hash: v1.k794b7964.5fb1127eed77a6a9db9aceba7b679ddfa5b1e6c6cfcfd1eed7ba64de0bb08de7.G8glZpP9JYR21nolZhaVBuN5ySWpHQbAU1f-5TCUeJA
     scenes-app-engineering-analytics-lead-time-box-plot--default--dark:
         hash: v1.k794b7964.a88a986e975778b0ad232c7e8f75211b0d66acb126082b2f781fd9d5641ff28d.P4_7HWOcC-Z8pGr_2GTGkAc_fzupx_TRaZdlauEmVQE
     scenes-app-engineering-analytics-lead-time-box-plot--default--light:
