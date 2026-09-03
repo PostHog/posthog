@@ -550,6 +550,8 @@ export const ChannelHomeComposer = forwardRef<
               onGatewayModelSelect={handlePiGatewayModelSelect}
               menuOpen={modelMenuOpen}
               onMenuOpenChange={setModelMenuOpen}
+              showBillingMenu
+              workspaceMode={workspaceMode}
             />
           ) : null
         }

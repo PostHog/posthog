@@ -1660,6 +1660,8 @@ export function TaskInput({
                         onGatewayModelSelect={handlePiGatewayModelSelect}
                         menuOpen={modelMenuOpen}
                         onMenuOpenChange={setModelMenuOpen}
+                        showBillingMenu
+                        workspaceMode={workspaceMode}
                       />
                     ) : null
                   }

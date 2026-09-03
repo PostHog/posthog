@@ -571,6 +571,7 @@ export class TaskCreationSaga extends Saga<
               prompt,
               model: input.model,
               thinkingLevel,
+              piSubscriptionProvider: input.piSubscriptionProvider,
             });
             return { taskId: task.id };
           }

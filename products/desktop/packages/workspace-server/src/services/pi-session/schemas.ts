@@ -24,6 +24,12 @@ export const startPiSessionInput = z.object({
   prompt: z.string(),
   model: z.string().optional(),
   thinkingLevel: z.enum(PI_THINKING_LEVELS).optional(),
+  /**
+   * When set, and the user is actually logged in, run this session on the
+   * user's own Anthropic/OpenAI Codex subscription instead of PostHog's
+   * gateway. Overrides `model` with that provider's default.
+   */
+  piSubscriptionProvider: z.enum(["anthropic", "openai-codex"]).optional(),
 });
 
 export type StartPiSessionInput = z.infer<typeof startPiSessionInput>;

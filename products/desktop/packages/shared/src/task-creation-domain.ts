@@ -1,4 +1,4 @@
-import type { Adapter, ModelAccess } from "./adapter";
+import type { Adapter, ModelAccess, PiSubscriptionProvider } from "./adapter";
 import type { AgentRuntime } from "./agent-runtime";
 import type { CloudRunSource, PrAuthorshipMode } from "./cloud";
 import type { Task } from "./domain-types";
@@ -39,6 +39,11 @@ export interface TaskCreationInput {
   adapter?: Adapter;
   codexModelAccess?: ModelAccess;
   claudeModelAccess?: ModelAccess;
+  /**
+   * Set only when `runtime` is "pi": run this Pi session on the user's own
+   * Anthropic/OpenAI Codex subscription instead of PostHog's gateway.
+   */
+  piSubscriptionProvider?: PiSubscriptionProvider;
   runtime?: AgentRuntime;
   model?: string;
   reasoningLevel?: string;

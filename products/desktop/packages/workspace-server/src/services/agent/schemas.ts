@@ -284,6 +284,25 @@ export const codexSubscriptionLoginOutput = z.object({
   authUrl: z.string(),
 });
 
+export const piSubscriptionProviderSchema = z.enum([
+  "anthropic",
+  "openai-codex",
+]);
+
+export const piSubscriptionStatusInput = z.object({
+  provider: piSubscriptionProviderSchema,
+});
+
+export const piSubscriptionStatusOutput = z.object({
+  loginState: z.enum(["logged-in", "logged-out", "unknown"]),
+});
+
+export type PiSubscriptionStatus = z.infer<typeof piSubscriptionStatusOutput>;
+
+export const piSubscriptionLoginOutput = z.object({
+  authUrl: z.string(),
+});
+
 // Set config option input (for Codex reasoning level, etc.)
 export const setConfigOptionInput = z.object({
   sessionId: z.string(),

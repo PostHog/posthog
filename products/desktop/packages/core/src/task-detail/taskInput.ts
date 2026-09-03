@@ -5,6 +5,7 @@ import type {
   CloudMcpServerRelayDesignation,
   McpServerConnection,
   ModelAccess,
+  PiSubscriptionProvider,
   TaskCreationInput,
   WorkspaceMode,
 } from "@posthog/shared";
@@ -24,6 +25,7 @@ export interface PrepareTaskInputOptions {
   adapter?: Adapter;
   codexModelAccess?: ModelAccess;
   claudeModelAccess?: ModelAccess;
+  piSubscriptionProvider?: PiSubscriptionProvider;
   runtime?: AgentRuntime;
   model?: string;
   reasoningLevel?: string;
@@ -75,6 +77,8 @@ export function prepareTaskInput(
     adapter: options.adapter,
     codexModelAccess: options.codexModelAccess,
     claudeModelAccess: options.claudeModelAccess,
+    piSubscriptionProvider:
+      runtime === "pi" ? options.piSubscriptionProvider : undefined,
     runtime,
     model: options.model,
     reasoningLevel: options.reasoningLevel,

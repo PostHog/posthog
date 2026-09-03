@@ -52,6 +52,11 @@ const config: Configuration = {
     ".vite/build/product-engineer/**",
     ".vite/build/rpc-host.js",
     ".vite/build/rpc-host.js.map",
+    ".vite/build/subscription-login-host.js",
+    // No subscription-login-host.js.map entry: `files` above strips every
+    // *.map before asarUnpack ever sees it, so listing it here is a no-op.
+    // (@earendil-works's own asarUnpack entry lives in asarUnpackGlobs, in
+    // runtime-dependencies.ts, alongside why it needs one.)
     ...asarUnpackGlobs,
   ],
 

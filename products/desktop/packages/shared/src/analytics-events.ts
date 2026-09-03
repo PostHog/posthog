@@ -1566,6 +1566,8 @@ export const ANALYTICS_EVENTS = {
   CODEX_SUBSCRIPTION_SIGNED_OUT: "Codex subscription signed out",
   CLAUDE_SUBSCRIPTION_CONNECTED: "Claude subscription connected",
   CLAUDE_SUBSCRIPTION_SIGNED_OUT: "Claude subscription signed out",
+  PI_SUBSCRIPTION_CONNECTED: "Pi subscription connected",
+  PI_SUBSCRIPTION_SIGNED_OUT: "Pi subscription signed out",
 
   // Feedback events
   AI_METRIC: "$ai_metric",
@@ -1774,6 +1776,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_SIGNED_OUT]: never;
   [ANALYTICS_EVENTS.CLAUDE_SUBSCRIPTION_CONNECTED]: never;
   [ANALYTICS_EVENTS.CLAUDE_SUBSCRIPTION_SIGNED_OUT]: never;
+  [ANALYTICS_EVENTS.PI_SUBSCRIPTION_CONNECTED]: { provider: string };
+  [ANALYTICS_EVENTS.PI_SUBSCRIPTION_SIGNED_OUT]: { provider: string };
 
   // Feedback events
   [ANALYTICS_EVENTS.AI_METRIC]: AiMetricProperties;
