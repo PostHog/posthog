@@ -343,4 +343,49 @@ mod tests {
             .expect("frontier above the commit");
         assert_eq!(mismatch.direction(), "ahead");
     }
+
+    #[test]
+    fn a_violating_charge_resets_the_partition_and_the_shadow_carries_on() {
+        let (ledger, shadow) = shadow();
+        let p0 = tp("events", 0);
+        shadow.charge(&p0, 0, &charges(&[10]));
+
+        // The same offset delivered twice under one generation is a contract
+        // violation, not a rebalance: the ledger resets the partition.
+        shadow.charge(&p0, 0, &charges(&[10]));
+        assert_eq!(ledger.held(&p0).offsets, 0, "the window is discarded");
+        assert_eq!(ledger.generation(&p0), 1);
+
+        // The batch in flight from before the reset settles as stale, and the
+        // next delivery under the new generation founds a fresh ledger.
+        shadow.settle(&p0, 0, [Offset(10)], &span(10, 10));
+        shadow.charge(&p0, 1, &charges(&[11]));
+        assert_eq!(ledger.held(&p0).offsets, 1);
+        shadow.settle(&p0, 1, [Offset(11)], &span(11, 11));
+        assert_eq!(
+            ledger.held(&p0).offsets,
+            0,
+            "the fresh ledger settles and drains"
+        );
+    }
+
+    #[test]
+    fn a_violating_settlement_resets_the_partition_and_the_shadow_carries_on() {
+        let (ledger, shadow) = shadow();
+        let p0 = tp("events", 0);
+        shadow.charge(&p0, 0, &charges(&[10]));
+
+        // Settling an offset the ledger never charged resets the partition.
+        shadow.settle(&p0, 0, [Offset(15)], &span(15, 15));
+        assert_eq!(ledger.held(&p0).offsets, 0, "the window is discarded");
+        assert_eq!(ledger.generation(&p0), 1);
+
+        shadow.charge(&p0, 1, &charges(&[11]));
+        shadow.settle(&p0, 1, [Offset(11)], &span(11, 11));
+        assert_eq!(
+            ledger.held(&p0).offsets,
+            0,
+            "the fresh ledger settles and drains"
+        );
+    }
 }
