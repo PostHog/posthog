@@ -156,8 +156,9 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               # Skipped on master push and on the hourly schedule: every output then
-              # defaults to true. On schedule the action would otherwise diff only the
-              # last commit and could turn the full-matrix run into a no-op.
+              # defaults to true. See "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
+              # diff, and what breaks if this guard is dropped.
               if: github.event_name != 'push' && github.event_name != 'schedule'
               id: filter
               with:
@@ -921,8 +922,8 @@ jobs:
               # via sync_connect() in their tests, so keep a readiness gate before tests run.
               # By this point Temporal has warmed up in the background, so the wait is negligible.
               # data_warehouse tests use custom search attributes (PostHogTeamId, PostHogOrgId,
-              # PostHogDagId) when calling schedule_materialization() → sync_saved_query_workflow(),
-              # so they must be registered before tests run.
+              # PostHogDagId) when scheduling materialization, so they must be registered
+              # before tests run.
               run: |
                   bin/wait-for-docker temporal
                   python manage.py register_temporal_search_attributes

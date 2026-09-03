@@ -7,12 +7,14 @@ from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.project import ProjectViewSet
+from posthog.api.project_tags import MAX_TAGS_PER_FILTER
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person.util import get_person_by_uuid
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
+from posthog.models.tag import Tag
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person, delete_person
 
@@ -914,3 +916,92 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         config.refresh_from_db()
         self.assertEqual(config.precomputation_enabled_set_by, TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL)
+
+    def test_tags_round_trip_and_land_in_the_project_team_namespace(self):
+        # `tags` is not a Project column, so it must be pulled out before the serializer's
+        # passthrough loop setattr()s everything left in validated_data onto the model.
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"tags": ["Production", " EU-Region "]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(sorted(response.json()["tags"]), ["eu-region", "production"])
+
+        reread = self.client.get(f"/api/projects/{self.project.id}/")
+        self.assertEqual(sorted(reread.json()["tags"]), ["eu-region", "production"])
+        self.assertEqual(
+            set(Tag.objects.filter(team_id=self.project.id).values_list("name", flat=True)),
+            {"eu-region", "production"},
+        )
+
+    def test_tags_are_replaced_and_orphaned_tags_removed(self):
+        self.client.patch(f"/api/projects/{self.project.id}/", {"tags": ["keep", "drop"]}, format="json")
+
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {"tags": ["keep"]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["tags"], ["keep"])
+        self.assertEqual(set(Tag.objects.filter(team_id=self.project.id).values_list("name", flat=True)), {"keep"})
+
+    def test_project_can_be_created_with_tags(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 2}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Tagged", "tags": ["production"]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(response.json()["tags"], ["production"])
+
+    @parameterized.expand(
+        [
+            ("all_narrows_to_projects_carrying_every_tag", "production,eu-region", "all", {"both"}),
+            ("all_is_the_default_match_mode", "production,eu-region", None, {"both"}),
+            ("any_widens_to_projects_carrying_either_tag", "production,us-region", "any", {"both", "us_only"}),
+            ("no_match_returns_nothing", "nonexistent", "all", set()),
+        ]
+    )
+    def test_list_filters_projects_by_tags(self, _name, tags_param, match, expected_keys):
+        both, _ = Project.objects.create_with_team(
+            organization=self.organization, name="Both", initiating_user=self.user
+        )
+        us_only, _ = Project.objects.create_with_team(
+            organization=self.organization, name="US only", initiating_user=self.user
+        )
+        self.client.patch(f"/api/projects/{both.id}/", {"tags": ["production", "eu-region"]}, format="json")
+        self.client.patch(f"/api/projects/{us_only.id}/", {"tags": ["production", "us-region"]}, format="json")
+        ids_by_key = {"both": both.id, "us_only": us_only.id}
+
+        query = f"?tags={tags_param}" + (f"&tags_match={match}" if match else "")
+        response = self.client.get(f"/api/projects/{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        returned_ids = [project["id"] for project in response.json()["results"]]
+        self.assertEqual(len(returned_ids), len(set(returned_ids)), "A project matching several tags was duplicated")
+        self.assertEqual(set(returned_ids), {ids_by_key[key] for key in expected_keys})
+
+    def test_list_rows_carry_tags(self):
+        self.client.patch(f"/api/projects/{self.project.id}/", {"tags": ["production"]}, format="json")
+
+        response = self.client.get("/api/projects/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        rows = {project["id"]: project["tags"] for project in response.json()["results"]}
+        self.assertEqual(rows[self.project.id], ["production"])
+
+    def test_unknown_tags_match_mode_is_rejected(self):
+        response = self.client.get("/api/projects/?tags=production&tags_match=either")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    def test_filtering_by_too_many_tags_is_rejected(self):
+        # "all" joins once per tag, so an unbounded list would let a caller size the query plan.
+        too_many = ",".join(f"tag-{index}" for index in range(MAX_TAGS_PER_FILTER + 1))
+
+        response = self.client.get(f"/api/projects/?tags={too_many}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
