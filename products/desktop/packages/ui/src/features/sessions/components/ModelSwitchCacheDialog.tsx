@@ -13,6 +13,7 @@ import {
   Text,
 } from "@posthog/quill";
 import { formatCostUsd } from "@posthog/ui/features/sessions/contextColors";
+import { useTaskUsage } from "@posthog/ui/features/sessions/hooks/useTaskUsage";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { type ReactElement, useEffect, useId, useRef, useState } from "react";
 
@@ -21,8 +22,8 @@ interface ModelSwitchCacheDialogProps {
   fromModelLabel: string;
   toModelId: string;
   toModelLabel: string;
+  taskId?: string;
   contextTokens?: number;
-  sessionCostUsd?: number;
   onConfirm: () => Promise<boolean>;
   onCopyHandoffSummary?: () => Promise<void>;
   onCancel: () => void;
@@ -35,8 +36,8 @@ export function ModelSwitchCacheDialog({
   fromModelLabel,
   toModelId,
   toModelLabel,
+  taskId,
   contextTokens = 0,
-  sessionCostUsd,
   onConfirm,
   onCopyHandoffSummary,
   onCancel,
@@ -46,6 +47,7 @@ export function ModelSwitchCacheDialog({
   );
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const [activeAction, setActiveAction] = useState<ActiveAction>(null);
+  const { data: taskUsage } = useTaskUsage(taskId, open);
   const checkboxId = useId();
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const requestTokenRef = useRef(0);
@@ -53,8 +55,7 @@ export function ModelSwitchCacheDialog({
     toModelId,
     contextTokens,
   );
-  const hasCostInfo =
-    estimatedInputCost !== null || sessionCostUsd !== undefined;
+  const hasCostInfo = estimatedInputCost !== null || taskUsage !== undefined;
   const busy = activeAction !== null;
 
   useEffect(() => {
@@ -131,13 +132,13 @@ export function ModelSwitchCacheDialog({
                     </Text>
                   </div>
                 )}
-                {sessionCostUsd !== undefined && (
+                {taskUsage !== undefined && (
                   <div className="flex items-center justify-between gap-4">
                     <Text className="text-[12px] text-muted-foreground">
-                      Session cost so far
+                      Task cost so far
                     </Text>
                     <Text className="shrink-0 font-medium text-[12px] text-foreground tabular-nums">
-                      {formatCostUsd(sessionCostUsd)}
+                      {formatCostUsd(taskUsage.total_cost_usd)}
                     </Text>
                   </div>
                 )}
