@@ -96,6 +96,17 @@ const CONFIGS: SceneContextConfig[] = [
             },
         ],
     },
+    {
+        output: 'products/data_catalog/frontend/generated/agentContext.ts',
+        tools: [{ constName: 'DATA_CATALOG_MCP_TOOLS', yamlPath: 'products/data_catalog/mcp/tools.yaml' }],
+        skills: [
+            {
+                constName: 'SETTING_UP_DATA_CATALOG_SKILL',
+                skillDir: 'products/data_catalog/skills/setting-up-data-catalog',
+                files: ['SKILL.md'],
+            },
+        ],
+    },
 ]
 
 interface ToolDefinition {
@@ -105,11 +116,14 @@ interface ToolDefinition {
 
 function enabledToolNames(yamlPath: string): string[] {
     const parsed = parseYaml(fs.readFileSync(path.resolve(REPO_ROOT, yamlPath), 'utf8')) as {
-        tools?: Record<string, { enabled?: boolean }>
+        tools?: Record<string, { enabled?: boolean; confirmed_action?: unknown }>
     }
-    return Object.entries(parsed.tools ?? {})
-        .filter(([, config]) => config?.enabled === true)
-        .map(([name]) => name)
+    return Object.entries(parsed.tools ?? {}).flatMap(([name, config]) => {
+        if (config?.enabled !== true) {
+            return []
+        }
+        return config.confirmed_action ? [`${name}-prepare`, `${name}-execute`] : [name]
+    })
 }
 
 interface FrontmatterResult {
