@@ -542,6 +542,22 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
 
         assert self.permissions().current_team.effective_membership_level == expected_level
 
+    def test_role_membership_linked_to_another_organization_is_ignored(self):
+        from products.access_control.backend.models.role import Role, RoleMembership
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self._grant_project_access("none")
+        role = Role.objects.create(name="Target organization role", organization=self.organization)
+        other_organization = Organization.objects.create(name="Other organization")
+        other_membership = OrganizationMembership.objects.create(
+            organization=other_organization, user=self.user, level=OrganizationMembership.Level.MEMBER
+        )
+        RoleMembership.objects.create(role=role, user=self.user, organization_member=other_membership)
+        self._grant_project_access("admin", role=role)
+
+        assert self.permissions().current_team.effective_membership_level is None
+
     @parameterized.expand(
         [
             ("denial", "none", "member", OrganizationMembership.Level.MEMBER),
