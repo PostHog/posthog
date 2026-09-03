@@ -898,6 +898,8 @@ export interface TeamType extends TeamBasicType {
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     workflows_config: WorkflowsConfig
+    // Optional so cached team objects from before this field shipped still typecheck.
+    feature_flag_policy_config?: FeatureFlagPolicyConfig
     business_model?: 'b2b' | 'b2c' | 'other' | null
 }
 
@@ -905,6 +907,10 @@ export interface WorkflowsConfig {
     capture_workflows_engagement_events: boolean
     // Optional so cached team objects from before this field shipped still typecheck.
     email_tracking_consent_mode?: 'off' | 'opt_out' | 'opt_in'
+}
+
+export interface FeatureFlagPolicyConfig {
+    require_tags: boolean
 }
 
 export interface ProductIntentType {

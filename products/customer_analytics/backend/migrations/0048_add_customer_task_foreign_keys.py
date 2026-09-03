@@ -5,7 +5,7 @@ from posthog.migration_helpers import AddForeignKeyNotValid
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("customer_analytics", "0046_customertask_customertaskactivity_and_more"),
+        ("customer_analytics", "0047_customertask_customertaskactivity_and_more")
     ]
 
     operations = [

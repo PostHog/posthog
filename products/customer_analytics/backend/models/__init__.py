@@ -33,6 +33,7 @@ from .feature_request import (
 from .meeting import Meeting, MeetingParticipant, MeetingResponseStatus, MeetingStatus
 from .relationship import AccountRelationship, AccountRelationshipDefinition
 from .team_customer_analytics_config import TeamCustomerAnalyticsConfig
+from .user_customer_analytics_config import UserCustomerAnalyticsConfig
 
 __all__ = [
     "CANONICAL_DISPLAY_TYPE_BY_NAME",
@@ -80,4 +81,5 @@ __all__ = [
     "SyncTrigger",
     "TargetType",
     "TeamCustomerAnalyticsConfig",
+    "UserCustomerAnalyticsConfig",
 ]

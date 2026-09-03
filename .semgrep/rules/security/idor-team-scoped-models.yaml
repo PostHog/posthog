@@ -209,6 +209,7 @@ rules:
                               |TeamMCPGatewayConfig
                               |TeamSessionSummariesConfig
                               |TeamWorkflowsConfig
+                              |UserCustomerAnalyticsConfig
                               |FieldNote
                               |FileSystem
                               |FileSystemFolderInstructions
@@ -255,6 +256,7 @@ rules:
                               |LLMTraceSummary
                               |ManagedWarehouseBackfillPartition
                               |ManagedWarehouseSourceJob
+                              |ManagedWarehouseViewTranslationResult
                               |MarketingAnalyticsGoalMapping
                               |Meeting
                               |MeetingParticipant
@@ -597,6 +599,7 @@ rules:
                         |TeamMCPGatewayConfig
                         |TeamSessionSummariesConfig
                         |TeamWorkflowsConfig
+                        |UserCustomerAnalyticsConfig
                         |FieldNote
                         |FileSystem
                         |FileSystemFolderInstructions
@@ -638,6 +641,7 @@ rules:
                         |LLMTraceSummary
                         |ManagedWarehouseBackfillPartition
                         |ManagedWarehouseSourceJob
+                        |ManagedWarehouseViewTranslationResult
                         |MarketingAnalyticsGoalMapping
                         |Meeting
                         |MeetingParticipant
@@ -868,6 +872,7 @@ rules:
                               |IdentityProviderConfig
                               |LegalDocument
                               |ManagedWarehouseSourceLifecycle
+                              |ManagedWarehouseViewTranslationJob
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
@@ -943,6 +948,7 @@ rules:
                         |IdentityProviderConfig
                         |LegalDocument
                         |ManagedWarehouseSourceLifecycle
+                        |ManagedWarehouseViewTranslationJob
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain

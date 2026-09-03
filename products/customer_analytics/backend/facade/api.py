@@ -798,12 +798,13 @@ def set_external_account_custom_properties(
     created_by_id: int | None = None,
     workflow_id: str | None = None,
 ) -> contracts.ExternalAccountCustomPropertiesResult:
-    """Set custom property values on an account by definition id, for the external API.
+    """Set or clear custom property values on an account by definition id, for the external API.
 
     Resolves the account by external id, then applies every ``{definition_id: value}`` pair
-    transactionally — a bad value or unknown definition rolls the whole batch back. Returns a result
-    the view maps to the exact HTTP status/body: account not found, unknown definition, invalid
-    value, a concurrent-write conflict, a generic write failure, or success carrying the set values.
+    transactionally. A null value clears an active value. A bad value or unknown definition rolls
+    the whole batch back. Returns a result the view maps to the exact HTTP status/body: account not
+    found, unknown definition, invalid value, a concurrent-write conflict, a generic write failure,
+    or success carrying only the set values.
     """
     account = _get_external_account_by_external_id(team_id, external_id)
     if account is None:
@@ -3175,10 +3176,15 @@ def query_accounts_table(
         for definition_id, window_days in history_windows.items():
             history_filter |= Q(definition_id=definition_id, created_at__gte=now - timedelta(days=window_days))
             history_filter |= Q(definition_id=definition_id, is_deleted=False)
+        active_values = CustomPropertyValue.objects.for_team(team_id).filter(
+            account_id=OuterRef("account_id"),
+            definition_id=OuterRef("definition_id"),
+            is_deleted=False,
+        )
         history_point_count = 0
         history_values = (
             CustomPropertyValue.objects.for_team(team_id)
-            .filter(history_filter, account_id__in=account_ids, value_num__isnull=False)
+            .filter(history_filter, Exists(active_values), account_id__in=account_ids, value_num__isnull=False)
             .order_by("created_at", "id")
             .iterator(chunk_size=2_000)
         )

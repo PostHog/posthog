@@ -9,7 +9,7 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("customer_analytics", "0045_custom_property_definition_link_display_type"),
+        ("customer_analytics", "0046_usercustomeranalyticsconfig"),
         ("posthog", "1333_uploaded_media_library_index"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
