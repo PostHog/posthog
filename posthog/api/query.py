@@ -46,7 +46,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
-from posthog.clickhouse.client.execute_async import QueryNotFoundError, cancel_query, get_query_status
+from posthog.clickhouse.client.execute_async import (
+    QueryNotFoundError,
+    cancel_query,
+    get_query_status,
+    record_blocking_query_failure,
+    record_blocking_query_result,
+)
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
@@ -305,18 +311,25 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 )
                 if limit_context is not None:
                     process_span.set_attribute("query.limit_context", limit_context.value)
-                result = process_query_model(
-                    self.team,
-                    query,
-                    execution_mode=execution_mode,
-                    query_id=client_query_id,
-                    user=request.user,  # type: ignore[arg-type]
-                    is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
-                    limit_context=limit_context,
-                    analytics_props=analytics_props,
-                )
+                try:
+                    result = process_query_model(
+                        self.team,
+                        query,
+                        execution_mode=execution_mode,
+                        query_id=client_query_id,
+                        user=request.user,  # type: ignore[arg-type]
+                        is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                        limit_context=limit_context,
+                        analytics_props=analytics_props,
+                    )
+                except Exception as e:
+                    if data.client_query_id:
+                        record_blocking_query_failure(self.team.pk, data.client_query_id, e)
+                    raise
                 if isinstance(result, BaseModel):
                     result = result.model_dump(by_alias=True)
+                if data.client_query_id and not result.get("query_status"):
+                    record_blocking_query_result(self.team.pk, data.client_query_id, result)
 
             total_time_ms = round((perf_counter() - start_time) * 1000, 2)
             try:

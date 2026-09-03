@@ -1,4 +1,3 @@
-import json
 import uuid
 import datetime
 from typing import Any
@@ -71,14 +70,21 @@ class TestQueryStatusManager(SimpleTestCase):
     def test_is_empty(self):
         self.assertRaises(QueryNotFoundError, lambda: self.manager.get_query_status(True))
 
-    def test_keeps_failure_after_status_record_expires(self):
-        self.manager.store_query_status(self.query_status, cache_key="cache_async_handle_failed")
+    def test_never_stores_the_result_payload(self):
+        self.query_status.complete = True
+        self.query_status.results = {"results": [1, 2, 3], "cache_key": "cache_abc"}
+        self.manager.store_query_status(self.query_status)
+
+        record = {k.decode(): v.decode() for k, v in get_client().hgetall(self.manager.status_key).items()}
+        assert record["cache_key"] == "cache_abc"
+        assert "results" not in record
+
+    def test_failed_query_keeps_its_error(self):
         self.query_status.complete = True
         self.query_status.error = True
         self.query_status.error_message = "Query exceeded memory limit"
         self.query_status.error_code = "clickhouse_memory_limit_exceeded"
         self.manager.store_query_status(self.query_status)
-        get_client().delete(self.manager.results_key)
 
         status = self.manager.get_query_status()
 
@@ -87,18 +93,32 @@ class TestQueryStatusManager(SimpleTestCase):
         assert status.error_message == "Query exceeded memory limit"
         assert status.error_code == "clickhouse_memory_limit_exceeded"
 
-    @parameterized.expand([("finished_but_cache_entry_gone", True), ("never_finished", False)])
-    def test_raises_expired_after_status_record_expires_without_a_result(self, _name, complete):
-        self.manager.store_query_status(self.query_status, cache_key="cache_async_handle_missing")
-        self.query_status.complete = complete
+    @parameterized.expand(
+        [
+            ("payload_without_cache_key", {"results": list(range(2000))}),
+            ("cache_entry_gone", {"results": [], "cache_key": "cache_missing"}),
+        ]
+    )
+    def test_finished_query_without_a_cached_result_is_expired(self, _name, results):
+        self.query_status.complete = True
+        self.query_status.results = results
         self.manager.store_query_status(self.query_status)
-        get_client().delete(self.manager.results_key)
 
         with self.assertRaises(QueryResultExpiredError):
             self.manager.get_query_status()
+        assert self.manager.get_query_status(resolve_results=False).complete is True
 
-    def test_delete_removes_the_handle_too(self):
-        self.manager.store_query_status(self.query_status, cache_key="cache_async_handle_deleted")
+    def test_keeps_a_small_result_reference_without_a_cache_key(self):
+        self.query_status.complete = True
+        self.query_status.results = {"object_key": "frames/abc.arrow", "bucket": "notebook-frames"}
+        self.manager.store_query_status(self.query_status)
+
+        status = self.manager.get_query_status()
+
+        assert status.results == {"object_key": "frames/abc.arrow", "bucket": "notebook-frames"}
+
+    def test_delete_forgets_the_query(self):
+        self.manager.store_query_status(self.query_status)
 
         self.manager.delete_query_status()
 
@@ -220,6 +240,7 @@ class TestAsyncTaskChain(SimpleTestCase):
 
 class TestExecuteProcessQuery(TestCase):
     def setUp(self):
+        get_client().flushall()
         self.user = User.objects.create(email="test@posthog.com")
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
@@ -229,17 +250,17 @@ class TestExecuteProcessQuery(TestCase):
         self.refresh_requested = False
         self.manager = QueryStatusManager(self.query_id, self.team.id)
 
-    def test_serves_cached_result_after_status_record_expires(self):
-        cache_key = f"cache_async_handle_{self.team.id}"
-        query_status = QueryStatus(id=self.query_id, team_id=self.team.id)
-        self.manager.store_query_status(query_status, cache_key=cache_key)
-        query_status.complete = True
-        query_status.error = False
-        self.manager.store_query_status(query_status)
+    def test_finished_query_reads_its_result_from_the_cache(self):
+        cache_key = f"cache_async_record_{self.team.id}"
         QueryCache(team_id=self.team.id, cache_key=cache_key).store_result(
             response={"results": [{"count": 1}], "cache_key": cache_key, "is_cached": False}, target_age=None
         )
-        get_client().delete(self.manager.results_key)
+        query_status = QueryStatus(id=self.query_id, team_id=self.team.id)
+        self.manager.store_query_status(query_status)
+        query_status.complete = True
+        query_status.error = False
+        query_status.results = {"results": "never stored", "cache_key": cache_key}
+        self.manager.store_query_status(query_status)
 
         status = self.manager.get_query_status()
 
@@ -247,35 +268,25 @@ class TestExecuteProcessQuery(TestCase):
         assert status.error is False
         assert status.results == {"results": [{"count": 1}], "cache_key": cache_key, "is_cached": True}
 
-    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
     @patch("posthog.api.services.query.process_query_dict")
-    def test_execute_process_query(self, mock_process_query_dict, mock_redis_client):
-        mock_redis = MagicMock()
+    def test_execute_process_query(self, mock_process_query_dict):
         task_id = uuid.uuid4()
-        mock_redis.get.return_value = json.dumps(
-            {
-                "id": self.query_id,
-                "team_id": self.team.id,
-                "complete": False,
-                "error": False,
-                "task_id": str(task_id),
-            }
-        ).encode()
-        mock_redis_client.return_value = mock_redis
-
-        mock_process_query_dict.return_value = [float("inf"), float("-inf"), float("nan"), 1.0, "👍"]
+        self.manager.store_query_status(QueryStatus(id=self.query_id, team_id=self.team.id, task_id=str(task_id)))
+        cache_key = f"cache_execute_{self.team.id}"
+        mock_process_query_dict.return_value = {"results": [1.0, "👍"], "cache_key": cache_key, "is_cached": False}
 
         execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
 
-        mock_redis_client.assert_called_once()
         mock_process_query_dict.assert_called_once()
         self.assertEqual(get_query_tags().celery_task_id, task_id)
-
-        # Assert that Redis set method was called with the correct arguments
-        self.assertEqual(mock_redis.set.call_count, 2)  # Once on pickup, once on completion
-        args, kwargs = mock_redis.set.call_args
-        args_loaded = json.loads(args[1])
-        self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
+        status = self.manager.get_query_status(resolve_results=False)
+        assert status.complete is True
+        assert status.error is False
+        assert status.pickup_time is not None
+        assert status.end_time is not None
+        record = {k.decode(): v.decode() for k, v in get_client().hgetall(self.manager.status_key).items()}
+        assert record["cache_key"] == cache_key
+        assert "results" not in record
 
     @parameterized.expand(
         [
@@ -285,21 +296,19 @@ class TestExecuteProcessQuery(TestCase):
         ]
     )
     @patch("posthog.clickhouse.client.execute_async.capture_exception")
-    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
     @patch("posthog.api.services.query.process_query_dict")
     def test_execute_process_query_only_captures_non_user_safe_errors(
-        self, _name, error, should_capture, mock_process_query_dict, mock_redis_client, mock_capture_exception
+        self, _name, error, should_capture, mock_process_query_dict, mock_capture_exception
     ):
-        mock_redis = MagicMock()
-        mock_redis.get.return_value = json.dumps(
-            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
-        ).encode()
-        mock_redis_client.return_value = mock_redis
+        self.manager.store_query_status(QueryStatus(id=self.query_id, team_id=self.team.id))
         mock_process_query_dict.side_effect = error
 
         execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
 
         self.assertEqual(mock_capture_exception.called, should_capture)
+        status = self.manager.get_query_status()
+        assert status.complete is True
+        assert status.error is True
 
     @parameterized.expand(
         [
@@ -309,17 +318,12 @@ class TestExecuteProcessQuery(TestCase):
             ("org_disallows_public_sharing", {}, False, False),
         ]
     )
-    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
     @patch("posthog.api.services.query.process_query_dict")
     def test_shared_link_run_rebuilds_the_viewer_while_the_share_is_live(
-        self, _name, overrides, org_allows_sharing, expect_viewer, mock_process_query_dict, mock_redis_client
+        self, _name, overrides, org_allows_sharing, expect_viewer, mock_process_query_dict
     ):
-        mock_redis = MagicMock()
-        mock_redis.get.return_value = json.dumps(
-            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
-        ).encode()
-        mock_redis_client.return_value = mock_redis
-        mock_process_query_dict.return_value = []
+        self.manager.store_query_status(QueryStatus(id=self.query_id, team_id=self.team.id))
+        mock_process_query_dict.return_value = {"results": [], "cache_key": None}
         sharing_configuration = SharingConfiguration.objects.create(team=self.team, **{"enabled": True, **overrides})
         if not org_allows_sharing:
             self.organization.available_product_features = [

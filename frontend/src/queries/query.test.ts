@@ -283,6 +283,90 @@ describe('query', () => {
         })
     })
 
+    describe('dropped blocking request recovery', () => {
+        const query = { kind: NodeKind.EventsQuery, select: ['*'] } as EventsQuery
+        const gatewayTimeout = (): ApiError => new ApiError('upstream request timeout', 504)
+        const notRecordedYet = (): ApiError =>
+            new ApiError('Query not found', 404, undefined, { detail: 'Query not found' })
+        let now: number
+
+        beforeEach(() => {
+            now = 1_700_000_000_000
+            jest.spyOn(Date, 'now').mockImplementation(() => now)
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('sends every blocking request with a client query id', async () => {
+            const querySpy = jest.spyOn(api, 'query').mockResolvedValueOnce({ results: [] } as any)
+
+            await performQuery(query, undefined, 'blocking')
+
+            expect(querySpy.mock.calls[0][1]).toMatchObject({ clientQueryId: expect.any(String) })
+        })
+
+        it('returns the recorded result once the server finishes a dropped request', async () => {
+            const querySpy = jest.spyOn(api, 'query').mockRejectedValueOnce(gatewayTimeout())
+            const statusSpy = jest
+                .spyOn(api.queryStatus, 'get')
+                .mockImplementationOnce(async () => {
+                    // Not recorded yet. Jump to just before the deadline so the next poll follows a
+                    // short wait instead of the real interval.
+                    now += 10 * 60 * 1000 - 10
+                    throw notRecordedYet()
+                })
+                .mockResolvedValueOnce({ query_status: { complete: true, results: { results: ['late'] } } } as any)
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            await expect(performQuery(query, undefined, 'blocking')).resolves.toMatchObject({ results: ['late'] })
+
+            expect(statusSpy.mock.calls[0][0]).toBe(querySpy.mock.calls[0][1]?.clientQueryId)
+            const completed = captureSpy.mock.calls.filter((call) => call[0] === 'query completed')
+            expect(completed[0][1]).toMatchObject({ recovered_after_drop: true, recovered_after_status: 504 })
+        })
+
+        it('surfaces the recorded error of a dropped request without waiting', async () => {
+            jest.spyOn(api, 'query').mockRejectedValueOnce(gatewayTimeout())
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(
+                new ApiError('failed', 400, undefined, {
+                    query_status: { error_message: 'Try changing the time range', error_code: 'too_wide' },
+                })
+            )
+
+            await expect(performQuery(query, undefined, 'blocking')).rejects.toMatchObject({
+                status: 400,
+                detail: 'Try changing the time range',
+                code: 'too_wide',
+            })
+        })
+
+        it('gives up with the original error when nothing is recorded by the deadline', async () => {
+            jest.spyOn(api, 'query').mockRejectedValueOnce(gatewayTimeout())
+            const statusSpy = jest.spyOn(api.queryStatus, 'get').mockImplementation(async () => {
+                now += 10 * 60 * 1000
+                throw notRecordedYet()
+            })
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            await expect(performQuery(query, undefined, 'blocking')).rejects.toMatchObject({ status: 504 })
+
+            expect(statusSpy).toHaveBeenCalledTimes(1)
+            const failed = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
+            expect(failed[0][1]).toMatchObject({ drop_recovery_attempted: true, error_status: 504 })
+        })
+
+        it('does not follow up on a failed async submission', async () => {
+            jest.spyOn(api, 'query').mockRejectedValueOnce(gatewayTimeout())
+            const statusSpy = jest.spyOn(api.queryStatus, 'get')
+
+            await expect(performQuery(query, undefined, 'async')).rejects.toMatchObject({ status: 504 })
+
+            expect(statusSpy).not.toHaveBeenCalled()
+        })
+    })
+
     describe('pollForResults error message parsing', () => {
         it('prefers the structured error_code from the query status over one parsed from the message', async () => {
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({

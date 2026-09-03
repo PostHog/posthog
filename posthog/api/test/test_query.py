@@ -29,6 +29,7 @@ from posthog.schema import (
     HogQLQuery,
     PersonPropertyFilter,
     PropertyOperator,
+    QueryStatus,
 )
 
 from posthog.hogql.constants import LimitContext
@@ -40,12 +41,15 @@ from posthog.api.query import (
 )
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
 from posthog.models.utils import UUIDT
+from posthog.query_cache.cache import QueryCache
+from posthog.redis import get_client
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
@@ -1169,56 +1173,42 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 class TestQueryRetrieve(APIBaseTest):
     def setUp(self):
         super().setUp()
+        get_client().flushall()
         self.team_id = self.team.pk
         self.valid_query_id = "12345"
         self.invalid_query_id = "invalid-query-id"
-        self.redis_client_mock = mock.Mock()
-        self.redis_get_patch = mock.patch("posthog.redis.get_client", return_value=self.redis_client_mock)
-        self.redis_get_patch.start()
 
-    def tearDown(self):
-        self.redis_get_patch.stop()
+    def _store_status(self, **fields) -> None:
+        QueryStatusManager(self.valid_query_id, self.team_id).store_query_status(
+            QueryStatus(id=self.valid_query_id, team_id=self.team_id, **fields)
+        )
+
+    def _store_finished_query(self, results: list, labels: list[str] | None = None) -> None:
+        cache_key = f"cache_query_retrieve_{self.team_id}"
+        QueryCache(team_id=self.team_id, cache_key=cache_key).store_result(
+            response={"results": results, "cache_key": cache_key, "is_cached": False}, target_age=None
+        )
+        self._store_status(complete=True, error=False, labels=labels, results={"cache_key": cache_key})
 
     def test_with_valid_query_id(self):
-        self.redis_client_mock.get.return_value = json.dumps(
-            {
-                "id": self.valid_query_id,
-                "team_id": self.team_id,
-                "error": False,
-                "complete": True,
-                "results": ["result1", "result2"],
-            }
-        ).encode()
+        self._store_finished_query(["result1", "result2"])
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["query_status"]["complete"], True, response.content)
+        self.assertEqual(response.json()["query_status"]["results"]["results"], ["result1", "result2"])
 
     def test_with_invalid_query_id(self):
-        self.redis_client_mock.get.return_value = None
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.invalid_query_id}/")
         self.assertEqual(response.status_code, 404)
 
-    def test_completed_query(self):
-        self.redis_client_mock.get.return_value = json.dumps(
-            {
-                "id": self.valid_query_id,
-                "team_id": self.team_id,
-                "complete": True,
-                "results": ["result1", "result2"],
-            }
-        ).encode()
+    def test_finished_query_whose_result_left_the_cache(self):
+        self._store_status(complete=True, error=False, results={"cache_key": "cache_gone"})
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()["query_status"]["complete"])
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["code"], "query_result_expired")
 
     def test_running_query(self):
-        self.redis_client_mock.get.return_value = json.dumps(
-            {
-                "id": self.valid_query_id,
-                "team_id": self.team_id,
-                "complete": False,
-            }
-        ).encode()
+        self._store_status(complete=False)
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 202)
         self.assertFalse(response.json()["query_status"]["complete"])
@@ -1256,15 +1246,7 @@ class TestQueryRetrieve(APIBaseTest):
                 "password": "reader-password",
             },
         )
-        self.redis_client_mock.get.return_value = json.dumps(
-            {
-                "id": self.valid_query_id,
-                "team_id": self.team_id,
-                "complete": True,
-                "labels": [f"{MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX}{source.id}"],
-                "results": ["result1"],
-            }
-        ).encode()
+        self._store_finished_query(["result1"], labels=[f"{MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX}{source.id}"])
 
         with patch(
             "posthog.permissions.posthog_feature_flag_enabled",
@@ -1281,43 +1263,23 @@ class TestQueryRetrieve(APIBaseTest):
             self.assertNotIn(str(self.team_id), response.json()["detail"])
 
     def test_failed_query_with_internal_error(self):
-        self.redis_client_mock.get.return_value = json.dumps(
-            {
-                "id": self.valid_query_id,
-                "team_id": self.team_id,
-                "error": True,
-                "error_message": None,
-            }
-        ).encode()
+        self._store_status(complete=True, error=True, error_message=None)
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 500)
         self.assertTrue(response.json()["query_status"]["error"])
 
     def test_failed_query_with_exposed_error(self):
-        self.redis_client_mock.get.return_value = json.dumps(
-            {
-                "id": self.valid_query_id,
-                "team_id": self.team_id,
-                "error": True,
-                "error_message": "Try changing the time range",
-            }
-        ).encode()
+        self._store_status(complete=True, error=True, error_message="Try changing the time range")
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 400)
         self.assertTrue(response.json()["query_status"]["error"])
 
     def test_destroy(self):
-        self.redis_client_mock.get.return_value = json.dumps(
-            {
-                "id": self.valid_query_id,
-                "team_id": self.team_id,
-                "error": True,
-                "error_message": "Query failed",
-            }
-        ).encode()
+        self._store_status(complete=False, error=True, error_message="Query failed")
         response = self.client.delete(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.redis_client_mock.delete.call_count, 2)
+        response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
+        self.assertEqual(response.status_code, 404)
 
 
 class TestQueryDraftSql(APIBaseTest):

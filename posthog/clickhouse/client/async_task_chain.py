@@ -31,7 +31,7 @@ def kick_off_task(
 
     # During end-to-end tests, the task is executed synchronously, so we have to refresh the status.
     if isinstance(task, EagerResult):
-        query_status = manager.get_query_status()
+        query_status = manager.get_query_status(resolve_results=False)
         manager.store_query_status(query_status)
 
 

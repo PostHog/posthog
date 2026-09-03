@@ -1,6 +1,7 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
+import { uuid } from 'lib/utils/dom'
 
 import {
     DashboardFilter,
@@ -64,6 +65,68 @@ export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
+
+// The server lets a query run for this long (MAX_QUERY_TIMEOUT in posthog/api/query.py) and keeps
+// running it after the ingress drops the request, then records the outcome under the client's
+// query ID. Until then the ID can still turn into a result.
+const DROPPED_REQUEST_RECOVERY_DEADLINE_MS = 10 * 60 * 1000
+const DROPPED_REQUEST_RECOVERY_POLL_INTERVAL_MS = 5_000
+
+/** What the dropped-request recovery did for one request, reported on the query telemetry events. */
+export interface QueryRecoveryOutcome {
+    attempted: boolean
+    recovered: boolean
+    waitMs: number
+    afterStatus: number | null
+}
+
+/** The request reached the server but no answer came back: a gateway timeout or a dead upstream. */
+function isDroppedRequest(error: unknown): boolean {
+    const status = (error as { status?: number } | null)?.status
+    return status === 502 || status === 503 || status === 504
+}
+
+function blocksOnServer(refresh: RefreshType | undefined): boolean {
+    return refresh !== 'async' && refresh !== 'force_async' && refresh !== 'lazy_async' && refresh !== 'force_cache'
+}
+
+/**
+ * Poll the status of a query whose blocking request was dropped. Resolves with the recorded result,
+ * rejects with the recorded error, and returns null when nothing was recorded before the deadline.
+ * A 404 means the server has not finished the query yet, or has already forgotten it.
+ */
+async function waitForRecordedResult(
+    queryId: string,
+    methodOptions: ApiMethodOptions | undefined,
+    requestStartedAtMs: number
+): Promise<QueryStatus | null> {
+    const untilMs = requestStartedAtMs + DROPPED_REQUEST_RECOVERY_DEADLINE_MS
+    for (;;) {
+        try {
+            const statusResponse = (await api.queryStatus.get(queryId, false)).query_status
+            if (statusResponse.complete) {
+                return statusResponse
+            }
+        } catch (e: any) {
+            if (isAbortError(e)) {
+                throw e
+            }
+            const expired = e?.data?.code === 'query_result_expired'
+            if (e?.status !== 404 || expired) {
+                const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
+                e.detail = parsed.message
+                e.code = e.data?.query_status?.error_code ?? e.data?.code ?? parsed.code ?? e.code
+                e.queryId = queryId
+                throw e
+            }
+        }
+        const remainingMs = untilMs - Date.now()
+        if (remainingMs <= 0) {
+            return null
+        }
+        await delay(Math.min(DROPPED_REQUEST_RECOVERY_POLL_INTERVAL_MS, remainingMs), methodOptions?.signal)
+    }
+}
 
 /**
  * Parse error message that may be in ErrorDetail string format.
@@ -181,19 +244,49 @@ async function executeQuery<N extends DataNode>(
      * (stale-while-revalidate: `is_cached` is true *and* an incomplete `query_status` is
      * attached), return the cached results immediately instead of blocking on the recompute.
      */
-    acceptStaleCache = false
+    acceptStaleCache = false,
+    /**
+     * Filled in when a blocking request was dropped by the ingress or a gateway while the server
+     * kept running the query. The server records the outcome under the client query ID, so this
+     * call polls that ID and returns the result instead of the gateway error. Absent for poll-only
+     * callers, which cannot send queries.
+     */
+    recovery?: QueryRecoveryOutcome
 ): Promise<NonNullable<N['response']>> {
+    const requestStartedAtMs = Date.now()
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
+        // Every blocking request carries an ID the server records its outcome under, so a
+        // dropped request can be followed up on. Async requests get their ID from the response.
+        if (!queryId && blocksOnServer(refreshParam)) {
+            queryId = uuid()
+        }
 
-        const response = await api.query(queryNode, {
-            requestOptions: methodOptions,
-            clientQueryId: queryId,
-            refresh: refreshParam,
-            filtersOverride,
-            variablesOverride,
-            limitContext,
-        })
+        let response: any
+        try {
+            response = await api.query(queryNode, {
+                requestOptions: methodOptions,
+                clientQueryId: queryId,
+                refresh: refreshParam,
+                filtersOverride,
+                variablesOverride,
+                limitContext,
+            })
+        } catch (e: any) {
+            if (!recovery || !queryId || !blocksOnServer(refreshParam) || !isDroppedRequest(e)) {
+                throw e
+            }
+            const droppedAtMs = Date.now()
+            recovery.attempted = true
+            recovery.afterStatus = e?.status ?? null
+            const recorded = await waitForRecordedResult(queryId, methodOptions, requestStartedAtMs)
+            if (!recorded) {
+                throw e
+            }
+            recovery.recovered = true
+            recovery.waitMs = Date.now() - droppedAtMs
+            return recorded.results
+        }
 
         if (response.detail) {
             throw new Error(response.detail)
@@ -240,6 +333,7 @@ export async function performQuery<N extends DataNode>(
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
     const startTime = performance.now()
+    const recovery: QueryRecoveryOutcome = { attempted: false, recovered: false, waitMs: 0, afterStatus: null }
 
     try {
         if (isPersonsNode(queryNode)) {
@@ -255,8 +349,14 @@ export async function performQuery<N extends DataNode>(
                 variablesOverride,
                 pollOnly,
                 limitContext,
-                acceptStaleCache
+                acceptStaleCache,
+                pollOnly ? undefined : recovery
             )
+            if (recovery.recovered) {
+                logParams.recovered_after_drop = true
+                logParams.recovery_wait_ms = Math.round(recovery.waitMs)
+                logParams.recovered_after_status = recovery.afterStatus
+            }
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
@@ -302,6 +402,7 @@ export async function performQuery<N extends DataNode>(
                 error_status: error?.status ?? null,
                 error_code: error?.code ?? null,
                 uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
+                drop_recovery_attempted: recovery.attempted,
                 ...logParams,
             })
         }
