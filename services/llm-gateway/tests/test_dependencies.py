@@ -443,6 +443,7 @@ class TestPreviewModelGateWiring:
         assert error["code"] == "model_gate"
         assert "moonshotai/kimi-k3" in error["message"]
         assert error["message"].endswith("(rate_limit)")
+        assert error["reason"] == "model_not_available"
 
     @pytest.mark.asyncio
     async def test_preview_model_allowed_when_flag_enabled(self) -> None:
@@ -521,6 +522,34 @@ class TestBasetenExclusiveModelGateWiring:
             patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=True)),
         ):
             await enforce_throttles(request=request, user=user, runner=runner)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("flag_result", [False, None])
+    async def test_unbilled_glm_gets_rollout_denial_before_billing_denial(self, flag_result: bool | None) -> None:
+        request = _make_request({"model": BASETEN_GLM53_PUBLIC_MODEL, "messages": []}, path="/posthog_code/v1/messages")
+        user = _make_user(auth_method="oauth_access_token", user_id=7)
+        runner = MagicMock()
+        runner.check = AsyncMock(return_value=ThrottleResult.allow())
+
+        with (
+            patch(
+                "llm_gateway.dependencies.resolve_plan_and_quota",
+                AsyncMock(
+                    return_value=(
+                        MagicMock(),
+                        QuotaResourceStatus(limited=False, code_usage_billing_active=False),
+                    )
+                ),
+            ),
+            patch("llm_gateway.dependencies.ensure_costs_fresh"),
+            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=flag_result)),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_throttles(request=request, user=user, runner=runner)
+
+        error = exc_info.value.detail["error"]
+        assert error["reason"] == "model_not_available"
+        assert "payment method" not in error["message"].lower()
 
 
 class TestServerCredentialRequirementWiring:

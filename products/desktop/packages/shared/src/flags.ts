@@ -49,11 +49,9 @@ export const LOCAL_MCP_IMPORT_FLAG = "posthog-code-local-mcp-import";
  * Owned by the backend rollout in posthog/posthog — same flag key there.
  */
 export const MCP_GATEWAY_FLAG = "mcp-gateway";
-/** Per-task estimated cost readout in the context usage indicator. */
-export const TASK_COST_FLAG = "posthog-code-task-cost";
 /**
  * Shows the task cost as text beside the context ring rather than only inside
- * the popover. Requires TASK_COST_FLAG, which is what fetches the figure.
+ * the popover.
  */
 export const TASK_COST_VISIBLE_FLAG = "posthog-code-task-cost-visible";
 /**
