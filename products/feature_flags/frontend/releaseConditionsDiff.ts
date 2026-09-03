@@ -126,7 +126,7 @@ export function diffReleaseConditionSets(
             return
         }
         const candidates = beforeGroups
-            .map((candidate, beforeIndex) => beforeIndex)
+            .map((_, beforeIndex) => beforeIndex)
             .filter((beforeIndex) => !usedBefore.has(beforeIndex) && looksLikeSameSet(group, beforeGroups[beforeIndex]))
         if (candidates.length === 1) {
             claim(afterIndex, candidates[0])
