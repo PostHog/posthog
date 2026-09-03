@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 from posthog.hogql import ast
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, is_reserved_system_name
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
@@ -32,7 +32,6 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
-from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
@@ -48,7 +47,13 @@ logger = structlog.get_logger(__name__)
 TEST_VIEW_EXPIRY_INTERVAL = timedelta(days=7)
 
 
-def validate_saved_query_name(value):
+def validate_saved_query_name(value: str) -> None:
+    if is_reserved_system_name(value):
+        raise ValidationError(
+            "The system namespace is reserved for built-in tables. Choose a different view name.",
+            params={"value": value},
+        )
+
     if not re.match(r"^[A-Za-z_$][A-Za-z0-9_.$]*$", value):
         raise ValidationError(
             f"{value} is not a valid view name. View names can only contain letters, numbers, '_', '.', or '$' ",
@@ -450,13 +455,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
-            # Internal saved-query resolution can bypass only the scoped system tables needed by Data Modeling.
-            database=database
-            or Database.create_for(
-                self.team.pk,
-                bypass_warehouse_access_control=True,
-                allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
-            ),
+            # Internal saved-query resolution (no user); bypass warehouse HogQL access control.
+            database=database or Database.create_for(self.team.pk, bypass_warehouse_access_control=True),
         )
 
         query = self.query or {}

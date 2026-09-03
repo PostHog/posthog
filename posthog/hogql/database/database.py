@@ -265,6 +265,10 @@ type DatabaseSchemaTable = (
 logger = structlog.get_logger(__name__)
 
 
+def is_reserved_system_name(name: str) -> bool:
+    return name == "system" or name.startswith("system.")
+
+
 # READ BEFORE EDITING:
 # --------------------
 # Do NOT add any new table to this, add them to the `posthog` table node.
@@ -1968,6 +1972,8 @@ class Database(BaseModel):
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             for saved_query in sources.saved_queries:
                 with timings.measure(f"saved_query_{saved_query.name}"):
+                    if is_reserved_system_name(saved_query.name):
+                        continue
                     if (
                         sources.is_hogql_warehouse_access_control_enabled
                         and not sources.bypass_warehouse_access_control
@@ -1987,6 +1993,8 @@ class Database(BaseModel):
                 try:
                     for endpoint_saved_query in sources.endpoint_saved_queries:
                         with timings.measure(f"endpoint_saved_query_{endpoint_saved_query.name}"):
+                            if is_reserved_system_name(endpoint_saved_query.name):
+                                continue
                             # Endpoint-origin saved queries are a separate list, so they're checked too
                             if (
                                 sources.is_hogql_warehouse_access_control_enabled

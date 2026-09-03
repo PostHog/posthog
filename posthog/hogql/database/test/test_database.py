@@ -4153,6 +4153,18 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         # A real user gets per-user access control computed rather than the anonymous all-deny path.
         assert user_access_control is not None
 
+    def test_existing_saved_query_cannot_fill_denied_system_table_name(self) -> None:
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="system.accounts",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+        )
+
+        database = Database.create_for(team=self.team)
+
+        with pytest.raises(TableAccessDeniedError):
+            database.get_table("system.accounts")
+
     def test_userless_system_table_allowlist_is_exact(self) -> None:
         database = Database.create_for(
             team=self.team,

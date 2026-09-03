@@ -7,6 +7,7 @@ from parameterized import parameterized
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
+from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.saved_query_dag_sync import (
     HasDependentsError,
     ManagedDAGError,
@@ -32,7 +33,7 @@ class TestGetDagId(BaseTest):
 
 @pytest.mark.django_db
 class TestSyncSavedQueryToDag(BaseTest):
-    def test_saved_query_resolution_allows_only_data_modeling_system_dependencies(self) -> None:
+    def test_saved_query_resolution_requires_explicit_data_modeling_system_allowlist(self) -> None:
         saved_query = DataWarehouseSavedQuery(
             name="account_summary",
             team=self.team,
@@ -48,12 +49,15 @@ class TestSyncSavedQueryToDag(BaseTest):
             },
         )
 
-        assert saved_query.get_s3_tables() == []
+        with self.assertRaises(TableAccessDeniedError):
+            _ = saved_query.s3_tables
 
-        ordinary_userless_database = Database.create_for(team=self.team)
-        for table_name in ("accounts", "feature_requests", "_account_email_threads"):
-            with self.subTest(table_name=table_name), self.assertRaises(TableAccessDeniedError):
-                ordinary_userless_database.get_table(f"system.{table_name}")
+        data_modeling_database = Database.create_for(
+            team=self.team,
+            bypass_warehouse_access_control=True,
+            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+        )
+        assert saved_query.get_s3_tables(database=data_modeling_database) == []
 
     def test_sync_creates_dag_model(self):
         saved_query = DataWarehouseSavedQuery.objects.create(

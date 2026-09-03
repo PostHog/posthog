@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import AsyncMock, patch
 
+from django.core.exceptions import ValidationError
 from django.db import connection
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
@@ -398,6 +399,24 @@ class TestSavedQuery(APIBaseTest):
 
         saved_query = DataWarehouseSavedQuery.objects.get(id=view_id)
         assert saved_query.column_order == select_order
+
+    def test_create_rejects_reserved_system_namespace(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "system.accounts",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(
+            response.json()["detail"],
+            "The system namespace is reserved for built-in tables. Choose a different view name.",
+        )
 
     def test_create_name_overlap_error(self):
         response = self.client.post(
@@ -2154,6 +2173,19 @@ class TestSavedQuery(APIBaseTest):
                 from django.core.cache import cache
 
                 cache.clear()
+
+
+class TestSavedQueryNameValidation(SimpleTestCase):
+    @parameterized.expand([("namespace", "system"), ("nested_name", "system.accounts")])
+    def test_reserves_system_namespace(self, _name: str, saved_query_name: str) -> None:
+        name_field = DataWarehouseSavedQuery._meta.get_field("name")
+
+        with self.assertRaises(ValidationError) as error:
+            name_field.run_validators(saved_query_name)
+
+        assert error.exception.messages == [
+            "The system namespace is reserved for built-in tables. Choose a different view name."
+        ]
 
 
 class TestMaterializeRequestBody(SimpleTestCase):
