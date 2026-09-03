@@ -364,7 +364,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'task-agent-project-default',
                 title: 'Project default model',
                 description:
-                    'The model agent runs launch with when nobody picks one. Everyone on this project inherits it, in PostHog AI 2.0, Slack, and PostHog Desktop.',
+                    'The model agent runs launch with when nobody picks one. Everyone on this project inherits it, in PostHog AI, Slack, and PostHog Desktop.',
                 component: <TaskAgentProjectDefaultSettings />,
                 keywords: ['ai', 'model', 'claude', 'codex', 'agent', 'tasks', 'default', 'slack', 'desktop'],
             },
@@ -372,7 +372,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'task-agent-my-preference',
                 title: 'My default model',
                 description:
-                    'The model your own runs launch with, overriding the project default. Applies in PostHog AI 2.0, Slack, and PostHog Desktop.',
+                    'The model your own runs launch with, overriding the project default. Applies in PostHog AI, Slack, and PostHog Desktop.',
                 component: <TaskAgentMyPreferenceSettings />,
                 keywords: ['ai', 'model', 'claude', 'codex', 'agent', 'tasks', 'preference', 'slack', 'desktop'],
             },
