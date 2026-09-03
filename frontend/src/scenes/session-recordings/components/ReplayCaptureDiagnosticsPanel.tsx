@@ -110,6 +110,7 @@ const BANNER_TYPE_BY_VERDICT: Record<DiagnosisVerdict, LemonBannerProps['type']>
     url_blocked: 'info',
     recorder_not_started: 'warning',
     recorder_loading: 'info',
+    recorder_ran: 'info',
     config_pending: 'info',
     trigger_pending: 'info',
     sampled_out: 'info',

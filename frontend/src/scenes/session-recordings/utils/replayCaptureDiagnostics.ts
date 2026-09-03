@@ -9,6 +9,7 @@ export type DiagnosisVerdict =
     | 'url_blocked'
     | 'recorder_not_started'
     | 'recorder_loading'
+    | 'recorder_ran'
     | 'config_pending'
     | 'trigger_pending'
     | 'sampled_out'
@@ -22,7 +23,7 @@ export interface SuggestedAction {
 }
 
 export interface DiagnosisContext {
-    /** Every `$recording_status` the session reported, not only the one on this event. */
+    /** Every `$recording_status` the session reported, as an unordered set, not only this event's. */
     sessionRecordingStatuses?: string[]
 }
 
@@ -88,8 +89,8 @@ const pickSignals = (properties: Record<string, any>): Record<string, unknown> =
 // them on a session that records fine. Neither settles what the rest of the session did.
 const STARTUP_STATUSES = ['disabled', 'lazy_loading']
 
-// Statuses that say more than a startup snapshot, most to least informative: the first one the
-// session reached wins.
+// Statuses that say more than a startup snapshot, most to least informative: the highest one the
+// session reported wins.
 const STATUSES_BEYOND_STARTUP = [
     'active',
     'sampled',
@@ -101,6 +102,11 @@ const STATUSES_BEYOND_STARTUP = [
     'pending_config',
     'lazy_loading',
 ]
+
+// A status the session reported on another event arrives without that event's signals, so a
+// verdict that reads them cannot be reached from it. These three need a flushed size or a buffer
+// length to say more, and on their own they only prove the recorder ran.
+const STATUSES_PROVING_THE_RECORDER_RAN = ['active', 'sampled', 'buffering']
 
 const parseRemoteConfigEnabled = (value: unknown): boolean | null => {
     let config = value
@@ -145,25 +151,35 @@ export function diagnoseReplayCapture(
     const properties = eventProperties ?? {}
     const eventStatus = properties['$recording_status']
     const sessionStatuses = context?.sessionRecordingStatuses ?? []
-    // The session got at least this far, even if this one event was captured before it did.
-    const statusReachedLater = STARTUP_STATUSES.includes(eventStatus)
+    // The session got at least this far on another event. The set carries no timestamps, so it
+    // says the session got further, never when it did.
+    const statusElsewhere = STARTUP_STATUSES.includes(eventStatus)
         ? STATUSES_BEYOND_STARTUP.find((s) => s !== eventStatus && sessionStatuses.includes(s))
         : undefined
 
-    const diagnosis = diagnoseSignals(properties, statusReachedLater ?? eventStatus)
-    if (!statusReachedLater) {
-        return diagnosis
+    if (statusElsewhere === undefined) {
+        return diagnoseSignals(properties, eventStatus)
     }
+
+    if (STATUSES_PROVING_THE_RECORDER_RAN.includes(statusElsewhere)) {
+        return diagnoseSignals(properties, eventStatus, statusElsewhere)
+    }
+
+    const diagnosis = diagnoseSignals(properties, statusElsewhere)
     return {
         ...diagnosis,
         reasons: [
-            `This event was captured before the recorder started. Later in the session the SDK reported ${statusReachedLater}.`,
+            `This event reports \`${eventStatus}\`, and elsewhere in the session the SDK reported \`${statusElsewhere}\`.`,
             ...diagnosis.reasons,
         ],
     }
 }
 
-function diagnoseSignals(properties: Record<string, any>, recordingStatus: unknown): ReplayCaptureDiagnosis {
+function diagnoseSignals(
+    properties: Record<string, any>,
+    recordingStatus: unknown,
+    statusProvingTheRecorderRan?: string
+): ReplayCaptureDiagnosis {
     const rawSignals = pickSignals(properties)
 
     const hasRecording = properties['$has_recording']
@@ -328,6 +344,23 @@ function diagnoseSignals(properties: Record<string, any>, recordingStatus: unkno
                     ? 'A recording trigger matched this session, then the sample rate on that trigger group dropped it, so the recorder never started.'
                     : 'The SDK selected this session to be dropped based on the configured replay sample rate.',
                 'Sampling is random per session. Raise the sample rate in replay settings to capture more sessions.',
+            ],
+            rawSignals,
+            suggestedActions: [settingsAction, troubleshootingAction],
+        }
+    }
+
+    // Checked after every cause this event's own signals prove, because those name a reason while
+    // this only says the recorder ran. It comes before the startup verdicts below, which would
+    // say the recorder never ran.
+    if (statusProvingTheRecorderRan) {
+        return {
+            verdict: 'recorder_ran',
+            headline: 'The recorder was running in this session',
+            reasons: [
+                `This event reports \`${recordingStatus}\`, but the session also reported \`${statusProvingTheRecorderRan}\`, so the recorder did start.`,
+                'The signals on this event were captured while the recorder was not running, so they do not say what happened to the recording.',
+                'The recording may still be processing, or it may not have met the minimum duration set for this project.',
             ],
             rawSignals,
             suggestedActions: [settingsAction, troubleshootingAction],

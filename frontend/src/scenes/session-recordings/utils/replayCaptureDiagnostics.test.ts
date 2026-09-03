@@ -354,10 +354,11 @@ describe('diagnoseReplayCapture', () => {
 
     it.each([
         ['lazy_loading', 'recorder_loading'],
-        ['buffering', 'unknown'],
         ['paused', 'url_blocked'],
-        ['sampled', 'unknown'],
-    ])('a disabled event is re-read against the %s the session reached', (sessionStatus, expected) => {
+        ['active', 'recorder_ran'],
+        ['buffering', 'recorder_ran'],
+        ['sampled', 'recorder_ran'],
+    ])('a disabled event is re-read against the %s the session reported', (sessionStatus, expected) => {
         const properties = { $recording_status: 'disabled' }
 
         expect(diagnoseReplayCapture(properties).verdict).toBe('recorder_not_started')
@@ -367,6 +368,16 @@ describe('diagnoseReplayCapture', () => {
         })
         expect(result.verdict).toBe(expected)
         expect(result.reasons[0]).toContain(sessionStatus)
+        // The endpoint returns the statuses without timestamps, so no verdict may claim an order.
+        expect([result.headline, ...result.reasons].join(' ')).not.toMatch(/later in the session/i)
+    })
+
+    it('keeps a cause this event proves over the session reporting the recorder ran', () => {
+        const result = diagnoseReplayCapture(
+            { $recording_status: 'disabled', $session_recording_remote_config: { enabled: false } },
+            { sessionRecordingStatuses: ['disabled', 'active'] }
+        )
+        expect(result.verdict).toBe('disabled')
     })
 
     it('re-reads a lazy_loading event against a session that got further', () => {
@@ -387,7 +398,7 @@ describe('diagnoseReplayCapture', () => {
             { sessionRecordingStatuses: ['disabled', 'lazy_loading'] }
         )
         expect(result.verdict).toBe('recorder_loading')
-        expect(result.reasons[0]).not.toContain('Later in the session')
+        expect(result.reasons[0]).not.toContain('elsewhere in the session')
     })
 
     it.each(['lazy_loading', 'disabled'])('a %s snapshot alone does not claim the session ended', (status) => {
@@ -401,7 +412,7 @@ describe('diagnoseReplayCapture', () => {
             { sessionRecordingStatuses: ['disabled'] }
         )
         expect(result.verdict).toBe('disabled')
-        expect(result.reasons[0]).not.toContain('Later in the session')
+        expect(result.reasons[0]).not.toContain('elsewhere in the session')
     })
 
     it('includes relevant raw signals in the result', () => {
