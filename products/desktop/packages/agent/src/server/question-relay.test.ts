@@ -1,5 +1,14 @@
 import { type SetupServerApi, setupServer } from "msw/node";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { classifyAgentError } from "../adapters/error-classification";
 import type { PostHogAPIClient } from "../posthog-api";
 import {
@@ -135,13 +144,21 @@ describe("Question relay", () => {
   let mswServer: SetupServerApi;
   const port = 3098;
 
-  beforeEach(async () => {
-    repo = await createTestRepo("question-relay");
+  // msw patches fetch process-wide. A second listen() on an already-patched
+  // fetch throws, so patch once per file and reset the handlers per test.
+  beforeAll(() => {
     mswServer = setupServer(
       ...createPostHogHandlers({ baseUrl: "http://localhost:8000" }),
     );
     mswServer.listen({ onUnhandledRequest: "bypass" });
+  });
 
+  afterAll(() => {
+    mswServer.close();
+  });
+
+  beforeEach(async () => {
+    repo = await createTestRepo("question-relay");
     server = new AgentServer({
       port,
       jwtPublicKey: "unused-in-unit-tests",
@@ -156,7 +173,7 @@ describe("Question relay", () => {
   });
 
   afterEach(async () => {
-    mswServer.close();
+    mswServer.resetHandlers();
     await repo.cleanup();
   });
 

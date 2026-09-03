@@ -396,11 +396,9 @@ describe("AgentServer HTTP Mode", () => {
   let appendLogCalls: unknown[][];
   let port: number;
 
-  beforeEach(async () => {
-    repo = await createTestRepo("agent-server-http");
-    appendLogCalls = [];
-    // Use a unique high port per test to avoid reuse and browser-blocked ports.
-    port = getNextTestPort();
+  // msw patches fetch process-wide. A second listen() on an already-patched
+  // fetch throws, so patch once per file and reset the handlers per test.
+  beforeAll(() => {
     mswServer = setupServer(
       ...createPostHogHandlers({
         baseUrl: "http://localhost:8000",
@@ -410,13 +408,26 @@ describe("AgentServer HTTP Mode", () => {
     mswServer.listen({ onUnhandledRequest: "bypass" });
   });
 
-  afterEach(async () => {
-    if (server) {
-      await server.stop();
-      server = undefined;
-    }
+  afterAll(() => {
     mswServer.close();
-    await repo.cleanup();
+  });
+
+  beforeEach(async () => {
+    repo = await createTestRepo("agent-server-http");
+    appendLogCalls = [];
+    // Use a unique high port per test to avoid reuse and browser-blocked ports.
+    port = getNextTestPort();
+  });
+
+  afterEach(async () => {
+    const runningServer = server;
+    server = undefined;
+    try {
+      await runningServer?.stop();
+    } finally {
+      mswServer.resetHandlers();
+      await repo.cleanup();
+    }
   });
 
   const createServer = (
