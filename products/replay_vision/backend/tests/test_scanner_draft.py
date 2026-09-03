@@ -1188,6 +1188,58 @@ class TestDraftV2(_VisionAPITestCase):
         # survives — but the scanner still defaults to excluding internal users.
         assert draft.query == {"kind": "RecordingsQuery", "filter_test_accounts": True}
 
+    def _estimate_by_query(self, dead_when):
+        def estimate(*, team, query, user, sampling_mode, budget):
+            matched = 0 if dead_when(query) else 300
+            return ScannerVolumeEstimate(matched_sessions=matched, effective_window_days=30)
+
+        return estimate
+
+    def _drafted_with(self, generate, estimate):
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=(VisitedPath(pathname="/billing", sessions=10),)),
+            patch(_GENERATE_PATH, return_value=generate),
+            patch(f"{_MODULE}.estimate_scanner_session_volume", side_effect=estimate),
+        ):
+            return draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal="find out where people give up in billing",
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+            )
+
+    def test_an_event_filter_that_matches_nothing_falls_back_to_the_pages(self):
+        # An event the product stopped emitting ANDs the whole filter to zero, so the scanner would
+        # never run. The pages come from measured traffic, so they cannot be dead the same way.
+        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
+
+        draft = self._drafted_with(
+            _draft_v2(filter_pages=["/billing"], filter_events=["billing_limit_set"]),
+            self._estimate_by_query(lambda query: bool(query.events)),
+        )
+
+        assert draft.query is not None
+        assert "events" not in draft.query
+        assert draft.query["properties"][0]["key"] == "visited_page"
+        assert draft.estimated_monthly_observations == 300
+        # The rationale describes the filter the model picked, so it has to say the filter changed.
+        assert "scans the pages instead" in draft.rationale
+
+    def test_a_draft_with_no_pages_to_fall_back_to_is_left_alone(self):
+        # Widening to every session would scan a product the goal never asked about, which is worse
+        # than a filter the review page already refuses to save.
+        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
+
+        draft = self._drafted_with(
+            _draft_v2(filter_events=["billing_limit_set"]),
+            self._estimate_by_query(lambda query: True),
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["billing_limit_set"]
+        assert draft.estimated_monthly_observations == 0
+
     def test_solved_dials_reach_the_draft(self):
         draft = self._run(pages=("/billing",), generate=_draft_v2(filter_pages=["/billing"]))
 
