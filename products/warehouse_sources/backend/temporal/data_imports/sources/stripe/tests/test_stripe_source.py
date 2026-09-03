@@ -238,6 +238,10 @@ class TestStripeSource:
             # A publishable key was used where a secret/restricted key is required — matched on the
             # stable message text, ignoring the request id prefix.
             "Request req_abc123: This API call cannot be made with a publishable API key. Please use a secret API key. You can find a list of your API keys at https://dashboard.stripe.com/account/apikeys.",
+            # A 400-class InvalidRequestError with no usable Stripe-provided detail, raised when
+            # listing a specific customer's nested resources — every retry replays the same request
+            # against the same customer and fails identically.
+            "Request req_abc123: error_details_unknown",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
