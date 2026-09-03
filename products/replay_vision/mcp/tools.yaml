@@ -126,11 +126,14 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: '{session_id}'
-        title: Get a session's replay vision observation
+        title: Get a replay vision observation
         description: >
-            Get a single replay vision observation by ID, scoped to the scanners the caller can read. Returns the full
-            `scanner_snapshot` (the scanner's configuration at run time) and `scanner_result` (the LLM output, with any
-            event citations). Use `vision-observations-list` to find observation IDs for a session first.
+            Get a single replay vision observation, scoped to the scanners the caller can read. `id` is the
+            *observation* id, not a session id and not a scanner id. Returns the full `scanner_snapshot` (the scanner's
+            configuration at run time) and `scanner_result` (the LLM output, with any event citations). A
+            `$recording_observed` event row's `uuid` is the observation id, so pass `toString(uuid)` as `id`. If you
+            only have a session id, call `vision-observations-list` with that `session_id` first and take `id` off the
+            row you want.
         agent_note: >
             `_posthogUrl` opens the recording this observation analysed.
             `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's
@@ -325,10 +328,11 @@ tools:
             idempotent: true
         title: Get replay vision scanner
         description: >
-            Get a single replay vision scanner by ID. Returns the full configuration including `scanner_config` (the
-            type-specific prompt and response schema parameters), the `RecordingsQuery` used to select sessions, and
-            operational fields like `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`,
-            and `last_swept_at`.
+            Get a single replay vision scanner. The scanner id goes in `id` — the `vision-scanners-observations-*` tools
+            take the same value as `scanner_id`, but this one does not accept that name. Get an id from
+            `vision-scanners-list`. Returns the full configuration including `scanner_config` (the type-specific prompt
+            and response schema parameters), the `RecordingsQuery` used to select sessions, and operational fields like
+            `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`, and `last_swept_at`.
     vision-scanners-impact-retrieve:
         operation: vision_scanners_impact_retrieve
         enabled: true
