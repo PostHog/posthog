@@ -37,7 +37,7 @@ Judges the report for safety, then persists it at the judged status.
 | `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it.                                                                                                                                                                                                                |
 | `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                                                                                                             |
 | `charts`                    | list, ≤20, optional     | Queries the inbox draws on the report — the report's full set, replacing any it already had. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                                                   |
-| `suggested_prompts`         | list, ≤3, optional      | Follow-up questions the inbox offers above the report's `Ask AI` box, each ≤200 characters and all distinct. See _Suggesting follow-up questions_ below.                                                                                                                                                                                       |
+| `suggested_prompts`         | list, ≤3, optional      | Follow-up prompts the inbox offers above the report's `Ask AI` box (questions to ask, or next-step actions to request), each ≤200 characters and all distinct. See _Suggesting follow-up prompts_ below.                                                                                                                                       |
 
 **Cite each entity as a link, not a bare id.** In `summary` and in `evidence` descriptions, write
 the entity you name as a markdown link: reuse the url the returning tool attached (`_posthogUrl`
@@ -139,28 +139,33 @@ Leave `charts` out entirely and the report keeps the ones it has; read the repor
 Send `charts: []` to take every chart down, for when the finding has moved on and the old chart would now mislead.
 Cap is **20 charts per report** (and a combined query-size budget), which is far more than most reports should use. Each chart runs its query when the report is opened, so attach the ones that carry the argument rather than everything you looked at: three charts a reader studies beat a dozen they scroll past.
 
-### Suggesting follow-up questions
+### Suggesting follow-up prompts
 
-`suggested_prompts` are questions the inbox offers above the report's `Ask AI` box.
+`suggested_prompts` are prompts the inbox offers above the report's `Ask AI` box: follow-up questions, and next-step actions the reader can send as a request.
 Clicking one fills the box with it; nothing is sent on the click, so the reader can send it as written or edit it first.
-You did the research and know which threads you left open, so this hands the reader that knowledge instead of leaving them to invent a question from an empty box.
+You did the research and know which threads you left open and what should happen next, so this hands the reader that knowledge instead of leaving them to invent a prompt from an empty box.
 
-Optional, and worth it only when you can name a question worth an agent run.
+Optional, and worth it only when you can name a prompt worth an agent run.
 Write none rather than pad to the cap — a report with no suggestions looks exactly as it did before.
 
 **Ask what your research left open, not what it already answered.**
 A question the summary answers spends an agent run restating the report.
 Good ones widen the finding (who else is affected, since when, what changed), test a hypothesis you could not, or ask for the next step you did not have the standing to take.
 
-**Write the question the reader would ask, in their words**, and make each one stand alone — the question reaches an agent that gets the report as context but not your run, so it can't point at "the above" or "the second chart".
+**Offer the action your report recommends, so acting on it is one click.**
+The prompt reaches an agent run that can investigate, carry out the report's recommendation, and work the report itself — its work log and its state — so a good action prompt names the concrete work: "Create the alert the report recommends, then mark this report resolved".
+Fold in "mark this report resolved" only when the action completes in place — an action that lands as a pull request must not resolve the report, because a caller resolve closes the report's open PR and the merge resolves the report on its own.
+Suggest only actions your report's own recommendation makes concrete; leave anything a human should weigh first (deleting data, changing a flag serving live traffic) as a question instead.
+
+**Write each prompt as the reader would send it, in their words** — a question they would ask or a request they would make — and make each one stand alone: the prompt reaches an agent that gets the report as context but not your run, so it can't point at "the above" or "the second chart".
 
 **`suggested_prompts` on an edit is the report's whole set, not an addition.**
-It replaces what the report had, the way `summary` replaces the summary, so re-send every question you want kept.
+It replaces what the report had, the way `summary` replaces the summary, so re-send every prompt you want kept.
 Leave the field out and the report keeps the ones it has; send `suggested_prompts: []` to take them down.
 Rewriting `summary` on an edit does not clear them for you, so send the new set (or `[]`) in the same call.
-The research pipeline does clear them when it rewrites a report it re-researches, since the questions were written against the prose it replaces.
+The research pipeline does clear them when it rewrites a report it re-researches, since the prompts were written against the prose it replaces.
 
-Cap is **3 questions per report**, each **≤200 characters**, and duplicates are refused.
+Cap is **3 prompts per report**, each **≤200 characters**, and duplicates are refused.
 
 ### Opening a draft PR (autostart)
 
@@ -228,6 +233,7 @@ The fleet's reviewer map should compound over time.
 
 Rewrite `title`/`summary`, append a note, set `suggested_reviewers`, and/or replace `charts` / `suggested_prompts` on a report that already exists.
 Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `suggested_reviewers`, `charts`, `suggested_prompts`.
+An edit that supplies content (`title`, `summary`, `charts`, `suggested_prompts`, `append_note`, or a reviewer `reason`) passes the same safety judge as `emit_report`; an unsafe edit is rejected whole and the report keeps what it had.
 
 `edit_report` can target **any** of the team's inbox reports — not just ones a scout authored.
 That makes it the right tool when a later run learns something about a report the pipeline (or another scout) created.
