@@ -236,6 +236,7 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
             sessionId={sessionId}
             onTaskCreated={handleTaskCreated}
             showNewTaskSuggestions={false}
+            allowNoRepo
           />
         </div>
       </div>

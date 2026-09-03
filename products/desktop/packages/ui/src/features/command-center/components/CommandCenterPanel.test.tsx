@@ -108,13 +108,18 @@ vi.mock("../../task-detail/components/TaskInput", () => ({
   TaskInput: ({
     onTaskCreated,
     showNewTaskSuggestions,
+    allowNoRepo,
   }: {
     onTaskCreated?: (task: Task) => void;
     showNewTaskSuggestions?: boolean;
+    allowNoRepo?: boolean;
   }) => {
     mocks.taskCreatedCallback = onTaskCreated ?? null;
     return (
-      <div data-suggestions={showNewTaskSuggestions}>
+      <div
+        data-allow-no-repo={allowNoRepo}
+        data-suggestions={showNewTaskSuggestions}
+      >
         <button
           type="button"
           onClick={() => onTaskCreated?.(mocks.createdTask as Task)}
@@ -240,6 +245,10 @@ describe("CommandCenterPanel", () => {
     expect(screen.getByText("Send").parentElement).toHaveAttribute(
       "data-suggestions",
       "false",
+    );
+    expect(screen.getByText("Send").parentElement).toHaveAttribute(
+      "data-allow-no-repo",
+      "true",
     );
   });
 

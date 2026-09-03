@@ -120,10 +120,6 @@ describe("BranchSelector cloud mode", () => {
       />,
     );
 
-    expect(screen.getByRole("combobox", { name: "Branch" })).toHaveTextContent(
-      "main",
-    );
-
     await user.click(screen.getByRole("combobox", { name: "Branch" }));
 
     expect(await screen.findByRole("option", { name: "main" })).toBeVisible();
