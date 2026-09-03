@@ -511,7 +511,7 @@ mod tests {
         // violation, not a rebalance: the ledger cannot trust its window.
         assert_eq!(
             ledger.charge(&p0, 0, [(Offset(11), Charge::ZERO)]),
-            Err(Rejection::Violation(LedgerError::OffsetBelowWindow {
+            Err(Rejection::Violation(LedgerError::OffsetNotAboveWindow {
                 offset: Offset(11),
                 next: Offset(12),
             }))

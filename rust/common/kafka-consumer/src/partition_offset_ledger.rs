@@ -16,8 +16,9 @@ struct Slot {
 /// than reasoning about that state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LedgerError {
-    /// A charge delivered an offset at or below one already recorded.
-    OffsetBelowWindow { offset: Offset, next: Offset },
+    /// A charge delivered an offset that is not above every offset already
+    /// recorded.
+    OffsetNotAboveWindow { offset: Offset, next: Offset },
     /// A completion arrived before any delivery was charged.
     CompletionBeforeDelivery { offset: Offset },
     /// A completion for an offset `take_frontier` already consumed.
@@ -32,7 +33,7 @@ impl LedgerError {
     /// A stable label for metrics.
     pub fn kind(&self) -> &'static str {
         match self {
-            LedgerError::OffsetBelowWindow { .. } => "offset_below_window",
+            LedgerError::OffsetNotAboveWindow { .. } => "offset_not_above_window",
             LedgerError::CompletionBeforeDelivery { .. } => "completion_before_delivery",
             LedgerError::CompletionBelowWindow { .. } => "completion_below_window",
             LedgerError::CompletionUncharged { .. } => "completion_uncharged",
@@ -44,10 +45,10 @@ impl LedgerError {
 impl fmt::Display for LedgerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LedgerError::OffsetBelowWindow { offset, next } => {
+            LedgerError::OffsetNotAboveWindow { offset, next } => {
                 write!(
                     f,
-                    "offset {offset} delivered below the window's next offset {next}"
+                    "offset {offset} delivered but not above the window's next offset {next}"
                 )
             }
             LedgerError::CompletionBeforeDelivery { offset } => {
@@ -141,7 +142,7 @@ impl PartitionOffsetLedger {
             let base_offset = *self.base_offset.get_or_insert(offset);
             let next_offset = base_offset + self.slots.len();
             if offset < next_offset {
-                return Err(LedgerError::OffsetBelowWindow {
+                return Err(LedgerError::OffsetNotAboveWindow {
                     offset,
                     next: next_offset,
                 });
@@ -282,7 +283,7 @@ mod tests {
         ledger.charge([charge(0), charge(1)]).unwrap();
         assert_eq!(
             ledger.charge([charge(1)]),
-            Err(LedgerError::OffsetBelowWindow {
+            Err(LedgerError::OffsetNotAboveWindow {
                 offset: Offset(1),
                 next: Offset(2),
             })
