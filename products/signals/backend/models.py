@@ -294,6 +294,12 @@ class SignalReport(UUIDModel):
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
     # field or never surfaced.
     first_visible_at = models.DateTimeField(null=True, blank=True)
+    # When the report's inbox notification was dispatched. A report notifies once, ever: research
+    # settles every time a new signal carries the report to its next bucket, and each settle starts
+    # the notification workflow again, so without this a report re-notified per research pass. Set
+    # once and never cleared, so it survives past Temporal's history retention window — a workflow
+    # ID de-duplication would not. Null for reports that never notified or predate the field.
+    inbox_notified_at = models.DateTimeField(null=True, blank=True)
 
     # Video segment clustering fields
     cluster_centroid = deprecate_field(
