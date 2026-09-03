@@ -38,8 +38,12 @@ const STRIPPED_KEYS = [
   "CLAUDE_CODE_USE_MANTLE",
 ] as const;
 
-function statusJson(loggedIn: boolean, authMethod: string): string {
-  return JSON.stringify({ loggedIn, authMethod });
+function statusJson(
+  loggedIn: boolean,
+  authMethod: string,
+  extra?: Record<string, unknown>,
+): string {
+  return JSON.stringify({ loggedIn, authMethod, ...extra });
 }
 
 describe("hasClaudeLogin", () => {
@@ -87,7 +91,7 @@ describe("hasClaudeLogin", () => {
       machineAuth: {},
     });
     emitStdout(statusJson(true, "claude.ai"));
-    await expect(result).resolves.toBe("logged-in");
+    await expect(result).resolves.toEqual({ state: "logged-in" });
   });
 
   it("reports logged in for an oauth_token subscription", async () => {
@@ -96,7 +100,27 @@ describe("hasClaudeLogin", () => {
       machineAuth: {},
     });
     emitStdout(statusJson(true, "oauth_token"));
-    await expect(result).resolves.toBe("logged-in");
+    await expect(result).resolves.toEqual({ state: "logged-in" });
+  });
+
+  it("surfaces the connected account's email, org, and plan", async () => {
+    const result = hasClaudeLogin({
+      claudeCliPath: "/bundled/claude",
+      machineAuth: {},
+    });
+    emitStdout(
+      statusJson(true, "claude.ai", {
+        email: "user@posthog.com",
+        orgName: "PostHog",
+        subscriptionType: "team",
+      }),
+    );
+    await expect(result).resolves.toEqual({
+      state: "logged-in",
+      email: "user@posthog.com",
+      organization: "PostHog",
+      subscriptionType: "team",
+    });
   });
 
   it("reports logged out for a third-party Bedrock provider", async () => {
@@ -105,7 +129,7 @@ describe("hasClaudeLogin", () => {
       machineAuth: {},
     });
     emitStdout(statusJson(true, "third_party"));
-    await expect(result).resolves.toBe("logged-out");
+    await expect(result).resolves.toEqual({ state: "logged-out" });
   });
 
   it("reports logged out for an api_key auth method", async () => {
@@ -114,7 +138,7 @@ describe("hasClaudeLogin", () => {
       machineAuth: {},
     });
     emitStdout(statusJson(true, "api_key"));
-    await expect(result).resolves.toBe("logged-out");
+    await expect(result).resolves.toEqual({ state: "logged-out" });
   });
 
   it("reports logged out when the CLI confirms no login", async () => {
@@ -123,7 +147,7 @@ describe("hasClaudeLogin", () => {
       machineAuth: {},
     });
     emitStdout(statusJson(false, "none"));
-    await expect(result).resolves.toBe("logged-out");
+    await expect(result).resolves.toEqual({ state: "logged-out" });
   });
 
   it("reports unknown when the CLI exits non-zero with no JSON", async () => {
@@ -132,7 +156,7 @@ describe("hasClaudeLogin", () => {
       machineAuth: {},
     });
     exit(1);
-    await expect(result).resolves.toBe("unknown");
+    await expect(result).resolves.toEqual({ state: "unknown" });
   });
 
   it("reports unknown when the CLI cannot start", async () => {
@@ -141,14 +165,14 @@ describe("hasClaudeLogin", () => {
       machineAuth: {},
     });
     queueMicrotask(() => child.emit("error", new Error("spawn failed")));
-    await expect(result).resolves.toBe("unknown");
+    await expect(result).resolves.toEqual({ state: "unknown" });
   });
 
   it("reports unknown when the bundled binary is missing", async () => {
     vi.mocked(existsSync).mockReturnValue(false);
     await expect(
       hasClaudeLogin({ claudeCliPath: "/bundled/claude", machineAuth: {} }),
-    ).resolves.toBe("unknown");
+    ).resolves.toEqual({ state: "unknown" });
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
@@ -233,7 +257,7 @@ describe("hasClaudeLogin", () => {
           timeoutMs: 100,
         });
         vi.advanceTimersByTime(200);
-        await expect(result).resolves.toBe("unknown");
+        await expect(result).resolves.toEqual({ state: "unknown" });
         expect(child.kill).toHaveBeenCalledWith("SIGTERM");
         if (exitsAfterTerm) child.emit("exit", null);
         vi.advanceTimersByTime(5000);
