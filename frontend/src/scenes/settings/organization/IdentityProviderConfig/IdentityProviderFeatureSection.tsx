@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconCircleDashed, IconInfo, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconCircleDashed, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
 import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
@@ -129,17 +128,15 @@ export function IdentityProviderFeatureSection({ configScope }: { configScope: C
                     })}
                 </div>
                 {configs.length > 0 && (
-                    <div className="mt-3 flex items-center gap-1">
+                    <div className="mt-3 flex">
                         <LemonButton
                             type="tertiary"
                             to={urls.identityProviderConfig(configScope, 'new')}
+                            tooltip="You probably don't need multiple configurations. Only create a new configuration if you use multiple IdP's or apps within your IdP for SSO."
                             data-attr={`new-${configScope}-identity-provider-from-settings`}
                         >
                             Add a new {feature.name} configuration
                         </LemonButton>
-                        <Tooltip title="You probably don't need multiple configurations. Only create a new configuration if you use multiple IdP's or apps within your IdP for SSO.">
-                            <IconInfo className="text-muted-alt" />
-                        </Tooltip>
                     </div>
                 )}
                 {configScope === ConfigScopeEnumApi.Scim && <ScimLogsModal emptyStateScope="configuration" />}
