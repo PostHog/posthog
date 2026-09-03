@@ -1,3 +1,4 @@
+import { configureZod } from 'lib/configureZod'
 import { registerNotebookLinkDrag } from 'scenes/notebooks/AddToNotebook/registerNotebookLinkDrag'
 
 import { initKea } from '../initKea'
@@ -21,6 +22,9 @@ export function bootApp(): void {
     }
     appBooted = true
 
+    // Before anything parses a zod schema: zod compiles a parser on first parse and caches it, so
+    // this has to settle before the first one or the measurement mixes both modes.
+    configureZod()
     loadPostHogJS()
     // Kea must initialize before any component mounts
     initKea()
