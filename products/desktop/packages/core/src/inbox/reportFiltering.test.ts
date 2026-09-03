@@ -8,6 +8,7 @@ import {
   filterReportsBySearch,
   INBOX_PIPELINE_STATUS_FILTER,
   INBOX_PIPELINE_STATUSES,
+  sortInboxReports,
 } from "./reportFiltering";
 
 describe("inbox pipeline statuses", () => {
@@ -150,6 +151,22 @@ describe("buildArchiveListOrdering", () => {
     expect(buildArchiveListOrdering("updated_at", "desc")).not.toContain(
       "status",
     );
+  });
+});
+
+describe("sortInboxReports", () => {
+  it("interleaves separately loaded buckets using the selected ordering", () => {
+    const reports = [
+      makeReport({ id: "older", created_at: "2025-01-01T00:00:00Z" }),
+      makeReport({ id: "newest", created_at: "2025-03-01T00:00:00Z" }),
+      makeReport({ id: "middle", created_at: "2025-02-01T00:00:00Z" }),
+    ];
+
+    expect(
+      sortInboxReports(reports, "created_at", "desc").map(
+        (report) => report.id,
+      ),
+    ).toEqual(["newest", "middle", "older"]);
   });
 });
 

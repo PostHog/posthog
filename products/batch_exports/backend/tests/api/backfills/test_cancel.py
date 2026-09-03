@@ -62,8 +62,6 @@ def test_cancelling_a_batch_export_backfill(client: HttpClient, organization, te
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
     batch_export_data = {

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconPencil, IconX } from '@posthog/icons'
+import { IconCheck, IconInfo, IconPencil, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonColorGlyph,
@@ -49,6 +49,7 @@ import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansion
 import { accountsLogic, customPropertySavingKey, savingRoleKey } from './accountsLogic'
 import { AccountsTableNameCell } from './AccountsTableNameCell'
 import { accountsTableCell, isAccountsTableRow } from './accountsTableQuery'
+import { accountsViewsLogic } from './accountsViewsLogic'
 
 // Shape the name renderer uses from the keyed AccountsTableRow identity fields.
 type AccountNameCellData = { name: string; external_id: string | null; id: string; logo_domain: string | null }
@@ -353,7 +354,7 @@ function CanonicalTimestampCell({
 }
 
 export function isCustomPropertyEditable(definition: CustomPropertyDefinitionApi): boolean {
-    return !definition.is_canonical && !definition.source && definition.references.length === 0
+    return !definition.is_canonical && !definition.source
 }
 
 type CustomPropertyDraft = boolean | string
@@ -639,6 +640,11 @@ function CustomPropertyCell({
     return (
         <div className="flex min-w-0 items-center gap-1">
             <span className="min-w-0 truncate">{renderedValue}</span>
+            {definition.has_workflow_reference && (
+                <Tooltip title="A workflow is configured to update this property. If it runs again, it will overwrite any value you set manually.">
+                    <IconInfo className="text-warning shrink-0" />
+                </Tooltip>
+            )}
             {isEditable && accountId && (
                 <LemonButton
                     type="tertiary"
@@ -719,14 +725,23 @@ const KNOWN_COLUMN_TEMPLATES: Record<string, KnownColumnTemplate> = {
 function useContextColumns(): Record<string, QueryContextColumn> {
     const { visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition, displayByAlias } =
         useValues(accountsColumnConfigLogic)
+    const { columnWidths } = useValues(accountsViewsLogic)
+    const { setColumnWidth, reportColumnResize } = useActions(accountsViewsLogic)
     return useMemo(() => {
         const columns: Record<string, QueryContextColumn> = {}
         for (const key of visibleColumnNames) {
+            const resizeHandlers = {
+                resizable: true,
+                onResize: (width: number) => setColumnWidth(key, width),
+                onResizeEnd: reportColumnResize,
+            }
             const definition = aliasToDefinition[key]
             if (definition) {
                 const display = displayByAlias[key]
                 columns[key] = {
                     renderTitle: () => <SortableColumnHeader column={key} label={definition.name} />,
+                    width: columnWidths[key],
+                    ...resizeHandlers,
                     render: ({ record }) => (
                         <CustomPropertyCell
                             record={record}
@@ -743,7 +758,8 @@ function useContextColumns(): Record<string, QueryContextColumn> {
             if (relationshipDefinition) {
                 columns[key] = {
                     renderTitle: () => <SortableColumnHeader column={key} label={relationshipDefinition.name} />,
-                    width: COLUMN_WIDTHS.relationship,
+                    width: columnWidths[key] ?? COLUMN_WIDTHS.relationship,
+                    ...resizeHandlers,
                     render: ({ record }) => (
                         <RelationshipCell record={record} column={key} definition={relationshipDefinition} />
                     ),
@@ -754,12 +770,21 @@ function useContextColumns(): Record<string, QueryContextColumn> {
             const label = template?.label ?? key
             columns[key] = {
                 renderTitle: () => <SortableColumnHeader column={key} label={label} />,
-                width: template?.width,
+                width: columnWidths[key] ?? template?.width,
+                ...resizeHandlers,
                 render: template?.render ?? (({ record }) => <DefaultAccountCell record={record} column={key} />),
             }
         }
         return columns
-    }, [visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition, displayByAlias])
+    }, [
+        visibleColumnNames,
+        aliasToDefinition,
+        aliasToRelationshipDefinition,
+        displayByAlias,
+        columnWidths,
+        setColumnWidth,
+        reportColumnResize,
+    ])
 }
 
 function useExpandable(): QueryContext<DataTableNode>['expandable'] {
@@ -862,10 +887,11 @@ function AccountsTableSkeleton({ expandable }: { expandable: boolean }): JSX.Ele
 
 export function AccountsTable(): JSX.Element {
     const { accountsDataTableQuery, accountsQuerySource, sortedRowsTransformer } = useValues(accountsLogic)
+    const { columnWidths } = useValues(accountsViewsLogic)
     const { responseLoading, response } = useValues(
         dataNodeLogic({
             key: ACCOUNTS_TABLE_DATA_NODE_KEY,
-            query: accountsQuerySource ?? accountsDataTableQuery.source,
+            query: accountsQuerySource,
         } as DataNodeLogicProps)
     )
     const { featureFlags } = useValues(featureFlagLogic)
@@ -887,6 +913,8 @@ export function AccountsTable(): JSX.Element {
                 }}
                 context={{
                     columns: contextColumns,
+                    tableLayout: 'fixed',
+                    tableStyle: Object.keys(columnWidths).length > 0 ? { width: 'max-content' } : undefined,
                     expandable,
                     dataTableRowsTransformer: sortedRowsTransformer,
                     dataNodeLogicKey: ACCOUNTS_TABLE_DATA_NODE_KEY,

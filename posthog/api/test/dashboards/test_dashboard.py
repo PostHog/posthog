@@ -809,7 +809,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         insight = Insight.objects.create(
             team=self.team,
             created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"]}},
         )
         DashboardTile.objects.create(dashboard=dashboard, insight=insight)
         mock_calculate.return_value = InsightResult(
@@ -3658,8 +3658,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {
                 "dashboards": [dashboard_id],
                 "query": {
-                    "kind": "InsightVizNode",
-                    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                    "kind": "DataVisualizationNode",
+                    "source": {"kind": "HogQLQuery", "query": "select count() from events"},
                 },
             }
         )
@@ -3676,7 +3676,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             name="tile alert",
             threshold=threshold,
             condition={"type": "absolute_value"},
-            config={"type": "TrendsAlertConfig", "series_index": 0},
+            config={"type": "HogQLAlertConfig", "evaluation": "last_row"},
         )
 
         regular_response = self.dashboard_api.get_dashboard(dashboard_id)
@@ -3703,7 +3703,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard with broken tile", created_by=self.user)
         insight = Insight.objects.create(
             team=self.team,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"]}},
         )
         DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
@@ -4302,13 +4302,20 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_create_text_tile_adds_markdown_tile_to_dashboard(self):
+    @parameterized.expand(
+        [
+            ("text", "text", "## Section heading\n\nIntro markdown."),
+            ("image", "image", "![Dashboard image](https://example.com/image.png)"),
+        ]
+    )
+    def test_create_text_tile_accepts_tile_types(self, _name: str, tile_type: str, tile_body: str) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/create_text_tile/",
             {
-                "body": "## Section heading\n\nIntro markdown.",
+                "type": tile_type,
+                "body": tile_body,
                 "layouts": {"sm": {"x": 0, "y": 0, "w": 12, "h": 1}},
             },
             content_type="application/json",
@@ -4317,14 +4324,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         body = response.json()
         self.assertIsNotNone(body["id"])
         self.assertIsNone(body["insight"])
-        self.assertEqual(body["text"]["body"], "## Section heading\n\nIntro markdown.")
+        self.assertEqual(body["text"]["body"], tile_body)
         self.assertEqual(body["layouts"]["sm"], {"x": 0, "y": 0, "w": 12, "h": 1})
 
         dashboard_response = self.client.get(f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/")
         self.assertEqual(dashboard_response.status_code, status.HTTP_200_OK)
         tiles = dashboard_response.json()["tiles"]
         self.assertEqual(len(tiles), 1)
-        self.assertEqual(tiles[0]["text"]["body"], "## Section heading\n\nIntro markdown.")
+        self.assertEqual(tiles[0]["text"]["body"], tile_body)
 
     def test_create_text_tile_without_layouts_uses_default(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")

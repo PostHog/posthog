@@ -1736,14 +1736,21 @@ const EventContent = React.memo(
                                         <>
                                             {isTopLevelTraceWithoutContent ? (
                                                 <InsightEmptyState
-                                                    heading="No top-level trace event"
+                                                    heading="No trace-level input and output captured"
                                                     detail={
                                                         <>
-                                                            This trace doesn't have an associated <code>$ai_trace</code>{' '}
-                                                            event.
+                                                            This trace's content is on the events in the tree. Select an
+                                                            event to view its input and output.
                                                             <br />
-                                                            Click on individual generations in the tree to view their
-                                                            content.
+                                                            To show a conversation here, capture a{' '}
+                                                            <Link
+                                                                to="https://posthog.com/docs/ai-observability/traces"
+                                                                target="_blank"
+                                                            >
+                                                                <code>$ai_trace</code> event
+                                                            </Link>{' '}
+                                                            with <code>$ai_input_state</code> and{' '}
+                                                            <code>$ai_output_state</code> properties.
                                                         </>
                                                     }
                                                 />

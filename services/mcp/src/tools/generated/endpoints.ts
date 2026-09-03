@@ -2,44 +2,29 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    EndpointsCreateBody,
-    EndpointsDestroyParams,
-    EndpointsLastExecutionTimesCreateBody,
-    EndpointsListQueryParams,
-    EndpointsLogsRetrieveParams,
-    EndpointsLogsRetrieveQueryParams,
-    EndpointsMaterializationPreviewCreateBody,
-    EndpointsMaterializationPreviewCreateParams,
-    EndpointsMaterializationStatusRetrieveParams,
-    EndpointsMaterializationSuggestionCreateBody,
-    EndpointsMaterializationSuggestionCreateParams,
-    EndpointsOpenapiSpecRetrieveParams,
-    EndpointsOpenapiSpecRetrieveQueryParams,
-    EndpointsPartialUpdateBody,
-    EndpointsPartialUpdateParams,
-    EndpointsRetrieveParams,
-    EndpointsRunCreateBody,
-    EndpointsRunCreateParams,
-    EndpointsVersionsListParams,
-    EndpointsVersionsListQueryParams,
-} from '@/generated/endpoints/api'
+import * as orvalSchemas from '@/generated/endpoints/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const EndpointCreateSchema = EndpointsCreateBody.omit({
-    is_active: true,
-    derived_from_insight: true,
-    version: true,
-    bucket_overrides: true,
-    deleted: true,
-    optional_breakdown_properties: true,
-})
+const EndpointCreateSchema = () => {
+    const EndpointsCreateBody = orvalSchemas.EndpointsCreateBody()
+    return EndpointsCreateBody.omit({
+        is_active: true,
+        derived_from_insight: true,
+        version: true,
+        bucket_overrides: true,
+        deleted: true,
+        optional_breakdown_properties: true,
+    })
+}
 
-const endpointCreate = (): ToolBase<typeof EndpointCreateSchema, WithPostHogUrl<Schemas.EndpointResponse>> => ({
+const endpointCreate = (): ToolBase<
+    ReturnType<typeof EndpointCreateSchema>,
+    WithPostHogUrl<Schemas.EndpointResponse>
+> => ({
     name: 'endpoint-create',
-    schema: EndpointCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof EndpointCreateSchema>) => {
+    schema: EndpointCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EndpointCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -69,12 +54,15 @@ const endpointCreate = (): ToolBase<typeof EndpointCreateSchema, WithPostHogUrl<
     },
 })
 
-const EndpointDeleteSchema = EndpointsDestroyParams.omit({ project_id: true })
+const EndpointDeleteSchema = () => {
+    const EndpointsDestroyParams = orvalSchemas.EndpointsDestroyParams()
+    return EndpointsDestroyParams.omit({ project_id: true })
+}
 
-const endpointDelete = (): ToolBase<typeof EndpointDeleteSchema, Schemas.EndpointResponse> => ({
+const endpointDelete = (): ToolBase<ReturnType<typeof EndpointDeleteSchema>, Schemas.EndpointResponse> => ({
     name: 'endpoint-delete',
-    schema: EndpointDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof EndpointDeleteSchema>) => {
+    schema: EndpointDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EndpointDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.EndpointResponse>({
             method: 'PATCH',
@@ -85,12 +73,18 @@ const endpointDelete = (): ToolBase<typeof EndpointDeleteSchema, Schemas.Endpoin
     },
 })
 
-const EndpointGetSchema = EndpointsRetrieveParams.omit({ project_id: true })
+const EndpointGetSchema = () => {
+    const EndpointsRetrieveParams = orvalSchemas.EndpointsRetrieveParams()
+    return EndpointsRetrieveParams.omit({ project_id: true })
+}
 
-const endpointGet = (): ToolBase<typeof EndpointGetSchema, WithPostHogUrl<Schemas.EndpointVersionResponse>> => ({
+const endpointGet = (): ToolBase<
+    ReturnType<typeof EndpointGetSchema>,
+    WithPostHogUrl<Schemas.EndpointVersionResponse>
+> => ({
     name: 'endpoint-get',
-    schema: EndpointGetSchema,
-    handler: async (context: Context, params: z.infer<typeof EndpointGetSchema>) => {
+    schema: EndpointGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EndpointGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.EndpointVersionResponse>({
             method: 'GET',
@@ -100,14 +94,16 @@ const endpointGet = (): ToolBase<typeof EndpointGetSchema, WithPostHogUrl<Schema
     },
 })
 
-const EndpointLogsSchema = EndpointsLogsRetrieveParams.omit({ project_id: true }).extend(
-    EndpointsLogsRetrieveQueryParams.shape
-)
+const EndpointLogsSchema = () => {
+    const EndpointsLogsRetrieveParams = orvalSchemas.EndpointsLogsRetrieveParams()
+    const EndpointsLogsRetrieveQueryParams = orvalSchemas.EndpointsLogsRetrieveQueryParams()
+    return EndpointsLogsRetrieveParams.omit({ project_id: true }).extend(EndpointsLogsRetrieveQueryParams.shape)
+}
 
-const endpointLogs = (): ToolBase<typeof EndpointLogsSchema, unknown> => ({
+const endpointLogs = (): ToolBase<ReturnType<typeof EndpointLogsSchema>, unknown> => ({
     name: 'endpoint-logs',
-    schema: EndpointLogsSchema,
-    handler: async (context: Context, params: z.infer<typeof EndpointLogsSchema>) => {
+    schema: EndpointLogsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EndpointLogsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
@@ -125,16 +121,15 @@ const endpointLogs = (): ToolBase<typeof EndpointLogsSchema, unknown> => ({
     },
 })
 
-const EndpointMaterializationConditionsSchema = z.object({})
+const EndpointMaterializationConditionsSchema = () => z.object({})
 
 const endpointMaterializationConditions = (): ToolBase<
-    typeof EndpointMaterializationConditionsSchema,
+    ReturnType<typeof EndpointMaterializationConditionsSchema>,
     Schemas.EndpointMaterializationConditions
 > => ({
     name: 'endpoint-materialization-conditions',
-    schema: EndpointMaterializationConditionsSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof EndpointMaterializationConditionsSchema>) => {
+    schema: EndpointMaterializationConditionsSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof EndpointMaterializationConditionsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.EndpointMaterializationConditions>({
             method: 'GET',
@@ -144,15 +139,18 @@ const endpointMaterializationConditions = (): ToolBase<
     },
 })
 
-const EndpointMaterializationStatusSchema = EndpointsMaterializationStatusRetrieveParams.omit({ project_id: true })
+const EndpointMaterializationStatusSchema = () => {
+    const EndpointsMaterializationStatusRetrieveParams = orvalSchemas.EndpointsMaterializationStatusRetrieveParams()
+    return EndpointsMaterializationStatusRetrieveParams.omit({ project_id: true })
+}
 
 const endpointMaterializationStatus = (): ToolBase<
-    typeof EndpointMaterializationStatusSchema,
+    ReturnType<typeof EndpointMaterializationStatusSchema>,
     WithPostHogUrl<Schemas.EndpointMaterialization>
 > => ({
     name: 'endpoint-materialization-status',
-    schema: EndpointMaterializationStatusSchema,
-    handler: async (context: Context, params: z.infer<typeof EndpointMaterializationStatusSchema>) => {
+    schema: EndpointMaterializationStatusSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EndpointMaterializationStatusSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.EndpointMaterialization>({
             method: 'GET',
@@ -162,17 +160,21 @@ const endpointMaterializationStatus = (): ToolBase<
     },
 })
 
-const EndpointMaterializationSuggestionSchema = EndpointsMaterializationSuggestionCreateParams.omit({
-    project_id: true,
-}).extend(EndpointsMaterializationSuggestionCreateBody.shape)
+const EndpointMaterializationSuggestionSchema = () => {
+    const EndpointsMaterializationSuggestionCreateBody = orvalSchemas.EndpointsMaterializationSuggestionCreateBody()
+    const EndpointsMaterializationSuggestionCreateParams = orvalSchemas.EndpointsMaterializationSuggestionCreateParams()
+    return EndpointsMaterializationSuggestionCreateParams.omit({ project_id: true }).extend(
+        EndpointsMaterializationSuggestionCreateBody.shape
+    )
+}
 
 const endpointMaterializationSuggestion = (): ToolBase<
-    typeof EndpointMaterializationSuggestionSchema,
+    ReturnType<typeof EndpointMaterializationSuggestionSchema>,
     WithPostHogUrl<Schemas.EndpointMaterializationSuggestion>
 > => ({
     name: 'endpoint-materialization-suggestion',
-    schema: EndpointMaterializationSuggestionSchema,
-    handler: async (context: Context, params: z.infer<typeof EndpointMaterializationSuggestionSchema>) => {
+    schema: EndpointMaterializationSuggestionSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EndpointMaterializationSuggestionSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.version !== undefined) {
@@ -187,14 +189,18 @@ const endpointMaterializationSuggestion = (): ToolBase<
     },
 })
 
-const EndpointOpenapiSpecSchema = EndpointsOpenapiSpecRetrieveParams.omit({ project_id: true }).extend(
-    EndpointsOpenapiSpecRetrieveQueryParams.shape
-)
+const EndpointOpenapiSpecSchema = () => {
+    const EndpointsOpenapiSpecRetrieveParams = orvalSchemas.EndpointsOpenapiSpecRetrieveParams()
+    const EndpointsOpenapiSpecRetrieveQueryParams = orvalSchemas.EndpointsOpenapiSpecRetrieveQueryParams()
+    return EndpointsOpenapiSpecRetrieveParams.omit({ project_id: true }).extend(
+        EndpointsOpenapiSpecRetrieveQueryParams.shape
+    )
+}
 
-const endpointOpenapiSpec = (): ToolBase<typeof EndpointOpenapiSpecSchema, unknown> => ({
+const endpointOpenapiSpec = (): ToolBase<ReturnType<typeof EndpointOpenapiSpecSchema>, unknown> => ({
     name: 'endpoint-openapi-spec',
-    schema: EndpointOpenapiSpecSchema,
-    handler: async (context: Context, params: z.infer<typeof EndpointOpenapiSpecSchema>) => {
+    schema: EndpointOpenapiSpecSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EndpointOpenapiSpecSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
@@ -207,20 +213,28 @@ const endpointOpenapiSpec = (): ToolBase<typeof EndpointOpenapiSpecSchema, unkno
     },
 })
 
-const EndpointRunSchema = EndpointsRunCreateParams.omit({ project_id: true })
-    .extend(
-        EndpointsRunCreateBody.omit({ client_query_id: true, debug: true, filters_override: true, version: true }).shape
-    )
-    .extend({
-        variables: EndpointsRunCreateBody.shape['variables'].describe(
-            'Key-value pairs to parameterize the query. For HogQL endpoints, keys match variable code_name (e.g. {"event_name": "$pageview"}). For insight endpoints with breakdowns, use the breakdown property name as key.'
-        ),
-    })
+const EndpointRunSchema = () => {
+    const EndpointsRunCreateBody = orvalSchemas.EndpointsRunCreateBody()
+    const EndpointsRunCreateParams = orvalSchemas.EndpointsRunCreateParams()
+    return EndpointsRunCreateParams.omit({ project_id: true })
+        .extend(
+            EndpointsRunCreateBody.omit({ client_query_id: true, debug: true, filters_override: true, version: true })
+                .shape
+        )
+        .extend({
+            variables: EndpointsRunCreateBody.shape['variables'].describe(
+                'Key-value pairs to parameterize the query. For HogQL endpoints, keys match variable code_name (e.g. {"event_name": "$pageview"}). For insight endpoints with breakdowns, use the breakdown property name as key.'
+            ),
+        })
+}
 
-const endpointRun = (): ToolBase<typeof EndpointRunSchema, WithPostHogUrl<Schemas.EndpointRunResponse>> => ({
+const endpointRun = (): ToolBase<
+    ReturnType<typeof EndpointRunSchema>,
+    WithPostHogUrl<Schemas.EndpointRunResponse>
+> => ({
     name: 'endpoint-run',
-    schema: EndpointRunSchema,
-    handler: async (context: Context, params: z.infer<typeof EndpointRunSchema>) => {
+    schema: EndpointRunSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EndpointRunSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.limit !== undefined) {
@@ -244,20 +258,27 @@ const endpointRun = (): ToolBase<typeof EndpointRunSchema, WithPostHogUrl<Schema
     },
 })
 
-const EndpointUpdateSchema = EndpointsPartialUpdateParams.omit({ project_id: true }).extend(
-    EndpointsPartialUpdateBody.omit({
-        name: true,
-        derived_from_insight: true,
-        bucket_overrides: true,
-        deleted: true,
-        optional_breakdown_properties: true,
-    }).shape
-)
+const EndpointUpdateSchema = () => {
+    const EndpointsPartialUpdateBody = orvalSchemas.EndpointsPartialUpdateBody()
+    const EndpointsPartialUpdateParams = orvalSchemas.EndpointsPartialUpdateParams()
+    return EndpointsPartialUpdateParams.omit({ project_id: true }).extend(
+        EndpointsPartialUpdateBody.omit({
+            name: true,
+            derived_from_insight: true,
+            bucket_overrides: true,
+            deleted: true,
+            optional_breakdown_properties: true,
+        }).shape
+    )
+}
 
-const endpointUpdate = (): ToolBase<typeof EndpointUpdateSchema, WithPostHogUrl<Schemas.EndpointResponse>> => ({
+const endpointUpdate = (): ToolBase<
+    ReturnType<typeof EndpointUpdateSchema>,
+    WithPostHogUrl<Schemas.EndpointResponse>
+> => ({
     name: 'endpoint-update',
-    schema: EndpointUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof EndpointUpdateSchema>) => {
+    schema: EndpointUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EndpointUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
@@ -290,17 +311,19 @@ const endpointUpdate = (): ToolBase<typeof EndpointUpdateSchema, WithPostHogUrl<
     },
 })
 
-const EndpointVersionsSchema = EndpointsVersionsListParams.omit({ project_id: true }).extend(
-    EndpointsVersionsListQueryParams.shape
-)
+const EndpointVersionsSchema = () => {
+    const EndpointsVersionsListParams = orvalSchemas.EndpointsVersionsListParams()
+    const EndpointsVersionsListQueryParams = orvalSchemas.EndpointsVersionsListQueryParams()
+    return EndpointsVersionsListParams.omit({ project_id: true }).extend(EndpointsVersionsListQueryParams.shape)
+}
 
 const endpointVersions = (): ToolBase<
-    typeof EndpointVersionsSchema,
+    ReturnType<typeof EndpointVersionsSchema>,
     WithPostHogUrl<Schemas.PaginatedEndpointVersionResponseList>
 > => ({
     name: 'endpoint-versions',
-    schema: EndpointVersionsSchema,
-    handler: async (context: Context, params: z.infer<typeof EndpointVersionsSchema>) => {
+    schema: EndpointVersionsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EndpointVersionsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedEndpointVersionResponseList>({
             method: 'GET',
@@ -325,15 +348,18 @@ const endpointVersions = (): ToolBase<
     },
 })
 
-const EndpointsGetAllSchema = EndpointsListQueryParams
+const EndpointsGetAllSchema = () => {
+    const EndpointsListQueryParams = orvalSchemas.EndpointsListQueryParams()
+    return EndpointsListQueryParams
+}
 
 const endpointsGetAll = (): ToolBase<
-    typeof EndpointsGetAllSchema,
+    ReturnType<typeof EndpointsGetAllSchema>,
     WithPostHogUrl<Schemas.PaginatedEndpointResponseList>
 > => ({
     name: 'endpoints-get-all',
-    schema: EndpointsGetAllSchema,
-    handler: async (context: Context, params: z.infer<typeof EndpointsGetAllSchema>) => {
+    schema: EndpointsGetAllSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EndpointsGetAllSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedEndpointResponseList>({
             method: 'GET',
@@ -358,15 +384,18 @@ const endpointsGetAll = (): ToolBase<
     },
 })
 
-const EndpointsLastExecutionTimesSchema = EndpointsLastExecutionTimesCreateBody
+const EndpointsLastExecutionTimesSchema = () => {
+    const EndpointsLastExecutionTimesCreateBody = orvalSchemas.EndpointsLastExecutionTimesCreateBody()
+    return EndpointsLastExecutionTimesCreateBody
+}
 
 const endpointsLastExecutionTimes = (): ToolBase<
-    typeof EndpointsLastExecutionTimesSchema,
+    ReturnType<typeof EndpointsLastExecutionTimesSchema>,
     Schemas.QueryStatusResponse
 > => ({
     name: 'endpoints-last-execution-times',
-    schema: EndpointsLastExecutionTimesSchema,
-    handler: async (context: Context, params: z.infer<typeof EndpointsLastExecutionTimesSchema>) => {
+    schema: EndpointsLastExecutionTimesSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EndpointsLastExecutionTimesSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.names !== undefined) {
@@ -381,14 +410,21 @@ const endpointsLastExecutionTimes = (): ToolBase<
     },
 })
 
-const EndpointsMaterializationPreviewSchema = EndpointsMaterializationPreviewCreateParams.omit({
-    project_id: true,
-}).extend(EndpointsMaterializationPreviewCreateBody.shape)
+const EndpointsMaterializationPreviewSchema = () => {
+    const EndpointsMaterializationPreviewCreateBody = orvalSchemas.EndpointsMaterializationPreviewCreateBody()
+    const EndpointsMaterializationPreviewCreateParams = orvalSchemas.EndpointsMaterializationPreviewCreateParams()
+    return EndpointsMaterializationPreviewCreateParams.omit({ project_id: true }).extend(
+        EndpointsMaterializationPreviewCreateBody.shape
+    )
+}
 
-const endpointsMaterializationPreview = (): ToolBase<typeof EndpointsMaterializationPreviewSchema, unknown> => ({
+const endpointsMaterializationPreview = (): ToolBase<
+    ReturnType<typeof EndpointsMaterializationPreviewSchema>,
+    unknown
+> => ({
     name: 'endpoints-materialization-preview',
-    schema: EndpointsMaterializationPreviewSchema,
-    handler: async (context: Context, params: z.infer<typeof EndpointsMaterializationPreviewSchema>) => {
+    schema: EndpointsMaterializationPreviewSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EndpointsMaterializationPreviewSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.version !== undefined) {

@@ -436,6 +436,14 @@ class TestSentrySourceValidation:
 
         assert any(pattern in error_msg for pattern in SentrySource().get_retryable_errors())
 
+    def test_retryable_errors_match_exhausted_rate_limit_retries(self) -> None:
+        # tenacity retries 429s (reading X-Sentry-Rate-Limit-Reset); once exhausted, raise_for_status
+        # raises HTTPError with the status line "429 Client Error: Too Many Requests for url: ...".
+        # This does NOT contain "Max retries exceeded", so it must be matched separately.
+        error_msg = "429 Client Error: Too Many Requests for url: https://sentry.io/api/0/organizations/acme/trace-items/attributes/?dataset=logs"
+
+        assert error_message_matches(error_msg, SentrySource().get_retryable_errors())
+
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
     def test_sentry_source_builds_response(self, mock_rest_api_resource) -> None:
         mock_resource = Mock()

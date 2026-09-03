@@ -192,6 +192,37 @@ export interface PatchedOrganizationDomainApi {
     readonly scim_base_url?: string | null
 }
 
+export interface SCIMRequestLogApi {
+    readonly id: string
+    readonly request_method: string
+    readonly request_path: string
+    readonly request_headers: unknown
+    readonly request_body: unknown
+    readonly response_status: number
+    readonly response_body: unknown
+    readonly identity_provider: string
+    /** @nullable */
+    readonly duration_ms: number | null
+    readonly created_at: string
+}
+
+export interface PaginatedSCIMRequestLogApi {
+    /** Total number of matching SCIM requests. */
+    count: number
+    /**
+     * URL for the next page, or null on the last page.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL for the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
+    /** SCIM requests on this page. */
+    results: SCIMRequestLogApi[]
+}
+
 /**
  * * `all` - All
  * * `selected` - Selected
@@ -263,6 +294,8 @@ export interface IdentityProviderConfigApi {
     readonly has_scim: boolean
     /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
     scim_enabled?: boolean
+    /** SCIM base URL for this identity provider configuration. */
+    readonly scim_base_url: string
     /**
      * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
      * @nullable
@@ -345,6 +378,8 @@ export interface PatchedIdentityProviderConfigApi {
     readonly has_scim?: boolean
     /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
     scim_enabled?: boolean
+    /** SCIM base URL for this identity provider configuration. */
+    readonly scim_base_url?: string
     /**
      * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
      * @nullable
@@ -2613,9 +2648,9 @@ export interface ProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
-    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
     readonly event_retention_months: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
     readonly events_retention_enforced: boolean
 }
 
@@ -3465,9 +3500,9 @@ export interface PatchedProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
-    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
     readonly event_retention_months?: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
     readonly events_retention_enforced?: boolean
 }
 
@@ -3495,9 +3530,9 @@ export const RestrictionTypeEnumApi = {
  * * `clientwarnings` - Clientwarnings
  * * `ai` - Ai
  */
-export type PipelinesEnumApi = (typeof PipelinesEnumApi)[keyof typeof PipelinesEnumApi]
+export type IngestionPipelineEnumApi = (typeof IngestionPipelineEnumApi)[keyof typeof IngestionPipelineEnumApi]
 
-export const PipelinesEnumApi = {
+export const IngestionPipelineEnumApi = {
     Analytics: 'analytics',
     SessionRecordings: 'session_recordings',
     Errortracking: 'errortracking',
@@ -3523,7 +3558,7 @@ export interface EventIngestionRestrictionApi {
     /** Event UUIDs the restriction applies to. Empty means it is not filtered by event UUID. */
     event_uuids: string[]
     /** Ingestion pipelines the restriction applies to. Filters combine with AND; values within a filter combine with OR. */
-    pipelines: PipelinesEnumApi[]
+    pipelines: IngestionPipelineEnumApi[]
 }
 
 export interface SharePasswordApi {
@@ -3916,10 +3951,9 @@ export interface PatchedProjectSecretAPIKeyApi {
  * * `Boolean` - Boolean
  * * `Duration` - Duration
  */
-export type PropertyDefinitionTypeEnumApi =
-    (typeof PropertyDefinitionTypeEnumApi)[keyof typeof PropertyDefinitionTypeEnumApi]
+export type PropertyTypeEnumApi = (typeof PropertyTypeEnumApi)[keyof typeof PropertyTypeEnumApi]
 
-export const PropertyDefinitionTypeEnumApi = {
+export const PropertyTypeEnumApi = {
     DateTime: 'DateTime',
     String: 'String',
     Numeric: 'Numeric',
@@ -3941,7 +3975,7 @@ export interface EnterprisePropertyDefinitionApi {
     readonly updated_by: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events: boolean | null
-    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | null
+    property_type?: PropertyTypeEnumApi | BlankEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at: string | null
@@ -3975,7 +4009,7 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly updated_by?: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events?: boolean | null
-    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | null
+    property_type?: PropertyTypeEnumApi | BlankEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at?: string | null
@@ -4028,6 +4062,59 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export interface UploadedMediaApi {
+    readonly id: string
+    /** The file's original name. */
+    readonly name: string
+    /** @nullable */
+    readonly purpose: string | null
+    /** @nullable */
+    readonly content_type: string | null
+    /** @nullable */
+    readonly size_bytes: number | null
+    /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
+    readonly url: string
+    readonly created_at: string
+}
+
+export interface PaginatedUploadedMediaListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: UploadedMediaApi[]
+}
+
+export interface UploadedMediaStartUploadApi {
+    /**
+     * The file's display name, e.g. 'logo.png'.
+     * @maxLength 1000
+     */
+    name: string
+    /**
+     * Library to add this image to once uploaded, e.g. 'email'.
+     * @maxLength 100
+     */
+    purpose: string
+}
+
+/**
+ * Extra form fields to send alongside the file in the same POST.
+ */
+export type UploadedMediaUploadStartedApiFormFields = { [key: string]: string }
+
+export interface UploadedMediaUploadStartedApi {
+    /** Id of the pending upload — pass this to complete_upload. */
+    readonly id: string
+    /** POST the image file here as multipart/form-data. */
+    readonly upload_url: string
+    /** Extra form fields to send alongside the file in the same POST. */
+    readonly form_fields: UploadedMediaUploadStartedApiFormFields
+    /** Seconds before upload_url expires. */
+    readonly expires_in: number
 }
 
 export interface LeakedKeyReportApi {
@@ -4106,9 +4193,10 @@ export interface TeamBasicApi {
  * * `6` - install
  * * `9` - root
  */
-export type PluginsAccessLevelEnumApi = (typeof PluginsAccessLevelEnumApi)[keyof typeof PluginsAccessLevelEnumApi]
+export type OrganizationPluginsAccessLevelEnumApi =
+    (typeof OrganizationPluginsAccessLevelEnumApi)[keyof typeof OrganizationPluginsAccessLevelEnumApi]
 
-export const PluginsAccessLevelEnumApi = {
+export const OrganizationPluginsAccessLevelEnumApi = {
     Number0: 0,
     Number3: 3,
     Number6: 6,
@@ -4119,10 +4207,10 @@ export const PluginsAccessLevelEnumApi = {
  * * `bayesian` - Bayesian
  * * `frequentist` - Frequentist
  */
-export type DefaultExperimentStatsMethodEnumApi =
-    (typeof DefaultExperimentStatsMethodEnumApi)[keyof typeof DefaultExperimentStatsMethodEnumApi]
+export type OrganizationDefaultExperimentStatsMethodEnumApi =
+    (typeof OrganizationDefaultExperimentStatsMethodEnumApi)[keyof typeof OrganizationDefaultExperimentStatsMethodEnumApi]
 
-export const DefaultExperimentStatsMethodEnumApi = {
+export const OrganizationDefaultExperimentStatsMethodEnumApi = {
     Bayesian: 'bayesian',
     Frequentist: 'frequentist',
 } as const
@@ -4144,7 +4232,7 @@ export interface OrganizationApi {
     readonly created_at: string
     readonly updated_at: string
     readonly membership_level: OrganizationMembershipLevelEnumApi
-    readonly plugins_access_level: PluginsAccessLevelEnumApi
+    readonly plugins_access_level: OrganizationPluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
@@ -4201,7 +4289,7 @@ export interface OrganizationApi {
      *
      * * `bayesian` - Bayesian
      * * `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
+    default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -4668,10 +4756,10 @@ export interface GitHubReposRefreshResponseApi {
  * * `approved` - Approved
  * * `unidentified` - Unidentified
  */
-export type GitHubInstallRequestItemStatusEnumApi =
-    (typeof GitHubInstallRequestItemStatusEnumApi)[keyof typeof GitHubInstallRequestItemStatusEnumApi]
+export type GitHubInstallRequestStatusEnumApi =
+    (typeof GitHubInstallRequestStatusEnumApi)[keyof typeof GitHubInstallRequestStatusEnumApi]
 
-export const GitHubInstallRequestItemStatusEnumApi = {
+export const GitHubInstallRequestStatusEnumApi = {
     Pending: 'pending',
     Approved: 'approved',
     Unidentified: 'unidentified',
@@ -4687,7 +4775,7 @@ export interface GitHubInstallRequestItemApi {
      * * `pending` - Pending
      * * `approved` - Approved
      * * `unidentified` - Unidentified */
-    status: GitHubInstallRequestItemStatusEnumApi
+    status: GitHubInstallRequestStatusEnumApi
     /**
      * GitHub App installation id, set once the request is approved.
      * @nullable
@@ -4856,9 +4944,10 @@ export interface OnboardingSkipRequestApi {
  * * `android` - Android
  * * `web` - Web
  */
-export type PushTokenPlatformEnumApi = (typeof PushTokenPlatformEnumApi)[keyof typeof PushTokenPlatformEnumApi]
+export type UserPushTokenPlatformEnumApi =
+    (typeof UserPushTokenPlatformEnumApi)[keyof typeof UserPushTokenPlatformEnumApi]
 
-export const PushTokenPlatformEnumApi = {
+export const UserPushTokenPlatformEnumApi = {
     Ios: 'ios',
     Android: 'android',
     Web: 'web',
@@ -4875,7 +4964,7 @@ export interface UserPushTokenRegisterRequestApi {
      * * `ios` - iOS
      * * `android` - Android
      * * `web` - Web */
-    platform: PushTokenPlatformEnumApi
+    platform: UserPushTokenPlatformEnumApi
 }
 
 export interface UserPushTokenItemApi {
@@ -4886,7 +4975,7 @@ export interface UserPushTokenItemApi {
      * * `ios` - iOS
      * * `android` - Android
      * * `web` - Web */
-    platform: PushTokenPlatformEnumApi
+    platform: UserPushTokenPlatformEnumApi
     /** When this token was first registered. */
     created_at: string
     /** Last time the mobile app re-registered this token. */
@@ -4902,15 +4991,13 @@ export interface UserPushTokenUnregisterRequestApi {
 }
 
 /**
- * Request body for POST /api/users/verify_email/. Exactly one of token or code is required.
+ * Request body for POST /api/users/verify_email/.
  */
 export interface VerifyEmailRequestApi {
     /** UUID of the user whose email is being verified. */
     uuid: string
-    /** Verification token from the emailed link. Required unless a code is provided. */
-    token?: string
-    /** The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking. */
-    code?: string
+    /** The 6-digit verification code from the email. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking. */
+    code: string
 }
 
 export type CimdVerificationTokensListParams = {
@@ -4935,6 +5022,41 @@ export type DomainsListParams = {
     offset?: number
 }
 
+export type DomainsScimLogsRetrieveParams = {
+    /**
+     * Include requests at or after this time.
+     */
+    after?: string
+    /**
+     * Include requests at or before this time.
+     */
+    before?: string
+    /**
+     * Page number to return.
+     * @minimum 1
+     */
+    page?: number
+    /**
+     * Number of requests to return per page.
+     * @minimum 1
+     * @maximum 100
+     */
+    page_size?: number
+    /**
+     * Search request paths and masked request bodies.
+     * @minLength 1
+     */
+    search?: string
+    /**
+     * Maximum HTTP response status to include, such as 499.
+     */
+    status_max?: number
+    /**
+     * Minimum HTTP response status to include, such as 400.
+     */
+    status_min?: number
+}
+
 export type IdentityProviderConfigsListParams = {
     /**
      * Number of results to return per page.
@@ -4944,6 +5066,41 @@ export type IdentityProviderConfigsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type IdentityProviderConfigsScimLogsRetrieveParams = {
+    /**
+     * Include requests at or after this time.
+     */
+    after?: string
+    /**
+     * Include requests at or before this time.
+     */
+    before?: string
+    /**
+     * Page number to return.
+     * @minimum 1
+     */
+    page?: number
+    /**
+     * Number of requests to return per page.
+     * @minimum 1
+     * @maximum 100
+     */
+    page_size?: number
+    /**
+     * Search request paths and masked request bodies.
+     * @minLength 1
+     */
+    search?: string
+    /**
+     * Maximum HTTP response status to include, such as 499.
+     */
+    status_max?: number
+    /**
+     * Minimum HTTP response status to include, such as 400.
+     */
+    status_min?: number
 }
 
 export type InvitesListParams = {
@@ -5122,6 +5279,48 @@ export const PropertyDefinitionsListType = {
     Group: 'group',
     Session: 'session',
 } as const
+
+export type UploadedMediaListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * The library to list.
+     */
+    purpose: UploadedMediaListPurpose
+}
+
+export type UploadedMediaListPurpose = (typeof UploadedMediaListPurpose)[keyof typeof UploadedMediaListPurpose]
+
+export const UploadedMediaListPurpose = {
+    Canvas: 'canvas',
+    Email: 'email',
+} as const
+
+/**
+ * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).
+ */
+export type UploadedMediaCreateBodyPurpose =
+    (typeof UploadedMediaCreateBodyPurpose)[keyof typeof UploadedMediaCreateBodyPurpose]
+
+export const UploadedMediaCreateBodyPurpose = {
+    Email: 'email',
+    Canvas: 'canvas',
+} as const
+
+export type UploadedMediaCreateBody = {
+    /** Image file. Must be under 4MB and a real, decodable image. */
+    image: Blob
+    /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
+    purpose?: UploadedMediaCreateBodyPurpose
+}
+
+export type UploadedMediaCreate201 = { [key: string]: unknown }
 
 export type UsersListParams = {
     email?: string

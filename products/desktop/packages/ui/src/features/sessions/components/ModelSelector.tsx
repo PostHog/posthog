@@ -12,16 +12,8 @@ import {
   DropdownMenuTrigger,
   MenuLabel,
 } from "@posthog/quill";
-import {
-  type Adapter,
-  DEEPSEEK_MODEL_FLAG,
-  GLM_MODEL_FLAG,
-  GLM53_FLASH_MODEL_FLAG,
-  GLM53_MODEL_FLAG,
-  KIMI_MODEL_FLAG,
-} from "@posthog/shared";
+import type { Adapter } from "@posthog/shared";
 import { gateRestrictedModelPick } from "@posthog/ui/features/billing/modelGate";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { ModelCostFooter } from "@posthog/ui/features/sessions/components/ModelCostChip";
 import { ModelRadioItem } from "@posthog/ui/features/sessions/components/ModelRadioItem";
 import { stripDisabledModelOption } from "@posthog/ui/features/sessions/modelOptionFilters";
@@ -31,6 +23,7 @@ import {
   useSessionIsCloud,
   useSessionSelector,
 } from "@posthog/ui/features/sessions/sessionStore";
+import { useModelRolloutFlags } from "@posthog/ui/features/sessions/useModelRolloutFlags";
 import { Fragment, useMemo } from "react";
 
 interface ModelSelectorProps {
@@ -51,19 +44,9 @@ export function ModelSelector({
   const sessionStatus = useSessionSelector(taskId, (s) => s?.status);
   const sessionIsCloud = useSessionIsCloud(taskId);
   const rawModelOption = useModelConfigOptionForTask(taskId);
-  const deepseek = useFeatureFlag(DEEPSEEK_MODEL_FLAG);
-  const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
-  const glm53Enabled = useFeatureFlag(GLM53_MODEL_FLAG);
-  const glm53FlashEnabled = useFeatureFlag(GLM53_FLASH_MODEL_FLAG);
-  const kimiEnabled = useFeatureFlag(KIMI_MODEL_FLAG);
+  const modelFlags = useModelRolloutFlags();
   const modelOption = rawModelOption
-    ? stripDisabledModelOption(rawModelOption, {
-        deepseek,
-        glm: glmEnabled,
-        glm53: glm53Enabled,
-        glm53Flash: glm53FlashEnabled,
-        kimi: kimiEnabled,
-      })
+    ? stripDisabledModelOption(rawModelOption, modelFlags)
     : rawModelOption;
 
   const selectOption = modelOption?.type === "select" ? modelOption : undefined;

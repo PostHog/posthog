@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.db import models
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -17,12 +19,17 @@ class LenientTimingsField(serializers.JSONField):
     """
 
 
+class NotebookSQLV2RefKind(models.TextChoices):
+    HOGQL = "hogql", "hogql"
+    LOCAL = "local", "local"
+
+
 class NotebookSQLV2RefSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="ProseMirror node id of the upstream node this name points at.")
     # Named `kind` on purpose (matches the kernel input spec); avoids the `type`/`format`
     # enum-collision trap.
     kind = serializers.ChoiceField(
-        choices=["hogql", "local"],
+        choices=NotebookSQLV2RefKind.choices,
         required=False,
         default="hogql",
         help_text=(
@@ -79,10 +86,15 @@ class NotebookVariableSerializer(serializers.Serializer):
         return name
 
 
+class NotebookSQLV2NodeType(models.TextChoices):
+    HOGQL = "hogql", "hogql"
+    PYTHON = "python", "python"
+
+
 class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="ProseMirror node id of the SQLV2 node being run.")
     node_type = serializers.ChoiceField(
-        choices=["hogql", "python"],
+        choices=NotebookSQLV2NodeType.choices,
         required=False,
         default="hogql",
         help_text=(

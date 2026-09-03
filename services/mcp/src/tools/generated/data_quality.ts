@@ -2,36 +2,22 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    WarehouseSavedQueriesChecksCheckTypesListParams,
-    WarehouseSavedQueriesChecksCreateBody,
-    WarehouseSavedQueriesChecksCreateParams,
-    WarehouseSavedQueriesChecksDestroyParams,
-    WarehouseSavedQueriesChecksPartialUpdateBody,
-    WarehouseSavedQueriesChecksPartialUpdateParams,
-    WarehouseSavedQueriesChecksRunCreateParams,
-    WarehouseSavedQueriesChecksRunsListParams,
-    WarehouseTablesChecksCreateBody,
-    WarehouseTablesChecksCreateParams,
-    WarehouseTablesChecksDestroyParams,
-    WarehouseTablesChecksPartialUpdateBody,
-    WarehouseTablesChecksPartialUpdateParams,
-    WarehouseTablesChecksRunCreateParams,
-    WarehouseTablesChecksRunsListParams,
-} from '@/generated/data_quality/api'
+import * as orvalSchemas from '@/generated/data_quality/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const DataQualityCheckCreateOnTableSchema = WarehouseTablesChecksCreateParams.omit({ project_id: true }).extend(
-    WarehouseTablesChecksCreateBody.shape
-)
+const DataQualityCheckCreateOnTableSchema = () => {
+    const WarehouseTablesChecksCreateBody = orvalSchemas.WarehouseTablesChecksCreateBody()
+    const WarehouseTablesChecksCreateParams = orvalSchemas.WarehouseTablesChecksCreateParams()
+    return WarehouseTablesChecksCreateParams.omit({ project_id: true }).extend(WarehouseTablesChecksCreateBody.shape)
+}
 
 const dataQualityCheckCreateOnTable = (): ToolBase<
-    typeof DataQualityCheckCreateOnTableSchema,
+    ReturnType<typeof DataQualityCheckCreateOnTableSchema>,
     Schemas.DataQualityCheck
 > => ({
     name: 'data-quality-check-create-on-table',
-    schema: DataQualityCheckCreateOnTableSchema,
-    handler: async (context: Context, params: z.infer<typeof DataQualityCheckCreateOnTableSchema>) => {
+    schema: DataQualityCheckCreateOnTableSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckCreateOnTableSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -80,17 +66,21 @@ const dataQualityCheckCreateOnTable = (): ToolBase<
     },
 })
 
-const DataQualityCheckCreateOnViewSchema = WarehouseSavedQueriesChecksCreateParams.omit({ project_id: true }).extend(
-    WarehouseSavedQueriesChecksCreateBody.shape
-)
+const DataQualityCheckCreateOnViewSchema = () => {
+    const WarehouseSavedQueriesChecksCreateBody = orvalSchemas.WarehouseSavedQueriesChecksCreateBody()
+    const WarehouseSavedQueriesChecksCreateParams = orvalSchemas.WarehouseSavedQueriesChecksCreateParams()
+    return WarehouseSavedQueriesChecksCreateParams.omit({ project_id: true }).extend(
+        WarehouseSavedQueriesChecksCreateBody.shape
+    )
+}
 
 const dataQualityCheckCreateOnView = (): ToolBase<
-    typeof DataQualityCheckCreateOnViewSchema,
+    ReturnType<typeof DataQualityCheckCreateOnViewSchema>,
     Schemas.DataQualityCheck
 > => ({
     name: 'data-quality-check-create-on-view',
-    schema: DataQualityCheckCreateOnViewSchema,
-    handler: async (context: Context, params: z.infer<typeof DataQualityCheckCreateOnViewSchema>) => {
+    schema: DataQualityCheckCreateOnViewSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckCreateOnViewSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -139,12 +129,18 @@ const dataQualityCheckCreateOnView = (): ToolBase<
     },
 })
 
-const DataQualityCheckDeleteOnTableSchema = WarehouseTablesChecksDestroyParams.omit({ project_id: true })
+const DataQualityCheckDeleteOnTableSchema = () => {
+    const WarehouseTablesChecksDestroyParams = orvalSchemas.WarehouseTablesChecksDestroyParams()
+    return WarehouseTablesChecksDestroyParams.omit({ project_id: true })
+}
 
-const dataQualityCheckDeleteOnTable = (): ToolBase<typeof DataQualityCheckDeleteOnTableSchema, unknown> => ({
+const dataQualityCheckDeleteOnTable = (): ToolBase<
+    ReturnType<typeof DataQualityCheckDeleteOnTableSchema>,
+    unknown
+> => ({
     name: 'data-quality-check-delete-on-table',
-    schema: DataQualityCheckDeleteOnTableSchema,
-    handler: async (context: Context, params: z.infer<typeof DataQualityCheckDeleteOnTableSchema>) => {
+    schema: DataQualityCheckDeleteOnTableSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckDeleteOnTableSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -154,12 +150,15 @@ const dataQualityCheckDeleteOnTable = (): ToolBase<typeof DataQualityCheckDelete
     },
 })
 
-const DataQualityCheckDeleteOnViewSchema = WarehouseSavedQueriesChecksDestroyParams.omit({ project_id: true })
+const DataQualityCheckDeleteOnViewSchema = () => {
+    const WarehouseSavedQueriesChecksDestroyParams = orvalSchemas.WarehouseSavedQueriesChecksDestroyParams()
+    return WarehouseSavedQueriesChecksDestroyParams.omit({ project_id: true })
+}
 
-const dataQualityCheckDeleteOnView = (): ToolBase<typeof DataQualityCheckDeleteOnViewSchema, unknown> => ({
+const dataQualityCheckDeleteOnView = (): ToolBase<ReturnType<typeof DataQualityCheckDeleteOnViewSchema>, unknown> => ({
     name: 'data-quality-check-delete-on-view',
-    schema: DataQualityCheckDeleteOnViewSchema,
-    handler: async (context: Context, params: z.infer<typeof DataQualityCheckDeleteOnViewSchema>) => {
+    schema: DataQualityCheckDeleteOnViewSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckDeleteOnViewSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -169,15 +168,18 @@ const dataQualityCheckDeleteOnView = (): ToolBase<typeof DataQualityCheckDeleteO
     },
 })
 
-const DataQualityCheckResultsOnTableSchema = WarehouseTablesChecksRunsListParams.omit({ project_id: true })
+const DataQualityCheckResultsOnTableSchema = () => {
+    const WarehouseTablesChecksRunsListParams = orvalSchemas.WarehouseTablesChecksRunsListParams()
+    return WarehouseTablesChecksRunsListParams.omit({ project_id: true })
+}
 
 const dataQualityCheckResultsOnTable = (): ToolBase<
-    typeof DataQualityCheckResultsOnTableSchema,
+    ReturnType<typeof DataQualityCheckResultsOnTableSchema>,
     Schemas.DataQualityCheckRun[]
 > => ({
     name: 'data-quality-check-results-on-table',
-    schema: DataQualityCheckResultsOnTableSchema,
-    handler: async (context: Context, params: z.infer<typeof DataQualityCheckResultsOnTableSchema>) => {
+    schema: DataQualityCheckResultsOnTableSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckResultsOnTableSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataQualityCheckRun[]>({
             method: 'GET',
@@ -187,15 +189,18 @@ const dataQualityCheckResultsOnTable = (): ToolBase<
     },
 })
 
-const DataQualityCheckResultsOnViewSchema = WarehouseSavedQueriesChecksRunsListParams.omit({ project_id: true })
+const DataQualityCheckResultsOnViewSchema = () => {
+    const WarehouseSavedQueriesChecksRunsListParams = orvalSchemas.WarehouseSavedQueriesChecksRunsListParams()
+    return WarehouseSavedQueriesChecksRunsListParams.omit({ project_id: true })
+}
 
 const dataQualityCheckResultsOnView = (): ToolBase<
-    typeof DataQualityCheckResultsOnViewSchema,
+    ReturnType<typeof DataQualityCheckResultsOnViewSchema>,
     Schemas.DataQualityCheckRun[]
 > => ({
     name: 'data-quality-check-results-on-view',
-    schema: DataQualityCheckResultsOnViewSchema,
-    handler: async (context: Context, params: z.infer<typeof DataQualityCheckResultsOnViewSchema>) => {
+    schema: DataQualityCheckResultsOnViewSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckResultsOnViewSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataQualityCheckRun[]>({
             method: 'GET',
@@ -205,15 +210,18 @@ const dataQualityCheckResultsOnView = (): ToolBase<
     },
 })
 
-const DataQualityCheckRunOnTableSchema = WarehouseTablesChecksRunCreateParams.omit({ project_id: true })
+const DataQualityCheckRunOnTableSchema = () => {
+    const WarehouseTablesChecksRunCreateParams = orvalSchemas.WarehouseTablesChecksRunCreateParams()
+    return WarehouseTablesChecksRunCreateParams.omit({ project_id: true })
+}
 
 const dataQualityCheckRunOnTable = (): ToolBase<
-    typeof DataQualityCheckRunOnTableSchema,
+    ReturnType<typeof DataQualityCheckRunOnTableSchema>,
     Schemas.DataQualitySuiteRun
 > => ({
     name: 'data-quality-check-run-on-table',
-    schema: DataQualityCheckRunOnTableSchema,
-    handler: async (context: Context, params: z.infer<typeof DataQualityCheckRunOnTableSchema>) => {
+    schema: DataQualityCheckRunOnTableSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckRunOnTableSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataQualitySuiteRun>({
             method: 'POST',
@@ -223,15 +231,18 @@ const dataQualityCheckRunOnTable = (): ToolBase<
     },
 })
 
-const DataQualityCheckRunOnViewSchema = WarehouseSavedQueriesChecksRunCreateParams.omit({ project_id: true })
+const DataQualityCheckRunOnViewSchema = () => {
+    const WarehouseSavedQueriesChecksRunCreateParams = orvalSchemas.WarehouseSavedQueriesChecksRunCreateParams()
+    return WarehouseSavedQueriesChecksRunCreateParams.omit({ project_id: true })
+}
 
 const dataQualityCheckRunOnView = (): ToolBase<
-    typeof DataQualityCheckRunOnViewSchema,
+    ReturnType<typeof DataQualityCheckRunOnViewSchema>,
     Schemas.DataQualitySuiteRun
 > => ({
     name: 'data-quality-check-run-on-view',
-    schema: DataQualityCheckRunOnViewSchema,
-    handler: async (context: Context, params: z.infer<typeof DataQualityCheckRunOnViewSchema>) => {
+    schema: DataQualityCheckRunOnViewSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckRunOnViewSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataQualitySuiteRun>({
             method: 'POST',
@@ -241,12 +252,19 @@ const dataQualityCheckRunOnView = (): ToolBase<
     },
 })
 
-const DataQualityCheckTypesSchema = WarehouseSavedQueriesChecksCheckTypesListParams.omit({ project_id: true })
+const DataQualityCheckTypesSchema = () => {
+    const WarehouseSavedQueriesChecksCheckTypesListParams =
+        orvalSchemas.WarehouseSavedQueriesChecksCheckTypesListParams()
+    return WarehouseSavedQueriesChecksCheckTypesListParams.omit({ project_id: true })
+}
 
-const dataQualityCheckTypes = (): ToolBase<typeof DataQualityCheckTypesSchema, Schemas.DataQualityCheckType[]> => ({
+const dataQualityCheckTypes = (): ToolBase<
+    ReturnType<typeof DataQualityCheckTypesSchema>,
+    Schemas.DataQualityCheckType[]
+> => ({
     name: 'data-quality-check-types',
-    schema: DataQualityCheckTypesSchema,
-    handler: async (context: Context, params: z.infer<typeof DataQualityCheckTypesSchema>) => {
+    schema: DataQualityCheckTypesSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckTypesSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataQualityCheckType[]>({
             method: 'GET',
@@ -256,17 +274,21 @@ const dataQualityCheckTypes = (): ToolBase<typeof DataQualityCheckTypesSchema, S
     },
 })
 
-const DataQualityCheckUpdateOnTableSchema = WarehouseTablesChecksPartialUpdateParams.omit({ project_id: true }).extend(
-    WarehouseTablesChecksPartialUpdateBody.shape
-)
+const DataQualityCheckUpdateOnTableSchema = () => {
+    const WarehouseTablesChecksPartialUpdateBody = orvalSchemas.WarehouseTablesChecksPartialUpdateBody()
+    const WarehouseTablesChecksPartialUpdateParams = orvalSchemas.WarehouseTablesChecksPartialUpdateParams()
+    return WarehouseTablesChecksPartialUpdateParams.omit({ project_id: true }).extend(
+        WarehouseTablesChecksPartialUpdateBody.shape
+    )
+}
 
 const dataQualityCheckUpdateOnTable = (): ToolBase<
-    typeof DataQualityCheckUpdateOnTableSchema,
+    ReturnType<typeof DataQualityCheckUpdateOnTableSchema>,
     Schemas.DataQualityCheck
 > => ({
     name: 'data-quality-check-update-on-table',
-    schema: DataQualityCheckUpdateOnTableSchema,
-    handler: async (context: Context, params: z.infer<typeof DataQualityCheckUpdateOnTableSchema>) => {
+    schema: DataQualityCheckUpdateOnTableSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckUpdateOnTableSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -314,17 +336,21 @@ const dataQualityCheckUpdateOnTable = (): ToolBase<
     },
 })
 
-const DataQualityCheckUpdateOnViewSchema = WarehouseSavedQueriesChecksPartialUpdateParams.omit({
-    project_id: true,
-}).extend(WarehouseSavedQueriesChecksPartialUpdateBody.shape)
+const DataQualityCheckUpdateOnViewSchema = () => {
+    const WarehouseSavedQueriesChecksPartialUpdateBody = orvalSchemas.WarehouseSavedQueriesChecksPartialUpdateBody()
+    const WarehouseSavedQueriesChecksPartialUpdateParams = orvalSchemas.WarehouseSavedQueriesChecksPartialUpdateParams()
+    return WarehouseSavedQueriesChecksPartialUpdateParams.omit({ project_id: true }).extend(
+        WarehouseSavedQueriesChecksPartialUpdateBody.shape
+    )
+}
 
 const dataQualityCheckUpdateOnView = (): ToolBase<
-    typeof DataQualityCheckUpdateOnViewSchema,
+    ReturnType<typeof DataQualityCheckUpdateOnViewSchema>,
     Schemas.DataQualityCheck
 > => ({
     name: 'data-quality-check-update-on-view',
-    schema: DataQualityCheckUpdateOnViewSchema,
-    handler: async (context: Context, params: z.infer<typeof DataQualityCheckUpdateOnViewSchema>) => {
+    schema: DataQualityCheckUpdateOnViewSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckUpdateOnViewSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
