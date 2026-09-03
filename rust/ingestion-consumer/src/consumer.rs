@@ -27,7 +27,7 @@ use crate::types::{Accumulator, Group, SerializedKafkaMessage};
 use crate::worker_registry::WorkerId;
 
 /// Batch-wide statistics gathered while collecting, used to emit parity
-/// metrics. Per-partition facts live on [`BatchPartition`].
+/// metrics. Per-partition facts live on [`PartitionDeliveries`].
 struct BatchStats {
     /// Per-message (partition, lag_ms) pairs — for `ingestion_lag_ms_histogram`.
     message_lags_ms: Vec<(i32, i64)>,
@@ -54,10 +54,10 @@ struct Delivery {
     lag_ms: Option<i64>,
 }
 
-/// Everything a batch records about one of its partitions, built with one
-/// map entry per delivered message. The span feeds the commit; the stamped
-/// charges feed the shadow ledger.
-struct BatchPartition {
+/// What a batch saw delivered from one partition, folded in one map entry
+/// per message. The span feeds the commit; the stamped charges feed the
+/// shadow ledger.
+struct PartitionDeliveries {
     /// The offsets the commit path commits, as `last + 1`.
     span: OffsetSpan,
     /// Ledger generation the charges are stamped with.
@@ -73,7 +73,7 @@ struct BatchPartition {
     max_lag_ms: Option<i64>,
 }
 
-impl BatchPartition {
+impl PartitionDeliveries {
     fn new(generation: u64, generations_version: u64, delivery: &Delivery) -> Self {
         Self {
             span: OffsetSpan::new(delivery.offset),
@@ -119,12 +119,12 @@ impl BatchPartition {
 struct CollectedBatch {
     /// The poll's messages, demuxed per partition and routing key.
     groups: Vec<Group>,
-    partitions: HashMap<TopicPartition, BatchPartition>,
+    partitions: HashMap<TopicPartition, PartitionDeliveries>,
     stats: BatchStats,
 }
 
 struct ProcessedBatch {
-    partitions: HashMap<TopicPartition, BatchPartition>,
+    partitions: HashMap<TopicPartition, PartitionDeliveries>,
     /// Messages accepted so far. Deferred groups (keys whose worker was
     /// draining/dead) are flushed in `complete_oldest_batch`, which adds to this.
     total_accepted: u32,
@@ -786,7 +786,7 @@ impl IngestionConsumer {
     /// at most one message, itself bounded by `fetch.message.max.bytes`.
     async fn collect_batch(&self) -> anyhow::Result<CollectedBatch> {
         let mut accumulator = Accumulator::default();
-        let mut partitions: HashMap<TopicPartition, BatchPartition> = HashMap::new();
+        let mut partitions: HashMap<TopicPartition, PartitionDeliveries> = HashMap::new();
         let mut stats = BatchStats::new();
         let deadline = Instant::now() + self.batch_timeout;
         let batch_start_ms = current_time_ms();
@@ -848,7 +848,7 @@ impl IngestionConsumer {
                     let key = TopicPartition::new(topic.clone(), partition);
                     let generations_version = self.ledger_shadow.generations_version();
                     match partitions.get_mut(&key) {
-                        Some(batch_partition) => batch_partition.record(
+                        Some(deliveries) => deliveries.record(
                             generations_version,
                             || self.ledger_shadow.generation(&key),
                             &delivery,
@@ -857,7 +857,11 @@ impl IngestionConsumer {
                             let generation = self.ledger_shadow.generation(&key);
                             partitions.insert(
                                 key,
-                                BatchPartition::new(generation, generations_version, &delivery),
+                                PartitionDeliveries::new(
+                                    generation,
+                                    generations_version,
+                                    &delivery,
+                                ),
                             );
                         }
                     }
@@ -920,7 +924,7 @@ impl IngestionConsumer {
     /// Commit the max offset for each topic-partition.
     fn commit_offsets(
         &self,
-        partitions: &HashMap<TopicPartition, BatchPartition>,
+        partitions: &HashMap<TopicPartition, PartitionDeliveries>,
     ) -> anyhow::Result<()> {
         if partitions.is_empty() {
             // Unreachable while batches require messages to be spawned; counted
@@ -965,7 +969,7 @@ impl IngestionConsumer {
 
 /// Per-partition max offset + observed lag for the debug UI's batch events.
 fn debug_partition_offsets(
-    partitions: &HashMap<TopicPartition, BatchPartition>,
+    partitions: &HashMap<TopicPartition, PartitionDeliveries>,
 ) -> Vec<PartitionOffset> {
     partitions
         .iter()
@@ -1091,7 +1095,7 @@ fn parse_now_ms(value: &str) -> Option<i64> {
 }
 
 fn emit_latest_processed_timestamp_metrics(
-    partitions: &HashMap<TopicPartition, BatchPartition>,
+    partitions: &HashMap<TopicPartition, PartitionDeliveries>,
     group_id: &str,
 ) {
     // Per-partition latest committed timestamp — matches Node.js
@@ -1125,8 +1129,8 @@ mod tests {
         }
     }
 
-    fn charged_offsets(partition: &BatchPartition) -> Vec<i64> {
-        partition
+    fn charged_offsets(deliveries: &PartitionDeliveries) -> Vec<i64> {
+        deliveries
             .charges
             .iter()
             .map(|(offset, _)| offset.0)
@@ -1135,8 +1139,8 @@ mod tests {
 
     #[test]
     fn a_mid_batch_regain_restarts_the_ledger_slice_and_keeps_the_span() {
-        let mut partition = BatchPartition::new(3, 7, &delivery(10));
-        partition.record(
+        let mut deliveries = PartitionDeliveries::new(3, 7, &delivery(10));
+        deliveries.record(
             7,
             || unreachable!("unchanged version, no generation read"),
             &delivery(11),
@@ -1144,31 +1148,31 @@ mod tests {
 
         // The partition is revoked and regained: Kafka redelivers from the
         // committed offset 5 under generation 4.
-        partition.record(8, || 4, &delivery(5));
-        partition.record(
+        deliveries.record(8, || 4, &delivery(5));
+        deliveries.record(
             8,
             || unreachable!("stamped once per version change"),
             &delivery(6),
         );
 
-        assert_eq!(charged_offsets(&partition), vec![5, 6]);
-        assert_eq!(partition.generation, 4);
-        assert_eq!(partition.span, OffsetSpan { first: 5, last: 11 });
+        assert_eq!(charged_offsets(&deliveries), vec![5, 6]);
+        assert_eq!(deliveries.generation, 4);
+        assert_eq!(deliveries.span, OffsetSpan { first: 5, last: 11 });
     }
 
     #[test]
     fn another_partitions_generation_change_keeps_the_slice() {
-        let mut partition = BatchPartition::new(3, 7, &delivery(10));
-        partition.record(8, || 3, &delivery(11));
+        let mut deliveries = PartitionDeliveries::new(3, 7, &delivery(10));
+        deliveries.record(8, || 3, &delivery(11));
 
-        assert_eq!(charged_offsets(&partition), vec![10, 11]);
-        assert_eq!(partition.generation, 3);
+        assert_eq!(charged_offsets(&deliveries), vec![10, 11]);
+        assert_eq!(deliveries.generation, 3);
     }
 
     #[test]
     fn a_partition_keeps_its_max_timestamp_and_lag() {
-        let mut partition = BatchPartition::new(0, 0, &delivery(10));
-        partition.record(
+        let mut deliveries = PartitionDeliveries::new(0, 0, &delivery(10));
+        deliveries.record(
             0,
             || 0,
             &Delivery {
@@ -1179,8 +1183,8 @@ mod tests {
             },
         );
 
-        assert_eq!(partition.latest_kafka_ts, 10);
-        assert_eq!(partition.max_lag_ms, Some(10));
+        assert_eq!(deliveries.latest_kafka_ts, 10);
+        assert_eq!(deliveries.max_lag_ms, Some(10));
     }
 
     #[test]
