@@ -1,5 +1,5 @@
 -- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit.
--- Full CREATE schema for the prod-us/sessions node. Apply to a fresh ClickHouse to build it.
+-- Full CREATE schema for the dev/sessions node. Apply to a fresh ClickHouse to build it.
 
 CREATE TABLE posthog.channel_definition (
   domain String,
@@ -302,7 +302,7 @@ CREATE TABLE posthog.raw_sessions_v3 (
   has_replay_events SimpleAggregateFunction(max, Bool),
   INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
   INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/sessions/noshard/posthog.raw_sessions_v3', '{shard}-{replica}') ORDER BY (team_id, session_timestamp, session_id_v7) PARTITION BY toYYYYMM(session_timestamp) SETTINGS index_granularity = 8192, max_replicated_merges_in_queue = 5, parts_to_delay_insert = 1500, parts_to_throw_insert = 2000, prefer_fetch_merged_part_size_threshold = 1, prefer_fetch_merged_part_time_threshold = 0, replicated_deduplication_window = 0, replicated_deduplication_window_for_async_inserts = 0, storage_policy = 's3_tiered';
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/sessions/noshard/posthog.raw_sessions_v3', '{shard}-{replica}') ORDER BY (team_id, session_timestamp, session_id_v7) PARTITION BY toYYYYMM(session_timestamp) SETTINGS index_granularity = 8192, storage_policy = 's3_tiered';
 CREATE TABLE posthog.sessions (
   session_id String,
   team_id Int64,
@@ -340,33 +340,6 @@ CREATE TABLE posthog.web_pre_aggregated_teams (
   enabled_by String DEFAULT 'system',
   version UInt32 DEFAULT toUnixTimestamp(now())
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'web_pre_aggregated_teams');
-CREATE TABLE posthog.writable_events_recent (
-  uuid UUID,
-  event String,
-  properties String CODEC(ZSTD(3)),
-  timestamp DateTime64(6, 'UTC'),
-  team_id Int64,
-  distinct_id String,
-  elements_chain String,
-  created_at DateTime64(6, 'UTC'),
-  person_id UUID,
-  person_created_at DateTime64(3),
-  person_properties String CODEC(ZSTD(3)),
-  group0_properties String CODEC(ZSTD(3)),
-  group1_properties String CODEC(ZSTD(3)),
-  group2_properties String CODEC(ZSTD(3)),
-  group3_properties String CODEC(ZSTD(3)),
-  group4_properties String CODEC(ZSTD(3)),
-  group0_created_at DateTime64(3),
-  group1_created_at DateTime64(3),
-  group2_created_at DateTime64(3),
-  group3_created_at DateTime64(3),
-  group4_created_at DateTime64(3),
-  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
-  historical_migration Bool,
-  _timestamp DateTime,
-  _offset UInt64
-) ENGINE = Distributed('posthog_writable', 'posthog', 'sharded_events_recent', sipHash64(distinct_id));
 CREATE TABLE posthog.writable_query_log_archive (
   hostname LowCardinality(String),
   user LowCardinality(String),
@@ -538,3 +511,73 @@ CREATE VIEW posthog.custom_metrics_test AS SELECT
   'gauge' AS type;
 CREATE OR REPLACE DICTIONARY posthog.channel_definition_dict (`domain` String, `kind` String, `domain_type` Nullable(String), `type_if_paid` Nullable(String), `type_if_organic` Nullable(String)) PRIMARY KEY domain, kind SOURCE(CLICKHOUSE(USER 'dict_reader' TABLE 'channel_definition')) LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(MIN 3000 MAX 3600);
 CREATE OR REPLACE DICTIONARY posthog.web_pre_aggregated_teams_dict (`team_id` UInt64) PRIMARY KEY team_id SOURCE(CLICKHOUSE(USER 'dict_reader' QUERY 'SELECT     team_id FROM     `web_pre_aggregated_teams` FINAL WHERE version > 0')) LAYOUT(HASHED()) LIFETIME(MIN 3000 MAX 3600);
+CREATE VIEW posthog.custom_metrics AS SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_test
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_replication_queue
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_server_crash
+UNION ALL
+SELECT *
+FROM posthog.custom_metrics_table_sizes
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_part_counts
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_dictionaries
+UNION ALL
+SELECT
+  'ClickHouseCustomMetric_S3DiskBytesUsed' AS name,
+  map('instance', hostname(), 'disk', disk_name) AS labels,
+  toFloat64(sum(bytes_on_disk)) AS value,
+  'Bytes currently used by ClickHouse parts on S3-backed disks on this node' AS help,
+  'gauge' AS type
+FROM system.parts
+WHERE disk_name IN ('s3disk', 'cache')
+GROUP BY
+  disk_name
+UNION ALL
+SELECT
+  'ClickHouseCustomMetric_MergeFailures15m' AS name,
+  map('instance', hostname()) AS labels,
+  toFloat64(count()) AS value,
+  'Number of failed merge operations in the last 15 minutes' AS help,
+  'gauge' AS type
+FROM system.part_log
+WHERE
+  (event_time >= (now() - toIntervalMinute(15)))
+AND
+  (event_type = 'MergeParts')
+AND
+  (error > 0)
+AND
+  (merge_reason != 'NotAMerge')
+AND
+  (error != 40)
+UNION ALL
+SELECT
+  'ClickHouseCustomMetric_MergeRetriesMaxPerTable15m' AS name,
+  map('instance', hostname()) AS labels,
+  toFloat64(max(cnt)) AS value,
+  'Max failed merge retries for any single table in the last 15 minutes' AS help,
+  'gauge' AS type
+FROM
+  (
+    SELECT count() AS cnt
+    FROM system.part_log
+    WHERE
+      (event_time >= (now() - toIntervalMinute(15)))
+    AND
+      (event_type = 'MergeParts')
+    AND
+      (error > 0)
+    AND
+      (merge_reason != 'NotAMerge')
+    AND
+      (error != 40)
+    GROUP BY
+      database, `table`, partition_id
+  );

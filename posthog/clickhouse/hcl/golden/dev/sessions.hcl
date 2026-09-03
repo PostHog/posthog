@@ -861,15 +861,8 @@ database "posthog" {
     order_by     = ["team_id", "session_timestamp", "session_id_v7"]
     partition_by = "toYYYYMM(session_timestamp)"
     settings = {
-      index_granularity                                 = "8192"
-      max_replicated_merges_in_queue                    = "5"
-      parts_to_delay_insert                             = "1500"
-      parts_to_throw_insert                             = "2000"
-      prefer_fetch_merged_part_size_threshold           = "1"
-      prefer_fetch_merged_part_time_threshold           = "0"
-      replicated_deduplication_window                   = "0"
-      replicated_deduplication_window_for_async_inserts = "0"
-      storage_policy                                    = "s3_tiered"
+      index_granularity = "8192"
+      storage_policy    = "s3_tiered"
     }
     column "team_id" {
       type = "Int64"
@@ -1156,97 +1149,6 @@ database "posthog" {
     }
   }
 
-  table "writable_events_recent" {
-    column "uuid" {
-      type = "UUID"
-    }
-    column "event" {
-      type = "String"
-    }
-    column "properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "elements_chain" {
-      type = "String"
-    }
-    column "created_at" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "person_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "person_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group0_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group1_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group2_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group3_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group4_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group0_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group1_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group2_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group3_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group4_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "person_mode" {
-      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
-    }
-    column "historical_migration" {
-      type = "Bool"
-    }
-    column "_timestamp" {
-      type = "DateTime"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog_writable"
-      remote_database = "posthog"
-      remote_table    = "sharded_events_recent"
-      sharding_key    = "sipHash64(distinct_id)"
-    }
-  }
-
   table "writable_query_log_archive" {
     column "hostname" {
       type = "LowCardinality(String)"
@@ -1480,6 +1382,82 @@ SQL
     column "ProfileEvents" {
       type = "Map(LowCardinality(String), UInt64)"
     }
+  }
+
+  view "custom_metrics" {
+    query = <<SQL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_test
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_replication_queue
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_server_crash
+UNION ALL
+SELECT *
+FROM posthog.custom_metrics_table_sizes
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_part_counts
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_dictionaries
+UNION ALL
+SELECT
+  'ClickHouseCustomMetric_S3DiskBytesUsed' AS name,
+  map('instance', hostname(), 'disk', disk_name) AS labels,
+  toFloat64(sum(bytes_on_disk)) AS value,
+  'Bytes currently used by ClickHouse parts on S3-backed disks on this node' AS help,
+  'gauge' AS type
+FROM system.parts
+WHERE disk_name IN ('s3disk', 'cache')
+GROUP BY
+  disk_name
+UNION ALL
+SELECT
+  'ClickHouseCustomMetric_MergeFailures15m' AS name,
+  map('instance', hostname()) AS labels,
+  toFloat64(count()) AS value,
+  'Number of failed merge operations in the last 15 minutes' AS help,
+  'gauge' AS type
+FROM system.part_log
+WHERE
+  (event_time >= (now() - toIntervalMinute(15)))
+AND
+  (event_type = 'MergeParts')
+AND
+  (error > 0)
+AND
+  (merge_reason != 'NotAMerge')
+AND
+  (error != 40)
+UNION ALL
+SELECT
+  'ClickHouseCustomMetric_MergeRetriesMaxPerTable15m' AS name,
+  map('instance', hostname()) AS labels,
+  toFloat64(max(cnt)) AS value,
+  'Max failed merge retries for any single table in the last 15 minutes' AS help,
+  'gauge' AS type
+FROM
+  (
+    SELECT count() AS cnt
+    FROM system.part_log
+    WHERE
+      (event_time >= (now() - toIntervalMinute(15)))
+    AND
+      (event_type = 'MergeParts')
+    AND
+      (error > 0)
+    AND
+      (merge_reason != 'NotAMerge')
+    AND
+      (error != 40)
+    GROUP BY
+      database, `table`, partition_id
+  )
+SQL
+
   }
 
   view "custom_metrics_backups" {

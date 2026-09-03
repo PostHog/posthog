@@ -71,17 +71,21 @@ role "aux" {
 }
 
 # SESSIONS satellite: the local node runs only the shared query_log_archive path
-# (session tables are prod-only), so it composes roles/shared alone. prod nodes host
-# the session tables (sessions, raw_sessions, raw_sessions_v3), the events replica,
-# channel_definition + web_pre_aggregated_teams (+ their dictionaries), and person
-# join tables. roles/sessions/shared holds the env-uniform objects; prod-us/prod-eu
-# carry the env-specific channel_definition / events / raw_sessions_v3 (prod-us also
-# has writable_events_recent). prod goldens are dump-baselined (not live-verifiable here).
-# dev carries the channel_definition / web_pre_aggregated_teams objects + dictionaries,
-# but raw_sessions_v3 intentionally skips prod's tuning settings and the sessions-family
-# relocation is still converging — model a dev env block after it settles.
+# (session tables are prod-only), so it composes roles/shared alone. The cloud nodes
+# host the session tables (sessions, raw_sessions, raw_sessions_v3), the events
+# replica, channel_definition + web_pre_aggregated_teams (+ their dictionaries), and
+# person join tables. roles/sessions/shared holds the env-uniform objects; prod-us
+# tunes raw_sessions_v3 merges and prod-eu overrides channel_definition, which reads
+# from the data cluster there rather than storing it. dev runs roles/sessions/shared
+# unmodified. Cloud goldens are dump-baselined (not live-verifiable here).
+#
+# The events replica here carries several hundred materialized columns the
+# materialization engine adds at runtime. Those are not declared: they churn per env
+# and per customer, so posthog-cloud-infra layers them on top of these goldens. The
+# shape below is what migrations produce.
 role "sessions" {
   env "local-multi"   { layers = ["roles/shared"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/sessions_data", "roles/sessions/shared"] }
   env "prod-us" { layers = ["roles/shared", "roles/coshared/sessions_data", "roles/coshared/events_recent_write", "roles/sessions/shared", "roles/sessions/prod-us"] }
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/sessions_data", "roles/sessions/shared", "roles/sessions/prod-eu"] }
 }
