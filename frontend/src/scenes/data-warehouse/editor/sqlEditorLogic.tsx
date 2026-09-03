@@ -572,10 +572,10 @@ export interface sqlEditorLogicValues {
     fixErrorsError: string | null
     hasFiltersPlaceholder: boolean
     hasQueryInput: boolean
-    indexReportStale: boolean
     hoveredNode: string | null
     inProgressDraftEdits: Record<string, string>
     inProgressViewEdits: Record<string, string>
+    indexReportStale: boolean
     insightLoading: boolean
     isDraft: boolean
     isEditingMaterializedView: boolean
@@ -814,6 +814,9 @@ export interface sqlEditorLogicActions {
     _setSuggestionPayload: (payload: SuggestionPayload | null) => {
         payload: SuggestionPayload | null
     }
+    applyIndexQuickfix: (quickfix: PredicateQuickfix) => {
+        quickfix: PredicateQuickfix
+    }
     closeAccessControlModal: () => {
         value: true
     }
@@ -865,17 +868,14 @@ export interface sqlEditorLogicActions {
     enforceConnectionRawQueryMode: () => {
         value: true
     }
+    fixIndexUsageWithAI: (prompt: string) => {
+        prompt: string
+    }
     initialize: () => {
         value: true
     }
     insertTextAtCursor: (text: string) => {
         text: string
-    }
-    applyIndexQuickfix: (quickfix: PredicateQuickfix) => {
-        quickfix: PredicateQuickfix
-    }
-    fixIndexUsageWithAI: (prompt: string) => {
-        prompt: string
     }
     loadUpstream: (modelId: string) => {
         modelId: string
@@ -1190,6 +1190,11 @@ export interface sqlEditorLogicMeta {
         ) => boolean
         hasFiltersPlaceholder: (queryInput: string | null) => boolean
         hasQueryInput: (queryInput: string | null) => boolean
+        indexReportStale: (
+            metadata: HogQLMetadataResponse | null,
+            activeQueryText: string | null,
+            metadataLoading: boolean
+        ) => boolean
         isEmbeddedMode: (arg: SQLEditorMode | undefined) => boolean
         dataLogicKey: (tabId: string) => string
         isDraft: (activeTab: QueryTab | null) => boolean
