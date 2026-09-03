@@ -4,6 +4,7 @@ from typing import Any, Optional, cast
 
 import posthoganalytics
 from prometheus_client import Counter
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -145,7 +146,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 continue
 
             # this is always _positive_ operations
-            entity_exprs = [_entity_to_expr(entity=entity)]
+            entity_exprs = [_entity_to_expr(entity=entity, team=team)]
 
             if entity.properties:
                 entity_exprs.append(property_to_expr(entity.properties, team=team, scope="replay_entity"))
@@ -801,14 +802,21 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def _entity_node(
         raw_entity: dict[str, Any], default_type: str
     ) -> EventsNode | ActionsNode | DataWarehouseNode | str:
-        # RecordingsQuery accepts untyped entity dicts, and Entity raises a bare ValueError that
-        # escapes as a 500 for any type it does not accept, so fall back to the source list's type.
+        # RecordingsQuery accepts untyped entity dicts, and Entity rejects any type it does not
+        # know, so fall back to the type the source list implies.
         entity = (
             raw_entity
             if raw_entity.get("type") in ENTITY_TYPES_ACCEPTED_BY_LEGACY_ENTITY
             else {**raw_entity, "type": default_type}
         )
-        return legacy_entity_to_node(Entity(entity), True, MathAvailability.Unavailable)
+        try:
+            return legacy_entity_to_node(Entity(entity), True, MathAvailability.Unavailable)
+        except ValueError as e:
+            # Entity and the node models raise plain ValueErrors for a dict they can't build from
+            # (pydantic's ValidationError subclasses it), and those escape as a 500. The dict is
+            # caller input, so report it as a bad request. DRF's ValidationError is not a
+            # ValueError, so a field that already validates itself still reports its own message.
+            raise ValidationError(f"Invalid {entity['type']} filter for id {raw_entity.get('id')!r}") from e
 
     @property
     def action_entities(self):
