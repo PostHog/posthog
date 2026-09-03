@@ -12,6 +12,16 @@ The final Trino transpiler accepts a prepared AST plus frozen snapshots of bindi
 
 `transpile_hogql_to_trino(...)` is the restricted, manifest-backed front end. Its immutable manifest allowlists logical tables, physical Trino locators, and warehouse column types. `events` and `persons` use fixed built-in schemas. The function resolves and prints with no team, user, Django model, saved query, or lazy database callback, and its tests assert that it executes zero Django queries.
 
+Use `prepare_trino_catalog(...)` when several queries share one manifest. Preparation validates the manifest and builds its schema database and physical locator map once. Each `PreparedTrinoCatalog.transpile(...)` call creates a new AST, context, modifiers, and bound-value map, so query state does not cross compilation boundaries.
+
+```python
+catalog = prepare_trino_catalog(manifest)
+first = catalog.transpile("SELECT event FROM events WHERE event = {event}", values={"event": "signup"})
+second = catalog.transpile("SELECT count() FROM events")
+```
+
+`transpile_hogql_to_trino(...)` remains the one-shot wrapper and prepares a catalog for that call. The manifest contract has no version field, so the compiler does not keep a process-global prepared-catalog cache. Callers must create a new prepared catalog when their immutable manifest snapshot changes.
+
 Pure transpilation accepts caller-supplied constant values. It rejects unresolved placeholders, action and cohort references, tables absent from the manifest, non-leaf warehouse column types, and invalid or incomplete manifest entries. Callers needing Django-backed semantics must select the explicit expansion mode described below.
 
 Query Editor capability changes, case-insensitive connection lookup, and parameter submission belong to separate integration changes. They are not prerequisites for compilation.
@@ -48,6 +58,15 @@ Trino table rendering stays in Trino-specific modules. Neither the built-in numb
 After deployment, Django shell can call the same compilation API. Construct the context with the intended team, user, effective modifiers, and `Database.create_for(...)`, then supply explicit Trino locators. No new HTTP endpoint or scheduled job is required.
 
 For managed DuckLake data, call `compile_hogql_to_trino_sql(...)` through the managed-warehouse client facade. This explicit entry point reads the organization's ready Trino catalog from the control plane and combines it with the project's authoritative team row. Pure manifest-backed compilation is the default. It maps `events` and `persons` to the project's provisioned tables in the `posthog` schema, and accepts additional allowlisted warehouse relations through `catalog_manifest`.
+
+Batch and session callers should use `prepare_hogql_to_trino_compiler(...)` through the same facade. Preparation resolves and validates the ready catalog and project mapping once, then builds the pure manifest catalog. The returned compiler is bound to that organization, project, and catalog and accepts only a `HogQLQuery` per compilation. Additional manifest relations must resolve to the same catalog.
+
+```python
+compiler = prepare_hogql_to_trino_compiler(team_id, team=team, catalog_manifest=manifest)
+queries = [compiler.compile(query) for query in batch]
+```
+
+Create a new compiler when the batch needs fresh control-plane placement or team-table mappings. The one-shot `compile_hogql_to_trino_sql(...)` API prepares and compiles in one call. Django expansion stays one-shot because its schema and semantic expansion depend on query-specific team and user state.
 
 Pass `expansion_mode=TrinoExpansionMode.DJANGO` when a query requires actions, cohorts, saved queries, filters, variables, access-controlled warehouse discovery, or other Django-backed semantic expansion. This compatibility mode builds the full database and maps:
 

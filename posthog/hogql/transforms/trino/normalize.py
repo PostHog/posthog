@@ -1,8 +1,7 @@
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.schema.numbers import NumbersTable
-from posthog.hogql.database.trino_unnest_table import TrinoUnnestTable
+from posthog.hogql.database.trino_unnest_table import TRINO_UNNEST_TABLE_NAME, ensure_trino_unnest_table
 from posthog.hogql.transforms.trino.any_join import lower_trino_any_joins
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.query_wrappers import lower_trino_query_wrappers
@@ -164,7 +163,7 @@ class TrinoArrayJoinFunctionLowerer(CloningVisitor):
         for table_name, output_name, array_expr in pending:
             join = ast.JoinExpr(
                 join_type="CROSS JOIN" if lowered.select_from is not None else None,
-                table=ast.Field(chain=[table_name]),
+                table=ast.Field(chain=[TRINO_UNNEST_TABLE_NAME]),
                 table_args=[_wrap_unnest_elements(array_expr, f"{table_name}_value")],
                 alias=table_name,
                 column_aliases=[output_name],
@@ -190,10 +189,7 @@ class TrinoArrayJoinFunctionLowerer(CloningVisitor):
         table_name = f"__trino_array_function_{self.unnest_index}"
         output_name = f"value_{self.unnest_index}"
         self.unnest_index += 1
-        self.context.database.tables.add_child(
-            TableNode(name=table_name, table=TrinoUnnestTable(name=table_name)),
-            table_conflict_mode="override",
-        )
+        ensure_trino_unnest_table(self.context.database)
         self.pending_unnests.append((table_name, output_name, self.visit(node.args[0])))
         return ast.Field(chain=[output_name], start=node.start, end=node.end)
 
@@ -232,16 +228,13 @@ class TrinoNormalizer(TraversingVisitor):
 
         table_name = f"__trino_unnest_{self.unnest_index}"
         self.unnest_index += 1
-        self.context.database.tables.add_child(
-            TableNode(name=table_name, table=TrinoUnnestTable(name=table_name)),
-            table_conflict_mode="override",
-        )
+        ensure_trino_unnest_table(self.context.database)
         final_join = node.select_from
         while final_join.next_join is not None:
             final_join = final_join.next_join
         final_join.next_join = ast.JoinExpr(
             join_type="CROSS JOIN",
-            table=ast.Field(chain=[table_name]),
+            table=ast.Field(chain=[TRINO_UNNEST_TABLE_NAME]),
             table_args=[_wrap_unnest_elements(array_expr.expr, f"{table_name}_value")],
             alias=table_name,
             column_aliases=[array_expr.alias],

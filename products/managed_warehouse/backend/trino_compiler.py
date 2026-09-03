@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import field
 from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 from prometheus_client import Counter
 from rest_framework import status
+
+from posthog.dataclasses import frozen
 
 from products.managed_warehouse.backend.facade.contracts import TrinoCompiledQuery, TrinoExpansionMode
 from products.managed_warehouse.backend.facade.cp_teams import get_org_team_membership
@@ -13,7 +16,7 @@ from products.managed_warehouse.backend.table_binding import build_trino_table_l
 if TYPE_CHECKING:
     from posthog.schema import HogQLQuery
 
-    from posthog.hogql.transforms.trino.manifest import TrinoCatalogManifest
+    from posthog.hogql.transforms.trino.manifest import PreparedTrinoCatalog, TrinoCatalogManifest
 
     from posthog.models import Team, User
 
@@ -35,91 +38,21 @@ class TrinoTargetUnavailable(RuntimeError):
     pass
 
 
-def _reject_pure_compilation(error: Exception, *, feature_code: str) -> None:
-    TRINO_PURE_REJECTION_TOTAL.labels(feature_code=feature_code).inc()
-    raise error
+@frozen
+class PreparedTrinoCompiler:
+    """A validated managed-warehouse target with reusable pure catalog metadata."""
 
+    team_id: int
+    organization_id: str
+    catalog_name: str
+    _catalog: PreparedTrinoCatalog = field(repr=False, compare=False)
 
-def get_ready_trino_catalog_name(organization_id: str) -> str | None:
-    """Return the control-plane-owned catalog only after its Trino target is ready."""
-    from products.managed_warehouse.backend.presentation.views import _request  # noqa: PLC0415
-
-    response = _request("GET", organization_id, "/trino", require_enabled=False)
-    if not status.is_success(response.status_code) or not isinstance(response.data, dict):
-        return None
-    if response.data.get("enabled") is not True:
-        return None
-
-    trino_status = response.data.get("status")
-    if not isinstance(trino_status, dict) or trino_status.get("state") != "ready":
-        return None
-    response_org = trino_status.get("org")
-    if response_org is not None and str(response_org) != str(organization_id):
-        logger.warning(
-            "refusing_trino_catalog_for_mismatched_organization",
-            requested_organization_id=str(organization_id),
-            response_organization_id=str(response_org),
-        )
-        return None
-
-    catalog_name = trino_status.get("trino_catalog_name") or trino_status.get("catalog")
-    return catalog_name.strip() if isinstance(catalog_name, str) and catalog_name.strip() else None
-
-
-def compile_hogql_to_trino_sql(
-    team_id: int,
-    query: HogQLQuery,
-    *,
-    team: Team | None = None,
-    user: User | None = None,
-    bypass_warehouse_access_control: bool = False,
-    include_hogql: bool = False,
-    expansion_mode: TrinoExpansionMode = TrinoExpansionMode.PURE,
-    catalog_manifest: TrinoCatalogManifest | None = None,
-) -> TrinoCompiledQuery:
-    """Compile HogQL for the ready Trino catalog that serves the team's DuckLake data.
-
-    Set ``bypass_warehouse_access_control`` only for trusted internal callers that compile
-    without a user. This entry point does not execute the returned SQL or alter query routing.
-    Set ``include_hogql`` to render normalized HogQL for diagnostics. Pure manifest-backed
-    compilation is the default; select ``TrinoExpansionMode.DJANGO`` only when the query needs
-    actions, cohorts, saved queries, variables, filters, or other Django-backed semantics.
-    """
-    from posthog.hogql import ast  # noqa: PLC0415
-    from posthog.hogql.context import HogQLContext  # noqa: PLC0415
-    from posthog.hogql.database.database import Database  # noqa: PLC0415
-    from posthog.hogql.filters import replace_filters  # noqa: PLC0415
-    from posthog.hogql.modifiers import create_default_modifiers_for_team  # noqa: PLC0415
-    from posthog.hogql.parser import parse_select, sanitize_client_parser_mode  # noqa: PLC0415
-    from posthog.hogql.placeholders import find_placeholders, replace_placeholders  # noqa: PLC0415
-    from posthog.hogql.printer.utils import prepare_and_print_ast  # noqa: PLC0415
-    from posthog.hogql.variables import replace_variables  # noqa: PLC0415
-    from posthog.hogql.visitor import clone_expr  # noqa: PLC0415
-
-    from posthog.models.team.team import Team  # noqa: PLC0415
-
-    team = team or Team.objects.get(pk=team_id)
-    organization_id = str(team.organization_id)
-    catalog_name = get_ready_trino_catalog_name(organization_id)
-    if catalog_name is None:
-        raise TrinoTargetUnavailable("The organization does not have a ready Trino catalog")
-
-    membership = get_org_team_membership(organization_id, team_id)
-    if membership is None:
-        raise TrinoTargetUnavailable("The project does not have an authoritative physical table mapping")
-
-    TRINO_COMPILATION_TOTAL.labels(mode=expansion_mode.value).inc()
-    if expansion_mode == TrinoExpansionMode.PURE:
+    def compile(self, query: HogQLQuery, *, include_hogql: bool = False) -> TrinoCompiledQuery:
         from posthog.hogql.transforms.trino.errors import TrinoLoweringError  # noqa: PLC0415
-        from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415
-            TrinoCatalogManifest,
-            TrinoManifestTable,
-            transpile_hogql_to_trino,
-        )
 
         from posthog.schema_enums import PersonsOnEventsMode  # noqa: PLC0415
-        from posthog.week_start_day import WeekStartDay  # noqa: PLC0415
 
+        TRINO_COMPILATION_TOTAL.labels(mode=TrinoExpansionMode.PURE.value).inc()
         if query.filters is not None:
             _reject_pure_compilation(
                 TrinoLoweringError(
@@ -167,35 +100,9 @@ def compile_hogql_to_trino_sql(
                 feature_code="TRINO_PERSONS_ON_EVENTS_MODE_UNSUPPORTED",
             )
 
-        additional_tables = catalog_manifest.tables if catalog_manifest is not None else ()
-        if any(table.logical_name in {"events", "persons"} for table in additional_tables):
-            _reject_pure_compilation(
-                TrinoLoweringError(
-                    "TRINO_PURE_CORE_TABLE_OVERRIDE",
-                    "core table manifest",
-                    detail="Managed warehouse compilation owns the events and persons physical mappings.",
-                ),
-                feature_code="TRINO_PURE_CORE_TABLE_OVERRIDE",
-            )
-        pure_manifest = TrinoCatalogManifest(
-            tables=(
-                TrinoManifestTable(
-                    logical_name="events",
-                    locator=(catalog_name, "posthog", membership.table_names.events_table),
-                ),
-                TrinoManifestTable(
-                    logical_name="persons",
-                    locator=(catalog_name, "posthog", membership.table_names.persons_table),
-                ),
-                *additional_tables,
-            ),
-            timezone=team.timezone,
-            week_start_day=team.week_start_day or WeekStartDay.SUNDAY,
-        )
         try:
-            transpiled = transpile_hogql_to_trino(
+            transpiled = self._catalog.transpile(
                 query.query,
-                manifest=pure_manifest,
                 values=query.values,
                 convert_to_project_timezone=(modifiers.convertToProjectTimezone if modifiers is not None else None),
                 include_hogql=include_hogql,
@@ -205,6 +112,161 @@ def compile_hogql_to_trino_sql(
             raise
         return TrinoCompiledQuery(sql=transpiled.sql, values=transpiled.values, hogql=transpiled.hogql)
 
+
+def _reject_pure_compilation(error: Exception, *, feature_code: str) -> None:
+    TRINO_PURE_REJECTION_TOTAL.labels(feature_code=feature_code).inc()
+    raise error
+
+
+def get_ready_trino_catalog_name(organization_id: str) -> str | None:
+    """Return the control-plane-owned catalog only after its Trino target is ready."""
+    from products.managed_warehouse.backend.presentation.views import _request  # noqa: PLC0415
+
+    response = _request("GET", organization_id, "/trino", require_enabled=False)
+    if not status.is_success(response.status_code) or not isinstance(response.data, dict):
+        return None
+    if response.data.get("enabled") is not True:
+        return None
+
+    trino_status = response.data.get("status")
+    if not isinstance(trino_status, dict) or trino_status.get("state") != "ready":
+        return None
+    response_org = trino_status.get("org")
+    if response_org is not None and str(response_org) != str(organization_id):
+        logger.warning(
+            "refusing_trino_catalog_for_mismatched_organization",
+            requested_organization_id=str(organization_id),
+            response_organization_id=str(response_org),
+        )
+        return None
+
+    catalog_name = trino_status.get("trino_catalog_name") or trino_status.get("catalog")
+    return catalog_name.strip() if isinstance(catalog_name, str) and catalog_name.strip() else None
+
+
+def prepare_hogql_to_trino_compiler(
+    team_id: int,
+    *,
+    team: Team | None = None,
+    catalog_manifest: TrinoCatalogManifest | None = None,
+) -> PreparedTrinoCompiler:
+    from posthog.hogql.transforms.trino.errors import TrinoLoweringError  # noqa: PLC0415
+    from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415
+        TrinoCatalogManifest,
+        TrinoManifestTable,
+        prepare_trino_catalog,
+    )
+
+    from posthog.models.team.team import Team  # noqa: PLC0415
+    from posthog.week_start_day import WeekStartDay  # noqa: PLC0415
+
+    team = team or Team.objects.get(pk=team_id)
+    if team.pk != team_id:
+        raise TrinoTargetUnavailable("The provided team does not match the requested project")
+
+    organization_id = str(team.organization_id)
+    catalog_name = get_ready_trino_catalog_name(organization_id)
+    if catalog_name is None:
+        raise TrinoTargetUnavailable("The organization does not have a ready Trino catalog")
+
+    membership = get_org_team_membership(organization_id, team_id)
+    if membership is None:
+        raise TrinoTargetUnavailable("The project does not have an authoritative physical table mapping")
+    if membership.team_id != team_id or str(membership.organization_id) != organization_id:
+        raise TrinoTargetUnavailable("The physical table mapping does not match the requested project")
+
+    additional_tables = catalog_manifest.tables if catalog_manifest is not None else ()
+    if any(table.logical_name in {"events", "persons"} for table in additional_tables):
+        _reject_pure_compilation(
+            TrinoLoweringError(
+                "TRINO_PURE_CORE_TABLE_OVERRIDE",
+                "core table manifest",
+                detail="Managed warehouse compilation owns the events and persons physical mappings.",
+            ),
+            feature_code="TRINO_PURE_CORE_TABLE_OVERRIDE",
+        )
+    if any(table.locator[0] != catalog_name for table in additional_tables):
+        _reject_pure_compilation(
+            TrinoLoweringError(
+                "TRINO_PURE_CATALOG_MISMATCH",
+                "catalog manifest",
+                detail="Managed warehouse relations must belong to the prepared Trino catalog.",
+            ),
+            feature_code="TRINO_PURE_CATALOG_MISMATCH",
+        )
+    pure_manifest = TrinoCatalogManifest(
+        tables=(
+            TrinoManifestTable(
+                logical_name="events",
+                locator=(catalog_name, "posthog", membership.table_names.events_table),
+            ),
+            TrinoManifestTable(
+                logical_name="persons",
+                locator=(catalog_name, "posthog", membership.table_names.persons_table),
+            ),
+            *additional_tables,
+        ),
+        timezone=team.timezone,
+        week_start_day=team.week_start_day or WeekStartDay.SUNDAY,
+    )
+    return PreparedTrinoCompiler(
+        team_id=team_id,
+        organization_id=organization_id,
+        catalog_name=catalog_name,
+        _catalog=prepare_trino_catalog(pure_manifest),
+    )
+
+
+def compile_hogql_to_trino_sql(
+    team_id: int,
+    query: HogQLQuery,
+    *,
+    team: Team | None = None,
+    user: User | None = None,
+    bypass_warehouse_access_control: bool = False,
+    include_hogql: bool = False,
+    expansion_mode: TrinoExpansionMode = TrinoExpansionMode.PURE,
+    catalog_manifest: TrinoCatalogManifest | None = None,
+) -> TrinoCompiledQuery:
+    """Compile HogQL for the ready Trino catalog that serves the team's DuckLake data.
+
+    Set ``bypass_warehouse_access_control`` only for trusted internal callers that compile
+    without a user. This entry point does not execute the returned SQL or alter query routing.
+    Set ``include_hogql`` to render normalized HogQL for diagnostics. Pure manifest-backed
+    compilation is the default; select ``TrinoExpansionMode.DJANGO`` only when the query needs
+    actions, cohorts, saved queries, variables, filters, or other Django-backed semantics.
+    """
+    if expansion_mode == TrinoExpansionMode.PURE:
+        return prepare_hogql_to_trino_compiler(
+            team_id,
+            team=team,
+            catalog_manifest=catalog_manifest,
+        ).compile(query, include_hogql=include_hogql)
+
+    from posthog.hogql import ast  # noqa: PLC0415
+    from posthog.hogql.context import HogQLContext  # noqa: PLC0415
+    from posthog.hogql.database.database import Database  # noqa: PLC0415
+    from posthog.hogql.filters import replace_filters  # noqa: PLC0415
+    from posthog.hogql.modifiers import create_default_modifiers_for_team  # noqa: PLC0415
+    from posthog.hogql.parser import parse_select, sanitize_client_parser_mode  # noqa: PLC0415
+    from posthog.hogql.placeholders import find_placeholders, replace_placeholders  # noqa: PLC0415
+    from posthog.hogql.printer.utils import prepare_and_print_ast  # noqa: PLC0415
+    from posthog.hogql.variables import replace_variables  # noqa: PLC0415
+    from posthog.hogql.visitor import clone_expr  # noqa: PLC0415
+
+    from posthog.models.team.team import Team  # noqa: PLC0415
+
+    team = team or Team.objects.get(pk=team_id)
+    organization_id = str(team.organization_id)
+    catalog_name = get_ready_trino_catalog_name(organization_id)
+    if catalog_name is None:
+        raise TrinoTargetUnavailable("The organization does not have a ready Trino catalog")
+
+    membership = get_org_team_membership(organization_id, team_id)
+    if membership is None:
+        raise TrinoTargetUnavailable("The project does not have an authoritative physical table mapping")
+
+    TRINO_COMPILATION_TOTAL.labels(mode=expansion_mode.value).inc()
     if expansion_mode != TrinoExpansionMode.DJANGO:
         raise ValueError(f"Unknown Trino expansion mode: {expansion_mode}")
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import field
+from types import MappingProxyType
 from typing import Any
 
 from posthog.schema import HogQLQueryModifiers
@@ -28,6 +30,7 @@ from posthog.hogql.database.models import (
     VirtualTable,
 )
 from posthog.hogql.database.trino_locator import TrinoTableLocator
+from posthog.hogql.database.trino_unnest_table import ensure_trino_unnest_table
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.printer.utils import prepare_and_print_ast
@@ -65,6 +68,40 @@ class TrinoManifestTranspilerResult:
     sql: str
     values: dict[str, Any]
     hogql: str | None = None
+
+
+@frozen
+class PreparedTrinoCatalog:
+    """A reusable catalog snapshot that creates fresh query state for every transpilation."""
+
+    manifest: TrinoCatalogManifest
+    _database: Database = field(repr=False, compare=False)
+    _table_locators: Mapping[str, TrinoTableLocator] = field(repr=False, compare=False)
+
+    def transpile(
+        self,
+        query: str,
+        *,
+        values: Mapping[str, object] | None = None,
+        convert_to_project_timezone: bool | None = None,
+        limit_top_select: bool = True,
+        limit_context: LimitContext | None = None,
+        pretty: bool = False,
+        include_hogql: bool = False,
+    ) -> TrinoManifestTranspilerResult:
+        return _transpile_hogql_to_trino_with_catalog(
+            query,
+            database=self._database,
+            table_locators=self._table_locators,
+            timezone=self.manifest.timezone,
+            week_start_day=self.manifest.week_start_day,
+            values=values,
+            convert_to_project_timezone=convert_to_project_timezone,
+            limit_top_select=limit_top_select,
+            limit_context=limit_context,
+            pretty=pretty,
+            include_hogql=include_hogql,
+        )
 
 
 _CORE_TABLES = frozenset({"events", "persons"})
@@ -205,13 +242,48 @@ def build_trino_manifest_database(manifest: TrinoCatalogManifest) -> tuple[Datab
             table_conflict_mode="override",
         )
 
+    ensure_trino_unnest_table(database)
     return database, locators
+
+
+def prepare_trino_catalog(manifest: TrinoCatalogManifest) -> PreparedTrinoCatalog:
+    database, table_locators = build_trino_manifest_database(manifest)
+    return PreparedTrinoCatalog(
+        manifest=manifest,
+        _database=database,
+        _table_locators=MappingProxyType(table_locators),
+    )
 
 
 def transpile_hogql_to_trino(
     query: str,
     *,
     manifest: TrinoCatalogManifest,
+    values: Mapping[str, object] | None = None,
+    convert_to_project_timezone: bool | None = None,
+    limit_top_select: bool = True,
+    limit_context: LimitContext | None = None,
+    pretty: bool = False,
+    include_hogql: bool = False,
+) -> TrinoManifestTranspilerResult:
+    return prepare_trino_catalog(manifest).transpile(
+        query,
+        values=values,
+        convert_to_project_timezone=convert_to_project_timezone,
+        limit_top_select=limit_top_select,
+        limit_context=limit_context,
+        pretty=pretty,
+        include_hogql=include_hogql,
+    )
+
+
+def _transpile_hogql_to_trino_with_catalog(
+    query: str,
+    *,
+    database: Database,
+    table_locators: Mapping[str, TrinoTableLocator],
+    timezone: str,
+    week_start_day: WeekStartDay,
     values: Mapping[str, object] | None = None,
     convert_to_project_timezone: bool | None = None,
     limit_top_select: bool = True,
@@ -237,8 +309,6 @@ def transpile_hogql_to_trino(
         )
     _UnsupportedSemanticFeatureFinder().visit(node)
 
-    database, locators = build_trino_manifest_database(manifest)
-
     def create_context() -> HogQLContext:
         return HogQLContext(
             database=database,
@@ -253,9 +323,9 @@ def transpile_hogql_to_trino(
                 convertToProjectTimezone=convert_to_project_timezone,
             ),
             restricted_properties=set(),
-            trino_table_locators=locators,
-            timezone=manifest.timezone,
-            week_start_day=manifest.week_start_day,
+            trino_table_locators=dict(table_locators),
+            timezone=timezone,
+            week_start_day=week_start_day,
         )
 
     context = create_context()

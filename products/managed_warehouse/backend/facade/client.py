@@ -47,6 +47,7 @@ if TYPE_CHECKING:
         TrinoCompiledQuery,
     )
     from products.managed_warehouse.backend.service_credentials import ServiceCredential
+    from products.managed_warehouse.backend.trino_compiler import PreparedTrinoCompiler
 
 __all__ = [
     "ServiceCredential",
@@ -59,6 +60,7 @@ __all__ = [
     "execute_ducklake_query",
     "make_duckgres_conninfo",
     "mint_service_credential",
+    "prepare_hogql_to_trino_compiler",
     "refresh_service_credential",
     "resolve_managed_warehouse_trino_connection",
 ]
@@ -103,6 +105,23 @@ def compile_hogql_to_trino_sql(
         bypass_warehouse_access_control=bypass_warehouse_access_control,
         include_hogql=include_hogql,
         expansion_mode=expansion_mode,
+        catalog_manifest=catalog_manifest,
+    )
+
+
+def prepare_hogql_to_trino_compiler(
+    team_id: int,
+    *,
+    team: Team | None = None,
+    catalog_manifest: TrinoCatalogManifest | None = None,
+) -> PreparedTrinoCompiler:
+    from products.managed_warehouse.backend.trino_compiler import (  # noqa: PLC0415 -- keep the optional compiler off startup paths
+        prepare_hogql_to_trino_compiler as _prepare_hogql_to_trino_compiler,
+    )
+
+    return _prepare_hogql_to_trino_compiler(
+        team_id,
+        team=team,
         catalog_manifest=catalog_manifest,
     )
 
