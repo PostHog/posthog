@@ -8,6 +8,7 @@ from openai import APIConnectionError, APIError, APIStatusError, InternalServerE
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from rest_framework import exceptions
 
+from posthog.llm.flex import FLEX_CAPABLE_MODELS
 from posthog.llm.gateway_client import build_openai_client, team_distinct_id
 
 from ..constants import SUMMARIZATION_FLEX_TIMEOUT, SUMMARIZATION_TIMEOUT
@@ -20,12 +21,6 @@ logger = structlog.get_logger(__name__)
 
 def _is_gpt5_model(model: OpenAIModel) -> bool:
     return str(model).startswith("gpt-5")
-
-
-# Deliberately an allowlist rather than the family prefix: OpenAI decides flex eligibility per
-# model (the pro tiers are excluded, for example), so a new gpt-5 entry in OpenAIModel must not
-# inherit the flex tier until someone checks the pricing page and adds it here.
-FLEX_CAPABLE_MODELS: frozenset[OpenAIModel] = frozenset({OpenAIModel.GPT_5_NANO, OpenAIModel.GPT_5_MINI})
 
 
 def _is_flex_recoverable(error: APIError) -> bool:

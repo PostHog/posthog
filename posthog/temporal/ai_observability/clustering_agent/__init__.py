@@ -14,14 +14,10 @@ from django.conf import settings
 
 from langchain_openai import ChatOpenAI
 
+from posthog.llm.flex import FLEX_CAPABLE_MODELS
 from posthog.temporal.ai_observability.llm_endpoint import build_langchain_chat_client
 from posthog.temporal.ai_observability.trace_clustering.constants import NOISE_CLUSTER_ID
 from posthog.temporal.ai_observability.trace_clustering.models import ClusterLabel
-
-# Deliberately an allowlist rather than the family prefix: OpenAI decides flex eligibility per
-# model (gpt-5.4-pro is excluded, for example), so a new labeling model must not inherit the
-# flex tier until someone checks the pricing page and adds it here.
-FLEX_CAPABLE_MODELS: frozenset[str] = frozenset({"gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"})
 
 # Per-call timeouts, capped so no single call can outlive the 600s labeling activity: flex
 # 120s x 3 attempts (the SDK retries recover a flex capacity refusal), standard 240s x 2
@@ -99,4 +95,4 @@ def fill_missing_labels(
     return result
 
 
-__all__ = ["FLEX_CAPABLE_MODELS", "fill_missing_labels", "get_labeling_llm"]
+__all__ = ["fill_missing_labels", "get_labeling_llm"]
