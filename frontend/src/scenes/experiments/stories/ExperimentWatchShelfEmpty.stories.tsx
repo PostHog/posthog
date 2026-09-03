@@ -58,7 +58,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-06-01',
         pageUrl: urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id) + '?tab=recordings',
-        featureFlags: [FEATURE_FLAGS.EXPERIMENT_RECORDINGS_TAB, FEATURE_FLAGS.EXPERIMENT_BEHAVIOR_COMPARISON],
+        featureFlags: [FEATURE_FLAGS.EXPERIMENT_BEHAVIOR_COMPARISON],
         testOptions: { waitForSelector: '[data-attr="experiment-recordings-tab"]' },
     },
     decorators: [
