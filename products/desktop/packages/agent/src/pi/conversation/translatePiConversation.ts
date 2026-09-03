@@ -147,6 +147,15 @@ function customMessageEvents(message: AgentMessage): AgentConversationEvent[] {
   ];
 }
 
+function commonPrefixLength(left: string, right: string): number {
+  const limit = Math.min(left.length, right.length);
+  let index = 0;
+  while (index < limit && left[index] === right[index]) {
+    index += 1;
+  }
+  return index;
+}
+
 function isAssistantMessage(
   message: AgentMessage,
 ): message is AssistantMessage {
@@ -360,22 +369,24 @@ export function createPiConversationTranslator(
         continue;
       }
 
-      if (translated.content.type !== "text" || !streamed) {
+      if (translated.content.type !== "text") {
         reconciled.push(translated);
         continue;
       }
 
+      // Emit the part of the settled block the deltas did not show: usually
+      // its tail. Deltas that diverge from the settled text keep their shared
+      // head and get the rest appended, because dropping the block instead
+      // leaves a thought or an answer cut short.
       const finalText = translated.content.text;
-      if (finalText === streamed) {
-        continue;
-      }
-      if (!finalText.startsWith(streamed)) {
+      const shared = commonPrefixLength(streamed, finalText);
+      if (shared >= finalText.length) {
         continue;
       }
 
       reconciled.push({
         ...translated,
-        content: { type: "text", text: finalText.slice(streamed.length) },
+        content: { type: "text", text: finalText.slice(shared) },
       });
     }
 
