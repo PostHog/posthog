@@ -135,14 +135,17 @@ FIRST_MESSAGE_CANDIDATES = 5
 
 # Attachments arrive as markdown appended to the message body, and an inbound email carrying
 # only a screenshot has no other text at all. A truncated image URL identifies nothing, so drop
-# image markdown outright and keep only the label of a file or link.
-_IMAGE_MARKDOWN = re.compile(r"!\[[^\]]*\]\([^)]*\)")
-_LINK_MARKDOWN = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+# image markdown outright and keep only the label of a file or link. The label stops at a
+# bracket, so a run of unclosed ones cannot restart a walk of the rest of the window at every
+# one. That costs no stripping ability: sanitize_attachment_filename removes brackets from
+# every inbound filename, so a label we render ourselves never holds one.
+_IMAGE_MARKDOWN = re.compile(r"!\[[^\[\]]*\]\([^)]*\)")
+_LINK_MARKDOWN = re.compile(r"\[([^\[\]]*)\]\([^)]*\)")
 
 # How much of a message body those regexes are allowed to scan. They are linear on ordinary
-# prose, but they restart at every bracket that opens no link, so a body of unclosed brackets
-# costs O(n^2), and an inbound email may carry 50,000 characters of them. This ceiling is an
-# order of magnitude wider than the preview it feeds.
+# prose, but a crafted run of `![](` still rescans the remaining window for a closing bracket
+# and parenthesis at every one, and an inbound email may carry 50,000 characters of them. This
+# ceiling is an order of magnitude wider than the preview it feeds.
 FIRST_MESSAGE_SCAN_CHARS = 2000
 
 # Taking that window can cut an attachment in half, and a fragment like `![shot.png](/uploaded`
