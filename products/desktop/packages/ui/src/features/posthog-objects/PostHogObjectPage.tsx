@@ -251,10 +251,14 @@ export function PostHogObjectPageView({
     .toLowerCase()
     .split(" ")[0]
     .startsWith(object.kindLabel.toLowerCase().split(" ")[0]);
+  // A chart preview's `detail` joins its series labels for the hover card,
+  // which is raw SQL for hogql and duplicates the insight's legend; the page
+  // subtitle shows the object's own description instead, or nothing for hogql.
+  const subtitle = usesChartRenderer ? preview?.description : preview?.detail;
   const metaLine = [
     object.kindLabel,
     showSource ? object.source : null,
-    preview?.detail,
+    subtitle,
   ]
     .filter(Boolean)
     .join(" · ");

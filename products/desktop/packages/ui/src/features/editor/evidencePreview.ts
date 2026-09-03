@@ -21,6 +21,13 @@ import type { EvidenceLinkTarget } from "../../utils/evidenceLinks";
 export interface EvidenceCardData {
   title: string;
   detail?: string;
+  /**
+   * The object's own description, shown on the full page's subtitle. Kept
+   * separate from `detail`, which for a multi-series chart holds joined
+   * series labels for the hover card and is wrong on the page. Only insights
+   * set it today.
+   */
+  description?: string;
   /** Lifecycle state as a badge label + tone, kept out of `detail`. */
   status?: {
     label: string;
@@ -127,6 +134,7 @@ async function insightPreview(
   const base: EvidenceCardData = {
     title: insight.name || shortId,
     detail: insight.description || undefined,
+    description: insight.description || undefined,
   };
   const plan = planReportChart(insight.query);
   if (plan.kind !== "run") return base;
@@ -138,6 +146,7 @@ async function insightPreview(
     chartData: data,
     title: base.title,
     detail: chart.detail ?? base.detail,
+    description: insight.description || undefined,
   };
 }
 

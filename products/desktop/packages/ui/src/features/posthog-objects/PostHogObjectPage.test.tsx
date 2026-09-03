@@ -235,4 +235,87 @@ describe("PostHogObjectPage", () => {
     expect(screen.getAllByText("Events by day").length).toBeGreaterThan(0);
     expect(screen.queryByText("arrayJoin(events.event)")).toBeNull();
   });
+
+  it("keeps a multi-series insight's series labels out of the page subtitle", () => {
+    setQueryState({
+      data: {
+        title: "Checkout funnel",
+        // insightPreview stores joined series labels in the hover detail.
+        detail: "control · aggressive",
+        description: "Daily unique visitors",
+        chartData: {
+          type: "series",
+          labels: ["2026-08-13", "2026-08-14"],
+          series: [
+            { key: "series-0", label: "control", data: [40, 44] },
+            { key: "series-1", label: "aggressive", data: [38, 45] },
+          ],
+          render: "line",
+          isTimeSeries: true,
+          interval: "day",
+        },
+      },
+    });
+    render(
+      <Theme>
+        <PostHogObjectPage
+          fallbackName="Checkout funnel"
+          metadata={{
+            reference_type: "posthog_object",
+            object_kind: "insight",
+            object_id: "9pQx3",
+            source_message_ids: ["turn-1"],
+            occurrence_count: 1,
+          }}
+        />
+      </Theme>,
+    );
+
+    // The subtitle shows the insight's description, not the series labels.
+    expect(screen.getByText(/Daily unique visitors/)).toBeInTheDocument();
+    expect(screen.queryByText(/control · aggressive/)).toBeNull();
+  });
+
+  it("keeps a multi-series hogql query's column labels out of the page subtitle", () => {
+    setQueryState({
+      data: {
+        title: "ifNull(count(), 0)",
+        // hogqlPreview joins the result columns into the hover detail.
+        detail: "ifNull(count(), 0) · arrayJoin(events.event)",
+        chartData: {
+          type: "series",
+          labels: ["2026-08-13", "2026-08-14"],
+          series: [
+            { key: "series-0", label: "ifNull(count(), 0)", data: [40, 44] },
+            {
+              key: "series-1",
+              label: "arrayJoin(events.event)",
+              data: [38, 45],
+            },
+          ],
+          render: "line",
+          isTimeSeries: true,
+          interval: "day",
+        },
+      },
+    });
+    render(
+      <Theme>
+        <PostHogObjectPage
+          fallbackName="Events by day"
+          metadata={{
+            reference_type: "posthog_object",
+            object_kind: "hogql",
+            object_id: "SELECT arrayJoin(events.event), ifNull(count(), 0) ...",
+            source_message_ids: ["turn-1"],
+            occurrence_count: 1,
+          }}
+        />
+      </Theme>,
+    );
+
+    // The subtitle shows kind and source only, never the raw SQL detail.
+    expect(screen.queryByText(/ifNull\(count\(\), 0\)/)).toBeNull();
+    expect(screen.queryByText(/arrayJoin\(events\.event\)/)).toBeNull();
+  });
 });
