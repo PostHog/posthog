@@ -187,11 +187,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # It carries an Organization FK, so the org_scoped rule would otherwise cover it: remove this
         # exemption the moment an endpoint exposes it, or the rule stops protecting it silently.
         "EnrichmentLabelResult",
-        # Cross-team aggregate for the global MCP registry index: team_id records which
-        # MCP Analytics project the signal came from (provenance), and every consumer reads
-        # the index globally. Rows are only reachable through their MCPRegistryServer FK,
-        # never looked up by user-supplied stats id or by requesting team.
-        "MCPMeasuredStats",
         # Model kept to avoid a deletion migration but has no API endpoint
         "ErrorTrackingAutoCaptureControls",
         "DuckLakeBackfill",

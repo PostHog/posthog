@@ -2,8 +2,6 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from products.mcp_registry.backend.models import MCPMeasuredStats, MCPRegistryServer, MCPRegistryTool
-
 
 @extend_schema_field(OpenApiTypes.OBJECT)
 class JSONDictField(serializers.JSONField):
@@ -15,7 +13,87 @@ class JSONListField(serializers.JSONField):
     pass
 
 
-class MCPRegistryToolSerializer(serializers.ModelSerializer):
+@extend_schema_field({"type": "array", "items": {"type": "string"}})
+class JSONStringListField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "calls": {"type": "integer"},
+                "errors": {"type": "integer"},
+                "error_rate_pct": {"type": "number"},
+            },
+        },
+    }
+)
+class ToolStatsListField(serializers.JSONField):
+    """Per-tool usage rows: [{name, calls, errors, error_rate_pct}]."""
+
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "type": {"type": "string"},
+                "url": {"type": "string"},
+            },
+        },
+    }
+)
+class RemotesListField(serializers.JSONField):
+    """Hosted remotes: [{type, url}]."""
+
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "registry_type": {"type": "string"},
+                "identifier": {"type": "string"},
+            },
+        },
+    }
+)
+class PackagesListField(serializers.JSONField):
+    """Published packages: [{registry_type, identifier}]."""
+
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+                "source": {"type": "string"},
+            },
+        },
+    }
+)
+class MatchedToolsListField(serializers.JSONField):
+    """Tools matched in a discover intent: [{name, description, source}]."""
+
+    pass
+
+
+class MCPRegistryToolSerializer(serializers.Serializer):
     name = serializers.CharField(
         help_text="Tool name as advertised by the server (exec-resolved for measured servers)."
     )
@@ -23,64 +101,35 @@ class MCPRegistryToolSerializer(serializers.ModelSerializer):
     input_schema = JSONDictField(
         help_text="JSON Schema for the tool's input. Only populated for probed (tools_list) tools."
     )
+    source = serializers.CharField(
+        help_text="Where we learned about this tool: a probed tools/list (authoritative schema) "
+        "or MCP Analytics usage (proof of real calls, no schema)."
+    )
     last_seen_at = serializers.DateTimeField(help_text="Last time this tool was observed by either source.")
 
-    class Meta:
-        model = MCPRegistryTool
-        fields = ["name", "description", "input_schema", "source", "last_seen_at"]
-        # `source` shadows DRF's Field.source when declared as a class attribute, so it
-        # stays auto-generated (a ChoiceField from the model) and documented here.
-        extra_kwargs = {
-            "source": {
-                "help_text": "Where we learned about this tool: a probed tools/list (authoritative schema) "
-                "or MCP Analytics usage (proof of real calls, no schema).",
-            },
-        }
 
-
-class MCPMeasuredStatsSerializer(serializers.ModelSerializer):
+class MCPMeasuredStatsSerializer(serializers.Serializer):
     window_days = serializers.IntegerField(help_text="Aggregation window in days.")
     calls = serializers.IntegerField(help_text="Tool calls observed in the window.")
     sessions = serializers.IntegerField(help_text="Distinct MCP sessions observed in the window.")
+    errors = serializers.IntegerField(help_text="Errored tool calls in the window.")
     error_rate_pct = serializers.FloatField(help_text="Errors as a percentage of calls.")
     intent_coverage_pct = serializers.FloatField(
         help_text="Percentage of calls carrying an agent-written intent ($mcp_intent)."
     )
     distinct_tools = serializers.IntegerField(help_text="Distinct effective tools called in the window.")
     harness_count = serializers.IntegerField(help_text="Distinct MCP client names observed in the window.")
-    tool_stats = JSONListField(
+    tool_stats = ToolStatsListField(
         help_text="Per-tool usage, ordered by call volume: [{name, calls, errors, error_rate_pct}]."
     )
     link_method = serializers.CharField(
         help_text="How this measured source was attached to its registry entry "
         "(override | url | exact_name | standalone)."
     )
-    link_candidates = JSONListField(
+    link_candidates = JSONStringListField(
         help_text="Registry names that also matched when linking was ambiguous (kept for review)."
     )
     computed_at = serializers.DateTimeField(help_text="When this aggregate was computed.")
-
-    class Meta:
-        model = MCPMeasuredStats
-        fields = [
-            "window_days",
-            "calls",
-            "sessions",
-            "errors",
-            "error_rate_pct",
-            "intent_coverage_pct",
-            "distinct_tools",
-            "harness_count",
-            "tool_stats",
-            "link_method",
-            "link_candidates",
-            "computed_at",
-        ]
-        # `errors` shadows Serializer.errors when declared as a class attribute, so it
-        # stays auto-generated (an IntegerField from the model) and documented here.
-        extra_kwargs = {
-            "errors": {"help_text": "Errored tool calls in the window."},
-        }
 
 
 class MCPRankingScoreInfoSerializer(serializers.Serializer):
@@ -92,7 +141,7 @@ class MCPRankingScoreInfoSerializer(serializers.Serializer):
     computed_at = serializers.DateTimeField(allow_null=True, help_text="When the run producing this score completed.")
 
 
-class MCPRegistryServerListSerializer(serializers.ModelSerializer):
+class MCPRegistryServerListSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Registry server id.")
     registry_name = serializers.CharField(
         help_text="Reverse-DNS name in the official MCP registry; empty for measured-only servers."
@@ -104,82 +153,58 @@ class MCPRegistryServerListSerializer(serializers.ModelSerializer):
     auth_method = serializers.CharField(help_text="Detected auth method (none, oauth, api_key, unknown).")
     listed_in_registry = serializers.BooleanField(help_text="Whether the server appears in the official MCP registry.")
     is_measured = serializers.BooleanField(help_text="Whether real usage signal exists via MCP Analytics.")
-    rank_score = serializers.SerializerMethodField(
-        help_text="Static score under the requested ranking version; null when the version has no completed run."
+    rank_score = serializers.FloatField(
+        allow_null=True,
+        help_text="Static score under the requested ranking version; null when the version has no completed run.",
     )
 
-    class Meta:
-        model = MCPRegistryServer
-        fields = [
-            "id",
-            "registry_name",
-            "display_name",
-            "description",
-            "canonical_url",
-            "liveness",
-            "auth_method",
-            "listed_in_registry",
-            "is_measured",
-            "rank_score",
-        ]
 
-    @extend_schema_field(OpenApiTypes.FLOAT)
-    def get_rank_score(self, obj: MCPRegistryServer) -> float | None:
-        return getattr(obj, "rank_score", None)
-
-
-class MCPRegistryServerDetailSerializer(MCPRegistryServerListSerializer):
-    remotes = JSONListField(help_text="All hosted remotes: [{type, url}].")
-    packages = JSONListField(help_text="Published packages: [{registry_type, identifier}].")
+class MCPRegistryServerDetailSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Registry server id.")
+    registry_name = serializers.CharField(
+        help_text="Reverse-DNS name in the official MCP registry; empty for measured-only servers."
+    )
+    display_name = serializers.CharField(help_text="Human-readable server name.")
+    description = serializers.CharField(help_text="Server description.")
+    canonical_url = serializers.CharField(help_text="Primary hosted remote URL; empty for package-only servers.")
+    liveness = serializers.CharField(help_text="Probed liveness state (alive_open, alive_auth, dead, ...).")
+    auth_method = serializers.CharField(help_text="Detected auth method (none, oauth, api_key, unknown).")
+    listed_in_registry = serializers.BooleanField(help_text="Whether the server appears in the official MCP registry.")
+    is_measured = serializers.BooleanField(help_text="Whether real usage signal exists via MCP Analytics.")
+    rank_score = serializers.FloatField(
+        allow_null=True,
+        help_text="Static score under the requested ranking version; null when the version has no completed run.",
+    )
+    remotes = RemotesListField(help_text="All hosted remotes: [{type, url}].")
+    packages = PackagesListField(help_text="Published packages: [{registry_type, identifier}].")
     repository_url = serializers.CharField(help_text="Source repository URL, when published.")
     website_url = serializers.CharField(help_text="Vendor website URL, when published.")
     last_probed_at = serializers.DateTimeField(allow_null=True, help_text="When the shallow probe last ran.")
-    tools = serializers.SerializerMethodField(
+    tools = serializers.ListField(
+        child=serializers.DictField(),
         help_text="Known tools, fused from probes and analytics. A tool known only from another "
-        "project's traffic is limited to callers who may see that project's measurements."
+        "project's traffic is limited to callers who may see that project's measurements.",
     )
-    measured_stats = serializers.SerializerMethodField(
+    measured_stats = serializers.ListField(
+        child=serializers.DictField(),
         help_text="Behavioral aggregates, one per measured MCP Analytics project. Limited to this "
-        "project's own measurements unless the server is marked measured_public."
+        "project's own measurements unless the server is marked measured_public.",
     )
-    scores = serializers.SerializerMethodField(
-        help_text="Latest score under every ranking version with a completed run."
+    scores = serializers.ListField(
+        child=serializers.DictField(), help_text="Latest score under every ranking version with a completed run."
     )
-    connect = serializers.SerializerMethodField(
+    connect = JSONDictField(
         help_text="Connection instructions: methods ordered most-automated first, steps typed by actor "
         "(agent executes; human steps are narrated to the user)."
     )
 
-    class Meta:
-        model = MCPRegistryServer
-        fields = [
-            *MCPRegistryServerListSerializer.Meta.fields,
-            "remotes",
-            "packages",
-            "repository_url",
-            "website_url",
-            "last_probed_at",
-            "tools",
-            "measured_stats",
-            "scores",
-            "connect",
-        ]
 
-    @extend_schema_field(MCPRegistryToolSerializer(many=True))
-    def get_tools(self, obj: MCPRegistryServer) -> list[dict]:
-        return self.context["visible_tools"]
+class MCPRankingRunSerializer(serializers.Serializer):
+    """A completed ranking run."""
 
-    @extend_schema_field(MCPMeasuredStatsSerializer(many=True))
-    def get_measured_stats(self, obj: MCPRegistryServer) -> list[dict]:
-        return self.context["visible_measured_stats"]
-
-    @extend_schema_field(MCPRankingScoreInfoSerializer(many=True))
-    def get_scores(self, obj: MCPRegistryServer) -> list[dict]:
-        return self.context.get("latest_scores", [])
-
-    @extend_schema_field(OpenApiTypes.OBJECT)
-    def get_connect(self, obj: MCPRegistryServer) -> dict:
-        return self.context["connect_instructions"]
+    id = serializers.UUIDField(help_text="Run id.")
+    server_count = serializers.IntegerField(help_text="Servers scored in the run.")
+    computed_at = serializers.DateTimeField(allow_null=True, help_text="When the run completed.")
 
 
 class MCPRankingVersionSerializer(serializers.Serializer):
@@ -188,9 +213,9 @@ class MCPRankingVersionSerializer(serializers.Serializer):
     version = serializers.CharField(help_text="Ranking version key, passed as ?version= to the list endpoint.")
     description = serializers.CharField(help_text="What this version scores on.")
     is_default = serializers.BooleanField(help_text="Whether this is the version used when ?version= is omitted.")
-    latest_run = JSONDictField(
+    latest_run = MCPRankingRunSerializer(
         allow_null=True,
-        help_text="Latest completed run: {id, server_count, computed_at}; null when the version never ran.",
+        help_text="Latest completed run; null when the version never ran.",
     )
 
 
@@ -214,7 +239,7 @@ class MCPDiscoverCandidateSerializer(serializers.Serializer):
         help_text="Real MCP Analytics aggregates when the server is measured, otherwise null: calls, "
         "sessions, error_rate_pct, intent_coverage_pct, harness_count.",
     )
-    matched_tools = JSONListField(
+    matched_tools = MatchedToolsListField(
         help_text="Tools that matched the intent: [{name, description, source}]. Empty when only the server "
         "description matched."
     )
@@ -237,10 +262,7 @@ class MCPMeasuredProjectSerializer(serializers.Serializer):
 
     team_id = serializers.IntegerField(help_text="Project supplying the MCP Analytics signal.")
     servers = serializers.IntegerField(help_text="Distinct servers this project has measured.")
-    # `calls` is the model field name, so the annotation had to be renamed to avoid clashing.
-    calls = serializers.IntegerField(
-        source="total_calls", help_text="Tool calls this project contributes across those servers."
-    )
+    calls = serializers.IntegerField(help_text="Tool calls this project contributes across those servers.")
 
 
 class MCPRegistryCompareRowSerializer(serializers.Serializer):

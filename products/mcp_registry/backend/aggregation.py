@@ -3,8 +3,7 @@
 For every project with recent $mcp_tool_call traffic, roll each advertised server up
 to one stats row (volume, reliability, intent coverage) plus per-tool usage, then
 attach it to a registry server row via linking. Tool grouping goes through the
-mcp_analytics facade's EFFECTIVE_TOOL_SQL so single-exec servers don't collapse into
-one `exec` bucket.
+mcp_analytics facade so single-exec servers don't collapse into one `exec` bucket.
 """
 
 from datetime import datetime, timedelta
@@ -16,65 +15,19 @@ from django.utils import timezone
 import structlog
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team.team import Team
 
-from products.mcp_analytics.backend.facade.sql import EFFECTIVE_DESCRIPTION_SQL, EFFECTIVE_TOOL_SQL, NEW_SDK_SOURCE
+from products.mcp_analytics.backend.facade import api as mcp_analytics_api
 from products.mcp_registry.backend.constants import MEASURED_TEAM_LIMIT, MEASURED_TOOL_LIMIT, MEASURED_WINDOW_DAYS
 from products.mcp_registry.backend.linking import resolve_measured_server
 from products.mcp_registry.backend.models import MCPMeasuredStats, MCPRegistryServer, MCPRegistryTool
 
 logger = structlog.get_logger(__name__)
-
-# Only the deploy-configured database name is interpolated, never caller input.
-_DISCOVERY_SQL = """
-    SELECT DISTINCT team_id
-    FROM {database}.events
-    WHERE event = '$mcp_tool_call'
-        AND timestamp >= now() - INTERVAL %(window_days)s DAY
-        AND JSONExtractString(properties, '$mcp_source') = %(source)s
-    ORDER BY team_id
-    LIMIT %(limit)s
-"""
-
-_SERVER_STATS_SELECT = """
-    SELECT
-        toString(properties.$mcp_server_name) AS server_name,
-        count() AS calls,
-        uniq(toString(properties.$mcp_session_id)) AS sessions,
-        countIf(toString(properties.$mcp_is_error) IN ('true', '1')) AS errors,
-        countIf(notEmpty(toString(properties.$mcp_intent))) AS calls_with_intent,
-        uniq({effective_tool}) AS distinct_tools,
-        uniq(toString(properties.$mcp_client_name)) AS client_names
-    FROM events
-    WHERE event = '$mcp_tool_call'
-        AND timestamp >= {date_from}
-        AND properties.$mcp_source = {source}
-        AND notEmpty(toString(properties.$mcp_server_name))
-    GROUP BY server_name
-    ORDER BY calls DESC
-"""
-
-_TOOL_STATS_SELECT = """
-    SELECT
-        {effective_tool} AS tool_name,
-        any({effective_description}) AS description,
-        count() AS calls,
-        countIf(toString(properties.$mcp_is_error) IN ('true', '1')) AS errors
-    FROM events
-    WHERE event = '$mcp_tool_call'
-        AND timestamp >= {date_from}
-        AND properties.$mcp_source = {source}
-        AND toString(properties.$mcp_server_name) = {server_name}
-        AND notEmpty({effective_tool})
-    GROUP BY tool_name
-    ORDER BY calls DESC
-    LIMIT {tool_limit}
-"""
 
 
 def discover_measured_teams(window_days: int = MEASURED_WINDOW_DAYS, limit: int = MEASURED_TEAM_LIMIT) -> list[int]:
@@ -85,30 +38,21 @@ def discover_measured_teams(window_days: int = MEASURED_WINDOW_DAYS, limit: int 
     because the connection's default database is not the posthog database in every
     environment.
     """
-    sql = _DISCOVERY_SQL.format(database=settings.CLICKHOUSE_DATABASE)
+    sql = mcp_analytics_api.measured_discovery_sql(settings.CLICKHOUSE_DATABASE)
     rows = sync_execute(
         sql,
-        {"window_days": window_days, "source": NEW_SDK_SOURCE, "limit": limit},
+        {"window_days": window_days, "source": mcp_analytics_api.measured_source(), "limit": limit},
     )
     return [row[0] for row in rows or []]
-
-
-def _query_placeholders(date_from: datetime) -> dict[str, ast.Expr]:
-    return {
-        "effective_tool": parse_expr(EFFECTIVE_TOOL_SQL),
-        "effective_description": parse_expr(EFFECTIVE_DESCRIPTION_SQL),
-        "date_from": ast.Constant(value=date_from),
-        "source": ast.Constant(value=NEW_SDK_SOURCE),
-    }
 
 
 def aggregate_team(team: Team, window_days: int = MEASURED_WINDOW_DAYS) -> int:
     """Upsert measured stats + tool rows for every server seen in one team. Returns server count."""
     date_from = timezone.now() - timedelta(days=window_days)
-    placeholders = _query_placeholders(date_from)
+    placeholders = mcp_analytics_api.measured_query_placeholders(date_from)
     with tags_context(product=Product.MCP, feature=Feature.QUERY, team_id=team.id):
         stats_response = execute_hogql_query(
-            query=parse_select(_SERVER_STATS_SELECT, placeholders=placeholders),
+            query=parse_select(mcp_analytics_api.measured_server_stats_select(), placeholders=placeholders),
             team=team,
             query_type="mcp_registry_server_stats",
         )
@@ -118,19 +62,19 @@ def aggregate_team(team: Team, window_days: int = MEASURED_WINDOW_DAYS) -> int:
     for server_name, calls, sessions, errors, calls_with_intent, distinct_tools, client_names in (
         stats_response.results or []
     ):
-        tool_placeholders = {**_query_placeholders(date_from)}
+        tool_placeholders = {**mcp_analytics_api.measured_query_placeholders(date_from)}
         tool_placeholders["server_name"] = ast.Constant(value=server_name)
         tool_placeholders["tool_limit"] = ast.Constant(value=MEASURED_TOOL_LIMIT)
         with tags_context(product=Product.MCP, feature=Feature.QUERY, team_id=team.id):
             tools_response = execute_hogql_query(
-                query=parse_select(_TOOL_STATS_SELECT, placeholders=tool_placeholders),
+                query=parse_select(mcp_analytics_api.measured_tool_stats_select(), placeholders=tool_placeholders),
                 team=team,
                 query_type="mcp_registry_tool_stats",
             )
         tool_rows = tools_response.results or []
 
         resolution = resolve_measured_server(server_name)
-        MCPMeasuredStats.objects.update_or_create(
+        MCPMeasuredStats.objects.for_team(team.id).update_or_create(
             team_id=team.id,
             server_name=server_name,
             defaults={

@@ -23,6 +23,7 @@ export const MCPRegistryServerListApi = zod.object({
     is_measured: zod.boolean().describe('Whether real usage signal exists via MCP Analytics.'),
     rank_score: zod
         .number()
+        .nullable()
         .describe('Static score under the requested ranking version; null when the version has no completed run.'),
 })
 
@@ -48,6 +49,7 @@ export const PaginatedMCPRegistryServerListListApi = zod.object({
             is_measured: zod.boolean().describe('Whether real usage signal exists via MCP Analytics.'),
             rank_score: zod
                 .number()
+                .nullable()
                 .describe(
                     'Static score under the requested ranking version; null when the version has no completed run.'
                 ),
@@ -57,85 +59,6 @@ export const PaginatedMCPRegistryServerListListApi = zod.object({
 
 export type PaginatedMCPRegistryServerListListApi = zod.input<typeof PaginatedMCPRegistryServerListListApi>
 export type PaginatedMCPRegistryServerListListApiOutput = zod.output<typeof PaginatedMCPRegistryServerListListApi>
-
-export const MCPRegistryToolSourceEnumApi = zod
-    .enum(['tools_list', 'analytics'])
-    .describe('\* `tools_list` - Probed tools\/list\n\* `analytics` - MCP Analytics usage')
-
-export type MCPRegistryToolSourceEnumApi = zod.input<typeof MCPRegistryToolSourceEnumApi>
-export type MCPRegistryToolSourceEnumApiOutput = zod.output<typeof MCPRegistryToolSourceEnumApi>
-
-export const MCPRegistryToolApi = zod.object({
-    name: zod.string().describe('Tool name as advertised by the server (exec-resolved for measured servers).'),
-    description: zod.string().describe('Tool description, from tools\/list or from observed calls.'),
-    input_schema: zod
-        .record(zod.string(), zod.unknown())
-        .describe("JSON Schema for the tool's input. Only populated for probed (tools_list) tools."),
-    source: zod
-        .enum(['tools_list', 'analytics'])
-        .describe('\* `tools_list` - Probed tools\/list\n\* `analytics` - MCP Analytics usage')
-        .describe(
-            'Where we learned about this tool: a probed tools\/list (authoritative schema) or MCP Analytics usage (proof of real calls, no schema).\n\n\* `tools_list` - Probed tools\/list\n\* `analytics` - MCP Analytics usage'
-        ),
-    last_seen_at: zod.iso.datetime({ offset: true }).describe('Last time this tool was observed by either source.'),
-})
-
-export type MCPRegistryToolApi = zod.input<typeof MCPRegistryToolApi>
-export type MCPRegistryToolApiOutput = zod.output<typeof MCPRegistryToolApi>
-
-export const mCPMeasuredStatsApiErrorsMin = -2147483648
-export const mCPMeasuredStatsApiErrorsMax = 2147483647
-
-export const MCPMeasuredStatsApi = zod.object({
-    window_days: zod.number().describe('Aggregation window in days.'),
-    calls: zod.number().describe('Tool calls observed in the window.'),
-    sessions: zod.number().describe('Distinct MCP sessions observed in the window.'),
-    errors: zod
-        .number()
-        .min(mCPMeasuredStatsApiErrorsMin)
-        .max(mCPMeasuredStatsApiErrorsMax)
-        .optional()
-        .describe('Errored tool calls in the window.'),
-    error_rate_pct: zod.number().describe('Errors as a percentage of calls.'),
-    intent_coverage_pct: zod.number().describe('Percentage of calls carrying an agent-written intent ($mcp_intent).'),
-    distinct_tools: zod.number().describe('Distinct effective tools called in the window.'),
-    harness_count: zod.number().describe('Distinct MCP client names observed in the window.'),
-    tool_stats: zod
-        .array(zod.looseObject({}))
-        .describe('Per-tool usage, ordered by call volume: [{name, calls, errors, error_rate_pct}].'),
-    link_method: zod
-        .string()
-        .describe(
-            'How this measured source was attached to its registry entry (override | url | exact_name | standalone).'
-        ),
-    link_candidates: zod
-        .array(zod.looseObject({}))
-        .describe('Registry names that also matched when linking was ambiguous (kept for review).'),
-    computed_at: zod.iso.datetime({ offset: true }).describe('When this aggregate was computed.'),
-})
-
-export type MCPMeasuredStatsApi = zod.input<typeof MCPMeasuredStatsApi>
-export type MCPMeasuredStatsApiOutput = zod.output<typeof MCPMeasuredStatsApi>
-
-export const MCPRankingScoreInfoApi = zod
-    .object({
-        version: zod.string().describe('Ranking version key (see the versions endpoint).'),
-        score: zod.number().describe('Static score in [0, 1]; higher ranks first.'),
-        components: zod
-            .record(zod.string(), zod.unknown())
-            .describe('Score inputs (liveness, trust, measured signals) for explainability.'),
-        computed_at: zod.iso
-            .datetime({ offset: true })
-            .nullable()
-            .describe('When the run producing this score completed.'),
-    })
-    .describe("One ranking version's latest score for a server.")
-
-export type MCPRankingScoreInfoApi = zod.input<typeof MCPRankingScoreInfoApi>
-export type MCPRankingScoreInfoApiOutput = zod.output<typeof MCPRankingScoreInfoApi>
-
-export const mCPRegistryServerDetailApiMeasuredStatsItemErrorsMin = -2147483648
-export const mCPRegistryServerDetailApiMeasuredStatsItemErrorsMax = 2147483647
 
 export const MCPRegistryServerDetailApi = zod.object({
     id: zod.uuid().describe('Registry server id.'),
@@ -151,87 +74,39 @@ export const MCPRegistryServerDetailApi = zod.object({
     is_measured: zod.boolean().describe('Whether real usage signal exists via MCP Analytics.'),
     rank_score: zod
         .number()
+        .nullable()
         .describe('Static score under the requested ranking version; null when the version has no completed run.'),
-    remotes: zod.array(zod.looseObject({})).describe('All hosted remotes: [{type, url}].'),
-    packages: zod.array(zod.looseObject({})).describe('Published packages: [{registry_type, identifier}].'),
+    remotes: zod
+        .array(
+            zod.object({
+                type: zod.string().optional(),
+                url: zod.string().optional(),
+            })
+        )
+        .describe('All hosted remotes: [{type, url}].'),
+    packages: zod
+        .array(
+            zod.object({
+                registry_type: zod.string().optional(),
+                identifier: zod.string().optional(),
+            })
+        )
+        .describe('Published packages: [{registry_type, identifier}].'),
     repository_url: zod.string().describe('Source repository URL, when published.'),
     website_url: zod.string().describe('Vendor website URL, when published.'),
     last_probed_at: zod.iso.datetime({ offset: true }).nullable().describe('When the shallow probe last ran.'),
     tools: zod
-        .array(
-            zod.object({
-                name: zod
-                    .string()
-                    .describe('Tool name as advertised by the server (exec-resolved for measured servers).'),
-                description: zod.string().describe('Tool description, from tools\/list or from observed calls.'),
-                input_schema: zod
-                    .record(zod.string(), zod.unknown())
-                    .describe("JSON Schema for the tool's input. Only populated for probed (tools_list) tools."),
-                source: zod
-                    .enum(['tools_list', 'analytics'])
-                    .describe('\* `tools_list` - Probed tools\/list\n\* `analytics` - MCP Analytics usage')
-                    .describe(
-                        'Where we learned about this tool: a probed tools\/list (authoritative schema) or MCP Analytics usage (proof of real calls, no schema).\n\n\* `tools_list` - Probed tools\/list\n\* `analytics` - MCP Analytics usage'
-                    ),
-                last_seen_at: zod.iso
-                    .datetime({ offset: true })
-                    .describe('Last time this tool was observed by either source.'),
-            })
-        )
+        .array(zod.record(zod.string(), zod.unknown()))
         .describe(
             "Known tools, fused from probes and analytics. A tool known only from another project's traffic is limited to callers who may see that project's measurements."
         ),
     measured_stats: zod
-        .array(
-            zod.object({
-                window_days: zod.number().describe('Aggregation window in days.'),
-                calls: zod.number().describe('Tool calls observed in the window.'),
-                sessions: zod.number().describe('Distinct MCP sessions observed in the window.'),
-                errors: zod
-                    .number()
-                    .min(mCPRegistryServerDetailApiMeasuredStatsItemErrorsMin)
-                    .max(mCPRegistryServerDetailApiMeasuredStatsItemErrorsMax)
-                    .optional()
-                    .describe('Errored tool calls in the window.'),
-                error_rate_pct: zod.number().describe('Errors as a percentage of calls.'),
-                intent_coverage_pct: zod
-                    .number()
-                    .describe('Percentage of calls carrying an agent-written intent ($mcp_intent).'),
-                distinct_tools: zod.number().describe('Distinct effective tools called in the window.'),
-                harness_count: zod.number().describe('Distinct MCP client names observed in the window.'),
-                tool_stats: zod
-                    .array(zod.looseObject({}))
-                    .describe('Per-tool usage, ordered by call volume: [{name, calls, errors, error_rate_pct}].'),
-                link_method: zod
-                    .string()
-                    .describe(
-                        'How this measured source was attached to its registry entry (override | url | exact_name | standalone).'
-                    ),
-                link_candidates: zod
-                    .array(zod.looseObject({}))
-                    .describe('Registry names that also matched when linking was ambiguous (kept for review).'),
-                computed_at: zod.iso.datetime({ offset: true }).describe('When this aggregate was computed.'),
-            })
-        )
+        .array(zod.record(zod.string(), zod.unknown()))
         .describe(
             "Behavioral aggregates, one per measured MCP Analytics project. Limited to this project's own measurements unless the server is marked measured_public."
         ),
     scores: zod
-        .array(
-            zod
-                .object({
-                    version: zod.string().describe('Ranking version key (see the versions endpoint).'),
-                    score: zod.number().describe('Static score in [0, 1]; higher ranks first.'),
-                    components: zod
-                        .record(zod.string(), zod.unknown())
-                        .describe('Score inputs (liveness, trust, measured signals) for explainability.'),
-                    computed_at: zod.iso
-                        .datetime({ offset: true })
-                        .nullable()
-                        .describe('When the run producing this score completed.'),
-                })
-                .describe("One ranking version's latest score for a server.")
-        )
+        .array(zod.record(zod.string(), zod.unknown()))
         .describe('Latest score under every ranking version with a completed run.'),
     connect: zod
         .record(zod.string(), zod.unknown())
@@ -265,7 +140,13 @@ export const MCPDiscoverCandidateApi = zod
                 'Real MCP Analytics aggregates when the server is measured, otherwise null: calls, sessions, error_rate_pct, intent_coverage_pct, harness_count.'
             ),
         matched_tools: zod
-            .array(zod.looseObject({}))
+            .array(
+                zod.object({
+                    name: zod.string().optional(),
+                    description: zod.string().optional(),
+                    source: zod.string().optional(),
+                })
+            )
             .describe(
                 'Tools that matched the intent: [{name, description, source}]. Empty when only the server description matched.'
             ),
@@ -310,7 +191,13 @@ export const MCPDiscoverResponseApi = zod
                                 'Real MCP Analytics aggregates when the server is measured, otherwise null: calls, sessions, error_rate_pct, intent_coverage_pct, harness_count.'
                             ),
                         matched_tools: zod
-                            .array(zod.looseObject({}))
+                            .array(
+                                zod.object({
+                                    name: zod.string().optional(),
+                                    description: zod.string().optional(),
+                                    source: zod.string().optional(),
+                                })
+                            )
                             .describe(
                                 'Tools that matched the intent: [{name, description, source}]. Empty when only the server description matched.'
                             ),
@@ -340,15 +227,34 @@ export const MCPMeasuredProjectApi = zod
 export type MCPMeasuredProjectApi = zod.input<typeof MCPMeasuredProjectApi>
 export type MCPMeasuredProjectApiOutput = zod.output<typeof MCPMeasuredProjectApi>
 
+export const MCPRankingRunApi = zod
+    .object({
+        id: zod.uuid().describe('Run id.'),
+        server_count: zod.number().describe('Servers scored in the run.'),
+        computed_at: zod.iso.datetime({ offset: true }).nullable().describe('When the run completed.'),
+    })
+    .describe('A completed ranking run.')
+
+export type MCPRankingRunApi = zod.input<typeof MCPRankingRunApi>
+export type MCPRankingRunApiOutput = zod.output<typeof MCPRankingRunApi>
+
 export const MCPRankingVersionApi = zod
     .object({
         version: zod.string().describe('Ranking version key, passed as ?version= to the list endpoint.'),
         description: zod.string().describe('What this version scores on.'),
         is_default: zod.boolean().describe('Whether this is the version used when ?version= is omitted.'),
         latest_run: zod
-            .record(zod.string(), zod.unknown())
-            .nullable()
-            .describe('Latest completed run: {id, server_count, computed_at}; null when the version never ran.'),
+            .union([
+                zod
+                    .object({
+                        id: zod.uuid().describe('Run id.'),
+                        server_count: zod.number().describe('Servers scored in the run.'),
+                        computed_at: zod.iso.datetime({ offset: true }).nullable().describe('When the run completed.'),
+                    })
+                    .describe('A completed ranking run.'),
+                zod.null(),
+            ])
+            .describe('Latest completed run; null when the version never ran.'),
     })
     .describe('A registered ranking version and its latest completed run.')
 

@@ -12,7 +12,7 @@ from products.mcp_registry.backend.ranking import compute_ranking_run, latest_co
 
 def _measured_server(error_rate_pct: float = 5.0, calls: int = 50_000) -> MCPRegistryServer:
     server = MCPRegistryServer.objects.create(display_name="Measured", is_measured=True)
-    MCPMeasuredStats.objects.create(
+    MCPMeasuredStats.objects.unscoped().create(
         server=server,
         team_id=1,
         server_name="Measured",
@@ -45,7 +45,7 @@ class TestRanking(BaseTest):
     def test_higher_error_rate_lowers_measured_trust(self) -> None:
         reliable = _measured_server(error_rate_pct=2.0)
         unreliable_server = MCPRegistryServer.objects.create(display_name="Flaky", is_measured=True)
-        MCPMeasuredStats.objects.create(
+        MCPMeasuredStats.objects.unscoped().create(
             server=unreliable_server,
             team_id=2,
             server_name="Flaky",
@@ -65,7 +65,7 @@ class TestRanking(BaseTest):
         # Aggregation only upserts servers seen in the window, so a server that stopped
         # being called keeps its last row. It must not keep the trust that row earned.
         server = _measured_server()
-        MCPMeasuredStats.objects.filter(server=server).update(
+        MCPMeasuredStats.objects.unscoped().filter(server=server).update(
             computed_at=timezone.now() - timedelta(days=MEASURED_STALE_AFTER_DAYS + 1)
         )
 

@@ -42,7 +42,7 @@ class TestAggregation(ClickhouseTestMixin, BaseTest):
         processed = aggregate_team(self.team)
 
         assert processed == 1
-        stats = MCPMeasuredStats.objects.get(team_id=self.team.id, server_name="PostHog")
+        stats = MCPMeasuredStats.objects.unscoped().get(team_id=self.team.id, server_name="PostHog")
         assert stats.server == official
         assert stats.link_method == "override"
         assert (stats.calls, stats.sessions, stats.errors) == (3, 2, 1)

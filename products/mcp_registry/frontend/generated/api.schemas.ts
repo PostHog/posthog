@@ -26,8 +26,11 @@ export interface MCPRegistryServerListApi {
     listed_in_registry: boolean
     /** Whether real usage signal exists via MCP Analytics. */
     is_measured: boolean
-    /** Static score under the requested ranking version; null when the version has no completed run. */
-    readonly rank_score: number
+    /**
+     * Static score under the requested ranking version; null when the version has no completed run.
+     * @nullable
+     */
+    rank_score: number | null
 }
 
 export interface PaginatedMCPRegistryServerListListApi {
@@ -39,104 +42,26 @@ export interface PaginatedMCPRegistryServerListListApi {
     results: MCPRegistryServerListApi[]
 }
 
-export type MCPRegistryServerDetailApiRemotesItem = { [key: string]: unknown }
+export type MCPRegistryServerDetailApiRemotesItem = {
+    type?: string
+    url?: string
+}
 
-export type MCPRegistryServerDetailApiPackagesItem = { [key: string]: unknown }
+export type MCPRegistryServerDetailApiPackagesItem = {
+    registry_type?: string
+    identifier?: string
+}
+
+export type MCPRegistryServerDetailApiToolsItem = { [key: string]: unknown }
+
+export type MCPRegistryServerDetailApiMeasuredStatsItem = { [key: string]: unknown }
+
+export type MCPRegistryServerDetailApiScoresItem = { [key: string]: unknown }
 
 /**
  * Connection instructions: methods ordered most-automated first, steps typed by actor (agent executes; human steps are narrated to the user).
  */
 export type MCPRegistryServerDetailApiConnect = { [key: string]: unknown }
-
-/**
- * * `tools_list` - Probed tools/list
- * * `analytics` - MCP Analytics usage
- */
-export type MCPRegistryToolSourceEnumApi =
-    (typeof MCPRegistryToolSourceEnumApi)[keyof typeof MCPRegistryToolSourceEnumApi]
-
-export const MCPRegistryToolSourceEnumApi = {
-    ToolsList: 'tools_list',
-    Analytics: 'analytics',
-} as const
-
-/**
- * JSON Schema for the tool's input. Only populated for probed (tools_list) tools.
- */
-export type MCPRegistryToolApiInputSchema = { [key: string]: unknown }
-
-export interface MCPRegistryToolApi {
-    /** Tool name as advertised by the server (exec-resolved for measured servers). */
-    name: string
-    /** Tool description, from tools/list or from observed calls. */
-    description: string
-    /** JSON Schema for the tool's input. Only populated for probed (tools_list) tools. */
-    input_schema: MCPRegistryToolApiInputSchema
-    /** Where we learned about this tool: a probed tools/list (authoritative schema) or MCP Analytics usage (proof of real calls, no schema).
-     *
-     * * `tools_list` - Probed tools/list
-     * * `analytics` - MCP Analytics usage */
-    source: MCPRegistryToolSourceEnumApi
-    /** Last time this tool was observed by either source. */
-    last_seen_at: string
-}
-
-export type MCPMeasuredStatsApiToolStatsItem = { [key: string]: unknown }
-
-export type MCPMeasuredStatsApiLinkCandidatesItem = { [key: string]: unknown }
-
-export interface MCPMeasuredStatsApi {
-    /** Aggregation window in days. */
-    window_days: number
-    /** Tool calls observed in the window. */
-    calls: number
-    /** Distinct MCP sessions observed in the window. */
-    sessions: number
-    /**
-     * Errored tool calls in the window.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    errors?: number
-    /** Errors as a percentage of calls. */
-    error_rate_pct: number
-    /** Percentage of calls carrying an agent-written intent ($mcp_intent). */
-    intent_coverage_pct: number
-    /** Distinct effective tools called in the window. */
-    distinct_tools: number
-    /** Distinct MCP client names observed in the window. */
-    harness_count: number
-    /** Per-tool usage, ordered by call volume: [{name, calls, errors, error_rate_pct}]. */
-    tool_stats: MCPMeasuredStatsApiToolStatsItem[]
-    /** How this measured source was attached to its registry entry (override | url | exact_name | standalone). */
-    link_method: string
-    /** Registry names that also matched when linking was ambiguous (kept for review). */
-    link_candidates: MCPMeasuredStatsApiLinkCandidatesItem[]
-    /** When this aggregate was computed. */
-    computed_at: string
-}
-
-/**
- * Score inputs (liveness, trust, measured signals) for explainability.
- */
-export type MCPRankingScoreInfoApiComponents = { [key: string]: unknown }
-
-/**
- * One ranking version's latest score for a server.
- */
-export interface MCPRankingScoreInfoApi {
-    /** Ranking version key (see the versions endpoint). */
-    version: string
-    /** Static score in [0, 1]; higher ranks first. */
-    score: number
-    /** Score inputs (liveness, trust, measured signals) for explainability. */
-    components: MCPRankingScoreInfoApiComponents
-    /**
-     * When the run producing this score completed.
-     * @nullable
-     */
-    computed_at: string | null
-}
 
 export interface MCPRegistryServerDetailApi {
     /** Registry server id. */
@@ -157,8 +82,11 @@ export interface MCPRegistryServerDetailApi {
     listed_in_registry: boolean
     /** Whether real usage signal exists via MCP Analytics. */
     is_measured: boolean
-    /** Static score under the requested ranking version; null when the version has no completed run. */
-    readonly rank_score: number
+    /**
+     * Static score under the requested ranking version; null when the version has no completed run.
+     * @nullable
+     */
+    rank_score: number | null
     /** All hosted remotes: [{type, url}]. */
     remotes: MCPRegistryServerDetailApiRemotesItem[]
     /** Published packages: [{registry_type, identifier}]. */
@@ -173,13 +101,13 @@ export interface MCPRegistryServerDetailApi {
      */
     last_probed_at: string | null
     /** Known tools, fused from probes and analytics. A tool known only from another project's traffic is limited to callers who may see that project's measurements. */
-    readonly tools: readonly MCPRegistryToolApi[]
+    tools: MCPRegistryServerDetailApiToolsItem[]
     /** Behavioral aggregates, one per measured MCP Analytics project. Limited to this project's own measurements unless the server is marked measured_public. */
-    readonly measured_stats: readonly MCPMeasuredStatsApi[]
+    measured_stats: MCPRegistryServerDetailApiMeasuredStatsItem[]
     /** Latest score under every ranking version with a completed run. */
-    readonly scores: readonly MCPRankingScoreInfoApi[]
+    scores: MCPRegistryServerDetailApiScoresItem[]
     /** Connection instructions: methods ordered most-automated first, steps typed by actor (agent executes; human steps are narrated to the user). */
-    readonly connect: MCPRegistryServerDetailApiConnect
+    connect: MCPRegistryServerDetailApiConnect
 }
 
 /**
@@ -193,7 +121,11 @@ export type MCPDiscoverCandidateApiWhy = { [key: string]: unknown }
  */
 export type MCPDiscoverCandidateApiMeasured = { [key: string]: unknown } | null
 
-export type MCPDiscoverCandidateApiMatchedToolsItem = { [key: string]: unknown }
+export type MCPDiscoverCandidateApiMatchedToolsItem = {
+    name?: string
+    description?: string
+    source?: string
+}
 
 /**
  * Connection instructions, most-automated method first, steps typed by actor so the agent runs its own steps and narrates the human ones.
@@ -258,10 +190,19 @@ export interface MCPMeasuredProjectApi {
 }
 
 /**
- * Latest completed run: {id, server_count, computed_at}; null when the version never ran.
- * @nullable
+ * A completed ranking run.
  */
-export type MCPRankingVersionApiLatestRun = { [key: string]: unknown } | null
+export interface MCPRankingRunApi {
+    /** Run id. */
+    id: string
+    /** Servers scored in the run. */
+    server_count: number
+    /**
+     * When the run completed.
+     * @nullable
+     */
+    computed_at: string | null
+}
 
 /**
  * A registered ranking version and its latest completed run.
@@ -273,11 +214,8 @@ export interface MCPRankingVersionApi {
     description: string
     /** Whether this is the version used when ?version= is omitted. */
     is_default: boolean
-    /**
-     * Latest completed run: {id, server_count, computed_at}; null when the version never ran.
-     * @nullable
-     */
-    latest_run: MCPRankingVersionApiLatestRun
+    /** Latest completed run; null when the version never ran. */
+    latest_run: MCPRankingRunApi | null
 }
 
 export type McpRegistryServersListParams = {

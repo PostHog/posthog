@@ -34,7 +34,7 @@ class TestMCPRegistryAPI(APIBaseTest):
             auth_method="oauth",
             canonical_url="https://mcp.example.com/mcp",
         )
-        MCPMeasuredStats.objects.create(
+        MCPMeasuredStats.objects.unscoped().create(
             server=measured,
             team_id=self.team.id,
             server_name="PostHog",
@@ -203,7 +203,7 @@ class TestMCPRegistryAPI(APIBaseTest):
         assert payload["candidates"][0]["id"] == str(official.id)
 
     def _seed_another_projects_stats(self, server: MCPRegistryServer) -> None:
-        MCPMeasuredStats.objects.create(
+        MCPMeasuredStats.objects.unscoped().create(
             server=server,
             team_id=self.team.id + 1,
             server_name="PostHog",
@@ -260,7 +260,7 @@ class TestMCPRegistryAPI(APIBaseTest):
         assert [row["calls"] for row in rows] == [999_999, 50_000]
 
     def _reassign_measurements_to_another_project(self, server: MCPRegistryServer) -> None:
-        MCPMeasuredStats.objects.filter(server=server).update(team_id=self.team.id + 1)
+        MCPMeasuredStats.objects.unscoped().filter(server=server).update(team_id=self.team.id + 1)
         compute_ranking_run("v2_measured_trust")
 
     def _v2_components(self, detail: dict[str, Any]) -> dict[str, Any]:
@@ -330,7 +330,7 @@ class TestMCPRegistryAPI(APIBaseTest):
             listed_in_registry=False,
             is_measured=True,
         )
-        MCPMeasuredStats.objects.create(
+        MCPMeasuredStats.objects.unscoped().create(
             server=theirs,
             team_id=self.team.id + 1,
             server_name="Their Internal Tools",

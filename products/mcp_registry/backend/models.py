@@ -1,6 +1,7 @@
 from django.db import models
 from django.db.models import Q
 
+from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.utils import UUIDModel
 
 # Liveness as classified by the shallow probe. `package_only` and `unprobed` are
@@ -145,7 +146,19 @@ class MCPMeasuredStats(UUIDModel):
     Keyed on (team_id, server_name): the same advertised server name can appear in
     more than one customer project, and each is its own signal source. `team_id` is a
     raw int on purpose, because this is a global table and must not FK the hot team table.
+
+    `objects` is the fail-closed TeamScopedManager: a bare `.objects` query without team
+    context raises rather than leaking another project's measurements, so the IDOR
+    coverage check needs no exemption for this model. Reads that intentionally span the
+    fleet (the staff rollup, ranking) opt out with `.unscoped()`; reads for one project's
+    own measurements go through `.for_team(...)` or the request's ambient team scope.
     """
+
+    objects = TeamScopedManager()  # type: ignore[assignment]
+    # Django framework internals (related-object access, prefetch_related, admin) use
+    # `_default_manager` and expect an unfiltered manager; pointing that at `all_teams`
+    # keeps `server.measured_stats.all()` working while `.objects` stays fail-closed.
+    all_teams = models.Manager()  # noqa: DJ012
 
     server = models.ForeignKey(MCPRegistryServer, on_delete=models.CASCADE, related_name="measured_stats")
     team_id = models.IntegerField()
@@ -173,6 +186,10 @@ class MCPMeasuredStats(UUIDModel):
     class Meta:
         db_table = "mcp_registry_measured_stats"
         verbose_name_plural = "MCP measured stats"
+        # Related-object access (server.measured_stats.all(), prefetch_related) resolves
+        # through `_default_manager`; point it at the unscoped sibling so those reads keep
+        # working without team context while `.objects` stays fail-closed.
+        default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team_id", "server_name"], name="unique_measured_source"),
         ]
