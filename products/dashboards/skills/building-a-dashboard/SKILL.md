@@ -55,13 +55,13 @@ Prefer reusing existing insights over recreating them.
   tiles — insights you omit are removed, so include the ones you want to keep.
 - Layout: `posthog:dashboard-reorder-tiles` supports `preserve` (the default), `two_column`, `three_column`, and
   `full_width`. Only reflow when the user explicitly asks to rearrange, reorder, or move tiles. Use `three_column` only
-  when the user specifically asks for a three-column or equal-thirds row, and pass every active dashboard tile ID. It
-  keeps text and image separators full-width at their saved heights (or rendered height 2 when layoutless), then packs
-  each contiguous run of other tiles three per row.
+  when the user specifically asks for a three-column or equal-thirds row, and pass every tile ID returned by
+  `dashboard-get`. It keeps text and image separators full-width at their saved heights (or rendered height 2 when
+  layoutless), then packs each contiguous run of other tiles three per row.
 - After every layout change, call `posthog:dashboard-get` and verify the tile IDs match the requested order.
 - After `three_column`, do not claim the requested order or row layout until all of these checks pass:
-  - Each complete insight row has a shared `y`; every tile has `w = 4` and `h = 5`; and the `x` values are exactly
-    `0`, `4`, and `8`, in order.
+  - For every packed non-text row, including a partial final row, each present insight, button, or widget tile has a
+    shared `y`, `w = 4`, and `h = 5`; its `x` values follow the prefix of `0`, `4`, and `8`, in order.
   - Each separator has `layouts.sm.x = 0`, `w = 12`, and its preserved saved or effective height.
   - Every `layouts.xs` tile has `x = 0`, `w = 1`, and `y` equal to the previous tile's `y + h`, so the mobile stack
     cannot overlap.

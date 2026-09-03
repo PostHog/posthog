@@ -4290,7 +4290,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(tile1.layouts["xs"]["w"], 1)
         self.assertEqual(tile2.layouts["xs"]["w"], 1)
 
-    def test_reorder_tiles_three_column_keeps_text_header_full_width(self) -> None:
+    def test_reorder_tiles_three_column_keeps_legacy_string_layout_text_header_full_width(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
         header = Text.objects.create(body="# Website health", team=self.team)
         header_tile = DashboardTile.objects.create(
@@ -4385,10 +4385,78 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             response.json(),
             {
                 "detail": (
-                    "three_column layout requires tile_order to include every active dashboard tile ID. "
+                    "three_column layout requires tile_order to include every visible dashboard tile ID. "
                     f"Missing tile IDs: [{tile2.pk}]"
                 )
             },
+        )
+
+    def test_reorder_tiles_three_column_requires_every_visible_tile_but_ignores_deleted_insight_tiles(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        visible_insight = Insight.objects.create(team=self.team, name="Visible insight")
+        deleted_insight = Insight.objects.create(team=self.team, name="Deleted insight")
+        visible_tile = DashboardTile.objects.create(dashboard=dashboard, insight=visible_insight)
+        DashboardTile.objects.create(dashboard=dashboard, insight=deleted_insight)
+        Insight.objects.filter(pk=deleted_insight.pk).update(deleted=True)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
+            {
+                "tile_order": [visible_tile.pk],
+                "layout": "three_column",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([tile["id"] for tile in response.json()["tiles"]], [visible_tile.pk])
+
+    def test_reorder_tiles_three_column_starts_new_rows_around_separator_after_partial_row(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        tiles = [
+            DashboardTile.objects.create(
+                dashboard=dashboard,
+                insight=Insight.objects.create(team=self.team, name=f"Insight {index}"),
+            )
+            for index in range(6)
+        ]
+        separator = DashboardTile.objects.create(
+            dashboard=dashboard,
+            text=Text.objects.create(body="## Next section", team=self.team),
+            layouts={"sm": {"x": 0, "y": 0, "w": 12, "h": 1}},
+        )
+        ordered_tiles = [*tiles[:2], separator, *tiles[2:]]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
+            {
+                "tile_order": [tile.pk for tile in ordered_tiles],
+                "layout": "three_column",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for tile in ordered_tiles:
+            tile.refresh_from_db()
+        self.assertEqual(tiles[0].layouts["sm"], {"x": 0, "y": 0, "w": 4, "h": 5})
+        self.assertEqual(tiles[1].layouts["sm"], {"x": 4, "y": 0, "w": 4, "h": 5})
+        self.assertEqual(separator.layouts["sm"], {"x": 0, "y": 5, "w": 12, "h": 1})
+        self.assertEqual(tiles[2].layouts["sm"], {"x": 0, "y": 6, "w": 4, "h": 5})
+        self.assertEqual(tiles[3].layouts["sm"], {"x": 4, "y": 6, "w": 4, "h": 5})
+        self.assertEqual(tiles[4].layouts["sm"], {"x": 8, "y": 6, "w": 4, "h": 5})
+        self.assertEqual(tiles[5].layouts["sm"], {"x": 0, "y": 11, "w": 4, "h": 5})
+        self.assertEqual(
+            [tile.layouts["xs"] for tile in ordered_tiles],
+            [
+                {"x": 0, "y": 0, "w": 1, "h": 5},
+                {"x": 0, "y": 5, "w": 1, "h": 5},
+                {"x": 0, "y": 10, "w": 1, "h": 1},
+                {"x": 0, "y": 11, "w": 1, "h": 5},
+                {"x": 0, "y": 16, "w": 1, "h": 5},
+                {"x": 0, "y": 21, "w": 1, "h": 5},
+                {"x": 0, "y": 26, "w": 1, "h": 5},
+            ],
         )
 
     def test_reorder_tiles_invalid_layout_returns_400(self):
