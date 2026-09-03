@@ -930,6 +930,9 @@ tools:
     signals-reports-feedback-create:
         operation: signals_reports_feedback_create
         enabled: false
+    signals-reports-pr-ci-statuses:
+        operation: signals_reports_pr_ci_statuses
+        enabled: false
     signals-reports-refund-create:
         operation: signals_reports_refund_create
         enabled: false
