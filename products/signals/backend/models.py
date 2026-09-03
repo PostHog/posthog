@@ -745,7 +745,16 @@ class SignalReport(UUIDModel):
             report_id=report_ref, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id__isnull=False
         ).values("task_id")
         legacy_task_ids = SignalReportTask.objects.filter(report_id=report_ref).values("task_id")
-        return models.Q(task_id__in=artefact_task_ids) | models.Q(task_id__in=legacy_task_ids)
+        assignment_task_ids = SignalReportAssignment.all_teams.filter(
+            report_id=report_ref,
+            actor_kind=SignalActorKind.TASK,
+            actor_task_id__isnull=False,
+        ).values("actor_task_id")
+        return (
+            models.Q(task_id__in=artefact_task_ids)
+            | models.Q(task_id__in=legacy_task_ids)
+            | models.Q(task_id__in=assignment_task_ids)
+        )
 
     @staticmethod
     def reports_for_task_filter(task_id: Any) -> "models.Q":
@@ -761,7 +770,15 @@ class SignalReport(UUIDModel):
             type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id=task_id
         ).values("report_id")
         legacy_report_ids = SignalReportTask.objects.filter(task_id=task_id).values("report_id")
-        return models.Q(id__in=artefact_report_ids) | models.Q(id__in=legacy_report_ids)
+        assignment_report_ids = SignalReportAssignment.all_teams.filter(
+            actor_kind=SignalActorKind.TASK,
+            actor_task_id=task_id,
+        ).values("report_id")
+        return (
+            models.Q(id__in=artefact_report_ids)
+            | models.Q(id__in=legacy_report_ids)
+            | models.Q(id__in=assignment_report_ids)
+        )
 
     @staticmethod
     def reports_for_task_ids_filter(task_ids: Any, *, team_id: int | None = None) -> "models.Q":
@@ -783,10 +800,19 @@ class SignalReport(UUIDModel):
             type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id__in=task_ids
         )
         legacy_rows = SignalReportTask.objects.filter(task_id__in=task_ids)
+        assignment_rows = SignalReportAssignment.all_teams.filter(
+            actor_kind=SignalActorKind.TASK,
+            actor_task_id__in=task_ids,
+        )
         if team_id is not None:
             artefact_rows = artefact_rows.filter(team_id=team_id)
             legacy_rows = legacy_rows.filter(team_id=team_id)
-        return models.Q(id__in=artefact_rows.values("report_id")) | models.Q(id__in=legacy_rows.values("report_id"))
+            assignment_rows = assignment_rows.filter(team_id=team_id)
+        return (
+            models.Q(id__in=artefact_rows.values("report_id"))
+            | models.Q(id__in=legacy_rows.values("report_id"))
+            | models.Q(id__in=assignment_rows.values("report_id"))
+        )
 
 
 class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):

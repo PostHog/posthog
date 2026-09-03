@@ -127,6 +127,18 @@ def _clear_actor(assignment: SignalReportAssignment) -> None:
     assignment.claimed_at = None
 
 
+def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> SignalReportAssignment:
+    """Record an internal task as the current owner without going through the public claim API."""
+    with transaction.atomic():
+        report = SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
+        assignment = SignalReportAssignment.all_teams.select_for_update().filter(report_id=report.id).first()
+        if assignment is None:
+            assignment = SignalReportAssignment(team_id=team_id, report_id=report.id)
+        _set_actor(assignment, ArtefactAttribution.from_task(task_id))
+        assignment.save()
+        return assignment
+
+
 def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
     parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
     if parsed is None:
@@ -194,6 +206,92 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
         state=pr_state,
         merged=merged,
     )
+
+
+def sync_task_pull_request_to_assignments(
+    *,
+    team_id: int,
+    task_id: str,
+    pr_url: str,
+    pr_state: str | None = None,
+    pr_merged: bool = False,
+) -> int:
+    """Copy a task-run PR onto reports still owned by that task, or without an explicit PR."""
+    parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
+    if parsed is None or not 0 < parsed.number <= MAX_PR_NUMBER:
+        return 0
+    repository = parsed.repository.lower()
+    if len(repository) > MAX_REPOSITORY_LENGTH:
+        return 0
+
+    state = pr_state if pr_state in SignalReportAssignment.PrState.values else SignalReportAssignment.PrState.UNKNOWN
+    merged = pr_merged or state == SignalReportAssignment.PrState.MERGED
+    if merged:
+        state = SignalReportAssignment.PrState.MERGED
+
+    report_ids = list(
+        SignalReport.objects.filter(team_id=team_id)
+        .filter(SignalReport.reports_for_task_filter(task_id))
+        .values_list("id", flat=True)
+    )
+    if not report_ids:
+        return 0
+
+    updated = 0
+    with transaction.atomic():
+        reports = {
+            report.id: report
+            for report in SignalReport.objects.select_for_update().filter(team_id=team_id, id__in=report_ids)
+        }
+        assignments = {
+            assignment.report_id: assignment
+            for assignment in SignalReportAssignment.all_teams.select_for_update().filter(
+                team_id=team_id,
+                report_id__in=report_ids,
+            )
+        }
+        for report_id, report in reports.items():
+            assignment = assignments.get(report_id)
+            assignment_state = state
+            assignment_merged = merged
+            actor_changed = False
+            if assignment is None:
+                assignment = SignalReportAssignment(team_id=team_id, report_id=report_id)
+                _set_actor(assignment, ArtefactAttribution.from_task(task_id))
+                actor_changed = True
+            elif assignment.pr_url and not (
+                assignment.actor_kind == "task" and str(assignment.actor_task_id) == str(task_id)
+            ):
+                continue
+            elif assignment.actor_kind is None:
+                _set_actor(assignment, ArtefactAttribution.from_task(task_id))
+                actor_changed = True
+
+            if assignment.pr_url == pr_url and pr_state is None and not pr_merged:
+                assignment_state = assignment.pr_state or SignalReportAssignment.PrState.UNKNOWN
+                assignment_merged = assignment.pr_merged
+
+            changed = (
+                assignment.pr_url != pr_url
+                or assignment.repository != repository
+                or assignment.pr_number != parsed.number
+                or assignment.pr_state != assignment_state
+                or assignment.pr_merged != assignment_merged
+                or actor_changed
+                or assignment._state.adding
+            )
+            if not changed:
+                continue
+
+            assignment.pr_url = pr_url
+            assignment.repository = repository
+            assignment.pr_number = parsed.number
+            assignment.pr_state = assignment_state
+            assignment.pr_merged = assignment_merged
+            assignment.save()
+            _apply_pr_report_state(report, assignment_state)
+            updated += 1
+    return updated
 
 
 def _apply_pr_report_state(report: SignalReport, pr_state: str | None) -> None:

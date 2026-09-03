@@ -714,7 +714,7 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.json()["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
         assert response.json()["implementation_pr_state"] == SignalReportAssignment.PrState.OPEN
 
-    def test_task_run_pr_is_not_used_as_the_report_pr(self):
+    def test_task_run_pr_is_used_as_fallback_when_assignment_has_no_pr(self):
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
         report = self._create_report()
@@ -724,23 +724,29 @@ class TestSignalReportListAPI(APIBaseTest):
             description="Fix the bug",
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
-        record_report_task(
-            team_id=self.team.id,
-            report_id=str(report.id),
-            task_id=str(task.id),
-            relationship=TASK_RUN_TYPE_IMPLEMENTATION,
-        )
         TaskRun.objects.create(
             team=self.team,
             task=task,
             status=TaskRun.Status.COMPLETED,
             output={"pr_url": "https://github.com/org/repo/pull/7"},
         )
+        record_report_task(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            task_id=str(task.id),
+            relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+        )
 
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
 
-        assert row["implementation_pr_url"] is None
-        assert row["work_state"] == "unclaimed"
+        assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/7"
+        assert row["implementation_pr_state"] == SignalReportAssignment.PrState.UNKNOWN
+        assert row["work_state"] == "in_review"
+
+        with_pr = self.client.get(self._list_url(has_implementation_pr="true"))
+        assert str(report.id) in {item["id"] for item in with_pr.json()["results"]}
+        unclaimed = self.client.get(self._list_url(unclaimed="true"))
+        assert str(report.id) not in {item["id"] for item in unclaimed.json()["results"]}
 
     def test_assignment_pr_wins_over_task_run_output(self):
         Task = apps.get_model("tasks", "Task")
@@ -764,7 +770,12 @@ class TestSignalReportListAPI(APIBaseTest):
             status=TaskRun.Status.COMPLETED,
             output={"pr_url": "https://github.com/org/repo/pull/7"},
         )
-        self._create_assignment(report, pr_url="https://github.com/org/repo/pull/42")
+        assignment = SignalReportAssignment.all_teams.get(report=report)
+        assignment.pr_url = "https://github.com/org/repo/pull/42"
+        assignment.repository = "org/repo"
+        assignment.pr_number = 42
+        assignment.pr_state = SignalReportAssignment.PrState.UNKNOWN
+        assignment.save()
 
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
 
@@ -807,7 +818,7 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
-        assert row["implementation_pr_url"] == ""
+        assert row["implementation_pr_url"] is None
         assert row["implementation_pr_state"] is None
 
     def test_fetches_implementation_pr_urls_for_current_report_page(self):

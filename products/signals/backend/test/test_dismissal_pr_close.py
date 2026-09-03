@@ -1,3 +1,5 @@
+import uuid
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -6,7 +8,7 @@ from parameterized import parameterized
 from posthog.models.team.team import Team
 
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
-from products.signals.backend.models import SignalReport, SignalReportAssignment
+from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportAssignment
 from products.signals.backend.report_assignments import update_assignments_for_pull_request
 from products.signals.backend.tasks import close_dismissed_report_pr
 
@@ -156,11 +158,45 @@ class TestCloseImplementationPrForReport(BaseTest):
         self.assignment = SignalReportAssignment.all_teams.create(
             team=self.team,
             report=self.report,
+            actor_kind=SignalActorKind.SYSTEM,
             pr_url=_PR_URL,
             repository="posthog/posthog",
             pr_number=123,
             pr_state=SignalReportAssignment.PrState.OPEN,
         )
+
+    @parameterized.expand(
+        [
+            ("unclaimed", None),
+            ("user", SignalActorKind.USER),
+            ("agent", SignalActorKind.AGENT),
+        ]
+    )
+    def test_does_not_touch_pr_without_trusted_claim_actor(self, _name: str, actor_kind: str | None):
+        self.assignment.actor_kind = actor_kind
+        self.assignment.save(update_fields=["actor_kind", "updated_at"])
+
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository"
+        ) as mock_resolve:
+            assert close_implementation_pr_for_report(self.team.id, str(self.report.id)) is False
+
+        mock_resolve.assert_not_called()
+
+    def test_task_claim_actor_can_close_pr(self):
+        self.assignment.actor_kind = SignalActorKind.TASK
+        self.assignment.actor_task_id = uuid.uuid4()
+        self.assignment.save(update_fields=["actor_kind", "actor_task_id", "updated_at"])
+        github = MagicMock()
+        github.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
+        github.comment_on_pull_request.return_value = {"success": True}
+        github.close_pull_request.return_value = {"success": True}
+
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            assert close_implementation_pr_for_report(self.team.id, str(self.report.id)) is True
 
     @parameterized.expand(
         [

@@ -97,6 +97,10 @@ from products.signals.backend.billing import (
 from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
+from products.signals.backend.implementation_pr import (
+    fetch_implementation_pr_state_for_reports,
+    pr_bearing_task_run_filter,
+)
 from products.signals.backend.models import (
     ArtefactAttribution,
     AutonomyPriority,
@@ -1130,7 +1134,12 @@ class SignalReportViewSet(
         ).filter(~has_newer)
 
     def _implementation_pr_report_filter(self):
-        return Q(assignment__pr_url__isnull=False) & ~Q(assignment__pr_url="")
+        assignment_pr = Q(assignment__pr_url__isnull=False) & ~Q(assignment__pr_url="")
+        task_pr = SignalReport.reports_for_task_ids_filter(
+            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter()),
+            team_id=self.team.id,
+        )
+        return assignment_pr | task_pr
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
         # `has_implementation_pr=true|false` filters reports by whether an attached
@@ -1172,7 +1181,13 @@ class SignalReportViewSet(
                 SignalReportAssignment.PrState.OPEN,
             ],
         ) & ~Q(assignment__pr_url="")
-        is_unclaimed = ~Q(status=SignalReport.Status.RESOLVED) & Q(assignment__actor_kind__isnull=True) & ~has_review_pr
+        task_pr = SignalReport.reports_for_task_ids_filter(
+            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter()),
+            team_id=self.team.id,
+        )
+        is_unclaimed = (
+            ~Q(status=SignalReport.Status.RESOLVED) & Q(assignment__actor_kind__isnull=True) & ~has_review_pr & ~task_pr
+        )
         return queryset.filter(is_unclaimed) if wants_unclaimed else queryset.exclude(is_unclaimed)
 
     def _apply_signal_report_assignee_filter(self, queryset):
@@ -1589,10 +1604,18 @@ class SignalReportViewSet(
         except Exception:
             logger.exception("signals.enriched_context.source_products_failed", report_id=str(report.id))
             signal_meta_map = {}
+        try:
+            implementation_pr_by_report = fetch_implementation_pr_state_for_reports(report_ids)
+        except Exception:
+            logger.exception("signals.enriched_context.implementation_pr_failed", report_id=str(report.id))
+            implementation_pr_by_report = {}
         return {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
+            "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
+            "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
+            "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
         }
 
     def retrieve(self, request, *args, **kwargs):
@@ -1987,6 +2010,13 @@ class SignalReportViewSet(
                 logger.exception("signals.reports.list.source_products_failed", report_count=len(report_ids))
                 signal_meta_map = {}
 
+        with tracer.start_as_current_span("signals.reports.list.fetch_implementation_prs"):
+            try:
+                implementation_pr_by_report = fetch_implementation_pr_state_for_reports(report_ids)
+            except Exception:
+                logger.exception("signals.reports.list.implementation_pr_failed", report_count=len(report_ids))
+                implementation_pr_by_report = {}
+
         # One grouped query for the whole page, in place of the per-row annotation the other
         # actions carry, for the serializer's refund_ineligibility_reason field.
         with tracer.start_as_current_span("signals.reports.list.fetch_billable_pr_runs"):
@@ -1995,6 +2025,9 @@ class SignalReportViewSet(
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
+            "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
+            "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
+            "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
         }
         serializer = self.get_serializer(reports, many=True, context=context)

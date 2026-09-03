@@ -2,13 +2,21 @@
 
 from typing import Literal, cast
 
+from django.db.models import Q
+
 import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 
-from products.signals.backend.models import SignalReport, SignalReportAssignment
+from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportAssignment
+from products.signals.backend.task_run_artefacts import (
+    NON_PR_BEARING_TASK_RUN_TYPES,
+    SIGNALS_PRODUCT,
+    TASK_RUN_TYPE_IMPLEMENTATION,
+)
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -29,10 +37,10 @@ class ImplementationPr:
 
 
 def fetch_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str, ImplementationPr]:
-    """Return the PR stored on each report assignment, when present."""
+    """Return assignment PRs first, falling back to existing task-backed PRs."""
     if not report_ids:
         return {}
-    return {
+    result = {
         str(assignment.report_id): ImplementationPr(
             url=assignment.pr_url,
             merged=assignment.pr_merged,
@@ -44,6 +52,40 @@ def fetch_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str
         ).exclude(pr_url="")
         if assignment.pr_url is not None
     }
+
+    missing_report_ids = [str(report_id) for report_id in report_ids if str(report_id) not in result]
+    if not missing_report_ids:
+        return result
+
+    runs_by_report = SignalReport.associated_task_runs_for_reports(
+        report_ids=missing_report_ids,
+        product=SIGNALS_PRODUCT,
+    )
+    pairs = [
+        (report_id, run.task_id)
+        for report_id, runs in runs_by_report.items()
+        for run in sorted(runs, key=lambda run: run.type != TASK_RUN_TYPE_IMPLEMENTATION)
+        if run.type not in NON_PR_BEARING_TASK_RUN_TYPES
+    ]
+    task_ids = [task_id for _, task_id in pairs]
+    pr_url_by_task = tasks_facade.get_latest_pr_url_by_task(task_ids)
+    merged_task_ids = tasks_facade.get_merged_pr_task_ids(task_ids)
+    for report_id, task_id in pairs:
+        pr_url = pr_url_by_task.get(task_id)
+        if pr_url and report_id not in result:
+            merged = task_id in merged_task_ids
+            result[report_id] = ImplementationPr(
+                url=pr_url,
+                merged=merged,
+                state=SignalReportAssignment.PrState.MERGED if merged else SignalReportAssignment.PrState.UNKNOWN,
+            )
+    return result
+
+
+def pr_bearing_task_run_filter() -> Q:
+    return Q(state__ai_stage__isnull=True) | (
+        ~Q(state__ai_stage__in=sorted(NON_PR_BEARING_TASK_RUN_TYPES)) & ~Q(state__ai_stage__startswith="scout:")
+    )
 
 
 def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str, str]:
@@ -85,13 +127,20 @@ def close_implementation_pr_for_report(
     must succeed regardless.
     """
     try:
-        pr_url = (
-            SignalReportAssignment.all_teams.filter(report_id=report_id, report__team_id=team_id)
-            .values_list("pr_url", flat=True)
-            .first()
-        )
-        if not pr_url:
+        assignment = SignalReportAssignment.all_teams.filter(
+            report_id=report_id,
+            report__team_id=team_id,
+        ).first()
+        if assignment is None or not assignment.pr_url:
             return False
+        if assignment.actor_kind not in {SignalActorKind.TASK, SignalActorKind.SYSTEM}:
+            logger.info(
+                "close_implementation_pr_untrusted_actor",
+                report_id=str(report_id),
+                actor_kind=assignment.actor_kind,
+            )
+            return False
+        pr_url = assignment.pr_url
 
         parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
         if parsed is None:

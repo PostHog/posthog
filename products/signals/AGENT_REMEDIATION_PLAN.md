@@ -47,7 +47,9 @@ PRs from unconnected repositories are allowed. Their state is `unknown`, they ar
 
 GitHub webhook matching is scoped by the teams associated with the installation, then matched by normalized repository and PR number. A matching merge or close transitions every unresolved report attached to that PR.
 
-Resolving a report never requires a PR. Manual resolution keeps the existing behavior: `fixed_outside_posthog` describes a fix without a PR, and `pr_merged` describes a merged PR that did not resolve the report automatically. A direct resolve or suppression closes an attached open PR when PostHog can access it.
+Internal implementation tasks claim their report when they start. When a PR-bearing task run records a PR, the signals receiver copies it into the assignment without requiring the task to call the public claim API. Existing task-backed PRs remain readable as a compatibility fallback when an assignment has no PR; assignment data always wins.
+
+Resolving a report never requires a PR. Manual resolution keeps the existing behavior: `fixed_outside_posthog` describes a fix without a PR, and `pr_merged` describes a merged PR that did not resolve the report automatically. A direct resolve or suppression closes an attached open PR only when the current assignment actor is `task` or `system` and PostHog can access it. PRs owned by users or external agents are not modified.
 
 ## Derived work state
 
@@ -80,7 +82,7 @@ Add `actor_kind` and `actor_agent` to `SignalReportArtefact`. Keep `created_by` 
 - Keep `inbox-reports-set-state` for resolve, suppress, and restore.
 - Extend `inbox-reports-list` with `unclaimed` and `assignee=me` filters.
 - Return `work_state`, assignment actor details, `claimed_at`, PR URL, and PR state from every report list and retrieve response.
-- Back `has_implementation_pr`, `implementation_pr_url`, and `implementation_pr_merged` from the assignment table.
+- Back `has_implementation_pr`, `implementation_pr_url`, and `implementation_pr_merged` from the assignment table first, with existing task-backed PRs as a compatibility fallback.
 - Update list and retrieve agent guidance to claim before starting work. External agents no longer need or create a task association.
 
 `assignee=me` means the exact current actor: the authenticated user for direct user requests, or the authenticated user plus derived MCP client name for external agents.
@@ -111,5 +113,5 @@ No new assignment-history table or assignment artefact type is required.
 - Activity-log before/after entries and no-op suppression.
 - Connected webhook scoping, one PR linked to several reports, merge resolution, and closed-unmerged suppression.
 - Manual resolve/suppress PR-closing behavior.
-- Replace the existing task-run-backed PR fixtures and assertions with assignment-backed equivalents.
+- Verify that new task PRs populate assignments and existing task-run-backed PRs remain visible through the fallback.
 - OpenAPI generation, generated MCP schema, tool-name lint, MCP typecheck, and focused backend tests.

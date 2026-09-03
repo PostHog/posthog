@@ -729,25 +729,59 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
     def get_implementation_pr_url(self, obj: SignalReport) -> str | None:
         assignment = self._get_assignment(obj)
-        return assignment.pr_url if assignment is not None else None
+        if assignment is not None and assignment.pr_url:
+            return assignment.pr_url
+        implementation_pr_url_map: dict[str, str] | None = self.context.get("implementation_pr_url_map")
+        return implementation_pr_url_map.get(str(obj.id)) if implementation_pr_url_map is not None else None
 
     @extend_schema_field(serializers.ChoiceField(choices=SignalReportAssignment.PrState.choices, allow_null=True))
     def get_implementation_pr_state(self, obj: SignalReport) -> str | None:
         assignment = self._get_assignment(obj)
-        if assignment is None or not assignment.pr_url:
-            return None
-        return assignment.pr_state or SignalReportAssignment.PrState.UNKNOWN
+        if assignment is not None and assignment.pr_url:
+            return assignment.pr_state or SignalReportAssignment.PrState.UNKNOWN
+        implementation_pr_state_map: dict[str, str] | None = self.context.get("implementation_pr_state_map")
+        return implementation_pr_state_map.get(str(obj.id)) if implementation_pr_state_map is not None else None
 
     def get_implementation_pr_merged(self, obj: SignalReport) -> bool:
         assignment = self._get_assignment(obj)
-        return bool(assignment and assignment.pr_merged)
+        if assignment is not None and assignment.pr_url:
+            return assignment.pr_merged
+        merged_report_ids: set[str] | None = self.context.get("implementation_pr_merged_ids")
+        return str(obj.id) in merged_report_ids if merged_report_ids is not None else False
 
     @extend_schema_field(serializers.ChoiceField(choices=SignalReportWorkState.choices))
     def get_work_state(self, obj: SignalReport) -> str:
+        if obj.status == SignalReport.Status.RESOLVED:
+            return "done"
         assignment = self._get_assignment(obj)
-        if assignment is not None:
-            return assignment.work_state
-        return "done" if obj.status == SignalReport.Status.RESOLVED else "unclaimed"
+        if (
+            assignment is not None
+            and assignment.pr_url
+            and assignment.pr_state
+            in {
+                SignalReportAssignment.PrState.UNKNOWN,
+                SignalReportAssignment.PrState.DRAFT,
+                SignalReportAssignment.PrState.OPEN,
+            }
+        ):
+            return "in_review"
+        fallback_url_map: dict[str, str] | None = self.context.get("implementation_pr_url_map")
+        fallback_state_map: dict[str, str] | None = self.context.get("implementation_pr_state_map")
+        report_id = str(obj.id)
+        if (
+            fallback_url_map
+            and fallback_url_map.get(report_id)
+            and (fallback_state_map or {}).get(report_id)
+            in {
+                SignalReportAssignment.PrState.UNKNOWN,
+                SignalReportAssignment.PrState.DRAFT,
+                SignalReportAssignment.PrState.OPEN,
+            }
+        ):
+            return "in_review"
+        if assignment is not None and assignment.actor_kind:
+            return "working"
+        return "unclaimed"
 
     @extend_schema_field(SignalReportAssigneeSerializer(allow_null=True))
     def get_assignee(self, obj: SignalReport) -> dict | None:

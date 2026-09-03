@@ -31,6 +31,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.billing import first_billable_pr_run_at, mark_report_billing_exempt
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.report_assignments import claim_report_for_task
 
 # The task-run vocabulary lives in `artefact_schemas` (a leaf module the model layer can import
 # without a cycle); re-exported here so existing `from task_run_artefacts import …` callers keep
@@ -318,7 +319,7 @@ def record_implementation_task(
         task_id=task_id,
         defaults={"relationship": TASK_RUN_TYPE_IMPLEMENTATION},
     )
-    return append_task_run_artefact(
+    artefact = append_task_run_artefact(
         team_id=team_id,
         report_id=report_id,
         product=SIGNALS_PRODUCT,
@@ -326,6 +327,8 @@ def record_implementation_task(
         task_id=task_id,
         run_id=run_id,
     )
+    claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
+    return artefact
 
 
 def record_report_task(
