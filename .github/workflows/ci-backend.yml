@@ -3011,31 +3011,42 @@ jobs:
                       admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
 
-            - name: Clone the test databases for a second pytest worker
+            - name: Give each pytest worker its own test databases
               # A shard leaves about half its runner idle, waiting on Postgres and ClickHouse.
-              # A second worker uses that half.
+              # Extra workers use that half.
               #
-              # Runs that publish .test_durations stay on one worker: pytest-split writes that
-              # file once per process with no xdist awareness, so a parallel run would publish
-              # partial timings and unbalance every later shard plan.
+              # Off unless BACKEND_XDIST_WORKERS names a worker count, so parallelism is opted
+              # into rather than inherited. It is a repository variable, which means turning it
+              # off does not need a pull request. Every path below falls back to one worker, so
+              # a shard that cannot prepare its databases still runs, just serially.
               #
-              # A branch that has not rebased carries neither this script nor the snapshot
-              # normalization, so an absent script keeps it on one worker instead of failing it.
+              # Runs that publish .test_durations stay on one worker whatever the variable says:
+              # pytest-split writes that file once per process with no xdist awareness, so a
+              # parallel run would publish partial timings and unbalance every later shard plan.
+              id: xdist
               if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true' && needs.changes.outputs.timing_scripts != 'true' }}
               shell: bash
+              env:
+                  BACKEND_XDIST_WORKERS: ${{ vars.BACKEND_XDIST_WORKERS }}
               run: |
+                  workers="${BACKEND_XDIST_WORKERS:-1}"
+                  if ! [[ "$workers" =~ ^[0-9]+$ ]] || [ "$workers" -le 1 ]; then
+                      echo "In-shard parallelism is off, running one worker"
+                      exit 0
+                  fi
                   if [ ! -x ./bin/clone-test-db-for-xdist ]; then
                       echo "::notice::Checked-out revision predates in-shard parallelism, running one worker"
+                      exit 0
+                  fi
+                  if ! ./bin/clone-test-db-for-xdist "$workers"; then
+                      echo "::warning::Could not clone the per-worker databases, running one worker"
                       exit 0
                   fi
                   # loadfile, not the default: several suites leave process state that the next
                   # test inherits, so keeping a file's tests on one worker preserves the order
                   # they already pass in.
-                  if ./bin/clone-test-db-for-xdist 2; then
-                      echo "XDIST_ARGS=-n 2 --dist loadfile" >> "$GITHUB_ENV"
-                  else
-                      echo "::warning::Could not clone the per-worker databases, running one worker"
-                  fi
+                  echo "XDIST_ARGS=-n $workers --dist loadfile" >> "$GITHUB_ENV"
+                  echo "Running $workers pytest workers in this shard"
 
             - name: Restore test durations from cache
               # pytest-split distributes Core/Temporal tests across shards using

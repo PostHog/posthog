@@ -2047,22 +2047,30 @@ jobs:
                       echo "::warning::Out-of-process migrate failed; pytest --reuse-db will run the full migrate itself"
                       admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
-            - name: Clone the test databases for a second pytest worker
-              # The shadow strips the --store-durations write, so the canonical guard against
-              # a parallel run publishing partial timings has nothing to mirror. The pull
-              # request condition stays anyway, to keep the pytest flags apples-to-apples.
+            - name: Give each pytest worker its own test databases
+              # Mirrors canonical. The shadow strips the --store-durations write, so the guard
+              # against publishing partial timings has nothing to mirror; the pull request
+              # condition stays to keep the pytest flags apples-to-apples.
+              id: xdist
               if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true' }}
               shell: bash
+              env:
+                  BACKEND_XDIST_WORKERS: ${{ vars.BACKEND_XDIST_WORKERS }}
               run: |
+                  workers="${BACKEND_XDIST_WORKERS:-1}"
+                  if ! [[ "$workers" =~ ^[0-9]+$ ]] || [ "$workers" -le 1 ]; then
+                      echo "In-shard parallelism is off, running one worker"
+                      exit 0
+                  fi
                   if [ ! -x ./bin/clone-test-db-for-xdist ]; then
                       echo "::notice::Checked-out revision predates in-shard parallelism, running one worker"
                       exit 0
                   fi
-                  if ./bin/clone-test-db-for-xdist 2; then
-                      echo "XDIST_ARGS=-n 2 --dist loadfile" >> "$GITHUB_ENV"
-                  else
+                  if ! ./bin/clone-test-db-for-xdist "$workers"; then
                       echo "::warning::Could not clone the per-worker databases, running one worker"
+                      exit 0
                   fi
+                  echo "XDIST_ARGS=-n $workers --dist loadfile" >> "$GITHUB_ENV"
             - name: Restore test durations from cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
