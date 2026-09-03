@@ -67,7 +67,7 @@ def _make_scanner(**overrides: Any) -> ReplayScanner:
         "name": "estimate-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_7_FLASH,
+        "model": ScannerModel.GEMINI_3_8_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)

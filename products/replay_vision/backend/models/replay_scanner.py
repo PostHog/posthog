@@ -67,7 +67,7 @@ class ScannerModel(models.TextChoices):
 
     GEMINI_3_5_FLASH_LITE = "gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"
     GEMINI_3_FLASH_PREVIEW = "gemini-3-flash-preview", "Gemini 3 Flash"
-    GEMINI_3_7_FLASH = "gemini-3.7-flash", "Gemini 3.7 Flash"
+    GEMINI_3_8_FLASH = "gemini-3.8-flash", "Gemini 3.8 Flash"
 
 
 def scanner_model_choices() -> list[tuple[str, str | Promise]]:

@@ -172,7 +172,7 @@ def _make_scanner(**overrides) -> ReplayScanner:
         "name": "t",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_7_FLASH,
+        "model": ScannerModel.GEMINI_3_8_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -199,7 +199,7 @@ class TestCountInFlightAppliesActivity:
             name="sibling",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
         other_team_scanner = _make_scanner()  # fresh org+team
         _make_observation(scanner, session_id="s1", status=ObservationStatus.PENDING)
@@ -563,7 +563,7 @@ class TestCreateObservationActivity:
     def test_warm_cache_admission_still_refuses_at_the_limit(self) -> None:
         # The cold path refuses via fresh aggregates (covered above); this pins the warm path: the
         # first admission's cached spend must refuse the second, not just the next refresh.
-        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
         with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
             assert self._admit(scanner, "sess-warm-a").was_created
@@ -586,7 +586,7 @@ class TestCreateObservationActivity:
     def test_failed_insert_refunds_its_cached_admission(self) -> None:
         # The cached counter must stay transactional with the insert: an increment that survived a
         # rolled-back insert would make a cap that fits one observation refuse the retry forever.
-        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
         with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
             with (
@@ -599,7 +599,7 @@ class TestCreateObservationActivity:
     def test_concurrent_admissions_cannot_exceed_scanner_credit_limit(self) -> None:
         # Two applies for different sessions race with a cap that fits exactly one observation. Without the
         # per-scanner lock both read a used=0 budget, both pass, and both reserve a PENDING row (overshoot).
-        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
         barrier = threading.Barrier(2)
         created: dict[str, bool] = {}
@@ -748,14 +748,14 @@ class TestCreateObservationActivity:
     def test_concurrent_admissions_for_two_capped_scanners_do_not_serialize_each_other(self) -> None:
         # The admission lock is per scanner row: two different capped scanners on one team must both
         # admit their own observation, with no cross-scanner budget bleed or lock coupling.
-        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner_a = _make_scanner(credit_limit=credits)
         scanner_b = ReplayScanner.objects.create(
             team=scanner_a.team,
             name="capped-sibling",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
             credit_limit=credits,
         )
         barrier = threading.Barrier(2)
@@ -793,7 +793,7 @@ class TestCreateObservationActivity:
         # A Temporal retry whose first attempt committed the insert but lost the result must get its
         # row back: that row's own reservation fills the budget, so a plain refusal would strand it
         # PENDING forever while the workflow gives up.
-        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
         first_attempt = create_observation_activity(
             CreateObservationInputs(
@@ -913,7 +913,7 @@ class TestKnownFreeformTags:
             name="sibling",
             scanner_type=ScannerType.CLASSIFIER,
             scanner_config={"prompt": "categorize", "tags": ["checkout"], "allow_freeform_tags": True},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
         self._succeeded(sibling, "s1", ["sibling_tag"])
         stale = self._succeeded(scanner, "s2", ["stale_tag"])

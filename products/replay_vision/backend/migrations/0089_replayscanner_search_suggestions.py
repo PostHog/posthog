@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("replay_vision", "0087_replayscanner_estimate_attempted_at"),
+        ("replay_vision", "0088_remap_scanner_models_gemini_3_8"),
     ]
 
     operations = [
