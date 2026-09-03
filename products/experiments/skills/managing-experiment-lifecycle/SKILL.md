@@ -148,7 +148,8 @@ Both `experiment-end` and `experiment-ship-variant` accept `open_cleanup_pr: tru
 A background PostHog Code task then removes the experiment's feature flag code and opens a draft pull request in the team's connected GitHub repository.
 
 - Only set this when the user asks for it or confirms it.
-- Requires the team to have the flag cleanup feature enabled and the key to carry the `task:write` scope; silently skipped otherwise.
+- The key must carry the `task:write` scope, or the whole request is rejected with a 403 and the experiment is not ended or shipped.
+- The cleanup runs only when the call actually ends the experiment and a `conclusion` is set — shipping an already-stopped experiment, or ending without a conclusion, skips it. It also requires the team to have the flag cleanup feature enabled; silently skipped when it isn't.
 - `repository` ("organization/repository") picks the target when several repositories are connected. Omit it to fall back to the experiment's saved repository, the team default, or the only connected repository. With several candidates and no default, the cleanup is skipped unless provided.
 - Track progress with `experiment-cleanup-task` — the PR URL appears there once opened; a cleanup typically takes several minutes.
 
