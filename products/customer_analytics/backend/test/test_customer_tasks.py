@@ -135,7 +135,7 @@ class CustomerTaskAPI(APIBaseTest):
         patch_response = self.client.patch(task_url, {"description": "PATCH description"}, format="json")
 
         assert put_response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "name" in put_response.json()
+        assert put_response.json()["attr"] == "name"
         assert patch_response.status_code == status.HTTP_200_OK
         assert patch_response.json()["description"] == "PATCH description"
 
@@ -298,7 +298,7 @@ class CustomerTaskAPI(APIBaseTest):
         assignee_membership = OrganizationMembership.objects.get(user=assignee, organization=self.organization)
         AccessControl.objects.create(
             team=self.team,
-            resource="customer_task",
+            resource="customer_analytics",
             resource_id=None,
             access_level="none",
             organization_member=assignee_membership,
@@ -312,8 +312,10 @@ class CustomerTaskAPI(APIBaseTest):
         assigned_id = assigned.json()["id"]
 
         self.client.force_login(assignee)
-        listed = self.client.get(self.url).json()
-        assert [task["id"] for task in listed["results"]] == [assigned_id]
+        listed_tasks = self.client.get(self.url).json()["results"]
+        assert assigned_id in {task["id"] for task in listed_tasks}
+        assert unassigned.json()["id"] not in {task["id"] for task in listed_tasks}
+        assert all(task["assigned_to"]["id"] == assignee.id for task in listed_tasks)
         assert self.client.get(f"{self.url}{unassigned.json()['id']}/").status_code == status.HTTP_404_NOT_FOUND
         assert (
             self.client.patch(f"{self.url}{assigned_id}/", {"name": "Changed"}, format="json").status_code
@@ -463,7 +465,7 @@ class CustomerTaskAPI(APIBaseTest):
         viewer_membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
         AccessControl.objects.create(
             team=self.team,
-            resource="customer_task",
+            resource="customer_analytics",
             resource_id=None,
             access_level="viewer",
             organization_member=viewer_membership,

@@ -112,43 +112,49 @@ export function CustomerTaskModal({ logic, context }: CustomerTaskModalProps): J
                 {context === 'inbox' && (
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Account (optional)</LemonLabel>
-                        <div className="flex flex-wrap items-center gap-2">
-                            <div className="min-w-64 flex-1">
-                                <LemonInputSelect
-                                    mode="single"
-                                    value={draftAccount ? [draftAccount.id] : []}
-                                    options={accountOptionsForSelect}
-                                    loading={accountOptionsResponseLoading}
-                                    onInputChange={(query) => loadAccountOptions({ query })}
-                                    onChange={(values) => {
-                                        const accountId = values[0]
-                                        if (!accountId) {
-                                            setDraftAccount(null)
-                                            return
-                                        }
-                                        const account = accountOptions.find((option) => option.id === accountId)
-                                        setDraftAccount(
-                                            account ? { id: account.id, name: account.name } : (draftAccount ?? null)
-                                        )
-                                    }}
-                                    placeholder="No account"
-                                    disabledReason={disabledReason}
-                                    fullWidth
-                                    data-attr="customer-task-account"
-                                />
+                        {editable ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                                <div className="min-w-64 flex-1">
+                                    <LemonInputSelect
+                                        mode="single"
+                                        value={draftAccount ? [draftAccount.id] : []}
+                                        options={accountOptionsForSelect}
+                                        loading={accountOptionsResponseLoading}
+                                        onInputChange={(query) => loadAccountOptions({ query })}
+                                        onChange={(values) => {
+                                            const accountId = values[0]
+                                            if (!accountId) {
+                                                setDraftAccount(null)
+                                                return
+                                            }
+                                            const account = accountOptions.find((option) => option.id === accountId)
+                                            setDraftAccount(
+                                                account
+                                                    ? { id: account.id, name: account.name }
+                                                    : (draftAccount ?? null)
+                                            )
+                                        }}
+                                        placeholder="No account"
+                                        disabledReason={disabledReason}
+                                        fullWidth
+                                        data-attr="customer-task-account"
+                                    />
+                                </div>
+                                {draftAccount && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconX />}
+                                        onClick={() => setDraftAccount(null)}
+                                        disabledReason={disabledReason}
+                                    >
+                                        Remove account
+                                    </LemonButton>
+                                )}
                             </div>
-                            {draftAccount && (
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconX />}
-                                    onClick={() => setDraftAccount(null)}
-                                    disabledReason={disabledReason}
-                                >
-                                    Remove account
-                                </LemonButton>
-                            )}
-                        </div>
+                        ) : (
+                            <LemonInput value={draftAccount?.name ?? 'No account'} disabledReason={disabledReason} />
+                        )}
                     </div>
                 )}
                 <div className="flex flex-col gap-1">
