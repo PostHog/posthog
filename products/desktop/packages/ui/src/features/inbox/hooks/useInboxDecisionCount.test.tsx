@@ -57,7 +57,7 @@ describe("useInboxDecisionCount", () => {
     expect(mockGetSignalReports).toHaveBeenCalledOnce();
     expect(mockGetSignalReports).toHaveBeenCalledWith(
       expect.objectContaining({
-        limit: 1,
+        count_only: true,
         priority: undefined,
         source_product: undefined,
         status: "ready",

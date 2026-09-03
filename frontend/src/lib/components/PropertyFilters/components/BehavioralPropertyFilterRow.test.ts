@@ -1,17 +1,27 @@
 import {
     withBehavioralCount,
+    withBehavioralEventFilters,
     withBehavioralNegation,
 } from 'lib/components/PropertyFilters/components/BehavioralPropertyFilterRow'
 
 import {
     BehavioralEventType,
     BehavioralPropertyFilter,
+    EventPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     TimeUnitType,
 } from '~/types'
 
 describe('BehavioralPropertyFilterRow value mapping', () => {
+    const sourceIsWeb: EventPropertyFilter = {
+        type: PropertyFilterType.Event,
+        key: 'source',
+        operator: PropertyOperator.Exact,
+        value: ['web'],
+    }
+
+    // event_filters in the fixture prove count/negation edits leave nested filters untouched
     const counted: BehavioralPropertyFilter = {
         type: PropertyFilterType.Behavioral,
         key: 'signed_up',
@@ -21,6 +31,7 @@ describe('BehavioralPropertyFilterRow value mapping', () => {
         operator_value: 3,
         time_value: 30,
         time_interval: TimeUnitType.Day,
+        event_filters: [sourceIsWeb],
     }
 
     test.each<[string, PropertyOperator, number, Partial<BehavioralPropertyFilter>]>([
@@ -69,5 +80,19 @@ describe('BehavioralPropertyFilterRow value mapping', () => {
             ...counted,
             negation: undefined,
         })
+    })
+
+    it('replaces the nested event filters', () => {
+        const emailIsSet: EventPropertyFilter = {
+            type: PropertyFilterType.Event,
+            key: 'email',
+            operator: PropertyOperator.IsSet,
+            value: null,
+        }
+        expect(withBehavioralEventFilters(counted, [emailIsSet])).toEqual({ ...counted, event_filters: [emailIsSet] })
+    })
+
+    it('drops event_filters entirely when the last nested filter is removed', () => {
+        expect(withBehavioralEventFilters(counted, [])).toEqual({ ...counted, event_filters: undefined })
     })
 })

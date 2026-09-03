@@ -8,7 +8,8 @@ import { Label } from 'lib/ui/Label/Label'
 
 import { Experiment } from '~/types'
 
-import { RunningTimeConfigModal } from '../RunningTimeCalculator/RunningTimeConfigModal'
+import { RunningTimeConfigModal } from 'products/experiments/frontend/modals/RunningTimeConfigModal/RunningTimeConfigModal'
+
 import { runningTimeLogic } from '../RunningTimeCalculator/runningTimeLogic'
 
 export const RunningTime = ({

@@ -262,6 +262,7 @@ class ExternalDataSourceType(models.TextChoices):
     GLADLY = "Gladly", "Gladly"
     QUALTRICS = "Qualtrics", "Qualtrics"
     AZUREDEVOPS = "AzureDevOps", "AzureDevOps"
+    ROKTADS = "RoktAds", "RoktAds"
     ROLLBAR = "Rollbar", "Rollbar"
     OPSGENIE = "Opsgenie", "Opsgenie"
     INCIDENTIO = "IncidentIo", "IncidentIo"
@@ -364,6 +365,7 @@ class ExternalDataSourceType(models.TextChoices):
     CUSTOMERLY = "Customerly", "Customerly"
     DATASCOPE = "Datascope", "Datascope"
     DBT = "Dbt", "Dbt"
+    DEMODESK = "Demodesk", "Demodesk"
     DEPUTY = "Deputy", "Deputy"
     DEVINAI = "DevinAI", "DevinAI"
     DOCUSEAL = "Docuseal", "Docuseal"
@@ -1394,6 +1396,13 @@ class ExternalDataSourceType(models.TextChoices):
     TANA = "Tana", "Tana"
     ZENCHEF = "Zenchef", "Zenchef"
     LOVABLE = "Lovable", "Lovable"
+    ANVIL = "Anvil", "Anvil"
+    COOLIFY = "Coolify", "Coolify"
+    SOCIALPILOT = "SocialPilot", "SocialPilot"
+    STRATO = "Strato", "Strato"
+    MEDUSA = "Medusa", "Medusa"
+    MEMBRAIN = "Membrain", "Membrain"
+    RECALLAI = "RecallAI", "RecallAI"
 
 
 def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:

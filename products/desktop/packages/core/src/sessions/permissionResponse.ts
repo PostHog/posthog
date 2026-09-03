@@ -165,7 +165,7 @@ function questionMeta(
   return meta as QuestionMeta;
 }
 
-export function isQuestionPermission(
+function isQuestionPermission(
   permission: PermissionRequest | undefined,
 ): boolean {
   return questionMeta(permission)?.codeToolKind === "question";

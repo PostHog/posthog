@@ -61,7 +61,7 @@ const DELTA_RESPONSE = {
             highlights: [{ session_id: 'card-session-2', reason: '3 rage clicks' }],
         },
     ],
-    arms: [
+    variants: [
         { key: 'control', persons: 100, sessions: 140 },
         { key: 'test', persons: 100, sessions: 138 },
     ],
@@ -74,10 +74,11 @@ const DELTA_RESPONSE = {
     used_exposure_fallback: false,
     sessions_truncated: false,
     events_truncated: false,
-    min_arm_persons: 50,
+    min_variant_persons: 50,
     max_card_recordings: 20,
     dropped_duplicate_cards: 0,
     too_early: false,
+    empty_reason: null,
 }
 
 const PURCHASE_METRIC = {
@@ -343,7 +344,7 @@ describe('experimentReplayTabLogic', () => {
         partiallyLinkable.actions.setMetricSelected('metric-funnel', true)
         await expectLogic(partiallyLinkable).toFinishAllListeners()
         // A multi-source metric resolves server-side, where the unmatchable step is simply one
-        // OR arm that never matches a session — so it drops out without narrowing anything.
+        // OR variant that never matches a session — so it drops out without narrowing anything.
         expect(experimentsSessionBucketsCreate).toHaveBeenLastCalledWith(expect.any(String), 45, {
             bucket: 'fired_any',
             metric_uuids: ['metric-funnel'],
@@ -506,8 +507,7 @@ describe('experimentReplayTabLogic', () => {
         failed.unmount()
     })
 
-    it('prefetches session contexts for a loaded recordings page when the flag is on', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true })
+    it('prefetches session contexts for a loaded recordings page', async () => {
         logic.actions.recordingsLoaded(loadedPage(['s1', 's2']))
         await expectLogic(logic).toFinishAllListeners()
 
@@ -517,8 +517,6 @@ describe('experimentReplayTabLogic', () => {
     })
 
     it('re-warms the rest of the page when a recording is opened', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true })
-
         // Opening before any page has loaded must not fire an empty batch (the backend 400s it).
         logic.actions.recordingOpened('s1')
         await expectLogic(logic).toFinishAllListeners()
@@ -537,15 +535,8 @@ describe('experimentReplayTabLogic', () => {
         expect((experimentsSessionContextsCreate as jest.Mock).mock.calls[1][1].session_ids).toEqual(['s1', 's3'])
     })
 
-    it('never prefetches for flag-disabled viewers, and caps a batch at the backend limit', async () => {
-        // Ungated, every experiment-tab visit would fire the expensive ClickHouse scans for
-        // viewers who can't even see the experiments box.
-        logic.actions.recordingsLoaded(loadedPage(['s1']))
-        await expectLogic(logic).toFinishAllListeners()
-        expect(experimentsSessionContextsCreate).not.toHaveBeenCalled()
-
+    it('caps a batch at the backend limit', async () => {
         // Over-cap ids must be sliced, not sent — the backend 400s the whole batch above its cap.
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true })
         logic.actions.recordingsLoaded(loadedPage(Array.from({ length: 25 }, (_, index) => `session-${index}`)))
         await expectLogic(logic).toFinishAllListeners()
         expect(experimentsSessionContextsCreate).toHaveBeenCalledTimes(1)

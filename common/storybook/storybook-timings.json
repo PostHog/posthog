@@ -19,7 +19,7 @@
         "chromium": 11.882,
         "webkit": 2.322
     },
-    "frontend/src/layout/FeaturePreviews/FeaturePreviews.stories.tsx": {
+    "frontend/src/lib/components/FeaturePreviews/FeaturePreviews.stories.tsx": {
         "chromium": 8.528,
         "webkit": 1.752
     },
@@ -186,10 +186,6 @@
     "frontend/src/lib/components/Map/Map.stories.tsx": {
         "chromium": 1.667,
         "webkit": 1.22
-    },
-    "frontend/src/lib/components/MarkdownEditor/inline/InlineRichMarkdownEditor.stories.tsx": {
-        "chromium": 12.076,
-        "webkit": 2.125
     },
     "frontend/src/lib/components/MarkdownEditor/rich/RichMarkdownEditor.stories.tsx": {
         "chromium": 5.579,

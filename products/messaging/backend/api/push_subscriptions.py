@@ -1,18 +1,24 @@
+import hmac
 import time
+import hashlib
+import threading
 from datetime import UTC, datetime
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
+from cachetools import TTLCache
 from prometheus_client import Counter
 from rest_framework import status
 from rest_framework.request import Request
 
 from posthog.api.capture import capture_internal
 from posthog.api.utils import get_token
+from posthog.dataclasses import frozen
 from posthog.exceptions import (
     RequestParsingError,
     UnspecifiedCompressionFallbackParsingError,
@@ -65,6 +71,23 @@ _DISCARD_LOG_WINDOW_SECONDS = 60
 # Staleness costs at most one window: a team that configures push keeps discarding for up to a minute,
 # and the device re-posts on its next launch anyway.
 _CONFIGURED_APP_IDS_CACHE_SECONDS = 60
+
+# A token that resolves to no team costs a Redis miss and then a Postgres query on every request,
+# and the lookup has no negative cache of its own. A misconfigured mobile client repeats the same
+# unknown token on every app open, so that query runs at the client's retry rate indefinitely.
+#
+# This cache is in-process and size-bounded, not in Redis. The token is request-controlled and this
+# endpoint is public, so a Redis key per submitted value would let anyone grow the shared cache and
+# evict unrelated entries. A TTLCache holds at most _INVALID_TOKEN_CACHE_SIZE entries per worker and
+# evicts its own oldest, so the memory cost is fixed no matter what callers send.
+#
+# The TTL is short on purpose. A token can become valid, for example when a project is recreated,
+# and this bounds how long such a token keeps being rejected after that.
+_INVALID_TOKEN_CACHE_SECONDS = 60
+_INVALID_TOKEN_CACHE_SIZE = 2048
+_invalid_token_cache: TTLCache = TTLCache(maxsize=_INVALID_TOKEN_CACHE_SIZE, ttl=_INVALID_TOKEN_CACHE_SECONDS)
+# cachetools is not thread-safe and Granian serves requests on threads within a worker.
+_invalid_token_lock = threading.Lock()
 _PUSH_INTEGRATION_KINDS = ("firebase", "apns")
 
 VALID_PLATFORMS = ("android", "ios")
@@ -85,6 +108,18 @@ _encrypted_fields = EncryptedFieldMixin()
 # closed: take the strictest mode across every match so a lax duplicate can't downgrade a sibling's
 # `required` policy. Unknown/garbage values sort to 0 (treated as disabled).
 _VERIFICATION_MODE_PRECEDENCE = {"disabled": 0, "optional": 1, "required": 2}
+
+
+def _is_known_invalid_token(api_key: str) -> bool:
+    """True when this worker resolved this token to no team recently. Stores a fingerprint rather
+    than the token itself, so the raw value is never held."""
+    with _invalid_token_lock:
+        return _api_key_fingerprint(api_key) in _invalid_token_cache
+
+
+def _remember_invalid_token(api_key: str) -> None:
+    with _invalid_token_lock:
+        _invalid_token_cache[_api_key_fingerprint(api_key)] = True
 
 
 def _is_first_discard_in_window(team_id: int) -> bool:
@@ -147,6 +182,35 @@ def _strictest_verification_mode(integrations: list[Integration]) -> str:
 # The error body goes back to the client only, and Django's own request log records just
 # "Bad Request: /api/push_subscriptions/", so without this counter and log line the rejection
 # reason is unrecoverable from production telemetry.
+@frozen
+class _SdkIdentity:
+    # name and version are both optional strings, so a dataclass with named fields keeps them from
+    # being read or swapped positionally.
+    name: str | None = None
+    version: str | None = None
+
+
+def _parse_user_agent_sdk(request: Request) -> _SdkIdentity:
+    # PostHog SDKs identify as "posthog-<name>/<version>" (for example posthog-android/3.59.0). Parse
+    # it so a rejection can be attributed to the SDK or wrapper from this log alone, without joining
+    # access logs. Bound each part and ignore any non-PostHog user agent so the field stays a fixed
+    # shape and an arbitrary user agent cannot bloat the log line.
+    user_agent = request.META.get("HTTP_USER_AGENT") or ""
+    if not user_agent.startswith("posthog-"):
+        return _SdkIdentity()
+    name, _, version = user_agent.partition("/")
+    if not version:
+        return _SdkIdentity()
+    return _SdkIdentity(name=name[:64], version=version.split()[0][:32])
+
+
+def _api_key_fingerprint(api_key: str) -> str:
+    # A stable, non-reversible fingerprint of the submitted token, so many invalid-token rejections
+    # can be grouped to one source without logging the raw credential. Keyed with the server secret
+    # so a fingerprint cannot be precomputed for a guessed token.
+    return hmac.new(settings.SECRET_KEY.encode(), api_key.encode(), hashlib.sha256).hexdigest()[:16]
+
+
 def _rejection_response(
     request: Request,
     message: str,
@@ -157,6 +221,7 @@ def _rejection_response(
     team_id: int | None = None,
     app_id: str | None = None,
     detail: str | None = None,
+    api_key_fingerprint: str | None = None,
     exc_info: bool = False,
 ) -> HttpResponse:
     # request.method is an arbitrary attacker-controlled token on the method_not_allowed path (any
@@ -167,14 +232,19 @@ def _rejection_response(
     PUSH_SUBSCRIPTION_REJECTION_COUNTER.labels(code=code, method=method_label).inc()
     # exc_info attaches the active exception's traceback for paths that swallow one (capture_failed),
     # so a 500 is diagnosable from this single labeled event rather than just the counter.
+    sdk = _parse_user_agent_sdk(request)
     logger.warning(
         "push_subscription_rejected",
         code=code,
         status_code=status_code,
         method=request.method,
         team_id=team_id,
-        app_id=app_id,
+        # app_id is client-supplied, so bound it to keep a hostile value from bloating the log line.
+        app_id=app_id[:128] if isinstance(app_id, str) else app_id,
         detail=detail,
+        sdk_name=sdk.name,
+        sdk_version=sdk.version,
+        api_key_fingerprint=api_key_fingerprint,
         exc_info=exc_info,
     )
     return cors_response(
@@ -247,14 +317,28 @@ def push_subscriptions(request: Request):
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
 
-    team = Team.objects.get_team_from_cache_or_token(api_key)
-    if not team:
+    if _is_known_invalid_token(api_key):
         return _rejection_response(
             request,
             "Invalid project token.",
             error_type="authentication_error",
             code="invalid_api_key",
             status_code=status.HTTP_401_UNAUTHORIZED,
+            api_key_fingerprint=_api_key_fingerprint(api_key),
+        )
+
+    team = Team.objects.get_team_from_cache_or_token(api_key)
+    if not team:
+        _remember_invalid_token(api_key)
+        # Fingerprint the rejected token so a cohort of these can be traced to one bad app
+        # configuration, which is the usual cause of a burst of invalid-token rejections.
+        return _rejection_response(
+            request,
+            "Invalid project token.",
+            error_type="authentication_error",
+            code="invalid_api_key",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            api_key_fingerprint=_api_key_fingerprint(api_key),
         )
 
     distinct_id = data.get("distinct_id")

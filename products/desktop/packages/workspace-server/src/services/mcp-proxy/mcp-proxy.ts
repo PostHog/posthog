@@ -330,7 +330,11 @@ export class McpProxyService {
     if (bodyText.includes('"authentication_failed"')) {
       return true;
     }
-    if (status < 400) return false;
+    // Same rule for servers that answer with plain text: only a 401 signals a
+    // rejected token. A 403 is a permission denial a refresh cannot fix, and
+    // each forced refresh rotates the refresh token and rebuilds the whole
+    // desktop session.
+    if (status !== 401) return false;
     return (
       bodyText.includes("Invalid API key") ||
       bodyText.includes("Authentication failed")

@@ -94,7 +94,7 @@ function NotebookVariableValueInput({
 
 /**
  * The notebook's variables, one row each: name, type, value, delete. A property of the notebook
- * rather than a block in the document, so it hangs under the header and cannot be reordered,
+ * rather than a block in the document, so it sits above the first block and cannot be reordered,
  * duplicated, or deleted as content.
  */
 export function NotebookVariablesPanel({
@@ -116,7 +116,7 @@ export function NotebookVariablesPanel({
         onChange(variables.map((variable, i) => (i === index ? { ...variable, ...patch } : variable)))
 
     return (
-        <div className="NotebookVariables mx-auto flex w-[70%] min-w-0 flex-col gap-2 rounded border border-primary bg-surface-secondary p-2">
+        <div className="NotebookVariables flex w-full min-w-0 flex-col gap-2 rounded border border-primary bg-surface-secondary p-2">
             {variables.length === 0 ? (
                 <p className="m-0 text-xs text-secondary">
                     No variables yet. Add one, then read it as <code>{'{name}'}</code> in a SQL cell or as a plain

@@ -15,6 +15,16 @@ import { AGENT_AUTH, AGENT_LOGGER } from "./identifiers";
 import type { AgentAuth, AgentLogger, AgentScopedLogger } from "./ports";
 import type { Credentials } from "./schemas";
 
+/**
+ * Names capabilities rather than describing the server, because the agent's tool search
+ * reads this before the PostHog MCP has ever connected. Mirrors POSTHOG_MCP_DESCRIPTION
+ * in products/tasks, which does the same for cloud runs.
+ */
+const POSTHOG_MCP_DESCRIPTION =
+  "Query and manage a PostHog project: events, insights, dashboards, SQL queries, " +
+  "feature flags, experiments, surveys, error tracking, session replay, logs, " +
+  "LLM analytics, and the data warehouse.";
+
 const VALID_APPROVAL_STATES = new Set([
   "approved",
   "needs_approval",
@@ -100,9 +110,15 @@ export class AgentAuthAdapter {
     const policyInstallationIds = new Set(
       configuration.toolPolicies.map((policy) => policy.installationId),
     );
-    const servers = configuration.servers.filter((server) => {
+    // pi mounts these lazily and never dials one to answer "what can it do", so a server
+    // without a description is only findable by searching its exact name.
+    const servers = configuration.servers.flatMap((server) => {
       const installationId = configuration.serverInstallationIds.get(server);
-      return !installationId || policyInstallationIds.has(installationId);
+      if (installationId && !policyInstallationIds.has(installationId)) {
+        return [];
+      }
+      const description = configuration.serverDescriptions.get(server);
+      return [description ? { ...server, description } : server];
     });
 
     return { servers, policies: configuration.toolPolicies };
@@ -117,9 +133,13 @@ export class AgentAuthAdapter {
     toolInstallations: McpToolInstallations;
     toolPolicies: McpToolPolicy[];
     serverInstallationIds: Map<McpServerConnection, string>;
+    serverDescriptions: Map<McpServerConnection, string>;
   }> {
     const servers: McpServerConnection[] = [];
     const serverInstallationIds = new Map<McpServerConnection, string>();
+    // Kept beside the servers rather than on them: this list also goes to claude and
+    // codex as ACP session params, whose McpServer schema doesn't declare a description.
+    const serverDescriptions = new Map<McpServerConnection, string>();
     const mcpUrl = this.getPostHogMcpUrl(credentials.apiHost);
     // Warm the token so authenticatedFetch() has something cached, but do not
     // bake it into the MCP config — the proxy injects a fresh one on every
@@ -129,7 +149,7 @@ export class AgentAuthAdapter {
     await this.mcpProxy.start();
     const proxiedPosthogUrl = this.mcpProxy.register("posthog", mcpUrl);
 
-    servers.push({
+    const posthogServer: McpServerConnection = {
       name: "posthog",
       type: "http",
       url: proxiedPosthogUrl,
@@ -141,7 +161,9 @@ export class AgentAuthAdapter {
         { name: "x-posthog-mcp-version", value: "2" },
         { name: "x-posthog-mcp-consumer", value: "posthog-code" },
       ],
-    });
+    };
+    servers.push(posthogServer);
+    serverDescriptions.set(posthogServer, POSTHOG_MCP_DESCRIPTION);
 
     const installations = await this.fetchMcpInstallations(credentials);
 
@@ -164,6 +186,9 @@ export class AgentAuthAdapter {
       };
       servers.push(server);
       serverInstallationIds.set(server, installation.id);
+      if (installation.description) {
+        serverDescriptions.set(server, installation.description);
+      }
     }
 
     const {
@@ -182,6 +207,7 @@ export class AgentAuthAdapter {
       toolInstallations,
       toolPolicies,
       serverInstallationIds,
+      serverDescriptions,
     };
   }
 
@@ -408,6 +434,7 @@ export class AgentAuthAdapter {
       proxy_url: string;
       name: string;
       display_name: string;
+      description?: string;
       auth_type: string;
     }>
   > {
@@ -435,6 +462,7 @@ export class AgentAuthAdapter {
           proxy_url?: string;
           name: string;
           display_name: string;
+          description?: string;
           auth_type: string;
           is_enabled?: boolean;
           pending_oauth: boolean;

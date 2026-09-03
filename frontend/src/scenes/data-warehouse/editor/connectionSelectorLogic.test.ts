@@ -45,6 +45,16 @@ describe('connectionSelectorLogic', () => {
                 supports_hogql: true,
                 is_builtin_managed_warehouse: false,
             },
+            {
+                id: 'conn-trino',
+                description: 'Managed Warehouse Trino',
+                prefix: 'trino',
+                engine: 'trino',
+                source_type: 'Trino',
+                access_method: 'direct',
+                supports_hogql: false,
+                is_builtin_managed_warehouse: false,
+            },
         ])
     })
 
@@ -82,6 +92,11 @@ describe('connectionSelectorLogic', () => {
                     value: 'conn-456',
                     label: 'prod (MySQL · synced)',
                     managementUrl: urls.dataWarehouseSource('managed-conn-456'),
+                }),
+                expect.objectContaining({
+                    value: 'conn-trino',
+                    label: 'Managed Warehouse Trino (Trino)',
+                    managementUrl: urls.dataWarehouseSource('managed-conn-trino'),
                 }),
             ])
         )

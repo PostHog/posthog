@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.temporal.ingestion_acceptance_test.config import Config
+from posthog.temporal.ingestion_acceptance_test.results import CapturedEventRef
 from posthog.temporal.ingestion_acceptance_test.runner import (
     AcceptanceTest,
     RunningTests,
@@ -59,6 +60,25 @@ class TestRunTests:
         run_tests(config, tests, mock_client, executor, running_tests)
 
         assert call_order == ["init", "setup", "test_method"]
+
+    def test_attaches_events_captured_by_the_test_to_its_result(
+        self, config: Config, mock_client: MagicMock, executor: ThreadPoolExecutor, running_tests: RunningTests
+    ) -> None:
+        captured = [CapturedEventRef(uuid="u-1", event="$test", distinct_id="d-1")]
+        mock_client.take_captured_events.return_value = captured
+
+        class FailingTest(AcceptanceTest):
+            def test_fail(self) -> None:
+                raise AssertionError("Event u-1 not found within 1s timeout")
+
+        tests = [TestCase(module_name="test_mod", test_class=FailingTest, method_name="test_fail")]
+
+        result = run_tests(config, tests, mock_client, executor, running_tests)
+
+        assert result.results[0].captured_events == captured
+        assert result.to_dict()["results"][0]["captured_events"] == [
+            {"uuid": "u-1", "event": "$test", "distinct_id": "d-1"}
+        ]
 
     def test_returns_passed_status_and_correct_names(
         self, config: Config, mock_client: MagicMock, executor: ThreadPoolExecutor, running_tests: RunningTests

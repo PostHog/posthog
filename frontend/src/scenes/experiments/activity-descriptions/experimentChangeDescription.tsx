@@ -6,12 +6,13 @@ import { ActivityChange } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
 import { getExposureConfigDisplayName } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
 import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentConclusion } from '~/types'
+
+import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
 
 import { getMetricChanges } from './metricChangeDescriptions'
 
@@ -64,6 +65,17 @@ function withoutRunningTimeCalculationKeys(value: unknown): Record<string, unkno
     return Object.fromEntries(
         Object.entries((value as Record<string, unknown> | null) ?? {}).filter(
             ([key]) => !RUNNING_TIME_CALCULATION_KEYS.includes(key)
+        )
+    )
+}
+
+const DERIVED_RUNNING_TIME_KEYS = ['recommended_running_time', 'recommended_sample_size']
+
+/** Strip the derived calculator outputs so only deliberate input edits (MDE, exposure estimate) count. */
+function withoutDerivedRunningTimeKeys(value: unknown): Record<string, unknown> {
+    return Object.fromEntries(
+        Object.entries((value as Record<string, unknown> | null) ?? {}).filter(
+            ([key]) => !DERIVED_RUNNING_TIME_KEYS.includes(key)
         )
     )
 }
@@ -283,7 +295,12 @@ export const getExperimentChangeDescription = (
             }
             return 'updated parameters'
         })
-        .with({ field: 'running_time_calculation' }, () => {
+        .with({ field: 'running_time_calculation' }, ({ before, after }) => {
+            // Opening the calculator re-saves the recomputed outputs, so they drift as exposure
+            // data changes — a row only earns its place when a calculator input was edited.
+            if (equal(withoutDerivedRunningTimeKeys(before), withoutDerivedRunningTimeKeys(after))) {
+                return null
+            }
             return 'updated the running time calculation'
         })
         .with({ field: 'excluded_variants' }, () => {

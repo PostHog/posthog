@@ -5,6 +5,7 @@ import { HogQLQuery, NodeKind, ProductKey } from '~/queries/schema/schema-genera
 import { hogql } from '~/queries/utils'
 import { EventDefinitionType } from '~/types'
 
+// Keep in sync with the `setupProbe` in ../../manifest.tsx (the boot-time approximation of this check).
 const AI_EVENT_NAMES = ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding']
 
 // Use a longer staleness window than the global default so orgs that ingested AI events

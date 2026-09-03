@@ -1,0 +1,89 @@
+# Golden-chart (charts/posthog-app) values for pgapi — the API + MCP server over the
+# pgcollector stats DB. Copy to charts/apps/pgapi/values.yaml (+ values.<env>.yaml).
+#
+# Auth model (no OAuth in the app; identity comes from the edge):
+#   browsers  → ingress.internal: true  → ALB + Cognito; app verifies x-amzn-oidc-data (ES256)
+#   MCP/CLI   → tailscaleIngress + whois → Tailscale-User-Login, trusted only because the
+#               NetworkPolicy below admits nothing but the operator's proxy pods
+# Then authorisation: @posthog.com only (PGAPI_ALLOWED_DOMAINS). Everything is read-only.
+
+image:
+  name: pgapi
+  repository: 795637471508.dkr.ecr.us-east-1.amazonaws.com/pgcollector   # same image as the collector
+
+command: ["/pgapi"]
+
+autoscaling:
+  minPods: 1
+  maxPods: 2
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits:   { cpu: 250m, memory: 512Mi }
+
+service:
+  port: 3400
+  targetPort: 3400
+livenessProbe:
+  httpGet: { path: /healthz, port: 3400 }
+readinessProbe:
+  httpGet: { path: /readyz, port: 3400 }
+monitoring:
+  prometheus:
+    path: /metrics
+    port: "3400"
+
+# --- browser path: Cognito-gated internal host -------------------------------
+ingress:
+  enabled: true
+  internal: true
+  defaultRoute: true
+  # host: pgapi.prod-us.posthog.dev          # per env in values.<env>.yaml
+  timeoutPolicy:
+    idle: 1h                                  # MCP streams stay open
+
+# --- MCP / CLI path: tailnet host with identity headers -----------------------
+tailscaleIngress:
+  enabled: true
+  # host: pgapi-prod-us                       # per env; MagicDNS name → https://pgapi-prod-us.<tailnet>.ts.net/mcp
+  tags: "tag:pgapi"                           # engineering-only ACL, see docs/deploy.md
+  whois: true
+
+# whois makes Tailscale-User-Login a credential: only the Tailscale operator's proxy
+# pods and the internal ingress Envoy may reach the container port.
+networkPolicy:
+  enabled: true
+  allowFrom:
+    - podSelector:
+        tailscale.com/managed: "true"
+      namespaceSelector:
+        kubernetes.io/metadata.name: tailscale
+      ports:
+        - port: 3400
+          protocol: TCP
+    - podSelector: {}
+      namespaceSelector:
+        kubernetes.io/metadata.name: contour     # the internal-ingress Envoy namespace
+      ports:
+        - port: 3400
+          protocol: TCP
+
+env:
+  PGAPI_LISTEN: "0.0.0.0:3400"
+  PGAPI_TRUST_TAILSCALE: "1"
+  # PGAPI_TAILSCALE_HOSTS: pgapi-prod-us.hedgehog-kitefin.ts.net   # default: any *.ts.net host
+  # Both required together to enable the Cognito/ALB path:
+  PGAPI_ALB_REGION: us-east-1
+  PGAPI_ALB_CLIENT_ID: 7d7earg8ande8rgp1coal63rva   # Cognito app client for the env (charts/argocd/ingress/values)
+  # PGAPI_ALB_ARN: arn:aws:elasticloadbalancing:us-east-1:<account>:loadbalancer/app/<internal-alb>/<id>   # tokens from any other ALB are rejected
+  PGAPI_ALLOWED_DOMAINS: posthog.com
+  # PGAPI_ALLOWED_HOSTS: pgapi.prod-us.posthog.dev,pgapi-prod-us.hedgehog-kitefin.ts.net   # DNS-rebinding guard
+  RUST_LOG: info
+
+# Read-only user on the stats DB (users_readonly tier).
+psql:
+  pgcollector:
+    pgbouncer: false
+    read:
+      enabled: true
+      env:
+        PGAPI_DATABASE_URL: POSTGRES_URL

@@ -13,7 +13,7 @@ from products.signals.backend.task_run_artefacts import (
 )
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
-from products.tasks.backend.models import Task  # tach-ignore
+from products.tasks.backend.models import Task
 
 
 class TestBackfillTaskRunArtefacts(BaseTest):

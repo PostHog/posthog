@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
   Spinner,
 } from "@posthog/quill";
+import { Spin } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
 import { PrChecksSection } from "./PrChecksSection";
 import { useApprovePr } from "./useApprovePr";
@@ -115,7 +116,9 @@ export function PrDecisionBlock({ prUrl }: PrDecisionBlockProps) {
     </span>
   ) : gate.pendingChecks > 0 ? (
     <span className="flex items-center gap-1.5 text-(--amber-11)">
-      <CircleNotchIcon size={14} className="animate-spin" />
+      <Spin>
+        <CircleNotchIcon size={14} />
+      </Spin>
       Checks running
     </span>
   ) : gate.totalChecks === 0 ? (

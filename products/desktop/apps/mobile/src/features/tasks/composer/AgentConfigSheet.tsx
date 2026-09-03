@@ -1,40 +1,32 @@
 import { Text } from "@components/text";
-import type { Adapter, SupportedReasoningEffort } from "@posthog/shared";
+import type { SupportedReasoningEffort } from "@posthog/shared";
 import {
   ArrowCounterClockwise,
   CaretDown,
   Check,
   Lightning,
 } from "phosphor-react-native";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Pressable, ScrollView, Switch, View } from "react-native";
 import { SheetContainer } from "@/components/SheetContainer";
 import { useThemeColors } from "@/lib/theme";
-import type { AgentPreset, ContextWindow, MobileModelOption } from "./options";
-
-const ADAPTER_LABELS: Record<Adapter, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-};
+import type { AgentPreset, ContextWindow, MobileModelGroup } from "./options";
 
 interface AgentConfigSheetProps {
   open: boolean;
   onClose: () => void;
-  adapter: Adapter;
   model: string;
   reasoning: SupportedReasoningEffort;
   contextWindow: ContextWindow;
   fastMode: boolean;
   presets: AgentPreset[];
   reasoningOptions: ReadonlyArray<{ value: string; name: string }>;
-  modelOptions: MobileModelOption[];
+  modelGroups: MobileModelGroup[];
   fastModeAvailable: boolean;
   contextWindowAvailable: boolean;
-  canChangeAdapter: boolean;
   onSelectPreset: (preset: AgentPreset) => void;
   onModelChange: (model: string) => void;
   onReasoningChange: (value: SupportedReasoningEffort) => void;
-  onAdapterSelect: (adapter: Adapter) => void;
   onFastModeChange: (enabled: boolean) => void;
   onContextWindowChange: (value: ContextWindow) => void;
   onReset: () => void;
@@ -43,6 +35,14 @@ interface AgentConfigSheetProps {
 function SectionLabel({ children }: { children: string }) {
   return (
     <Text className="px-4 pt-4 pb-1 font-medium text-[12px] text-gray-10 uppercase tracking-wide">
+      {children}
+    </Text>
+  );
+}
+
+function GroupHeader({ children }: { children: string }) {
+  return (
+    <Text className="px-4 pt-3 pb-1 font-medium text-[11px] text-gray-10 uppercase tracking-wide">
       {children}
     </Text>
   );
@@ -116,27 +116,25 @@ function Segmented<T extends string>({
 export function AgentConfigSheet({
   open,
   onClose,
-  adapter,
   model,
   reasoning,
   contextWindow,
   fastMode,
   presets,
   reasoningOptions,
-  modelOptions,
+  modelGroups,
   fastModeAvailable,
   contextWindowAvailable,
-  canChangeAdapter,
   onSelectPreset,
   onModelChange,
   onReasoningChange,
-  onAdapterSelect,
   onFastModeChange,
   onContextWindowChange,
   onReset,
 }: AgentConfigSheetProps) {
   const themeColors = useThemeColors();
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const showGroupHeaders = modelGroups.length > 1;
 
   return (
     <SheetContainer open={open} onClose={onClose}>
@@ -211,33 +209,26 @@ export function AgentConfigSheet({
 
         {advancedOpen ? (
           <>
-            {canChangeAdapter ? (
-              <>
-                <SectionLabel>Harness</SectionLabel>
-                <Segmented
-                  value={adapter}
-                  onChange={onAdapterSelect}
-                  options={[
-                    { value: "claude", label: ADAPTER_LABELS.claude },
-                    { value: "codex", label: ADAPTER_LABELS.codex },
-                  ]}
-                />
-              </>
-            ) : null}
-
             <SectionLabel>Model</SectionLabel>
-            {modelOptions.map((option) => (
-              <Row
-                key={option.value}
-                label={option.label}
-                description={
-                  option.disabled ? "Upgrade required" : option.description
-                }
-                selected={option.value === model}
-                onPress={() => {
-                  if (!option.disabled) onModelChange(option.value);
-                }}
-              />
+            {modelGroups.map((group) => (
+              <Fragment key={group.key}>
+                {showGroupHeaders ? (
+                  <GroupHeader>{group.name}</GroupHeader>
+                ) : null}
+                {group.options.map((option) => (
+                  <Row
+                    key={option.value}
+                    label={option.label}
+                    description={
+                      option.disabled ? "Upgrade required" : option.description
+                    }
+                    selected={option.value === model}
+                    onPress={() => {
+                      if (!option.disabled) onModelChange(option.value);
+                    }}
+                  />
+                ))}
+              </Fragment>
             ))}
 
             {reasoningOptions.length > 0 ? (

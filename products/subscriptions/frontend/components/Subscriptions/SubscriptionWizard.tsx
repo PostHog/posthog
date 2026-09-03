@@ -38,6 +38,7 @@ import { InsightSelector } from './InsightSelector'
 import { SubscriptionDayPicker } from './SubscriptionDayPicker'
 import { subscriptionLogic } from './subscriptionLogic'
 import type { SubscriptionLogicProps } from './subscriptionLogic'
+import { SubscriptionTimePicker } from './SubscriptionTimePicker'
 import {
     frequencyOptionsPlural,
     frequencyOptionsSingular,
@@ -51,7 +52,6 @@ import {
     shouldShowDayPicker,
     requestSubscriptionWizardCancellation,
     targetTypeOptions,
-    timeOptions,
     WEEKDAYS,
     weekdayOptions,
 } from './utils'
@@ -249,7 +249,7 @@ export function SubscriptionWizard({
                 props={logicProps}
                 formKey="subscription"
                 enableFormOnSubmit
-                className="flex flex-1 flex-col"
+                className="flex flex-1 flex-col min-h-0"
             >
                 <div className="flex min-h-[36rem] flex-1 flex-col overflow-hidden">
                     <header className="border-b p-4">
@@ -565,21 +565,7 @@ function SubscriptionScheduleStep({ logicProps }: { logicProps: SubscriptionLogi
                 ) : null}
                 <span>at</span>
                 <LemonField name="start_date">
-                    {({ value, onChange }) => (
-                        <LemonSelect
-                            options={timeOptions}
-                            value={dayjs(value).hour().toString()}
-                            onChange={(hour) =>
-                                onChange(
-                                    dayjs()
-                                        .hour(Number(hour ?? 0))
-                                        .minute(0)
-                                        .second(0)
-                                        .toISOString()
-                                )
-                            }
-                        />
-                    )}
+                    {({ value, onChange }) => <SubscriptionTimePicker value={value} onChange={onChange} />}
                 </LemonField>
             </div>
             {nextDeliveryDate ? (

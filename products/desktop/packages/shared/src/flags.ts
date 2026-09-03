@@ -18,16 +18,12 @@ export const PROJECT_BLUEBIRD_FLAG = "project-bluebird";
  * project-bluebird. The key predates the rename, matching the live flag.
  */
 export const CHANNELS_LAYOUT_FLAG = "code-spaces-layout";
-/**
- * Gates the browser-tab strip inside the spaces layout. Off is the same code
- * path with a single tab (the tab is the window), not a second implementation,
- * so per-tab history and view state behave as their window-global predecessors.
- * Requires the spaces layout.
- */
-export const SPACES_TABS_FLAG = "posthog-desktop-spaces-tabs";
 // Gates the Loops feature: the sidebar Loops space and the per-channel Loops tab.
 export const LOOPS_FLAG = "loops";
+/** Desktop Loops read and write workflows (`hog_flows`) instead of the loops API. */
+export const LOOPS_HOG_FLOWS_FLAG = "loops-hog-flows";
 export const DESKTOP_HOME_FLAG = "desktop-home-flag";
+export const SAVED_SEARCHES_RAIL_FLAG = "posthog-desktop-saved-searches-rail";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";
 export const GLM_MODEL_FLAG = "posthog-code-glm-model";
 export const GLM53_MODEL_FLAG = "posthog-code-glm-53-model";
@@ -41,6 +37,10 @@ export const KIMI_MODEL_FLAG = "tasks-kimi-k3";
 export const FAST_MODE_FLAG = "posthog-desktop-fast-mode";
 /** Spoken narration (agent speaks via the `speak` tool). Gated for a staged rollout. */
 export const SPOKEN_NARRATION_FLAG = "posthog-code-spoken-narration";
+export const CODEX_OWN_SUBSCRIPTION_FLAG =
+  "posthog-code-codex-own-subscription";
+export const CLAUDE_OWN_SUBSCRIPTION_FLAG =
+  "posthog-code-claude-own-subscription";
 // Gates importing and relaying local MCP servers into cloud task runs.
 export const LOCAL_MCP_IMPORT_FLAG = "posthog-code-local-mcp-import";
 /**
@@ -49,11 +49,9 @@ export const LOCAL_MCP_IMPORT_FLAG = "posthog-code-local-mcp-import";
  * Owned by the backend rollout in posthog/posthog — same flag key there.
  */
 export const MCP_GATEWAY_FLAG = "mcp-gateway";
-/** Per-task estimated cost readout in the context usage indicator. */
-export const TASK_COST_FLAG = "posthog-code-task-cost";
 /**
  * Shows the task cost as text beside the context ring rather than only inside
- * the popover. Requires TASK_COST_FLAG, which is what fetches the figure.
+ * the popover.
  */
 export const TASK_COST_VISIBLE_FLAG = "posthog-code-task-cost-visible";
 /**

@@ -288,7 +288,11 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        queryset = queryset.filter(team_id=self.team_id, deleted=False)
+        queryset = queryset.filter(
+            team_id=self.team_id,
+            deleted=False,
+            source_policy=Canvas.SOURCE_POLICY_STANDARD,
+        )
         user = self._request_user()
         is_sandbox_authenticated = self._is_sandbox_authenticated(self.request)
         if is_sandbox_authenticated:

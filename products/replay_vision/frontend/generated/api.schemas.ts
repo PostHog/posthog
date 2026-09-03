@@ -8,94 +8,37 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `schedule` - Schedule
- * * `threshold` - Threshold
+ * * `metric` - Metric
+ * * `match` - Match
  */
-export type VisionActionTriggerTypeEnumApi =
-    (typeof VisionActionTriggerTypeEnumApi)[keyof typeof VisionActionTriggerTypeEnumApi]
+export type VisionAlertKindEnumApi = (typeof VisionAlertKindEnumApi)[keyof typeof VisionAlertKindEnumApi]
 
-export const VisionActionTriggerTypeEnumApi = {
-    Schedule: 'schedule',
-    Threshold: 'threshold',
+export const VisionAlertKindEnumApi = {
+    Metric: 'metric',
+    Match: 'match',
 } as const
 
-/**
- * * `group_summary` - Group summary
- * * `alert` - Alert
- * * `per_observation` - Per observation
- */
-export type VisionActionModeEnumApi = (typeof VisionActionModeEnumApi)[keyof typeof VisionActionModeEnumApi]
-
-export const VisionActionModeEnumApi = {
-    GroupSummary: 'group_summary',
-    Alert: 'alert',
-    PerObservation: 'per_observation',
-} as const
-
-/**
- * Schedule trigger parameters. Threshold triggers are reserved and rejected at the API for now.
- */
-export interface TriggerConfigApi {
-    /** iCal RRULE string controlling the schedule cadence (no DTSTART — the start is managed separately). */
-    rrule?: string
-    /** IANA timezone name the RRULE is expanded in, e.g. 'Europe/Prague'. Defaults to 'UTC'. */
-    timezone?: string
-}
-
-/**
- * * `yes` - yes
- * * `no` - no
- * * `inconclusive` - inconclusive
- */
-export type VerdictEnumApi = (typeof VerdictEnumApi)[keyof typeof VerdictEnumApi]
-
-export const VerdictEnumApi = {
-    Yes: 'yes',
-    No: 'no',
-    Inconclusive: 'inconclusive',
-} as const
-
-/**
- * The action's targeting predicate ("run this on…") applied when gathering observations. All keys
- * optional; this typed shape is the allowlist, so unknown input keys are dropped rather than persisted.
- */
-export interface SelectionApi {
-    /** Restrict to observations produced by these scanner IDs. Defaults to the bound scanner. */
-    scanner_ids?: string[]
-    /** Only run on monitor observations with one of these verdicts (yes/no/inconclusive). */
-    verdict?: VerdictEnumApi[]
-    /** Only run on classifier observations carrying any of these tags (fixed or freeform). */
+export interface VisionAlertSelectionApi {
+    /**
+     * Monitor verdicts to match, e.g. ['yes'].
+     * @maxItems 10
+     * @items.maxLength 100
+     */
+    verdict?: string[]
+    /**
+     * Classifier tags to match; an observation matches when it carries any of them.
+     * @maxItems 20
+     * @items.maxLength 200
+     */
     tags?: string[]
-    /** Only run on scorer observations with a score at or above this value (inclusive). */
+    /** Minimum scorer score (inclusive). */
     min_score?: number
-    /** Only run on scorer observations with a score at or below this value (inclusive). */
+    /** Maximum scorer score (inclusive). */
     max_score?: number
 }
 
 /**
- * Options for the group-summary synthesis step.
- */
-export interface SynthesisConfigApi {
-    /**
-     * Free-form guidance steering how the group summary is written.
-     * @maxLength 500
-     */
-    prompt_guide?: string
-}
-
-/**
- * * `every_match` - Every new match
- * * `on_breach` - When a threshold is crossed
- */
-export type AlertConfigFrequencyEnumApi = (typeof AlertConfigFrequencyEnumApi)[keyof typeof AlertConfigFrequencyEnumApi]
-
-export const AlertConfigFrequencyEnumApi = {
-    EveryMatch: 'every_match',
-    OnBreach: 'on_breach',
-} as const
-
-/**
- * * `count` - Count of matching observations
+ * * `count` - Count matching observations
  * * `avg_score` - Average score
  */
 export type VisionAlertMetricEnumApi = (typeof VisionAlertMetricEnumApi)[keyof typeof VisionAlertMetricEnumApi]
@@ -117,83 +60,35 @@ export const VisionAlertDirectionEnumApi = {
 } as const
 
 /**
- * * `1` - 1 day
- * * `3` - 3 days
- * * `7` - 7 days
- * * `14` - 14 days
- * * `30` - 30 days
+ * * `not_firing` - Not firing
+ * * `firing` - Firing
+ * * `pending_resolve` - Pending resolve
+ * * `errored` - Errored
+ * * `snoozed` - Snoozed
+ * * `broken` - Broken
  */
-export type WindowDaysEnumApi = (typeof WindowDaysEnumApi)[keyof typeof WindowDaysEnumApi]
+export type LogsAlertConfigurationStateEnumApi =
+    (typeof LogsAlertConfigurationStateEnumApi)[keyof typeof LogsAlertConfigurationStateEnumApi]
 
-export const WindowDaysEnumApi = {
-    Number1: 1,
-    Number3: 3,
-    Number7: 7,
-    Number14: 14,
-    Number30: 30,
+export const LogsAlertConfigurationStateEnumApi = {
+    NotFiring: 'not_firing',
+    Firing: 'firing',
+    PendingResolve: 'pending_resolve',
+    Errored: 'errored',
+    Snoozed: 'snoozed',
+    Broken: 'broken',
 } as const
 
-/**
- * The alert condition for mode='alert', applied after `selection` targeting. 'every_match'
- * notifies about each new match since the previous check; 'on_breach' compares a metric to a
- * threshold over a rolling window and notifies on the transition into breach.
- */
-export interface AlertConfigApi {
-    /** 'every_match' notifies about every new matching observation (batched per check); 'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'.
-     *
-     * * `every_match` - Every new match
-     * * `on_breach` - When a threshold is crossed */
-    frequency?: AlertConfigFrequencyEnumApi
-    /** What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.
-     *
-     * * `count` - Count of matching observations
-     * * `avg_score` - Average score */
-    metric?: VisionAlertMetricEnumApi
-    /** The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match. */
-    threshold?: number
-    /** Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.
-     *
-     * * `above` - At or above
-     * * `below` - At or below */
-    direction?: VisionAlertDirectionEnumApi
-    /** Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).
-     *
-     * * `1` - 1 day
-     * * `3` - 3 days
-     * * `7` - 7 days
-     * * `14` - 14 days
-     * * `30` - 30 days */
-    window_days?: WindowDaysEnumApi
-    /** When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict/score/tags. Useful when piping the message somewhere else to read or act on. Defaults to false. */
-    include_reasoning?: boolean
+export interface AlertScheduleRestrictionWindowApi {
+    /** Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)). */
+    start: string
+    /** End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally. */
+    end: string
 }
 
-/**
- * * `slack` - Slack
- * * `webhook` - Webhook
- */
-export type DeliveryTargetTypeEnumApi = (typeof DeliveryTargetTypeEnumApi)[keyof typeof DeliveryTargetTypeEnumApi]
-
-export const DeliveryTargetTypeEnumApi = {
-    Slack: 'slack',
-    Webhook: 'webhook',
-} as const
-
-/**
- * A single delivery destination: a Slack channel or an HTTP webhook URL.
- */
-export interface DeliveryTargetApi {
-    /** Destination type: 'slack' posts to a Slack channel; 'webhook' POSTs a JSON payload to a URL.
-     *
-     * * `slack` - Slack
-     * * `webhook` - Webhook */
-    type: DeliveryTargetTypeEnumApi
-    /** ID of the Slack Integration on this team used to deliver. Required when type is 'slack'. */
-    integration_id?: number
-    /** Slack channel ID or name the summary is posted to. Required when type is 'slack'. */
-    channel?: string
-    /** HTTPS endpoint the summary is POSTed to as JSON. Required when type is 'webhook'. Redacted to scheme+host in responses for users without editor access to the scanner. */
-    url?: string
+export interface AlertScheduleRestrictionApi {
+    /** Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours. */
+    blocked_windows: AlertScheduleRestrictionWindowApi[]
 }
 
 /**
@@ -253,337 +148,6 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
-/**
- * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
- */
-export interface VisionActionApi {
-    readonly id: string
-    /**
-     * Human-readable action name. Unique within the team.
-     * @maxLength 255
-     */
-    name: string
-    /** Scanner whose observations this action operates on. Must belong to the same team. */
-    scanner: string
-    /** When false, the scheduler skips this action. */
-    enabled?: boolean
-    /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
-    is_scanner_digest?: boolean
-    /** What fires the action. MVP supports 'schedule' only.
-     *
-     * * `schedule` - Schedule
-     * * `threshold` - Threshold */
-    trigger_type?: VisionActionTriggerTypeEnumApi
-    /** What the action produces. MVP supports 'group_summary' only.
-     *
-     * * `group_summary` - Group summary
-     * * `alert` - Alert
-     * * `per_observation` - Per observation */
-    mode?: VisionActionModeEnumApi
-    /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
-    trigger_config?: TriggerConfigApi
-    /** Targeting predicate: which of the scanner's observations this action runs on. */
-    selection?: SelectionApi
-    /** Synthesis options for the group summary, e.g. {prompt_guide}. */
-    synthesis_config?: SynthesisConfigApi
-    /** Alert condition; required when mode is 'alert', ignored otherwise. */
-    alert_config?: AlertConfigApi
-    /** List of delivery destinations the synthesized summary is sent to. */
-    delivery_config?: DeliveryTargetApi[]
-    /**
-     * Computed next fire time for schedule triggers; the scheduler scans this.
-     * @nullable
-     */
-    readonly next_run_at: string | null
-    /**
-     * Timestamp of the most recent run, or null if it has never run.
-     * @nullable
-     */
-    readonly last_run_at: string | null
-    /**
-     * ID of the delivery flow provisioned for this action. Null until delivery is wired up.
-     * @nullable
-     */
-    readonly hog_flow_id: string | null
-    readonly created_at: string
-    /** User who created the action. */
-    readonly created_by: UserBasicApi | null
-    readonly updated_at: string
-}
-
-export interface PaginatedVisionActionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: VisionActionApi[]
-}
-
-/**
- * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
- */
-export interface PatchedVisionActionApi {
-    readonly id?: string
-    /**
-     * Human-readable action name. Unique within the team.
-     * @maxLength 255
-     */
-    name?: string
-    /** Scanner whose observations this action operates on. Must belong to the same team. */
-    scanner?: string
-    /** When false, the scheduler skips this action. */
-    enabled?: boolean
-    /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
-    is_scanner_digest?: boolean
-    /** What fires the action. MVP supports 'schedule' only.
-     *
-     * * `schedule` - Schedule
-     * * `threshold` - Threshold */
-    trigger_type?: VisionActionTriggerTypeEnumApi
-    /** What the action produces. MVP supports 'group_summary' only.
-     *
-     * * `group_summary` - Group summary
-     * * `alert` - Alert
-     * * `per_observation` - Per observation */
-    mode?: VisionActionModeEnumApi
-    /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
-    trigger_config?: TriggerConfigApi
-    /** Targeting predicate: which of the scanner's observations this action runs on. */
-    selection?: SelectionApi
-    /** Synthesis options for the group summary, e.g. {prompt_guide}. */
-    synthesis_config?: SynthesisConfigApi
-    /** Alert condition; required when mode is 'alert', ignored otherwise. */
-    alert_config?: AlertConfigApi
-    /** List of delivery destinations the synthesized summary is sent to. */
-    delivery_config?: DeliveryTargetApi[]
-    /**
-     * Computed next fire time for schedule triggers; the scheduler scans this.
-     * @nullable
-     */
-    readonly next_run_at?: string | null
-    /**
-     * Timestamp of the most recent run, or null if it has never run.
-     * @nullable
-     */
-    readonly last_run_at?: string | null
-    /**
-     * ID of the delivery flow provisioned for this action. Null until delivery is wired up.
-     * @nullable
-     */
-    readonly hog_flow_id?: string | null
-    readonly created_at?: string
-    /** User who created the action. */
-    readonly created_by?: UserBasicApi | null
-    readonly updated_at?: string
-}
-
-/**
- * Async-accepted response for POST /vision/actions/{id}/run/.
- */
-export interface RunActionResponseApi {
-    /** Temporal workflow id for the run; the resulting run appears under the action's run history. */
-    workflow_id: string
-    /** True when a run for this action was already in progress (scheduled or manual), so this request coalesced onto it rather than starting a second run. */
-    already_running: boolean
-}
-
-/**
- * The shape every Replay Vision error response uses, so generated clients read one key.
- */
-export interface ReplayVisionErrorApi {
-    /** Human-readable explanation of why the request was refused. */
-    detail: string
-}
-
-/**
- * * `running` - Running
- * * `completed` - Completed
- * * `failed` - Failed
- * * `skipped` - Skipped
- */
-export type VisionActionRunStatusEnumApi =
-    (typeof VisionActionRunStatusEnumApi)[keyof typeof VisionActionRunStatusEnumApi]
-
-export const VisionActionRunStatusEnumApi = {
-    Running: 'running',
-    Completed: 'completed',
-    Failed: 'failed',
-    Skipped: 'skipped',
-} as const
-
-/**
- * Lightweight run row for the per-action run list (no report body — that's fetched on retrieve).
- */
-export interface VisionActionRunListApi {
-    readonly id: string
-    /** Run outcome: running, completed, failed, or skipped.
-     *
-     * * `running` - Running
-     * * `completed` - Completed
-     * * `failed` - Failed
-     * * `skipped` - Skipped */
-    readonly status: VisionActionRunStatusEnumApi
-    /**
-     * The scheduled fire time this run was claimed for.
-     * @nullable
-     */
-    readonly scheduled_at: string | null
-    /** Number of observations that fed this run's summary. */
-    readonly observation_count: number
-    /**
-     * Short human-readable reason a run skipped or failed; null on success.
-     * @nullable
-     */
-    readonly error_reason: string | null
-    /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
-    readonly is_recovery: boolean
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PaginatedVisionActionRunListListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: VisionActionRunListApi[]
-}
-
-/**
- * One recording an action run included in its summary — the 'recordings included' list on the run detail view.
- */
-export interface RunObservationApi {
-    /** 1-based reference number of this observation in the summary, stable across deletions. The synthesized report cites observations by this number (rendered like `[3]`), so consumers use it to resolve a citation to its observation. */
-    readonly index: number
-    /** Observation id; links to the observation detail view. */
-    readonly id: string
-    /** Session recording id this observation was made on. */
-    readonly session_id: string
-    /**
-     * Email of the person in the recorded session, captured at scan time; null if unidentified.
-     * @nullable
-     */
-    readonly recording_subject_email: string | null
-    /**
-     * Short title from the observation's summary; null if the observation had none.
-     * @nullable
-     */
-    readonly title: string | null
-    /** When the observation was produced. */
-    readonly created_at: string
-}
-
-/**
- * Full run detail: the list fields plus the synthesized report and the recordings it summarized.
- */
-export interface VisionActionRunApi {
-    readonly id: string
-    /** Run outcome: running, completed, failed, or skipped.
-     *
-     * * `running` - Running
-     * * `completed` - Completed
-     * * `failed` - Failed
-     * * `skipped` - Skipped */
-    readonly status: VisionActionRunStatusEnumApi
-    /**
-     * The scheduled fire time this run was claimed for.
-     * @nullable
-     */
-    readonly scheduled_at: string | null
-    /** Number of observations that fed this run's summary. */
-    readonly observation_count: number
-    /**
-     * Short human-readable reason a run skipped or failed; null on success.
-     * @nullable
-     */
-    readonly error_reason: string | null
-    /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
-    readonly is_recovery: boolean
-    readonly created_at: string
-    readonly updated_at: string
-    /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
-    readonly synthesized_markdown: string
-    /** Recordings this run included in its summary, in summary order. Empty for runs recorded before this was tracked, and for skipped/failed runs. */
-    readonly observations: readonly RunObservationApi[]
-}
-
-/**
- * * `metric` - Metric
- * * `match` - Match
- */
-export type VisionAlertConfigurationKindEnumApi =
-    (typeof VisionAlertConfigurationKindEnumApi)[keyof typeof VisionAlertConfigurationKindEnumApi]
-
-export const VisionAlertConfigurationKindEnumApi = {
-    Metric: 'metric',
-    Match: 'match',
-} as const
-
-export interface VisionAlertSelectionApi {
-    /**
-     * Monitor verdicts to match, e.g. ['yes'].
-     * @maxItems 10
-     * @items.maxLength 100
-     */
-    verdict?: string[]
-    /**
-     * Classifier tags to match; an observation matches when it carries any of them.
-     * @maxItems 20
-     * @items.maxLength 200
-     */
-    tags?: string[]
-    /** Minimum scorer score (inclusive). */
-    min_score?: number
-    /** Maximum scorer score (inclusive). */
-    max_score?: number
-}
-
-/**
- * * `count` - Count matching observations
- * * `avg_score` - Average score
- */
-export type VisionAlertConfigurationMetricEnumApi =
-    (typeof VisionAlertConfigurationMetricEnumApi)[keyof typeof VisionAlertConfigurationMetricEnumApi]
-
-export const VisionAlertConfigurationMetricEnumApi = {
-    Count: 'count',
-    AvgScore: 'avg_score',
-} as const
-
-/**
- * * `not_firing` - Not firing
- * * `firing` - Firing
- * * `pending_resolve` - Pending resolve
- * * `errored` - Errored
- * * `snoozed` - Snoozed
- * * `broken` - Broken
- */
-export type LogsAlertConfigurationStateEnumApi =
-    (typeof LogsAlertConfigurationStateEnumApi)[keyof typeof LogsAlertConfigurationStateEnumApi]
-
-export const LogsAlertConfigurationStateEnumApi = {
-    NotFiring: 'not_firing',
-    Firing: 'firing',
-    PendingResolve: 'pending_resolve',
-    Errored: 'errored',
-    Snoozed: 'snoozed',
-    Broken: 'broken',
-} as const
-
-export interface AlertScheduleRestrictionWindowApi {
-    /** Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)). */
-    start: string
-    /** End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally. */
-    end: string
-}
-
-export interface AlertScheduleRestrictionApi {
-    /** Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours. */
-    blocked_windows: AlertScheduleRestrictionWindowApi[]
-}
-
 export interface VisionAlertConfigurationApi {
     /** Unique identifier for this alert. */
     readonly id: string
@@ -600,14 +164,14 @@ export interface VisionAlertConfigurationApi {
      *
      * * `metric` - Metric
      * * `match` - Match */
-    kind: VisionAlertConfigurationKindEnumApi
+    kind: VisionAlertKindEnumApi
     /** Which observations count. Empty matches every observation of the scanner. */
     selection?: VisionAlertSelectionApi
     /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
      *
      * * `count` - Count matching observations
      * * `avg_score` - Average score */
-    metric?: VisionAlertConfigurationMetricEnumApi
+    metric?: VisionAlertMetricEnumApi
     /** Metric alerts only: whether the alert fires at or above, or at or below, the threshold.
      *
      * * `above` - At or above
@@ -715,14 +279,14 @@ export interface PatchedVisionAlertConfigurationApi {
      *
      * * `metric` - Metric
      * * `match` - Match */
-    kind?: VisionAlertConfigurationKindEnumApi
+    kind?: VisionAlertKindEnumApi
     /** Which observations count. Empty matches every observation of the scanner. */
     selection?: VisionAlertSelectionApi
     /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
      *
      * * `count` - Count matching observations
      * * `avg_score` - Average score */
-    metric?: VisionAlertConfigurationMetricEnumApi
+    metric?: VisionAlertMetricEnumApi
     /** Metric alerts only: whether the alert fires at or above, or at or below, the threshold.
      *
      * * `above` - At or above
@@ -1094,6 +658,14 @@ export interface RetryResponseApi {
     workflow_id: string
 }
 
+/**
+ * The shape every Replay Vision error response uses, so generated clients read one key.
+ */
+export interface ReplayVisionErrorApi {
+    /** Human-readable explanation of why the request was refused. */
+    detail: string
+}
+
 export interface ObservationSearchResultApi {
     /** The matching observation. */
     observation: ReplayObservationApi
@@ -1112,12 +684,16 @@ export interface ObservationSearchResponseApi {
 
 export interface VisionQuotaApi {
     /**
-     * Credits the org may spend per billing period (1 credit = $0.01). Null when billing has synced the product with no spend limit: uncapped.
+     * Credits the organization may spend per billing period (1 credit = $0.01). 0 is a hard block: no observation can start. Null when billing has synced the product with no spend limit: uncapped.
      * @nullable
      */
     readonly credit_limit: number | null
-    /** Credits spent this period: succeeded observations from the receipt ledger plus reserved in-flight observations. */
+    /** `credits_settled` plus `credits_reserved`: the organization's total draw on `credit_limit` this period, across every project. */
     readonly credits_used: number
+    /** Credits posted to the receipt ledger by succeeded observations and finished prompt-test sessions this period, across every project in the organization. Deleting an observation never refunds these. */
+    readonly credits_settled: number
+    /** Credits held by in-flight observations and running prompt tests across every project in the organization. Released without charge when the work fails, settled into `credits_settled` when it succeeds. */
+    readonly credits_reserved: number
     /**
      * `credit_limit - credits_used`, floored at 0. Null when uncapped.
      * @nullable
@@ -1131,12 +707,28 @@ export interface VisionQuotaApi {
     readonly period_end: string
     /** `scanners_monthly_credits` plus `backfills_committed_credits`. Kept as the single headline number; prefer the two components when pro-rating, since only the scanner half is a monthly rate. */
     readonly projected_monthly_credits: number
-    /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. A monthly rate: only the part falling in the days left of the period lands this period. Scanners without a computed estimate contribute 0. */
+    /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. A capped scanner contributes at most what its own credit limit has left this period, folded back into a 30-day rate. A monthly rate: only the part falling in the days left of the period lands this period. Scanners without a computed estimate contribute 0. */
     readonly scanners_monthly_credits: number
     /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
     readonly backfills_committed_credits: number
     /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
     readonly free_monthly_credits: number
+}
+
+export interface VisionSpendDayApi {
+    /** UTC calendar day. */
+    readonly date: string
+    /** Credits settled by observations created on this day across every project in the organization; 0 when none. */
+    readonly credits: number
+}
+
+export interface VisionSpendSeriesApi {
+    /** First moment of the current quota period (UTC). */
+    readonly period_start: string
+    /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
+    readonly period_end: string
+    /** One entry per UTC day from `period_start` through today, in order, zero-filled for days without spend. */
+    readonly days: readonly VisionSpendDayApi[]
 }
 
 /**
@@ -1164,14 +756,14 @@ export const ScannerProviderEnumApi = {
 /**
  * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
  * * `gemini-3-flash-preview` - Gemini 3 Flash
- * * `gemini-3.7-flash` - Gemini 3.7 Flash
+ * * `gemini-3.8-flash` - Gemini 3.8 Flash
  */
 export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
 
 export const ScannerModelEnumApi = {
     Gemini35FlashLite: 'gemini-3.5-flash-lite',
     Gemini3FlashPreview: 'gemini-3-flash-preview',
-    Gemini37Flash: 'gemini-3.7-flash',
+    Gemini38Flash: 'gemini-3.8-flash',
 } as const
 
 /**
@@ -1279,7 +871,7 @@ export interface ReplayScannerApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -1294,10 +886,15 @@ export interface ReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_observations: number | null
+    /**
+     * When `estimated_monthly_observations` was last computed. Null means the estimate is being recomputed after a config change or has never run, so the stored number may be stale.
+     * @nullable
+     */
+    readonly estimated_at: string | null
     /** Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`. */
     readonly credits_per_observation: number
     /**
-     * `estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.
+     * `estimated_monthly_observations` priced at `credits_per_observation`, capped at `credit_limit` when one is set. Null until the estimate is first computed.
      * @nullable
      */
     readonly estimated_monthly_credits: number | null
@@ -1392,7 +989,7 @@ export interface PatchedReplayScannerApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model?: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -1407,10 +1004,15 @@ export interface PatchedReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_observations?: number | null
+    /**
+     * When `estimated_monthly_observations` was last computed. Null means the estimate is being recomputed after a config change or has never run, so the stored number may be stale.
+     * @nullable
+     */
+    readonly estimated_at?: string | null
     /** Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`. */
     readonly credits_per_observation?: number
     /**
-     * `estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.
+     * `estimated_monthly_observations` priced at `credits_per_observation`, capped at `credit_limit` when one is set. Null until the estimate is first computed.
      * @nullable
      */
     readonly estimated_monthly_credits?: number | null
@@ -1873,10 +1475,10 @@ export interface ObservationStatsApi {
  * * `superseded` - Superseded
  * * `no_change` - No change
  */
-export type ReplayScannerPromptSuggestionStatusEnumApi =
-    (typeof ReplayScannerPromptSuggestionStatusEnumApi)[keyof typeof ReplayScannerPromptSuggestionStatusEnumApi]
+export type PromptSuggestionStatusEnumApi =
+    (typeof PromptSuggestionStatusEnumApi)[keyof typeof PromptSuggestionStatusEnumApi]
 
-export const ReplayScannerPromptSuggestionStatusEnumApi = {
+export const PromptSuggestionStatusEnumApi = {
     Pending: 'pending',
     Applied: 'applied',
     Dismissed: 'dismissed',
@@ -1952,7 +1554,7 @@ export interface ReplayScannerPromptSuggestionApi {
      * * `dismissed` - Dismissed
      * * `superseded` - Superseded
      * * `no_change` - No change */
-    readonly status: ReplayScannerPromptSuggestionStatusEnumApi
+    readonly status: PromptSuggestionStatusEnumApi
     /** The full rewritten prompt, ready to apply to the scanner. */
     readonly suggested_prompt: string
     /** The scanner prompt this suggestion was generated against, for diffing. */
@@ -2087,12 +1689,21 @@ export interface SignalScoutSlackDestinationApi {
      */
     integration_id: number
     /**
-     * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set.
+     * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set.
      * @maxLength 255
      * @nullable
      */
     channel?: string | null
-    /** When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
+    /**
+     * Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.
+     * @minItems 1
+     * @maxItems 5
+     * @nullable
+     * @items.maxLength 255
+     * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
+     */
+    users?: string[] | null
+    /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
     thread_reports?: boolean
 }
 
@@ -2112,10 +1723,10 @@ export interface SignalScoutOutputDestinationsApi {
  * * `trusted` - Trusted domains only
  * * `full` - Full
  */
-export type ScoutConfigNetworkAccessEnumApi =
-    (typeof ScoutConfigNetworkAccessEnumApi)[keyof typeof ScoutConfigNetworkAccessEnumApi]
+export type SignalScoutConfigNetworkAccessEnumApi =
+    (typeof SignalScoutConfigNetworkAccessEnumApi)[keyof typeof SignalScoutConfigNetworkAccessEnumApi]
 
-export const ScoutConfigNetworkAccessEnumApi = {
+export const SignalScoutConfigNetworkAccessEnumApi = {
     Trusted: 'trusted',
     Full: 'full',
 } as const
@@ -2146,7 +1757,7 @@ export interface SignalScoutConfigOptionsApi {
      *
      * * `trusted` - Trusted domains only
      * * `full` - Full */
-    network_access?: ScoutConfigNetworkAccessEnumApi
+    network_access?: SignalScoutConfigNetworkAccessEnumApi
     /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
     auto_pause_exempt?: boolean
     /**
@@ -2193,7 +1804,7 @@ export interface ScannerScoutCreateApi {
     name: string
     /**
      * Short description of the signal or behavior this scout investigates.
-     * @maxLength 4096
+     * @maxLength 1024
      */
     description: string
     /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */
@@ -2202,6 +1813,10 @@ export interface ScannerScoutCreateApi {
     config?: SignalScoutConfigOptionsApi
 }
 
+/**
+ * * `canonical` - canonical
+ * * `custom` - custom
+ */
 export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
 
 export const ScoutOriginEnumApi = {
@@ -2215,9 +1830,10 @@ export const ScoutOriginEnumApi = {
  * * `paused_by_system` - Paused by system
  * * `paused_by_user` - Paused by user
  */
-export type ScoutConfigStatusEnumApi = (typeof ScoutConfigStatusEnumApi)[keyof typeof ScoutConfigStatusEnumApi]
+export type SignalScoutConfigStatusEnumApi =
+    (typeof SignalScoutConfigStatusEnumApi)[keyof typeof SignalScoutConfigStatusEnumApi]
 
-export const ScoutConfigStatusEnumApi = {
+export const SignalScoutConfigStatusEnumApi = {
     Active: 'active',
     PendingPause: 'pending_pause',
     PausedBySystem: 'paused_by_system',
@@ -2229,10 +1845,10 @@ export const ScoutConfigStatusEnumApi = {
  * * `ignored` - Ignored
  * * `repeated_failures` - Repeated failures
  */
-export type ScoutConfigPauseReasonEnumApi =
-    (typeof ScoutConfigPauseReasonEnumApi)[keyof typeof ScoutConfigPauseReasonEnumApi]
+export type SignalScoutConfigPauseReasonEnumApi =
+    (typeof SignalScoutConfigPauseReasonEnumApi)[keyof typeof SignalScoutConfigPauseReasonEnumApi]
 
-export const ScoutConfigPauseReasonEnumApi = {
+export const SignalScoutConfigPauseReasonEnumApi = {
     NoOutput: 'no_output',
     Ignored: 'ignored',
     RepeatedFailures: 'repeated_failures',
@@ -2258,6 +1874,8 @@ export interface SignalScoutConfigApi {
     readonly description: string
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin: ScoutOriginEnumApi
+    /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
+    readonly owners: readonly UserBasicApi[]
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
     readonly enabled: boolean
     /** Lifecycle status. `active`: runs on its schedule. `pending_pause`: still running, but flagged by the system to pause soon unless something changes (any config edit clears it). `paused_by_system`: paused automatically, see `pause_reason`; set `enabled=true` to resume. `paused_by_user`: switched off by a person and never resumed automatically.
@@ -2266,13 +1884,13 @@ export interface SignalScoutConfigApi {
      * * `pending_pause` - Pending pause
      * * `paused_by_system` - Paused by system
      * * `paused_by_user` - Paused by user */
-    readonly status: ScoutConfigStatusEnumApi
+    readonly status: SignalScoutConfigStatusEnumApi
     /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
      *
      * * `no_output` - No output
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures */
-    readonly pause_reason: ScoutConfigPauseReasonEnumApi | null
+    readonly pause_reason: SignalScoutConfigPauseReasonEnumApi | null
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     readonly emit: boolean
     /**
@@ -2297,7 +1915,7 @@ export interface SignalScoutConfigApi {
      *
      * * `trusted` - Trusted domains only
      * * `full` - Full */
-    readonly network_access: ScoutConfigNetworkAccessEnumApi
+    readonly network_access: SignalScoutConfigNetworkAccessEnumApi
     /**
      * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
      * @nullable
@@ -2408,7 +2026,7 @@ export interface DraftScannerResponseApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model: ScannerModelEnumApi | null
     /**
      * Goal-based flow only: the monthly credit cap, set to `monthly_credit_budget` so a mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow.
@@ -2426,7 +2044,7 @@ export interface DraftScannerResponseApi {
  * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
  */
 export interface EstimateRequestApi {
-    /** Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate against all recordings. */
+    /** Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate scans a recent window (`window_days` in the response) and scales it to 30 days. Omit to estimate against all recordings. */
     query?: unknown
     /**
      * 0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).
@@ -2449,7 +2067,7 @@ export interface EstimateRequestApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model?: ScannerModelEnumApi
     /** Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user. */
     experiment_targeting?: ScannerExperimentTargetingApi | null
@@ -2459,11 +2077,11 @@ export interface EstimateRequestApi {
  * Forward-looking volume and credit-cost estimate for a proposed scanner.
  */
 export interface EstimateResponseApi {
-    /** Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality filter but before random sampling. */
+    /** Distinct sessions matching the query within the scanned window (`window_days`), after the sampling_mode quality filter but before random sampling. */
     matched_sessions_in_window: number
-    /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
+    /** Days of recordings the estimate scanned before scaling to 30. Up to a week (shorter when the query's operand rules out sampling); smaller when the team has fewer days of recordings. */
     window_days: number
-    /** Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate. */
+    /** Projected monthly observations: quality-filtered matched sessions scaled from `window_days` to 30 days, times sampling_rate. */
     estimated_observations_per_month: number
     /** Credits one observation costs at the proposed `model` (1 credit = $0.01). */
     credits_per_observation: number
@@ -2505,7 +2123,7 @@ export interface InlineScanRequestApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model?: ScannerModelEnumApi
 }
 
@@ -2617,32 +2235,6 @@ export interface TagSuggestionApi {
 export interface SuggestTagsResponseApi {
     /** Suggested tags to add, most relevant first. May be empty when the evidence is too thin. */
     suggestions: TagSuggestionApi[]
-}
-
-export type VisionActionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Filter to the actions belonging to one scanner.
-     */
-    scanner?: string
-}
-
-export type VisionActionsRunsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type VisionAlertsListParams = {

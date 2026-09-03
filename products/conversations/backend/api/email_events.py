@@ -43,6 +43,7 @@ from products.conversations.backend.services.email_channel_setup import (
     capture_google_forwarding_confirmation,
     process_forwarding_challenges,
 )
+from products.conversations.backend.services.email_links import recover_links_from_html
 from products.conversations.backend.services.email_thread_ingestion import (
     EmailAddress,
     ParsedEmail,
@@ -96,6 +97,7 @@ def _find_thread_ticket(
                 message_id=in_reply_to,
                 team_id=team_id,
             )
+            .defer("full_body_plain")
             .select_related("ticket")
             .first()
         )
@@ -109,7 +111,9 @@ def _find_thread_ticket(
             for m in EmailMessageMapping.objects.filter(
                 message_id__in=references,
                 team_id=team_id,
-            ).select_related("ticket")
+            )
+            .defer("full_body_plain")
+            .select_related("ticket")
         }
         for ref_id in reversed(references):
             if ref_id in mapping_by_id:
@@ -459,6 +463,8 @@ def _parse_inbound_email(request: HttpRequest, config: EmailChannel) -> ParsedEm
         subject=request.POST.get("subject", "")[:500],
         body_plain=request.POST.get("body-plain", "")[:MAX_EMAIL_BODY_LENGTH],
         stripped_text=stripped_text[:MAX_EMAIL_BODY_LENGTH],
+        body_html=request.POST.get("body-html", "")[:MAX_EMAIL_BODY_LENGTH],
+        stripped_html=request.POST.get("stripped-html", "")[:MAX_EMAIL_BODY_LENGTH],
         sender_authenticated=_sender_authenticated(request, sender_email),
         dkim_passed=_mailgun_authentication_passed(request, "X-Mailgun-Dkim-Check-Result"),
         dkim_signing_domains=_dkim_signing_domains(request),
@@ -538,10 +544,15 @@ def _process_support_email(
         sender_email=sender_email,
     )
 
-    if existing_ticket:
-        content = email.stripped_text or email.body_plain
-    else:
-        content = email.body_plain or email.stripped_text
+    body = email.body_with_matching_html(prefer_stripped=bool(existing_ticket))
+    normalized_body_plain = email.body_plain.replace("\r\n", "\n").replace("\r", "\n").strip()
+    normalized_display_body = body.text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    full_body_plain = (
+        recover_links_from_html(email.body_plain, email.body_html)
+        if normalized_body_plain and normalized_body_plain != normalized_display_body
+        else None
+    )
+    content = recover_links_from_html(body.text, body.html)
 
     posthog_user = _resolve_team_member(sender_email, team) if email.sender_authenticated else None
     is_team_member = posthog_user is not None
@@ -597,6 +608,7 @@ def _process_support_email(
                 "email_from_name": sender_name,
                 "email_message_id": email.message_id,
                 "email_attachments": attachments if attachments else None,
+                "has_full_email_content": full_body_plain is not None,
             }
 
             comment = Comment.objects.create(
@@ -631,6 +643,7 @@ def _process_support_email(
                 team=team,
                 ticket=ticket,
                 comment=comment,
+                full_body_plain=full_body_plain,
             )
     except IntegrityError:
         logger.info("email_inbound_duplicate_race", message_id=email.message_id)

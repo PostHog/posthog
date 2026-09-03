@@ -23,12 +23,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.f
     FirebaseCredentials,
     FirebaseResumeConfig,
     firebase_source,
+    get_incremental_fields,
     get_tables,
     validate_credentials as validate_firebase_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.settings import (
     API_VERSION,
     DEFAULT_DATABASE_ID,
+    FIRESTORE_INDEX_REQUIRED_ERROR,
     RESPONSE_TOO_LARGE_ERROR,
     parse_realtime_database_paths,
 )
@@ -66,6 +68,11 @@ class FirebaseSource(ResumableSource[FirebaseSourceConfig, FirebaseResumeConfig]
             "401 Client Error: Unauthorized": "Firebase rejected the access token. The service account key may have been revoked — please reconnect.",
             "403 Client Error: Forbidden": "This service account cannot read the requested Firebase data. Grant it the Firebase Viewer, Cloud Datastore Viewer, or Firebase Realtime Database Viewer role.",
             RESPONSE_TOO_LARGE_ERROR: "Firebase returned a page too large to process. Reduce the size of the documents in this collection or path, then re-run the sync.",
+            # Firestore indexes every field on its own by default, so this only appears once someone
+            # exempts the chosen field from indexing. Google's message carries a console link that
+            # builds the index in one click, and no message of ours beats that, so it passes through
+            # unchanged. Building the index takes minutes, which outlasts every retry.
+            FIRESTORE_INDEX_REQUIRED_ERROR: None,
             # Identity Toolkit's `accounts:batchGet` rejects every request this way when the project
             # has no Firebase Authentication configuration at all — retrying can't create one.
             "message=CONFIGURATION_NOT_FOUND": "This Firebase project doesn't have Firebase Authentication enabled, so PostHog can't read its Auth users. Enable Firebase Authentication in the Firebase console, or remove the Auth users table from this source.",
@@ -141,13 +148,25 @@ Create a service account key in the Firebase console under Project settings, Ser
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Firestore collections are created by the customer's app, so the table list can only come
-        # from the live project. Nothing here supports a server-side timestamp filter, so every
-        # table is full refresh.
-        tables = get_tables(self._credentials(config))
+        # from the live project.
+        credentials = self._credentials(config)
+        tables = get_tables(credentials, force_refresh=force_refresh)
         if names is not None:
             wanted = set(names)
             tables = [table for table in tables if table in wanted]
-        return [SourceSchema(name=table, supports_incremental=False, supports_append=False) for table in tables]
+
+        # Costs one request per Firestore collection, so it stays behind the `names` filter above:
+        # the sync settings for one table ask for that table alone.
+        incremental_fields = get_incremental_fields(credentials, tables)
+        return [
+            SourceSchema(
+                name=table,
+                supports_incremental=bool(incremental_fields.get(table)),
+                supports_append=bool(incremental_fields.get(table)),
+                incremental_fields=incremental_fields.get(table, []),
+            )
+            for table in tables
+        ]
 
     def _credentials(self, config: FirebaseSourceConfig) -> FirebaseCredentials:
         database_id = (config.database_id or "").strip() or DEFAULT_DATABASE_ID
@@ -185,4 +204,8 @@ Create a service account key in the Firebase console under Project settings, Ser
             table_name=inputs.schema_name,
             resumable_source_manager=resumable_source_manager,
             logger=inputs.logger,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            incremental_field_name=inputs.incremental_field,
+            incremental_field_type=inputs.incremental_field_type,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

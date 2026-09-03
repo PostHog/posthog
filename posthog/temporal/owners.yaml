@@ -14,9 +14,9 @@ rules:
     - match: '/exports/'
       owners: team-analytics-platform
     - match: '/logs_alerting/'
-      owners: logs
+      owners: team-apm
     - match: '/mcp_analytics/'
-      owners: team-mcp-analytics
+      owners: mcp-analytics
     - match: '/messaging/'
       owners: team-workflows
     - match: '/product_analytics/'

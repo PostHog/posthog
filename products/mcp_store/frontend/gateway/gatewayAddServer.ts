@@ -1,4 +1,4 @@
-import type { InstallCustomApi } from '../generated/api.schemas'
+import type { InstallCustomApi, MCPAgentGrantScopeEnumApi } from '../generated/api.schemas'
 
 export interface GatewayAddServerValues {
     name: string
@@ -9,7 +9,7 @@ export interface GatewayAddServerValues {
     clientId: string
     clientSecret: string
     teamEnabled: boolean
-    agentIds: string[]
+    agentScope: MCPAgentGrantScopeEnumApi
 }
 
 export const GATEWAY_ADD_SERVER_DEFAULTS: GatewayAddServerValues = {
@@ -21,7 +21,7 @@ export const GATEWAY_ADD_SERVER_DEFAULTS: GatewayAddServerValues = {
     clientId: '',
     clientSecret: '',
     teamEnabled: true,
-    agentIds: [],
+    agentScope: 'personal',
 }
 
 export function isValidMcpUrl(url: string): boolean {
@@ -58,6 +58,6 @@ export function buildGatewayInstallRequest(
             ? { client_secret: values.clientSecret.trim() }
             : {}),
         ...(options.isAdmin ? { team_enabled: values.teamEnabled } : {}),
-        ...(options.canManageAgentAccess && values.agentIds.length ? { agent_ids: values.agentIds } : {}),
+        ...(options.canManageAgentAccess ? { agent_scope: values.agentScope } : {}),
     }
 }

@@ -136,7 +136,12 @@ Developers can also manually tolerate a snapshot from the UI.
 Quarantined snapshots are still captured and diffed but excluded from gating.
 A quarantined snapshot is not committed to the baseline, with one exception: a quarantined `new` snapshot that a person approved by identifier.
 This is the way to give a story a baseline entry when it has none and the quarantine must stay, because every run without the entry classifies the story `new`, and lifting the quarantine first fails every run until the entry lands.
-The procedure is: open a PR that renders the story, approve the `new` snapshot on that run by identifier (the API or the `visual-review-runs-approve-create` MCP tool; "Approve all" skips quarantined snapshots), finalize the run so the entry is committed to the PR branch, merge the PR, then lift the quarantine.
+The procedure is: open a PR that renders the story, approve the `new` snapshot on that run by identifier (the API or the `visual-review-runs-approve-create` MCP tool; "Approve all" skips quarantined snapshots), finalize the run so the entry is committed to the PR branch, then merge the PR.
+
+Keep the quarantine on after the merge.
+An entry on the default branch does not reach a branch that forked before it, and healing cannot supply it either: healing reads the merge-base, which for such a branch also predates the entry.
+So every open branch still renders the story with no entry for it, and lifting the quarantine turns those runs `new` and reds their gate.
+Lift it once the open branches that render the story carry the entry, which they do after they merge the default branch.
 
 **Flakiness tab** — scores each snapshot identity on the share of the last 7 days of default-branch runs that rendered it differently from its baseline.
 The share is split in two, because the two cost different things: a `hard` run failed the gate and blocked whoever was merging, and a `soft` run was absorbed by a toleration and blocked nobody.

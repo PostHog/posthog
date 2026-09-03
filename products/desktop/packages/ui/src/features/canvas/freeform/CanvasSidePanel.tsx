@@ -18,6 +18,7 @@ import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canv
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { Spin } from "@posthog/ui/primitives/Spinner";
 import { useQuery } from "@tanstack/react-query";
 import { type Ref, useEffect, useRef } from "react";
 
@@ -165,7 +166,9 @@ function CanvasChatLoader({ taskId }: { taskId: string }) {
   if (!task) {
     return (
       <div className="flex h-full items-center justify-center">
-        <SpinnerGapIcon size={18} className="animate-spin text-gray-9" />
+        <Spin className="text-gray-9">
+          <SpinnerGapIcon size={18} />
+        </Spin>
       </div>
     );
   }
@@ -193,7 +196,9 @@ function CanvasCommentsLoader({
   if (!task) {
     return (
       <div className="flex h-full items-center justify-center">
-        <SpinnerGapIcon size={18} className="animate-spin text-gray-9" />
+        <Spin className="text-gray-9">
+          <SpinnerGapIcon size={18} />
+        </Spin>
       </div>
     );
   }

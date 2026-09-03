@@ -26,6 +26,7 @@ export default defineConfig({
     "src/deep-link.ts",
     "src/app-metrics.ts",
     "src/dev-host-actions.ts",
+    "src/disk-cache.ts",
   ],
   format: ["esm"],
   dts: true,

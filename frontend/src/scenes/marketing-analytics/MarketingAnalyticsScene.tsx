@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 import { QueryTile } from 'scenes/web-analytics/common'
 import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
 import { NonIntegratedConversionsTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsTable'
+import { RetentionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/RetentionTab/RetentionTab'
 import { UtmAuditTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/UtmAuditTab/UtmAuditTab'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
@@ -24,6 +25,7 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { LegacyOAuthReconnectBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/LegacyOAuthReconnectBanner'
@@ -48,6 +50,7 @@ export const scene: SceneExport = {
     component: MarketingAnalyticsScene,
     logic: marketingAnalyticsLogic,
     productKey: ProductKey.MARKETING_ANALYTICS,
+    emptyState: marketingAnalyticsEmptyState,
 }
 
 const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
@@ -255,6 +258,15 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                   },
               ]
             : []),
+        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION]
+            ? [
+                  {
+                      key: MarketingAnalyticsTab.RETENTION,
+                      label: 'Retention explorer',
+                      content: <RetentionTab />,
+                  },
+              ]
+            : []),
         ...(setupEnabled
             ? [{ key: MarketingAnalyticsTab.SETUP, label: 'Setup', content: <SetupTab /> }]
             : featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
@@ -296,6 +308,8 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
         'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
     [MarketingAnalyticsTab.ATTRIBUTION]:
         'Compare how each attribution model credits your conversions, to see which marketing you might be over or under valuing.',
+    [MarketingAnalyticsTab.RETENTION]:
+        "See how well the users each channel brings you stick around, grouped by the channel that first brought them in. Each percentage is the share of a cohort seen again, measured against the cohort's original size.",
     [MarketingAnalyticsTab.INTEGRATION_HEALTH]:
         'Check that your ad platform campaigns are properly linked to UTM tracking in PostHog.',
     [MarketingAnalyticsTab.SETUP]:

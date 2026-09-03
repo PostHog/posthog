@@ -425,8 +425,7 @@ async fn run_worker(
             if errors > 0 {
                 warn!(
                     partition_id,
-                    errors,
-                    "produce to cohort_membership_changed_shadow failed; holding offset for replay",
+                    errors, "produce to the membership topic failed; holding offset for replay",
                 );
                 continue;
             }
@@ -508,7 +507,7 @@ async fn flush_event_changes_before_inline(
         *held = true;
         warn!(
             partition_id,
-            errors, "produce to cohort_membership_changed_shadow failed; holding offset for replay",
+            errors, "produce to the membership topic failed; holding offset for replay",
         );
         return true;
     }
@@ -841,8 +840,7 @@ async fn handle_sweep(
         if errors > 0 {
             warn!(
                 partition_id,
-                errors,
-                "sweep produce to cohort_membership_changed_shadow failed; rescheduling for replay",
+                errors, "sweep produce to the membership topic failed; rescheduling for replay",
             );
             reschedule_all(queue, &popped);
             return;
@@ -939,7 +937,7 @@ async fn handle_sweep(
         warn!(
             partition_id,
             errors,
-            "sweep stage 2 produce to cohort_membership_changed_shadow failed; dropping (cf_stage2 already committed, at-most-once)",
+            "sweep stage 2 produce to the membership topic failed; dropping (cf_stage2 already committed, at-most-once)",
         );
         return;
     }

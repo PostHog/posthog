@@ -154,6 +154,10 @@ import {
   type HostTrpcClient,
 } from "@posthog/host-router/client";
 import {
+  DISK_CACHE_IMAGES,
+  type IDiskCacheImages,
+} from "@posthog/platform/disk-cache";
+import {
   HOST_CAPABILITIES,
   type HostCapabilities,
 } from "@posthog/platform/host-capabilities";
@@ -375,6 +379,7 @@ export interface RendererBindings {
   [AUTH_SIDE_EFFECTS]: IAuthSideEffects;
   [SETUP_STORE]: ISetupStore;
   [HOST_CAPABILITIES]: HostCapabilities;
+  [DISK_CACHE_IMAGES]: IDiskCacheImages;
 
   // --- desktop-contributions.ts ---
   [CONTRIBUTION]: Contribution;

@@ -4,14 +4,11 @@ import type {
   AgentToolCall,
   AgentToolCallContent,
   AgentToolCallLocation,
-  AgentToolCallStatus,
   AgentToolKind,
 } from "@posthog/shared";
 
 export type CodeToolKind = AgentToolKind;
 export type ToolCallContent = AgentToolCallContent;
-export type ToolCallStatus = AgentToolCallStatus;
-export type ToolCallLocation = AgentToolCallLocation;
 export type { SessionUpdate };
 
 export interface ToolCall extends Omit<AgentToolCall, "id" | "parentId"> {
@@ -28,15 +25,14 @@ type ConversationContentUpdate = {
   | { sessionUpdate: "agent_thought_chunk" }
 );
 
-interface ConversationToolCallUpdate {
+interface ConversationToolCallUpdate
+  extends Partial<
+    Omit<AgentToolCall, "id" | "parentId" | "content" | "locations" | "title">
+  > {
   _meta?: { [key: string]: unknown } | null;
   content?: AgentToolCallContent[] | null;
-  kind?: AgentToolKind | null;
   locations?: AgentToolCallLocation[] | null;
-  rawInput?: unknown;
-  rawOutput?: unknown;
   sessionUpdate: "tool_call_update";
-  status?: AgentToolCallStatus | null;
   title?: string | null;
   toolCallId: string;
 }
@@ -58,11 +54,6 @@ export type ConversationSessionUpdate =
   | ConversationToolCallUpdate;
 
 export type Plan = Extract<SessionUpdate, { sessionUpdate: "plan" }>;
-export type ConfigOptionUpdate = Extract<
-  SessionUpdate,
-  { sessionUpdate: "config_option_update" }
->;
-
 export interface CompactBoundaryMetadata {
   trigger?: "manual" | "auto";
   preTokens?: number;

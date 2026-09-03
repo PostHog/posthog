@@ -66,6 +66,7 @@ export interface BaselineQuarantineSummaryApi {
     source_run?: QuarantineSourceRunApi | null
     id: string
     reason: string
+    source: string
     /** @nullable */
     expires_at: string | null
     created_at: string
@@ -240,6 +241,7 @@ export interface QuarantinedIdentifierEntryApi {
     identifier: string
     run_type: string
     reason: string
+    source: string
     /** @nullable */
     expires_at: string | null
     created_at: string
@@ -273,6 +275,14 @@ export interface QuarantineInputApi {
     source_run_id?: string | null
     /** @nullable */
     expires_at?: string | null
+}
+
+export interface UnquarantineQueryApi {
+    /**
+     * Snapshot identifier to unquarantine
+     * @maxLength 512
+     */
+    identifier: string
 }
 
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]

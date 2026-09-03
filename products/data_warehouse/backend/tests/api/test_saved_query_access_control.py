@@ -10,8 +10,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.data_modeling.backend.facade.api import set_declared_target
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
-from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -412,20 +412,13 @@ class TestSyncFrequencyBoundsAccessControl(WarehouseAccessControlTestMixin):
         set_declared_target(self.consumer_node, timedelta(hours=6))
 
     def _tiered(self):
-        return (
-            patch(
-                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
-                side_effect=lambda key, *args, **kwargs: key == "data-modeling-backend-v2",
-            ),
-            patch(
-                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-                return_value=True,
-            ),
+        return patch(
+            "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+            return_value=True,
         )
 
     def _read_upstream(self) -> tuple[dict, str]:
-        v2, tiered = self._tiered()
-        with v2, tiered:
+        with self._tiered():
             response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         return response.json()["sync_frequency_bounds"], response.content.decode()
@@ -467,8 +460,7 @@ class TestSyncFrequencyBoundsAccessControl(WarehouseAccessControlTestMixin):
         self._deny_the_consumer(self.editor_user)
         self.client.force_login(self.editor_user)
 
-        v2, tiered = self._tiered()
-        with v2, tiered, patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+        with self._tiered(), patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/",
                 {"sync_frequency": "24hour"},
@@ -483,8 +475,7 @@ class TestSyncFrequencyBoundsAccessControl(WarehouseAccessControlTestMixin):
         self._create_access_control(self.editor_user, access_level="editor")
         self.client.force_login(self.editor_user)
 
-        v2, tiered = self._tiered()
-        with v2, tiered, patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+        with self._tiered(), patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/",
                 {"sync_frequency": "24hour"},
@@ -562,10 +553,6 @@ class TestSyncFrequencyTableBlockerAccessControl(WarehouseAccessControlTestMixin
 
     def _read_view(self) -> tuple[dict, str]:
         with (
-            patch(
-                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
-                side_effect=lambda key, *args, **kwargs: key == "data-modeling-backend-v2",
-            ),
             patch(
                 "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
                 return_value=True,
@@ -658,10 +645,6 @@ class TestSyncFrequencyDuplicateResourceAcrossDags(WarehouseAccessControlTestMix
 
     def _read_view(self) -> dict:
         with (
-            patch(
-                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
-                side_effect=lambda key, *args, **kwargs: key == "data-modeling-backend-v2",
-            ),
             patch(
                 "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
                 return_value=True,

@@ -42,7 +42,7 @@ from ..logic import (
     toleration,
 )
 from . import contracts
-from .enums import RunPurpose
+from .enums import ActorType, RunPurpose
 
 User = get_user_model()
 
@@ -555,8 +555,10 @@ def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[
     ]
 
 
-def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, team_id: int) -> contracts.Snapshot:
-    snapshot = toleration.mark_snapshot_as_tolerated(run_id, snapshot_id, user_id, team_id)
+def mark_snapshot_as_tolerated(
+    run_id: UUID, snapshot_id: UUID, user_id: int, team_id: int, actor: ActorType = ActorType.HUMAN
+) -> contracts.Snapshot:
+    snapshot = toleration.mark_snapshot_as_tolerated(run_id, snapshot_id, user_id, team_id, actor=actor)
     return _to_snapshot(snapshot, snapshot.run.repo_id)
 
 
@@ -693,6 +695,7 @@ def _to_quarantined_entry(
         identifier=q.identifier,
         run_type=q.run_type,
         reason=q.reason,
+        source=q.source,
         expires_at=q.expires_at,
         created_at=q.created_at,
         updated_at=q.updated_at,
@@ -708,6 +711,7 @@ def _to_baseline_quarantine_summary(
     return contracts.BaselineQuarantineSummary(
         id=q.id,
         reason=q.reason,
+        source=q.source,
         expires_at=q.expires_at,
         created_at=q.created_at,
         created_by=created_by,
@@ -725,7 +729,12 @@ def list_quarantined(
 
 
 def quarantine_identifier(
-    repo_id: UUID, run_type: str, input: contracts.QuarantineInput, user_id: int, team_id: int
+    repo_id: UUID,
+    run_type: str,
+    input: contracts.QuarantineInput,
+    user_id: int,
+    team_id: int,
+    source: ActorType = ActorType.HUMAN,
 ) -> contracts.QuarantinedIdentifierEntry:
     entry = quarantine.quarantine_identifier(
         repo_id=repo_id,
@@ -734,6 +743,7 @@ def quarantine_identifier(
         reason=input.reason,
         expires_at=input.expires_at,
         source_run_id=input.source_run_id,
+        source=source,
         user_id=user_id,
         team_id=team_id,
     )
