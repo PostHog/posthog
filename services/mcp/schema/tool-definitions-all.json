@@ -8360,7 +8360,7 @@
         }
     },
     "notebooks-add-cell": {
-        "description": "Add a cell to a markdown notebook. SQL and Python cells run immediately: the call waits up to ~45s and returns the result — columns, a capped row preview, stdout/stderr (a Python cell's logs and tracebacks), and error — so you can look at the output and decide the next step (fix, or proceed). If the status comes back 'running', poll notebooks-run-cell-result with the run_id. A cell that reads other cells' dataframes references them by dataframe_name; those cells must have completed a run first, so add cells in dependency order. SQL cells are always HogQL: queries against PostHog or data warehouse tables run on ClickHouse, and a SQL cell that references a Python-created dataframe runs on the notebook's local engine automatically — any local dataframe is queryable by name, same syntax. The first Python cell can take longer while the notebook's sandbox kernel starts. Run analysis Python here rather than in a runtime the user can't see — dataframe work, statistics, clustering, forecasting, plotting — so the code and its output stay visible and re-runnable beside the result; the sandbox has pandas, numpy, scipy, scikit-learn, and matplotlib. component cells add other node types: Query, Image, Embed, Latex, FeatureFlag, Survey, Experiment, Person, Cohort, Recording, RecordingPlaylist. Pass a short title on every cell you add, describing what that cell shows — it renders in the cell header and is what a reader skims instead of the code. Cells can read the notebook's variables (see notebooks-get, set with notebooks-set-variables): a SQL cell as a bare `{name}` placeholder, a Python cell as a plain global. A SQL cell reading an undeclared `{name}` fails to run, so declare the variable first. A notebook holds at most 50 cells; past that the call fails, so start a new notebook rather than retrying.",
+        "description": "Add a cell to a markdown notebook. SQL and Python cells run immediately: the call waits up to ~45s and returns the result — columns, a capped row preview, stdout/stderr (a Python cell's logs and tracebacks), and error — so you can look at the output and decide the next step (fix, or proceed). If the status comes back 'running', poll notebooks-run-cell-result with the run_id. A cell that reads other cells' dataframes references them by dataframe_name; those cells must have completed a run first, so add cells in dependency order. SQL cells are always HogQL: queries against PostHog or data warehouse tables run on ClickHouse, and a SQL cell that references a Python-created dataframe runs on the notebook's local engine automatically — any local dataframe is queryable by name, same syntax. The first Python cell can take longer while the notebook's sandbox kernel starts. Run analysis Python here rather than in a runtime the user can't see — dataframe work, statistics, clustering, forecasting, plotting — so the code and its output stay visible and re-runnable beside the result; the sandbox has pandas, numpy, scipy, scikit-learn, and matplotlib. component cells add other node types: Query, Image, Embed, Latex, FeatureFlag, Survey, Experiment, Person, Cohort, Recording, RecordingPlaylist. Pass a short title on every cell you add, describing what that cell shows — it renders in the cell header and is what a reader skims instead of the code. Cells can read the notebook's variables (see notebooks-get, set with notebooks-set-variables): a SQL cell as a bare `{name}` placeholder, a Python cell as a plain global. A SQL cell reading an undeclared `{name}` fails to run, so declare the variable first. A notebook holds at most 50 cells; past that the call fails, so start a new notebook rather than retrying. A Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs, so tell them its hourly_price the first time a run starts one. notebooks-list-frames reports that rate, and notebooks-compute-options lists the presets.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Add a cell to a notebook; SQL/Python cells run immediately.",
@@ -8374,8 +8374,23 @@
             "readOnlyHint": false
         }
     },
+    "notebooks-compute-options": {
+        "description": "The rates a notebook's sandbox is priced at, the sized presets a user can pick from, and the cpu_cores and memory_gb values notebooks-configure-compute accepts. The rates are the same for every notebook in the region, so fetch this once per session rather than per notebook. Use it to quote a price before you start or resize a sandbox: a shape costs cpu_cores x cpu_rate_per_core_hour + memory_gb x memory_rate_per_gb_hour per hour, rounded to four decimal places, and each preset carries that total as hourly_price.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Get notebook compute options",
+        "title": "Get notebook compute options",
+        "required_scopes": ["notebook:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "revamped-py-notebooks"
+    },
     "notebooks-configure-compute": {
-        "description": "Set the notebook's sandbox kernel resources (cpu_cores, memory_gb from supported options; idle_timeout_seconds). Config applies when a sandbox is provisioned — the response's restart_required is true when a kernel is already active, meaning it keeps its current resources until restarted (restarting loses materialized dataframes, so prefer configuring before the first Python cell runs).",
+        "description": "Set the notebook's sandbox kernel resources (cpu_cores, memory_gb from supported options; idle_timeout_seconds). Changing cpu_cores or memory_gb restarts a running kernel so the new size takes effect, and the response's restarted says whether that happened. A restart discards every materialized dataframe, so cells that referenced one must run again — prefer sizing the sandbox before the first Python cell runs, and tell the user what a mid-analysis resize will cost them. Changing only idle_timeout_seconds never restarts; restart_required then reports that a live kernel will not pick it up until it restarts on its own. The user pays for the sandbox for as long as it runs, so tell them the response's hourly_price in dollars whenever you set or change the size. That price always describes the sandbox actually serving the notebook, so if a restart failed it is the old one still running, not the size you just set. notebooks-compute-options lists the presets and the values this tool accepts.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Configure notebook compute",
@@ -8479,7 +8494,7 @@
         }
     },
     "notebooks-list-frames": {
-        "description": "The dataframes and DuckDB tables the notebook's kernel currently holds — what a SQL or Python cell can reference by name — with column names/types and row counts, plus the kernel's live status and compute config. Frames are empty unless the kernel is running (SQL-only notebooks never start one; frames appear after Python/DuckDB cells run). To probe deeper than the schema, run a SELECT in a cell.",
+        "description": "The dataframes and DuckDB tables the notebook's kernel currently holds — what a SQL or Python cell can reference by name — with column names/types and row counts, plus the kernel's live status and compute config. Frames are empty unless the kernel is running (SQL-only notebooks never start one; frames appear after Python/DuckDB cells run). To probe deeper than the schema, run a SELECT in a cell. Only a modal backend is charged: hourly_price is calculated for a local docker kernel too, so quote it to the user only when backend is modal.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "List notebook dataframes",
@@ -8571,7 +8586,7 @@
         }
     },
     "notebooks-update-cell": {
-        "description": "Update a SQL or Python cell's code and re-run it, or re-run it unchanged by omitting code (how you refresh a stale cell). Waits up to ~45s and returns the result like notebooks-add-cell, plus stale_dependents: the downstream cells whose inputs this run invalidated. Nothing re-runs automatically — inspect each dependent and re-run it with this tool (no code) or fix it first, walking the graph one hop at a time. The run binds the notebook's current variables, so re-running (no code) is also how a cell picks up a changed variable value.",
+        "description": "Update a SQL or Python cell's code and re-run it, or re-run it unchanged by omitting code (how you refresh a stale cell). Waits up to ~45s and returns the result like notebooks-add-cell, plus stale_dependents: the downstream cells whose inputs this run invalidated. Nothing re-runs automatically — inspect each dependent and re-run it with this tool (no code) or fix it first, walking the graph one hop at a time. The run binds the notebook's current variables, so re-running (no code) is also how a cell picks up a changed variable value. Re-running a Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs, so tell them its hourly_price the first time a run starts one.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Update a cell's code and re-run it.",
