@@ -9,6 +9,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { ObservationResultSummary } from '../components/ObservationCard'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
@@ -147,8 +148,13 @@ function SearchResultCard({
 
 export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | null }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
     const { dataProcessingApprovalDisabledReason } = useValues(aiConsentLogic)
-    const logic = observationSearchLogic({ scannerId: scanner?.id ?? null, teamId: currentTeamId })
+    const logic = observationSearchLogic({
+        scannerId: scanner?.id ?? null,
+        teamId: currentTeamId,
+        userId: user?.uuid ?? null,
+    })
     const {
         query,
         results,

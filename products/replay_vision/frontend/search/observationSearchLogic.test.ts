@@ -38,7 +38,7 @@ describe('observationSearchLogic', () => {
         ['a scanner-scoped', 'scanner-1', 'scanner-1'],
         ['a cross-scanner', null, null],
     ])('%s search sends the right scope and stores ranked results', async (_name, scannerId, expectedScope) => {
-        const logic = observationSearchLogic({ scannerId, teamId: 1 })
+        const logic = observationSearchLogic({ scannerId, teamId: 1, userId: 'user-1' })
         logic.mount()
         // On the live page URL, the actionToUrl echo would re-dispatch search without the in-flight guard.
         router.actions.push(scannerId ? urls.replayVision(scannerId) : urls.replayVision(), { tab: 'search' })
@@ -58,7 +58,7 @@ describe('observationSearchLogic', () => {
         ['clustered distances tag nothing', [0.1, 0.12, 0.14], null],
         ['a single result tags nothing', [0.2], null],
     ])('%s', (_name, distances, expectedCutoff) => {
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1 })
+        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
         logic.mount()
         logic.actions.searchSuccess(searchResults(distances), 'query', false)
 
@@ -67,7 +67,7 @@ describe('observationSearchLogic', () => {
     })
 
     it('a blank query never reaches the API', async () => {
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1 })
+        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
         logic.mount()
         logic.actions.setQuery('   ')
         await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
@@ -78,7 +78,7 @@ describe('observationSearchLogic', () => {
     })
 
     it('a deep-linked q runs the search once, not on every navigation', async () => {
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1 })
+        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
         logic.mount()
         router.actions.push(urls.replayVision(), { tab: 'search', q: 'rage clicks' })
         await expectLogic(logic).toFinishAllListeners()
@@ -91,7 +91,7 @@ describe('observationSearchLogic', () => {
     })
 
     it('a query with trailing whitespace searches once, despite the trimmed actionToUrl echo', async () => {
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1 })
+        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
         logic.mount()
         router.actions.push(urls.replayVision(), { tab: 'search' })
         logic.actions.setQuery('rage clicks ')
@@ -103,7 +103,7 @@ describe('observationSearchLogic', () => {
 
     it('a failed deep-linked search does not re-fire on unrelated URL changes', async () => {
         searchSpy.mockImplementation(() => [500, { detail: 'embedding service down' }])
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1 })
+        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
         logic.mount()
         router.actions.push(urls.replayVision(), { tab: 'search', q: 'rage clicks' })
         await expectLogic(logic).toFinishAllListeners()
@@ -118,7 +118,7 @@ describe('observationSearchLogic', () => {
     it('an AI consent error points the user at the organization setting', async () => {
         searchSpy.mockImplementation(() => [400, { code: 'ai_data_processing_not_approved', detail: 'off' }])
         const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1 })
+        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
         logic.mount()
         router.actions.push(urls.replayVision(), { tab: 'search' })
         logic.actions.setQuery('anything')
@@ -132,7 +132,7 @@ describe('observationSearchLogic', () => {
     })
 
     it('loads suggestions for the scope on mount', async () => {
-        const logic = observationSearchLogic({ scannerId: 'scanner-1', teamId: 1 })
+        const logic = observationSearchLogic({ scannerId: 'scanner-1', teamId: 1, userId: 'user-1' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         expect(suggestionsSpy).toHaveBeenCalledTimes(1)
@@ -142,7 +142,7 @@ describe('observationSearchLogic', () => {
     })
 
     it('remembers queries that found something, newest first, without duplicates, capped', async () => {
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1 })
+        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
         logic.mount()
         for (const query of ['one', 'two', 'three', 'four', 'five', 'six', 'two']) {
             logic.actions.searchSuccess(searchResults([0.2]), query, false)
@@ -153,7 +153,7 @@ describe('observationSearchLogic', () => {
     })
 
     it('emptying the input returns to the empty state and drops q from the URL', async () => {
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1 })
+        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
         logic.mount()
         router.actions.push(urls.replayVision(), { tab: 'search' })
         logic.actions.setQuery('rage clicks')
@@ -168,7 +168,7 @@ describe('observationSearchLogic', () => {
     })
 
     it('a URL without q after a search shows the empty state instead of the old results', async () => {
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1 })
+        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
         logic.mount()
         router.actions.push(urls.replayVision(), { tab: 'search', q: 'rage clicks' })
         await expectLogic(logic).toFinishAllListeners()
