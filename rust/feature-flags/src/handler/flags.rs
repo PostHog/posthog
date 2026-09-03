@@ -643,10 +643,8 @@ mod tests {
     fn test_detect_evaluation_runtime_all_server_sdks() {
         let server_sdks = vec![
             "posthog-python/1.4.0",
-            "posthog-python-mcp/0.1.0",
             "posthog-ruby/2.0.0",
             "posthog-ruby2.0.0",
-            "posthog-rails/3.18.0",
             "posthog-php/3.0.0",
             "posthog-java/1.0.0",
             "posthog-server/1.0.0",

@@ -100,9 +100,7 @@ impl UserAgentInfo {
         let (sdk_name, runtime) = match name {
             // Server-side SDKs
             "python" => ("posthog-python", RuntimeType::Server),
-            "python-mcp" => ("posthog-python-mcp", RuntimeType::Server),
             "ruby" => ("posthog-ruby", RuntimeType::Server),
-            "rails" => ("posthog-rails", RuntimeType::Server),
             "php" => ("posthog-php", RuntimeType::Server),
             "java" => ("posthog-java", RuntimeType::Server),
             "go" => ("posthog-go", RuntimeType::Server),
@@ -245,21 +243,9 @@ mod tests {
         RuntimeType::Server
     )]
     #[case(
-        "posthog-python-mcp/0.1.0",
-        Some("posthog-python-mcp"),
-        Some("0.1.0"),
-        RuntimeType::Server
-    )]
-    #[case(
         "posthog-ruby/2.0.0",
         Some("posthog-ruby"),
         Some("2.0.0"),
-        RuntimeType::Server
-    )]
-    #[case(
-        "posthog-rails/3.18.0",
-        Some("posthog-rails"),
-        Some("3.18.0"),
         RuntimeType::Server
     )]
     #[case(
@@ -447,9 +433,7 @@ mod tests {
     #[case(Some("posthog-kmp/0.6.0"), "posthog-kmp")]
     #[case(Some("posthog-unity/4.5.0"), "posthog-unity")]
     #[case(Some("posthog-python/1.4.0"), "posthog-python")]
-    #[case(Some("posthog-python-mcp/0.1.0"), "posthog-python-mcp")]
     #[case(Some("posthog-ruby/2.0.0"), "posthog-ruby")]
-    #[case(Some("posthog-rails/3.18.0"), "posthog-rails")]
     #[case(Some("posthog-ruby2.0.0"), "posthog-ruby")]
     #[case(Some("posthog-php/3.0.0"), "posthog-php")]
     #[case(Some("posthog-java/1.0.0"), "posthog-java")]
@@ -490,9 +474,7 @@ mod tests {
     #[case("posthog-node-mcp/0.7.0", Some("posthog-node-mcp"))]
     #[case("posthog-edge/1.2.3", Some("posthog-edge"))]
     #[case("posthog-convex/0.2.0", Some("posthog-convex"))]
-    #[case("posthog-python-mcp/0.1.0", Some("posthog-python-mcp"))]
     #[case("posthog-ruby2.0.0", Some("posthog-ruby"))]
-    #[case("posthog-rails/3.18.0", Some("posthog-rails"))]
     #[case("posthog-aspnetcore/1.0.0", Some("posthog-aspnetcore"))]
     #[case("posthog-rs/0.10.0", Some("posthog-rs"))]
     #[case("posthog-android/3.0.0", Some("posthog-android"))]

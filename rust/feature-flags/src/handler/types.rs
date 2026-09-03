@@ -124,14 +124,10 @@ pub enum Library {
     PosthogConvex,
     /// posthog-python SDK
     PosthogPython,
-    /// posthog-python-mcp integration
-    PosthogPythonMcp,
     /// posthog-php SDK
     PosthogPhp,
     /// posthog-ruby SDK
     PosthogRuby,
-    /// posthog-rails integration
-    PosthogRails,
     /// posthog-go SDK
     PosthogGo,
     /// posthog-java SDK
@@ -175,10 +171,8 @@ impl Library {
             Library::PosthogEdge => "posthog-edge",
             Library::PosthogConvex => "posthog-convex",
             Library::PosthogPython => "posthog-python",
-            Library::PosthogPythonMcp => "posthog-python-mcp",
             Library::PosthogPhp => "posthog-php",
             Library::PosthogRuby => "posthog-ruby",
-            Library::PosthogRails => "posthog-rails",
             Library::PosthogGo => "posthog-go",
             Library::PosthogJava => "posthog-java",
             Library::PosthogDotnet => "posthog-dotnet",
@@ -206,10 +200,8 @@ impl Library {
         Library::PosthogEdge,
         Library::PosthogConvex,
         Library::PosthogPython,
-        Library::PosthogPythonMcp,
         Library::PosthogPhp,
         Library::PosthogRuby,
-        Library::PosthogRails,
         Library::PosthogGo,
         Library::PosthogJava,
         Library::PosthogDotnet,
@@ -320,11 +312,9 @@ mod tests {
     #[case("posthog-edge/3.1.0", Library::PosthogEdge)]
     #[case("posthog-convex/0.2.0", Library::PosthogConvex)]
     #[case("posthog-python/2.5.0", Library::PosthogPython)]
-    #[case("posthog-python-mcp/0.1.0", Library::PosthogPythonMcp)]
     #[case("posthog-php/3.0.0", Library::PosthogPhp)]
     #[case("posthog-ruby/2.3.0", Library::PosthogRuby)]
     #[case("posthog-ruby2.3.0", Library::PosthogRuby)]
-    #[case("posthog-rails/3.18.0", Library::PosthogRails)]
     #[case("posthog-go/1.0.0", Library::PosthogGo)]
     #[case("posthog-java/1.2.0", Library::PosthogJava)]
     #[case("posthog-dotnet/1.0.0", Library::PosthogDotnet)]
@@ -414,10 +404,8 @@ mod tests {
     #[case(Library::PosthogEdge, "posthog-edge")]
     #[case(Library::PosthogConvex, "posthog-convex")]
     #[case(Library::PosthogPython, "posthog-python")]
-    #[case(Library::PosthogPythonMcp, "posthog-python-mcp")]
     #[case(Library::PosthogPhp, "posthog-php")]
     #[case(Library::PosthogRuby, "posthog-ruby")]
-    #[case(Library::PosthogRails, "posthog-rails")]
     #[case(Library::PosthogGo, "posthog-go")]
     #[case(Library::PosthogJava, "posthog-java")]
     #[case(Library::PosthogDotnet, "posthog-dotnet")]
@@ -443,10 +431,8 @@ mod tests {
     #[case(Library::PosthogEdge, "\"posthog-edge\"")]
     #[case(Library::PosthogConvex, "\"posthog-convex\"")]
     #[case(Library::PosthogPython, "\"posthog-python\"")]
-    #[case(Library::PosthogPythonMcp, "\"posthog-python-mcp\"")]
     #[case(Library::PosthogPhp, "\"posthog-php\"")]
     #[case(Library::PosthogRuby, "\"posthog-ruby\"")]
-    #[case(Library::PosthogRails, "\"posthog-rails\"")]
     #[case(Library::PosthogGo, "\"posthog-go\"")]
     #[case(Library::PosthogJava, "\"posthog-java\"")]
     #[case(Library::PosthogDotnet, "\"posthog-dotnet\"")]
