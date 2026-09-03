@@ -119,6 +119,18 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         }
     }
 
+    if (logItem.activity == 'optimisation_enabled' || logItem.activity == 'optimisation_disabled') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>{' '}
+                    {logItem.activity == 'optimisation_enabled' ? 'turned on' : 'turned off'} suggestions for the{' '}
+                    {objectNoun}: {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'proposal_approved') {
         return {
             description: (

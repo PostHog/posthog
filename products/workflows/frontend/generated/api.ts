@@ -18,6 +18,7 @@ import type {
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
     HogFlowInvocationApi,
+    HogFlowOptimisationApi,
     HogFlowPublishRequestApi,
     HogFlowPublishResponseApi,
     HogFlowRevisionApi,
@@ -742,6 +743,51 @@ export const hogFlowsMetricsTotalsRetrieve = async (
     return apiMutator<AppMetricsTotalsResponseApi>(getHogFlowsMetricsTotalsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getHogFlowsOptimisationRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/optimisation/`
+}
+
+/**
+ * Whether PostHog may look at this workflow and suggest changes to it.
+ *
+ * Turning it off stops a producer reading the workflow. Suggestions already made are left
+ * alone: someone still has them to resolve.
+ */
+export const hogFlowsOptimisationRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowOptimisationApi> => {
+    return apiMutator<HogFlowOptimisationApi>(getHogFlowsOptimisationRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsOptimisationCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/optimisation/`
+}
+
+/**
+ * Whether PostHog may look at this workflow and suggest changes to it.
+ *
+ * Turning it off stops a producer reading the workflow. Suggestions already made are left
+ * alone: someone still has them to resolve.
+ */
+export const hogFlowsOptimisationCreate = async (
+    projectId: string,
+    id: string,
+    hogFlowOptimisationApi: NonReadonly<HogFlowOptimisationApi>,
+    options?: RequestInit
+): Promise<HogFlowOptimisationApi> => {
+    return apiMutator<HogFlowOptimisationApi>(getHogFlowsOptimisationCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowOptimisationApi),
     })
 }
 

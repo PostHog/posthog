@@ -22,7 +22,7 @@ from django.utils.dateparse import parse_datetime
 import requests
 import structlog
 import posthoganalytics
-from django_filters import BaseInFilter, CharFilter, FilterSet
+from django_filters import BaseInFilter, BooleanFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -160,6 +160,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     HogFlow,
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
+from products.workflows.backend.models.hog_flow_optimisation import HogFlowOptimisation
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -3618,6 +3619,15 @@ class WorkflowProposalEvidenceField(serializers.JSONField):
     pass
 
 
+class HogFlowOptimisationSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(
+        help_text="Whether PostHog may read this workflow's metrics and suggest changes to it."
+    )
+    last_run_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When a producer last read this workflow's metrics."
+    )
+
+
 class WorkflowProposalSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
     resolved_by = UserBasicSerializer(read_only=True, allow_null=True)
@@ -3837,6 +3847,15 @@ class ProposalAlreadyResolvedError(exceptions.APIException):
     default_code = "proposal_already_resolved"
 
 
+class WorkflowNotOptimisedError(exceptions.APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = (
+        "This workflow is not set up for suggestions. Turn on 'Suggest improvements' on the workflow "
+        "before proposing a change to it."
+    )
+    default_code = "workflow_not_optimised"
+
+
 class ProposalOutOfDateError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
@@ -3879,11 +3898,26 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
 
 
 class HogFlowFilterSet(FilterSet):
+    # A producer's work list. Without it an agent would have to read every workflow in the project to
+    # find the few it may look at, which is the cost the opt-in exists to avoid.
+    optimisation_enabled = BooleanFilter(
+        method="filter_optimisation_enabled",
+        label="Only workflows someone turned suggestions on for.",
+    )
+
     class Meta:
         model = HogFlow
         # `created_by` is filtered by uuid in safely_get_queryset (the list UI's member picker keys on
         # uuid, not pk), so it's deliberately not an exact-match field here.
         fields = ["id", "created_at", "updated_at", "status"]
+
+    def filter_optimisation_enabled(self, queryset, name: str, value: bool):
+        # An opt-in someone turned off keeps its row, so "on" is a row that is still enabled. Archived
+        # workflows drop out: their metrics are history, and a suggestion about one changes nothing
+        # that runs, so a producer should never spend a read on them.
+        if not value:
+            return queryset.exclude(optimisation__enabled=True)
+        return queryset.filter(optimisation__enabled=True).exclude(status=HogFlow.State.ARCHIVED)
 
 
 class HogFlowPagination(LimitOffsetPagination):
@@ -4036,6 +4070,12 @@ class HogFlowViewSet(
         # Dual-method custom actions need method-aware scopes — the action-name-based read/write
         # lists above can't distinguish GET (read) from POST (write) on the same action. Without
         # this, these actions declare no scope and reject all personal-API-key (MCP) access.
+        if self.action == "optimisation":
+            # Reading whether a workflow is opted in is workflow-read; turning it on or off decides
+            # whether an agent may read the workflow at all, so it is a workflow write.
+            if request.method in ("GET", "HEAD", "OPTIONS"):
+                return ["hog_flow:read"]
+            return ["hog_flow:write"]
         if self.action == "proposals":
             # Listing suggestions is workflow-read; authoring one is a workflow write, since approving
             # it stages content into the draft.
@@ -5148,6 +5188,23 @@ class HogFlowViewSet(
         param_serializer.is_valid(raise_exception=True)
         params = param_serializer.validated_data
 
+        # A retry names the suggestion it already made, and that suggestion is still in someone's
+        # queue whatever the switch says now, so returning it is the honest answer — and the only one
+        # that keeps a retry from reading as "make another". The opt-in gates producing a new one.
+        retry_of = (
+            WorkflowProposal.objects.filter(hog_flow=instance, source_id=params.get("source_id") or None).first()
+            if params.get("source_id")
+            else None
+        )
+        if retry_of:
+            return Response(WorkflowProposalSerializer(retry_of).data, status=status.HTTP_200_OK)
+
+        # Reading the queue stays open while the flag is on, so a workflow turned off keeps showing
+        # the suggestions someone already has to resolve. Producing a new one is what the workflow's
+        # own opt-in gates.
+        if not HogFlowOptimisation.objects.filter(team_id=self.team_id, hog_flow=instance, enabled=True).exists():
+            raise WorkflowNotOptimisedError()
+
         # An agent has no business setting secret function inputs, and proposal content is stored in
         # plaintext like a revision snapshot, so strip them rather than silently persisting them.
         content = strip_content_secrets(dict(params["content"]))
@@ -5174,13 +5231,6 @@ class HogFlowViewSet(
                         ]
                     }
                 )
-
-        if source_id:
-            # Idempotent by source: an MCP retry or a re-emitted finding resolves to the proposal it
-            # already created instead of stacking duplicates in someone's queue.
-            existing = WorkflowProposal.objects.filter(hog_flow=instance, source_id=source_id).first()
-            if existing:
-                return Response(WorkflowProposalSerializer(existing).data, status=status.HTTP_200_OK)
 
         proposal = WorkflowProposal(
             hog_flow=instance,
@@ -5435,6 +5485,59 @@ class HogFlowViewSet(
 
         self._report_workflow_action("hog_flow_proposal_rejected", instance, {"proposal_id": str(locked_proposal.id)})
         return Response(WorkflowProposalSerializer(locked_proposal).data)
+
+    @extend_schema(request=HogFlowOptimisationSerializer, responses={200: HogFlowOptimisationSerializer})
+    @action(detail=True, methods=["GET", "POST"], url_path="optimisation", filter_backends=[])
+    def optimisation(self, request: Request, *args, **kwargs):
+        """Whether PostHog may look at this workflow and suggest changes to it.
+
+        Turning it off stops a producer reading the workflow. Suggestions already made are left
+        alone: someone still has them to resolve.
+        """
+        self._require_self_optimising_enabled()
+        instance = self.get_object()
+
+        if request.method == "POST":
+            param_serializer = HogFlowOptimisationSerializer(data=request.data)
+            param_serializer.is_valid(raise_exception=True)
+            enabled = param_serializer.validated_data["enabled"]
+            row = HogFlowOptimisation.objects.filter(team_id=self.team_id, hog_flow=instance).first()
+            if row is None:
+                # Turning it off for a workflow nobody turned on is a no-op, not a row saying "no".
+                changed = enabled
+                if enabled:
+                    row = HogFlowOptimisation.objects.create(team_id=self.team_id, hog_flow=instance, enabled=True)
+            else:
+                # Turning it off keeps the row: how many people tried this and stopped is a question
+                # about the rollout, and a deleted row cannot answer it.
+                changed = row.enabled != enabled
+                if changed:
+                    row.enabled = enabled
+                    row.save(update_fields=["enabled"])
+
+            if changed:
+                # Who flipped it and when belongs with the rest of the workflow's history, rather than
+                # in columns here that could only ever remember the last flip.
+                log_activity_from_viewset(
+                    self,
+                    instance,
+                    activity="optimisation_enabled" if enabled else "optimisation_disabled",
+                    name=instance.name,
+                )
+                self._report_workflow_action(
+                    "hog_flow_optimisation_enabled" if enabled else "hog_flow_optimisation_disabled", instance
+                )
+
+        row = HogFlowOptimisation.objects.filter(team_id=self.team_id, hog_flow=instance).first()
+        enabled = row is not None and row.enabled
+        return Response(
+            HogFlowOptimisationSerializer(
+                {
+                    "enabled": enabled,
+                    "last_run_at": row.last_run_at if row else None,
+                }
+            ).data
+        )
 
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])

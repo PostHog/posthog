@@ -1111,6 +1111,16 @@ export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
 }
 
+export interface HogFlowOptimisationApi {
+    /** Whether PostHog may read this workflow's metrics and suggest changes to it. */
+    enabled: boolean
+    /**
+     * When a producer last read this workflow's metrics.
+     * @nullable
+     */
+    readonly last_run_at: string | null
+}
+
 /**
  * * `suggested` - Suggested
  * * `approved` - Approved
@@ -1930,6 +1940,10 @@ export type HogFlowsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Only workflows someone turned suggestions on for.
+     */
+    optimisation_enabled?: boolean
     /**
      * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
      */
