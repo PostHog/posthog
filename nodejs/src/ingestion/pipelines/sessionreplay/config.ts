@@ -93,8 +93,6 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_FEATURES_ENABLED: boolean
     SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE: number
     SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: number
-    // Shift rrweb timestamps by the capture-measured device clock skew (sent_at vs now).
-    SESSION_RECORDING_CLOCK_SKEW_CORRECTION_ENABLED: boolean
     /** Caps how many sessions resolve their encryption key concurrently, bounding KMS/DynamoDB fan-out. */
     SESSION_RECORDING_KEY_RESOLUTION_MAX_CONCURRENCY: number
 
@@ -157,7 +155,6 @@ export function getDefaultSessionRecordingConfig(): SessionRecordingConfig {
         SESSION_RECORDING_FEATURES_ENABLED: true,
         SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE: 10,
         SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: 0,
-        SESSION_RECORDING_CLOCK_SKEW_CORRECTION_ENABLED: false,
         SESSION_RECORDING_KEY_RESOLUTION_MAX_CONCURRENCY: 20,
 
         // Kafka consumer config

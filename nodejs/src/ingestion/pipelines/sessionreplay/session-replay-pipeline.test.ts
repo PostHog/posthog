@@ -311,40 +311,33 @@ describe('session-replay-pipeline', () => {
         const recordedSessionIds = (): string[] =>
             (mockBatchRecorder.record as jest.Mock).mock.calls.map((call) => call[0].message.session_id)
 
-        it.each([
-            ['corrects', true, 0],
-            ['leaves uncorrected', false, 7 * 60 * 60 * 1000],
-        ])(
-            '%s recording timestamps when applyClockSkewCorrection is %s',
-            async (_name, applyClockSkewCorrection, expectedOffsetMs) => {
-                const skewMs = 7 * 60 * 60 * 1000
-                const pipeline = createSessionReplayPipeline({
-                    outputs,
-                    eventIngestionRestrictionManager: mockRestrictionManager,
-                    overflowMode: 'redirect',
-                    promiseScheduler,
-                    teamService: mockTeamService,
-                    retentionService,
-                    sessionTracker,
-                    sessionFilter,
-                    keyStore,
-                    sessionKeyResolutionMaxConcurrency: 20,
-                    topHog,
-                    isDebugLoggingEnabled,
-                    applyClockSkewCorrection,
-                })
+        it('corrects recording timestamps for a skewed device clock', async () => {
+            const skewMs = 7 * 60 * 60 * 1000
+            const pipeline = createSessionReplayPipeline({
+                outputs,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowMode: 'redirect',
+                promiseScheduler,
+                teamService: mockTeamService,
+                retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
+                topHog,
+                isDebugLoggingEnabled,
+            })
 
-                await runSessionReplayPipeline(
-                    pipeline,
-                    [createSkewedMessage(0, 1, 'session-1', skewMs)],
-                    mockBatchRecorder,
-                    promiseScheduler
-                )
+            await runSessionReplayPipeline(
+                pipeline,
+                [createSkewedMessage(0, 1, 'session-1', skewMs)],
+                mockBatchRecorder,
+                promiseScheduler
+            )
 
-                const recorded = (mockBatchRecorder.record as jest.Mock).mock.calls[0][0].message
-                expect(recorded.eventsRange.start.toMillis()).toBe(now.toMillis() + expectedOffsetMs)
-            }
-        )
+            const recorded = (mockBatchRecorder.record as jest.Mock).mock.calls[0][0].message
+            expect(recorded.eventsRange.start.toMillis()).toBe(now.toMillis())
+        })
 
         it('passes through messages when no restrictions apply', async () => {
             const pipeline = createSessionReplayPipeline({

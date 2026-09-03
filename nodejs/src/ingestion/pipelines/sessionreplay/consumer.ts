@@ -376,7 +376,6 @@ export class SessionRecordingIngester {
             topHog: this.topHog,
             isDebugLoggingEnabled: this.isDebugLoggingEnabled,
             usageBatch: this.usageBatch,
-            applyClockSkewCorrection: this.config.SESSION_RECORDING_CLOCK_SKEW_CORRECTION_ENABLED,
         })
 
         // Check that the storage backend is healthy before starting the consumer

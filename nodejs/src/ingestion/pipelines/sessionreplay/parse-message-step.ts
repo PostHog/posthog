@@ -35,10 +35,6 @@ export interface ParseMessageStepOutput {
     parsedMessage: ParsedMessageData
 }
 
-export interface ParseMessageStepOptions {
-    applyClockSkewCorrection?: boolean
-}
-
 export function isGzipped(buffer: Buffer): boolean {
     return buffer.subarray(0, GZIP_HEADER.length).equals(GZIP_HEADER)
 }
@@ -177,10 +173,10 @@ export function observeClockSkew(sentAt: string | undefined, now: string | undef
  * This step processes one message at a time since there are no batch-level optimizations.
  * Gzip decompression is done synchronously since the pipeline already runs steps concurrently.
  */
-export function createParseMessageStep<T extends ParseMessageStepInput>(
-    options: ParseMessageStepOptions = {}
-): ProcessingStep<T, T & ParseMessageStepOutput> {
-    const { applyClockSkewCorrection = false } = options
+export function createParseMessageStep<T extends ParseMessageStepInput>(): ProcessingStep<
+    T,
+    T & ParseMessageStepOutput
+> {
     return async function parseMessageStep(input) {
         const { message } = input
 
@@ -225,9 +221,7 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(
 
         const sessionId = normalizeSessionId($session_id)
 
-        const clockSkewMs = applyClockSkewCorrection
-            ? quantizedClockSkewMs(messageResult.data.sent_at, messageResult.data.now)
-            : 0
+        const clockSkewMs = quantizedClockSkewMs(messageResult.data.sent_at, messageResult.data.now)
         if (clockSkewMs !== 0) {
             SessionRecordingIngesterMetrics.observeClockSkewCorrection(clockSkewMs)
         }

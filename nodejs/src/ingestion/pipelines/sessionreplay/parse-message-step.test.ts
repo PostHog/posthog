@@ -696,8 +696,8 @@ describe('createParseMessageStep', () => {
             return createInput(0, 1, payload)
         }
 
-        async function startMsOf(input: ParseMessageStepInput, enabled = true): Promise<number> {
-            const result = await createParseMessageStep({ applyClockSkewCorrection: enabled })(input)
+        async function startMsOf(input: ParseMessageStepInput): Promise<number> {
+            const result = await createParseMessageStep()(input)
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type !== PipelineResultType.OK) {
                 throw new Error('expected an ok result')
@@ -710,7 +710,7 @@ describe('createParseMessageStep', () => {
             ['behind', -SEVEN_HOURS_MS],
         ])('shifts rrweb timestamps to server time when the device clock is %s', async (_name, deviceOffsetMs) => {
             const baseMs = Date.now()
-            const step = createParseMessageStep({ applyClockSkewCorrection: true })
+            const step = createParseMessageStep()
 
             const result = await step(skewedInput({ baseMs, deviceOffsetMs }))
 
@@ -761,14 +761,6 @@ describe('createParseMessageStep', () => {
                 expect(startMs).toBe(baseMs + SEVEN_HOURS_MS)
             }
         )
-
-        it('leaves timestamps unchanged when correction is disabled', async () => {
-            const baseMs = Date.now()
-
-            const startMs = await startMsOf(skewedInput({ baseMs, deviceOffsetMs: SEVEN_HOURS_MS }), false)
-
-            expect(startMs).toBe(baseMs + SEVEN_HOURS_MS)
-        })
     })
 
     describe('decompressMessageValue lz4 hardening', () => {
