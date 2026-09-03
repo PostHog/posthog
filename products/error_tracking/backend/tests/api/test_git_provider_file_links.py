@@ -18,6 +18,8 @@ from products.error_tracking.backend.presentation.views.git_provider_file_link_r
     search_github_file,
 )
 
+STATELESS_INSTALLATION_TOKEN = "ghs_123456_" + ".".join(("a" * 169, "b" * 169, "c" * 169))
+
 
 def _response(status: int, body: dict | None = None, raw: bytes | None = None) -> requests.Response:
     response = requests.models.Response()
@@ -91,6 +93,22 @@ class TestGitProviderFileLinksResolveGithub(APIBaseTest):
 
         assert outcome.url is None
         assert outcome.status_code is None
+
+    def test_stateless_installation_token_is_sent_as_bearer_credential(self) -> None:
+        with patch(
+            "products.error_tracking.backend.presentation.views.git_provider_file_link_resolver.github_request",
+            return_value=_response(200, {"items": []}),
+        ) as gh:
+            search_github_file(
+                code_sample="print(1)",
+                token=STATELESS_INSTALLATION_TOKEN,
+                owner="o",
+                repository="r",
+                file_name="main.py",
+                installation_id="123",
+            )
+
+        assert gh.call_args.kwargs["headers"]["Authorization"] == f"Bearer {STATELESS_INSTALLATION_TOKEN}"
 
     def test_malformed_success_body_degrades_to_not_found(self) -> None:
         # A 200 with a non-JSON body must not escape as a 500 — parsing lives inside the guard.
