@@ -6,6 +6,7 @@ from django.core.management import call_command
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 
+from products.warehouse_sources.backend.ad_hoc_sync import AdHocSyncTrigger, WorkflowStartError
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -93,3 +94,25 @@ class TestResyncSchemasNonBillable:
         )
 
         assert mock_start.call_count == 1
+
+    @patch(f"{COMMAND}.trigger_ad_hoc_sync")
+    def test_one_failure_does_not_strand_the_rest_of_the_batch(
+        self, mock_trigger, _mock_start, _mock_paused, _mock_connect, team, capsys
+    ):
+        schemas = [_create_schema(team, name=f"table_{i}") for i in range(3)]
+        mock_trigger.side_effect = [
+            WorkflowStartError("temporal down"),
+            AdHocSyncTrigger(workflow_id="wf-2", schedule_paused_now=False),
+            AdHocSyncTrigger(workflow_id="wf-3", schedule_paused_now=False),
+        ]
+
+        call_command(
+            "resync_schemas_non_billable",
+            schema_ids=",".join(str(s.id) for s in schemas),
+            live_run=True,
+            sleep_seconds=0,
+        )
+
+        # Batching dozens of schemas is the point, so one bad schema must not abort the run.
+        assert mock_trigger.call_count == 3
+        assert "Triggered: 2, Failed: 1" in capsys.readouterr().out

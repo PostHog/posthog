@@ -1,9 +1,13 @@
 """Start a single external-data-job run outside the schema's Temporal schedule.
 
 The schedule's stored input is always billable, so a run that must not be charged, or that must
-stage a reset first, cannot go through it. Operators reach this from Django admin; a bulk cleanup
-reaches it from the `resync_schemas_non_billable` management command. Both share this module so the
-pause, stage, start, and rollback sequence has one definition.
+stage a reset first, cannot go through it. Operators reach this from Django admin's "Trigger sync"; a bulk cleanup
+reaches it from the `resync_schemas_non_billable` management command. Those two share the sequence
+here so they cannot drift.
+
+The partition-tuning admin actions still hold their own copy in `_pause_save_and_resync`. They stage
+arbitrary partition keys and skip the CDC re-snapshot, so folding them in would change their
+behavior rather than just their shape.
 """
 
 import time
