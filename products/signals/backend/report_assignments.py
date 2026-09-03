@@ -202,6 +202,10 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None) -> None:
         target = SignalReport.Status.SUPPRESSED
     if target is None or report.status == target:
         return
+    # Resolving a report closes its own pull request, and GitHub reports that close as an unmerged
+    # close. Suppressing on it would undo the resolution moments after the person made it.
+    if target == SignalReport.Status.SUPPRESSED and report.status == SignalReport.Status.RESOLVED:
+        return
     try:
         updated_fields = report.transition_to(target)
     except (InvalidStatusTransition, ValueError, TypeError):

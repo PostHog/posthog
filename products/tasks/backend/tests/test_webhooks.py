@@ -1205,6 +1205,13 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
                 SignalReport.Status.RESOLVED,
                 SignalReportAssignment.PrState.MERGED,
             ),
+            (
+                "closed_pr_leaves_resolved_report_resolved",
+                False,
+                SignalReport.Status.RESOLVED,
+                SignalReport.Status.RESOLVED,
+                SignalReportAssignment.PrState.CLOSED,
+            ),
         ]
     )
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
