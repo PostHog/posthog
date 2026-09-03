@@ -4,17 +4,20 @@ import { parseMarkdownNotebook, serializeMarkdownNotebook } from 'lib/components
 import { NotebookBlockNode, NotebookComponentProps } from 'lib/components/MarkdownNotebook/types'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 
-// The removed code cells (in-browser-kernel Python, DuckDB SQL, HogQL SQL) and the sandbox-kernel
-// cell each one becomes. The legacy SQL cells named their dataframe `duck_df` / `hogql_df` when the
-// author never set a name, so that default is written out to keep downstream references working.
+// The removed code cells (in-browser-kernel Python, DuckDB SQL, HogQL SQL), the sandbox-kernel cell
+// each one becomes, and the dataframe name to write when the legacy cell carried none. The legacy
+// SQL cells named their dataframe `duck_df` / `hogql_df`, and a PythonV2 cell with no name prop
+// already exports `df` to the dependency graph and to its run. Writing the name out keeps
+// downstream references working, and it makes the editor and the cell state API report the name the
+// cell binds instead of a blank.
 //
 // A DuckSQL cell also changes dialect. SQLV2 picks its engine per run: it goes to DuckDB only when
 // the query reads a frame that a Python cell made, and to HogQL against ClickHouse otherwise. So a
 // converted DuckSQL cell that used DuckDB-only syntax reports a query error until its author adapts
 // the code. That is still better than skipping the conversion, because an unconverted legacy tag
 // renders as an unknown component and cannot run at all.
-const LEGACY_CODE_CELL_TAGS: Record<string, { tagName: string; defaultReturnVariable: string | null }> = {
-    Python: { tagName: 'PythonV2', defaultReturnVariable: null },
+const LEGACY_CODE_CELL_TAGS: Record<string, { tagName: string; defaultReturnVariable: string }> = {
+    Python: { tagName: 'PythonV2', defaultReturnVariable: 'df' },
     DuckSQL: { tagName: 'SQLV2', defaultReturnVariable: 'duck_df' },
     HogQLSQL: { tagName: 'SQLV2', defaultReturnVariable: 'hogql_df' },
 }
@@ -48,12 +51,10 @@ function convertLegacyCodeCell(node: NotebookBlockNode): NotebookBlockNode {
     if (typeof node.props.title === 'string' && node.props.title) {
         props.title = node.props.title
     }
-    if (target.defaultReturnVariable !== null) {
-        props.returnVariable =
-            typeof node.props.returnVariable === 'string' && node.props.returnVariable.trim()
-                ? node.props.returnVariable
-                : target.defaultReturnVariable
-    }
+    props.returnVariable =
+        typeof node.props.returnVariable === 'string' && node.props.returnVariable.trim()
+            ? node.props.returnVariable
+            : target.defaultReturnVariable
     return { id: node.id, type: 'component', tagName: target.tagName, props, startsGroup: node.startsGroup }
 }
 

@@ -23,7 +23,15 @@ describe('convertLegacyCodeCellsInContent', () => {
             expected: [
                 {
                     tagName: 'PythonV2',
-                    props: { nodeId: 'py-1', code: 'print(1)', showFilters: true, title: 'Cleanup' },
+                    props: {
+                        nodeId: 'py-1',
+                        code: 'print(1)',
+                        showFilters: true,
+                        title: 'Cleanup',
+                        // Written out rather than left off: a PythonV2 cell with no name prop
+                        // exports `df` anyway, and only the editor and the state API would miss it.
+                        returnVariable: 'df',
+                    },
                 },
             ],
         },
