@@ -549,11 +549,27 @@ export function queryVizDefinitelyRendersToCanvas(query?: Node | null): boolean 
     return classifyQueryVizCanvas(query) === 'canvas'
 }
 
+/** The deprecated `formulas` field is typed `string[]`, but queries in the wild also put node objects there. */
+export const toFormulaNode = (formula: unknown): TrendsFormulaNode => {
+    if (typeof formula === 'string') {
+        return { formula }
+    }
+    if (formula && typeof formula === 'object') {
+        const node = formula as Partial<TrendsFormulaNode>
+        if (typeof node.formula === 'string') {
+            return typeof node.custom_name === 'string'
+                ? { formula: node.formula, custom_name: node.custom_name }
+                : { formula: node.formula }
+        }
+    }
+    return { formula: '' }
+}
+
 export const getFormula = (query: InsightQueryNode | null): string | undefined => {
     if (isTrendsQuery(query)) {
         return (
-            query.trendsFilter?.formulaNodes?.[0]?.formula ||
-            query.trendsFilter?.formulas?.[0] ||
+            toFormulaNode(query.trendsFilter?.formulaNodes?.[0]).formula ||
+            toFormulaNode(query.trendsFilter?.formulas?.[0]).formula ||
             query.trendsFilter?.formula
         )
     }
@@ -561,21 +577,14 @@ export const getFormula = (query: InsightQueryNode | null): string | undefined =
 }
 
 export const getFormulas = (query: InsightQueryNode | null): string[] | undefined => {
-    if (isTrendsQuery(query)) {
-        return (
-            query.trendsFilter?.formulaNodes?.map((node) => node.formula) ||
-            query.trendsFilter?.formulas ||
-            (query.trendsFilter?.formula ? [query.trendsFilter.formula] : undefined)
-        )
-    }
-    return undefined
+    return getFormulaNodes(query)?.map((node) => node.formula)
 }
 
 export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNode[] | undefined => {
     if (isTrendsQuery(query)) {
         return (
-            query.trendsFilter?.formulaNodes ||
-            query.trendsFilter?.formulas?.map((formula) => ({ formula })) ||
+            query.trendsFilter?.formulaNodes?.map(toFormulaNode) ||
+            query.trendsFilter?.formulas?.map(toFormulaNode) ||
             (query.trendsFilter?.formula ? [{ formula: query.trendsFilter.formula }] : undefined)
         )
     }

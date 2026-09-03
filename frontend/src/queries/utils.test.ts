@@ -17,6 +17,8 @@ import {
     escapeHogQLString,
     escapePropertyAsHogQLIdentifier,
     getDisplay,
+    getFormulaNodes,
+    getFormulas,
     hogql,
     queryUsesDataWarehouse,
     queryVizDefinitelyRendersToCanvas,
@@ -478,5 +480,32 @@ describe('getDisplay', () => {
         ],
     ])('normalizes the deprecated ActionsStackedBar alias to ActionsBar for %s', (_, query) => {
         expect(getDisplay(query as InsightQueryNode)).toEqual(ChartDisplayType.ActionsBar)
+    })
+})
+
+describe('formula readers', () => {
+    const trendsQuery = (trendsFilter: Record<string, any>): any => ({
+        kind: NodeKind.TrendsQuery,
+        series: [],
+        trendsFilter,
+    })
+
+    it.each([
+        ['plain strings', { formulas: ['A / B'] }, [{ formula: 'A / B' }]],
+        [
+            'node objects saved into the legacy field',
+            { formulas: [{ formula: 'C / A', custom_name: 'Cost per trace' }] },
+            [{ formula: 'C / A', custom_name: 'Cost per trace' }],
+        ],
+        ['values of an unknown shape', { formulas: [42] }, [{ formula: '' }]],
+        ['the single legacy formula field', { formula: 'A + B' }, [{ formula: 'A + B' }]],
+    ])('getFormulaNodes reads %s', (_name, trendsFilter, expected) => {
+        expect(getFormulaNodes(trendsQuery(trendsFilter))).toEqual(expected)
+    })
+
+    it('getFormulas returns strings for node objects in the legacy field', () => {
+        expect(getFormulas(trendsQuery({ formulas: [{ formula: 'C / A', custom_name: 'Cost per trace' }] }))).toEqual([
+            'C / A',
+        ])
     })
 })
