@@ -2,7 +2,7 @@ name: Build and deploy rust container images
 
 # Production build + deploy for Rust services on master.
 # Uses selective builds: only images affected by changed files are built and deployed.
-# workflow_dispatch always builds all images (escape hatch).
+# workflow_dispatch builds all images unless image-filter names a subset (escape hatch).
 #
 # Image list: .github/rust-images.yml
 # Build steps: .github/workflows/_rust-build-images.yml
@@ -10,6 +10,12 @@ name: Build and deploy rust container images
 
 on:
     workflow_dispatch:
+        inputs:
+            image-filter:
+                description: 'Comma-separated image names to build and deploy (empty = all)'
+                required: false
+                type: string
+                default: ''
     push:
         paths:
             - 'rust/**'
@@ -94,7 +100,7 @@ jobs:
         with:
             # Only the canonical deploy repo pushes prod images on master; PRs still push for validation.
             push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
-            image-filter: ${{ needs.affected.outputs.image-filter || '' }}
+            image-filter: ${{ needs.affected.outputs.image-filter || inputs.image-filter || '' }}
             tag-rules: |
                 type=ref,event=pr
                 type=ref,event=branch
