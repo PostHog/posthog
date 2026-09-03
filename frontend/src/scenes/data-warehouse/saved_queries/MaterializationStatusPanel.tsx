@@ -18,11 +18,12 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AccessControlResourceType, DataModelingJob, LogEntryLevel } from '~/types'
 
+import { MaterializationRunErrorCell } from 'products/data_warehouse/frontend/shared/components/MaterializationRunErrorCell'
+
 import { IncrementalConfigOptions } from '../editor/IncrementalConfigFields'
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
 import { computeJobDuration, jobLogsWindow } from './materializationJobUtils'
-import { MaterializationRunErrorCell } from './MaterializationRunErrorCell'
 import {
     SyncFrequencySelect,
     SyncFrequencyValue,
