@@ -50,6 +50,11 @@ describe('retryImport', () => {
     it.each([
         ['a bare minified identifier', 'g is not a function'],
         ['a property access on a minified identifier', 'i.bootApp is not a function'],
+        ['a bare minified identifier with WebKit diagnostics', "g is not a function. (In 'g()', 'g' is undefined)"],
+        [
+            'a property access with WebKit diagnostics',
+            "i.bootApp is not a function. (In 'i.bootApp()', 'i.bootApp' is undefined)",
+        ],
     ])('marks a boot module-evaluation TypeError from %s without retrying', async (_label, message) => {
         const error = new TypeError(message)
         const factory = jest.fn().mockRejectedValue(error)
@@ -57,6 +62,14 @@ describe('retryImport', () => {
         await expect(retryBootImport(factory)).rejects.toBe(error)
         expect(factory).toHaveBeenCalledTimes(1)
         expect(isChunkLoadError(error)).toBe(true)
+    })
+
+    it('leaves a readable name unclassified when WebKit adds its diagnostics', async () => {
+        const error = new TypeError("bootApp is not a function. (In 'bootApp()', 'bootApp' is undefined)")
+        const factory = jest.fn().mockRejectedValue(error)
+
+        await expect(retryBootImport(factory)).rejects.toBe(error)
+        expect(isChunkLoadError(error)).toBe(false)
     })
 
     it('returns the export a boot module carries', () => {

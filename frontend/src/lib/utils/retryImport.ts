@@ -8,10 +8,14 @@ function isMinifiedBootModuleEvaluationError(error: unknown): boolean {
     }
     const { name, message } = error as { name?: string; message?: string }
     // A minified identifier, alone or with one property access: `g is not a function`,
-    // `i.bootApp is not a function`. Deliberately narrow, so a real application bug on a
+    // `i.bootApp is not a function`. WebKit adds a diagnostic clause to the same message, as in
+    // `i.bootApp is not a function. (In 'i.bootApp()', 'i.bootApp' is undefined)`, so that tail is
+    // optional. The identifier prefix stays deliberately narrow, so a real application bug on a
     // readable name is not mistaken for a stale chunk.
     return (
-        name === 'TypeError' && typeof message === 'string' && /^[A-Za-z_$](\.[\w$]+)? is not a function$/.test(message)
+        name === 'TypeError' &&
+        typeof message === 'string' &&
+        /^[A-Za-z_$](\.[\w$]+)? is not a function(\. \(In .+\))?$/.test(message)
     )
 }
 
