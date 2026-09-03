@@ -381,7 +381,6 @@ function SidebarMenuComponent() {
           error: new Error("Task is already archiving"),
         };
       }
-      store.startArchiving(taskId);
       try {
         await archiveTask({ taskId });
         return { success: true as const };
@@ -389,8 +388,6 @@ function SidebarMenuComponent() {
         log.error("Failed to archive task", error);
         toast.error("Failed to archive task");
         return { success: false as const, error };
-      } finally {
-        useArchivingTasksStore.getState().stopArchiving(taskId);
       }
     },
     [archiveTask],

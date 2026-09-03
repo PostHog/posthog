@@ -32,6 +32,7 @@ import { useChannelItemMetadata } from "@posthog/ui/features/canvas/hooks/useCha
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { InlineEditInput } from "@posthog/ui/features/sidebar/components/items/TaskItem";
 import {
   PinnedBadge,
@@ -50,6 +51,7 @@ import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSe
 import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import { useMountedOnceOpened } from "@posthog/ui/hooks/useMountedOnceOpened";
 import { useNow } from "@posthog/ui/hooks/useNow";
+import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import {
   type DragEvent,
   type ReactNode,
@@ -249,6 +251,7 @@ export function ChannelItemRowView({
   subtitle,
   isActive,
   isSelected = false,
+  isArchiving = false,
   showPinBadge = true,
   draggable = false,
   onClick,
@@ -261,6 +264,7 @@ export function ChannelItemRowView({
   subtitle?: ReactNode;
   isActive: boolean;
   isSelected?: boolean;
+  isArchiving?: boolean;
   showPinBadge?: boolean;
   draggable?: boolean;
   onClick?: (e: React.MouseEvent) => void;
@@ -275,16 +279,23 @@ export function ChannelItemRowView({
       // which keeps SidebarItem's native cursor-default.
       className="cursor-pointer"
       depth={0}
-      icon={<ChannelItemDot item={item} status={status} />}
+      icon={
+        isArchiving ? (
+          <DotsCircleSpinner size={12} className="text-muted-foreground" />
+        ) : (
+          <ChannelItemDot item={item} status={status} />
+        )
+      }
       // A non-string label opts out of SidebarItem's truncation tooltip.
       label={<span>{item.title}</span>}
       subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
+      isDimmed={isArchiving}
       // Lets a drag-selection find the row and its session; canvases are not
       // selectable, so they stay unmarked and the marquee passes over them.
       {...(item.kind === "task" ? { [SESSION_ROW_ATTRIBUTE]: item.id } : {})}
-      draggable={draggable}
+      draggable={draggable && !isArchiving}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onClick={onClick}
@@ -367,6 +378,9 @@ export function ChannelItemRow({
 }) {
   const status = useChannelTaskStatus(item);
   const subtitle = useChannelItemMetadata(item);
+  const isArchiving = useArchivingTasksStore(
+    (state) => item.kind === "task" && state.archivingTaskIds.has(item.id),
+  );
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
   const handoffMounted = useMountedOnceOpened(handoffOpen);
@@ -466,24 +480,35 @@ export function ChannelItemRow({
 
   // One tooltip provider per task row, shared by its dot and badges so moving
   // between them doesn't re-wait the open delay. Canvas rows have neither.
-  const row = (
+  const rowView = (
+    <ChannelItemRowView
+      item={item}
+      status={status}
+      subtitle={subtitle}
+      isActive={isActive}
+      isSelected={isSelected}
+      isArchiving={isArchiving}
+      showPinBadge={showPinBadge}
+      draggable
+      onDragStart={handleDragStart}
+      onDragEnd={onDragEnd}
+      onClick={
+        isArchiving
+          ? undefined
+          : (e) => (onClick ? onClick(e) : actions.open(item))
+      }
+    />
+  );
+  const row = isArchiving ? (
+    rowView
+  ) : (
     <ChannelItemHoverCard item={item} menu={menu}>
-      <ChannelItemRowView
-        item={item}
-        status={status}
-        subtitle={subtitle}
-        isActive={isActive}
-        isSelected={isSelected}
-        showPinBadge={showPinBadge}
-        draggable
-        onDragStart={handleDragStart}
-        onDragEnd={onDragEnd}
-        onClick={(e) => (onClick ? onClick(e) : actions.open(item))}
-      />
+      {rowView}
     </ChannelItemHoverCard>
   );
 
   const tipped = <TaskStatusTooltips>{row}</TaskStatusTooltips>;
+  if (isArchiving) return tipped;
   // Right-click opens the same actions the hover card lists, from the same
   // definition, so the two can't drift.
   return (
