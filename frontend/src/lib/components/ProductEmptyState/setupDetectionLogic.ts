@@ -1,6 +1,7 @@
 import { BreakPointFunction, LogicWrapper, MakeLogicType, afterMount, connect, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { isScopeNotFoundError } from 'lib/api-error'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -66,7 +67,7 @@ export interface SetupDetectionActions {
         detectedStatus: ProductSetupStatus | null,
         payload?: void
     ) => { detectedStatus: ProductSetupStatus | null }
-    detectStatusFailure: (error: string, errorObject?: unknown) => { error: string }
+    detectStatusFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
     setDetectedStatus: (status: ProductSetupStatus) => { status: ProductSetupStatus }
 }
 
@@ -163,12 +164,18 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                     }
                 }
             },
-            detectStatusFailure: () => {
+            detectStatusFailure: ({ errorObject }) => {
                 // Never strand the gate on its spinner: if nothing (preload included)
                 // has answered yet, fail open to the real scene. The poll keeps
                 // retrying, and a failure never downgrades an existing answer.
                 if (values.setupStatus === 'loading') {
                     actions.setDetectedStatus('unknown')
+                }
+                // A deleted project (or one the user lost access to) 404s every request
+                // under it, so retrying only files one error per tick. Stop the poll and
+                // leave the scene routing to move the user off the dead URL.
+                if (isScopeNotFoundError(errorObject)) {
+                    cache.disposables.dispose('poll')
                 }
             },
             [projectLogic.actionTypes.loadCurrentProjectSuccess]: () => {

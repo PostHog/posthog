@@ -33,6 +33,24 @@ export function isTransientServerError(error: unknown): boolean {
     return error instanceof ApiError && isTransientGatewayStatus(error.status)
 }
 
+/** The DRF `detail` values `posthog/api/routing.py` raises when a URL's scope no longer resolves. */
+const SCOPE_NOT_FOUND_DETAILS: ReadonlySet<string> = new Set(['Project not found.', 'Organization not found.'])
+
+/**
+ * A 404 raised because the project or organization in the URL no longer resolves - it was deleted,
+ * or the user lost access to it. Every endpoint under that scope answers the same way, so the
+ * failure describes the URL the user sits on rather than the request that hit it, and repeating
+ * that request cannot make it succeed.
+ */
+export function isScopeNotFoundError(error: unknown): boolean {
+    const failure = error as { status?: unknown; detail?: unknown; data?: { detail?: unknown } } | null
+    if (failure?.status !== 404) {
+        return false
+    }
+    const detail = failure.detail ?? failure.data?.detail
+    return typeof detail === 'string' && SCOPE_NOT_FOUND_DETAILS.has(detail)
+}
+
 /** The 403 gates `apiStatusLogic` recovers from, keyed by the DRF `code` the backend sends. */
 const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
     'two_factor_setup_required',
@@ -53,6 +71,9 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
  * - 403 `permission_denied` — the sceneLogic gates render the AccessDenied scene.
  * - 403 auth gates — `apiStatusLogic` opens 2FA setup, re-verification, or a re-auth prompt.
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
+ * - 404 `Project not found.` / `Organization not found.` — the scope in the URL is gone, so every
+ *   request under it fails the same way. The scene routing takes the user off that URL, and until
+ *   it does, a poll on the dead scope would otherwise file one exception per tick.
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
  *
  * Each of these still toasts wherever it did before, and `client_request_failure` still records
@@ -73,6 +94,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return true
     }
     if (status === 401 || isTransientGatewayStatus(status)) {
+        return false
+    }
+    if (isScopeNotFoundError(failure)) {
         return false
     }
     if (isAccessDeniedError(failure)) {
