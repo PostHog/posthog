@@ -41,6 +41,12 @@ const BETA_FEATURE: EnrichedEarlyAccessFeature = {
 }
 
 const CONCEPT_FEATURE: EnrichedEarlyAccessFeature = { ...BETA_FEATURE, flagKey: 'some-concept', stage: 'concept' }
+const ALPHA_FEATURE: EnrichedEarlyAccessFeature = {
+    ...BETA_FEATURE,
+    flagKey: 'some-alpha',
+    name: 'Tracing',
+    stage: 'alpha',
+}
 
 const BANNER_TEXT = /controlled by the PERSISTED_FEATURE_FLAGS environment variable, not the toggles below/
 
@@ -124,6 +130,15 @@ describe('FeaturePreviews', () => {
             }
         }
     )
+
+    test('renders an alpha preview with its enrollment toggle', () => {
+        setupMocks({ features: [ALPHA_FEATURE] })
+
+        render(<FeaturePreviews />)
+
+        expect(screen.getByText('Tracing')).toBeInTheDocument()
+        expect(screen.getByRole('switch')).toBeInTheDocument()
+    })
 
     test('hides the banner when the instance has only concept previews, which this list does not render', () => {
         setupMocks({ cloud: false, features: [CONCEPT_FEATURE] })

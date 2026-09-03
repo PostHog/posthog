@@ -7834,6 +7834,11 @@ export interface FeaturePreviewGateConfig {
     description: string
     docsURL?: string
     /**
+     * SQL over data the product already stores. Shown as a "Query in SQL" button, so a gated team
+     * can read what it sends before the viewer is on. Keep the query bounded, these tables are big.
+     */
+    storedDataQuery?: string
+    /**
      * Offer a "Request access" support CTA. Set this for betas that aren't self-serve early-access
      * features, so the gated state offers a way to request access instead of dead-ending on the
      * feature previews page.

@@ -48,6 +48,9 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
     }, [loadEarlyAccessFeatures])
 
     const feature = earlyAccessFeatures.find((f) => f.flagKey === config.flag)
+    // A concept-stage enrollment only registers interest, it never turns the flag on. So a switch
+    // for it would read as an enable control that does nothing.
+    const selfEnableFeature = feature?.stage !== 'concept' ? feature : undefined
     const sceneConfig = activeSceneId ? sceneConfigurations[activeSceneId] : undefined
     const flagsHonored = areClientFeatureFlagsHonored(preflight)
 
@@ -67,16 +70,20 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
                 description={config.description}
                 isEmpty
                 actionElementOverride={
-                    feature ? (
+                    selfEnableFeature ? (
                         <label
                             className={`flex items-center gap-2 ${flagsHonored ? 'cursor-pointer' : 'cursor-default'}`}
                             htmlFor="feature-preview-gate-switch"
                         >
                             <LemonSwitch
-                                checked={feature.enabled}
+                                checked={selfEnableFeature.enabled}
                                 disabledReason={!flagsHonored && FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON}
                                 onChange={(checked) =>
-                                    updateEarlyAccessFeatureEnrollment(feature.flagKey, checked, feature.stage)
+                                    updateEarlyAccessFeatureEnrollment(
+                                        selfEnableFeature.flagKey,
+                                        checked,
+                                        selfEnableFeature.stage
+                                    )
                                 }
                                 id="feature-preview-gate-switch"
                             />
@@ -99,6 +106,14 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
                                         }
                                     >
                                         Request access
+                                    </LemonButton>
+                                )}
+                                {config.storedDataQuery && (
+                                    <LemonButton
+                                        type="secondary"
+                                        to={urls.sqlEditor({ query: config.storedDataQuery })}
+                                    >
+                                        Query in SQL
                                     </LemonButton>
                                 )}
                             </div>
