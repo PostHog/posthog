@@ -56,6 +56,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadMonitoringSnapshot', // The managed warehouse Monitoring tab renders its own retry state
     'loadMonitoringSeries', // The managed warehouse Monitoring tab renders its own partial/error state
     'loadInstrumentationChecklist', // AI observability hides its checklist entirely rather than accusing a project on data it could not read
+    'loadFullEmail', // Its failure listener shows a retry toast and closes the modal
 ]
 
 /*
