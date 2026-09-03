@@ -59,3 +59,25 @@ def test_a_schedule_already_paused_is_left_paused(schema):
     assert trigger.schedule_paused_now is False
     schema.refresh_from_db()
     assert "admin_unpause_schedule_after_run" not in schema.sync_type_config
+
+
+def test_failed_start_restores_staged_reset_state(schema):
+    schema.sync_type_config = {"cdc_mode": "streaming", "cdc_last_log_position": "0/ABC"}
+    schema.sync_type = ExternalDataSchema.SyncType.CDC
+    schema.initial_sync_complete = True
+    schema.save()
+
+    with (
+        patch(f"{MODULE}.is_schedule_paused", return_value=True),
+        patch(f"{MODULE}.start_external_data_workflow", side_effect=RuntimeError("temporal down")),
+        pytest.raises(WorkflowStartError),
+    ):
+        trigger_ad_hoc_sync(MagicMock(), schema, billable=False, reset_pipeline=True, workflow_id_prefix="test")
+
+    # A run that never started must not change what the next scheduled run does. Leaving the reset
+    # staged would wipe the Delta table, and the deleted CDC log position cannot be undone key by key.
+    schema.refresh_from_db()
+    assert "reset_pipeline" not in schema.sync_type_config
+    assert schema.sync_type_config["cdc_mode"] == "streaming"
+    assert schema.sync_type_config["cdc_last_log_position"] == "0/ABC"
+    assert schema.initial_sync_complete is True

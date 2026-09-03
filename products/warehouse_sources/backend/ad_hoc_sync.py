@@ -93,6 +93,9 @@ def trigger_ad_hoc_sync(
     # reset_pipeline goes on sync_type_config rather than the workflow input because the pipeline
     # pops it after the first reset; on the input every activity retry would re-read True and wipe
     # Delta plus the cursor, restarting from row 0.
+    config_before = dict(schema.sync_type_config)
+    initial_sync_complete_before = schema.initial_sync_complete
+
     update_fields: list[str] = []
     if reset_pipeline:
         schema.sync_type_config["reset_pipeline"] = True
@@ -127,13 +130,22 @@ def trigger_ad_hoc_sync(
     try:
         start_external_data_workflow(client, workflow_id, inputs)
     except Exception as e:
-        # Without this rollback a failed start leaves the schedule paused forever: the unpause
-        # marker is only read by a workflow that never began, and the flag is orphaned in config.
+        # Two things have to come undone here, or a run that never started still changes behavior.
+        # The unpause marker is only read by a workflow that never began, so the schedule would stay
+        # paused forever. And the staged reset would be consumed by the next *scheduled* run, which
+        # would wipe the Delta table, or re-snapshot a CDC schema whose log position staging already
+        # deleted. Restoring the whole prior config covers the deleted keys, which a key-by-key undo
+        # cannot.
         if paused_now:
             try:
                 unpause_external_data_schedule(str(schema.id))
-                schema.sync_type_config.pop("admin_unpause_schedule_after_run", None)
-                schema.save(update_fields=["sync_type_config"])
+            except Exception:
+                pass
+        if update_fields:
+            schema.sync_type_config = config_before
+            schema.initial_sync_complete = initial_sync_complete_before
+            try:
+                schema.save(update_fields=["sync_type_config", "initial_sync_complete"])
             except Exception:
                 pass
         raise WorkflowStartError(str(e)) from e

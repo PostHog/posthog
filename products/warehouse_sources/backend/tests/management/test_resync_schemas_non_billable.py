@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -116,3 +117,25 @@ class TestResyncSchemasNonBillable:
         # Batching dozens of schemas is the point, so one bad schema must not abort the run.
         assert mock_trigger.call_count == 3
         assert "Triggered: 2, Failed: 1" in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [{"sleep_seconds": -1}, {"limit": 0}, {"limit": -2}],
+        ids=["negative_sleep", "zero_limit", "negative_limit"],
+    )
+    def test_bad_options_are_rejected_before_anything_is_triggered(
+        self, mock_start, _mock_paused, _mock_connect, team, kwargs
+    ):
+        schemas = [_create_schema(team, name=f"table_{i}") for i in range(3)]
+
+        with pytest.raises(CommandError):
+            call_command(
+                "resync_schemas_non_billable",
+                schema_ids=",".join(str(s.id) for s in schemas),
+                live_run=True,
+                **kwargs,
+            )
+
+        # A negative limit silently drops the last schemas, and a negative sleep raises partway
+        # through, so both must fail before a single workflow starts.
+        mock_start.assert_not_called()

@@ -1,8 +1,10 @@
 import time
+from typing import Any
 
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 import structlog
+from temporalio.client import Client
 
 from posthog.temporal.common.client import sync_connect
 
@@ -39,7 +41,7 @@ class Command(BaseCommand):
         "Use --reset for incremental or xmin schemas, which otherwise only read forward from their cursor."
     )
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
             "--schema-ids",
             type=str,
@@ -78,7 +80,7 @@ class Command(BaseCommand):
             help="Actually trigger the syncs. Without this the command only lists what it would do.",
         )
 
-    def handle(self, *args, **options):
+    def handle(self, *args: Any, **options: Any) -> None:
         schema_ids = _read_ids(options["schema_ids"], options["schema_ids_file"])
         if not schema_ids:
             raise CommandError("Pass --schema-ids or --schema-ids-file.")
@@ -86,6 +88,14 @@ class Command(BaseCommand):
         reset = options["reset"]
         live_run = options["live_run"]
         sleep_seconds = options["sleep_seconds"]
+
+        # Validate before anything is triggered. A negative limit silently drops the *last* schemas
+        # via slice semantics, and a negative sleep raises partway through, leaving a live batch
+        # half-run with no summary.
+        if sleep_seconds < 0:
+            raise CommandError("--sleep-seconds cannot be negative.")
+        if options["limit"] is not None and options["limit"] < 1:
+            raise CommandError("--limit must be at least 1.")
 
         by_id = {
             str(schema.id): schema
@@ -135,7 +145,7 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"\nDone. Triggered: {succeeded}, Failed: {failed}"))
 
-    def _trigger(self, client, schema: ExternalDataSchema, *, reset: bool) -> bool:
+    def _trigger(self, client: Client, schema: ExternalDataSchema, *, reset: bool) -> bool:
         try:
             trigger = trigger_ad_hoc_sync(
                 client,
