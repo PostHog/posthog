@@ -21,7 +21,12 @@ from posthog.clickhouse.client import (
     sync_execute,
 )
 from posthog.clickhouse.client.async_task_chain import execute_task_chain, task_chain_context
-from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
+from posthog.clickhouse.client.execute_async import (
+    QueryNotFoundError,
+    QueryResultExpiredError,
+    QueryStatusManager,
+    execute_process_query,
+)
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import (
@@ -33,6 +38,7 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitE
 from posthog.models import Organization, Team
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+from posthog.query_cache.cache import QueryCache
 from posthog.redis import get_client
 from posthog.shared_link_user import SharedLinkUser
 
@@ -64,6 +70,41 @@ class TestQueryStatusManager(SimpleTestCase):
 
     def test_is_empty(self):
         self.assertRaises(QueryNotFoundError, lambda: self.manager.get_query_status(True))
+
+    def test_keeps_failure_after_status_record_expires(self):
+        self.manager.store_query_status(self.query_status, cache_key="cache_async_handle_failed")
+        self.query_status.complete = True
+        self.query_status.error = True
+        self.query_status.error_message = "Query exceeded memory limit"
+        self.query_status.error_code = "clickhouse_memory_limit_exceeded"
+        self.manager.store_query_status(self.query_status)
+        get_client().delete(self.manager.results_key)
+
+        status = self.manager.get_query_status()
+
+        assert status.complete is True
+        assert status.error is True
+        assert status.error_message == "Query exceeded memory limit"
+        assert status.error_code == "clickhouse_memory_limit_exceeded"
+
+    @parameterized.expand([("finished_but_cache_entry_gone", True), ("never_finished", False)])
+    def test_raises_expired_after_status_record_expires_without_a_result(self, _name, complete):
+        self.manager.store_query_status(self.query_status, cache_key="cache_async_handle_missing")
+        self.query_status.complete = complete
+        self.manager.store_query_status(self.query_status)
+        get_client().delete(self.manager.results_key)
+
+        with self.assertRaises(QueryResultExpiredError):
+            self.manager.get_query_status()
+
+    def test_delete_removes_the_handle_too(self):
+        self.manager.store_query_status(self.query_status, cache_key="cache_async_handle_deleted")
+
+        self.manager.delete_query_status()
+
+        with self.assertRaises(QueryNotFoundError) as raised:
+            self.manager.get_query_status()
+        assert not isinstance(raised.exception, QueryResultExpiredError)
 
     def test_no_status(self):
         self.manager.store_query_status(self.query_status)
@@ -187,6 +228,24 @@ class TestExecuteProcessQuery(TestCase):
         self.limit_context = None
         self.refresh_requested = False
         self.manager = QueryStatusManager(self.query_id, self.team.id)
+
+    def test_serves_cached_result_after_status_record_expires(self):
+        cache_key = f"cache_async_handle_{self.team.id}"
+        query_status = QueryStatus(id=self.query_id, team_id=self.team.id)
+        self.manager.store_query_status(query_status, cache_key=cache_key)
+        query_status.complete = True
+        query_status.error = False
+        self.manager.store_query_status(query_status)
+        QueryCache(team_id=self.team.id, cache_key=cache_key).store_result(
+            response={"results": [{"count": 1}], "cache_key": cache_key, "is_cached": False}, target_age=None
+        )
+        get_client().delete(self.manager.results_key)
+
+        status = self.manager.get_query_status()
+
+        assert status.complete is True
+        assert status.error is False
+        assert status.results == {"results": [{"count": 1}], "cache_key": cache_key, "is_cached": True}
 
     @patch("posthog.clickhouse.client.execute_async.redis.get_client")
     @patch("posthog.api.services.query.process_query_dict")

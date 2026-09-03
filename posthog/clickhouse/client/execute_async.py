@@ -2,6 +2,8 @@ import uuid
 import datetime
 from typing import TYPE_CHECKING, Optional, cast
 
+from django.conf import settings
+
 import orjson as json
 import structlog
 import posthoganalytics
@@ -23,6 +25,7 @@ from posthog.direct_query_cancellation import build_direct_query_cancellation_to
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
+from posthog.query_cache.cache import QueryCache
 from posthog.renderers import SafeJSONRenderer
 
 if TYPE_CHECKING:
@@ -48,6 +51,10 @@ QUERY_PROCESS_TIME = Histogram(
 
 class QueryNotFoundError(NotFound):
     pass
+
+
+class QueryResultExpiredError(QueryNotFoundError):
+    default_code = "query_result_expired"
 
 
 class QueryRetrievalError(Exception):
@@ -83,12 +90,58 @@ class QueryStatusManager:
     def running_queries_key(self) -> str:
         return f"{self.KEY_PREFIX_RUNNING_QUERIES}:{self.team_id}"
 
-    def store_query_status(self, query_status: QueryStatus):
+    @property
+    def handle_key(self) -> str:
+        return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}:handle"
+
+    def store_query_status(self, query_status: QueryStatus, cache_key: Optional[str] = None):
         value = SafeJSONRenderer().render(query_status.model_dump(exclude={"clickhouse_query_progress"}))
         query_status.expiration_time = datetime.datetime.now(datetime.UTC) + datetime.timedelta(
             seconds=self.STATUS_TTL_SECONDS
         )
         self.redis_client.set(self.results_key, value, exat=int(query_status.expiration_time.timestamp()))
+        self._store_handle(query_status, cache_key)
+
+    def _store_handle(self, query_status: QueryStatus, cache_key: Optional[str]) -> None:
+        # The status record above carries the result payload, so it is short-lived. This handle
+        # carries only the outcome and the cache key, and it lives as long as the query cache
+        # entry does. A client that polls after the status record is gone (a browser tab that
+        # stayed hidden, an API script that resumed late) can still be served from the cache
+        # instead of getting a 404 for a result that exists.
+        fields = {
+            "complete": "1" if query_status.complete else "0",
+            "error": "1" if query_status.error else "0",
+            "error_message": query_status.error_message or "",
+            "error_code": query_status.error_code or "",
+        }
+        if cache_key:
+            fields["cache_key"] = cache_key
+        self.redis_client.hset(self.handle_key, mapping=fields)
+        self.redis_client.expire(self.handle_key, settings.CACHED_RESULTS_TTL)
+
+    def _status_from_handle(self) -> QueryStatus:
+        raw_handle = self.redis_client.hgetall(self.handle_key)
+        if not raw_handle:
+            raise QueryNotFoundError(f"Query {self.query_id} not found for team {self.team_id}")
+        handle = {key.decode("utf-8"): value.decode("utf-8") for key, value in raw_handle.items()}
+        complete = handle.get("complete") == "1"
+        if complete and handle.get("error") == "1":
+            return QueryStatus(
+                id=self.query_id,
+                team_id=self.team_id,
+                complete=True,
+                error=True,
+                error_message=handle.get("error_message") or None,
+                error_code=handle.get("error_code") or None,
+            )
+        cache_key = handle.get("cache_key")
+        if complete and cache_key:
+            entry = QueryCache(team_id=self.team_id, cache_key=cache_key).lookup().entry
+            response = entry.as_full_response() if entry else None
+            if response is not None:
+                response["is_cached"] = True
+                return QueryStatus(id=self.query_id, team_id=self.team_id, complete=True, error=False, results=response)
+        raise QueryResultExpiredError("The result expired. Refresh to run the query again.")
 
     def _store_clickhouse_query_progress_dict(self, query_progress_dict):
         value = json.dumps(query_progress_dict)
@@ -146,7 +199,7 @@ class QueryStatusManager:
         byte_results = self._get_results()
 
         if not byte_results:
-            raise QueryNotFoundError(f"Query {self.query_id} not found for team {self.team_id}")
+            return self._status_from_handle()
 
         loaded = json.loads(byte_results)
         # Drop unknown keys so a status written by a newer deploy (with extra fields) doesn't fail
@@ -162,6 +215,7 @@ class QueryStatusManager:
         logger.info("Deleting redis query key %s", self.results_key)
         self.redis_client.delete(self.results_key)
         self.redis_client.delete(self.clickhouse_query_status_key)
+        self.redis_client.delete(self.handle_key)
 
     def get_running_query_by_cache_key(self, cache_key: str) -> Optional[str]:
         """Get the query_id of a running query with the given cache_key, if any."""
@@ -397,7 +451,7 @@ def enqueue_process_query_task(
         labels=labels,
     )
     query_tags = get_query_tags().model_dump()
-    manager.store_query_status(query_status)
+    manager.store_query_status(query_status, cache_key=cache_key)
 
     if cache_key:
         try:
