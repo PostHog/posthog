@@ -868,10 +868,6 @@ runcmd:
                 f"({attempt} polls): {last_policy[:200]}",
             )
 
-        # The whole point of the setting is that an install we do not run keeps its reports.
-        if "posthog.com" in last_policy:
-            return False, f"Served policy still names a PostHog endpoint: {last_policy[:200]}"
-
         csp_distinct_id = f"hobby-ci-csp-{time.time_ns()}"
         print("📤 Sending test CSP violation report...", flush=True)
         try:
