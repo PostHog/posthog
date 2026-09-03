@@ -37,7 +37,15 @@ export function createRecordSessionUsageStep<T extends SessionUsageInput>(
     return function recordSessionUsage(value): Promise<PipelineResult<Recordable<T>>> {
         if (value.isNewSession) {
             const meter = billableMeter(value.parsedMessage.snapshot_source)
-            usageBatch?.add(value.team.teamId, meter, value.headers.session_id)
+            const captureTimestampMs = value.headers.now?.getTime()
+            usageBatch?.add(
+                value.team.teamId,
+                meter,
+                value.headers.session_id,
+                1,
+                undefined,
+                Number.isFinite(captureTimestampMs) ? captureTimestampMs : undefined
+            )
         }
         return Promise.resolve(ok(value))
     }

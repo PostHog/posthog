@@ -16,7 +16,7 @@ The identity exists so our retries and reprocessing of one ingested thing collap
 CDP is the one producer that still prefixes, because its three call sites share one `usage_key` and the prefix is what separates them.
 
 `timestamp` is in the sort key as a date, because every billing read filters a time range and a date in the key prunes where a skip index only skips granules.
-Every producer stamps it from its own clock when it flushes, never from anything a customer sends — a customer-controlled value would decide whether their own records deduplicate.
+Event-derived producers stamp it from the trusted server capture time in their ingestion header when available; aggregate producers use their own emission clock. Never use anything a customer sends — a customer-controlled value would decide whether their own records deduplicate.
 The cost is that deduplication is scoped to a UTC day, so a reprocess that crosses midnight leaves two rows.
 
 `inserted_at` is the engine's version column but is deliberately absent from the HogQL schema.

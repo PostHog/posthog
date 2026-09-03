@@ -13,6 +13,7 @@ interface PendingRecord {
     recordId: string
     quantity: number
     unit?: string
+    timestampMs?: number
 }
 
 /**
@@ -43,13 +44,13 @@ export class UsageRecordBatch {
         return this.client !== null && this.config.isTeamEnabled(teamId)
     }
 
-    add(teamId: number, usageKey: string, recordId: string, quantity = 1, unit?: string): void {
+    add(teamId: number, usageKey: string, recordId: string, quantity = 1, unit?: string, timestampMs?: number): void {
         if (quantity <= 0 || !this.accepts(teamId)) {
             return
         }
         const key = `${teamId}:${usageKey}:${recordId}`
         if (!this.records.has(key)) {
-            this.records.set(key, { teamId, usageKey, recordId, quantity, unit })
+            this.records.set(key, { teamId, usageKey, recordId, quantity, unit, timestampMs })
         }
     }
 
@@ -62,7 +63,8 @@ export class UsageRecordBatch {
         acknowledgements: Promise<unknown | null>[],
         teamId: number,
         usageKey: string,
-        recordId: string
+        recordId: string,
+        timestampMs?: number
     ): void {
         // A record that would be dropped must not put the flush behind its Kafka writes.
         if (!this.accepts(teamId)) {
@@ -72,7 +74,7 @@ export class UsageRecordBatch {
             Promise.all(acknowledgements)
                 .then((results) => {
                     if (results.every((result) => result !== null)) {
-                        this.add(teamId, usageKey, recordId)
+                        this.add(teamId, usageKey, recordId, 1, undefined, timestampMs)
                     }
                 })
                 // Kafka errors are handled by the producer side effect. They must
@@ -94,17 +96,15 @@ export class UsageRecordBatch {
         if (!this.client || this.records.size === 0) {
             return
         }
-        // Flush time, never anything off the event. toDate of this lands in the storage
-        // sorting key, so a customer-supplied value would let a customer decide whether
-        // their own records deduplicate.
-        const timestampMs = Date.now()
+        // Aggregate producers have no per-record capture time, so retain their flush-time clock.
+        const flushedAtMs = Date.now()
         const records: UsageRecordInput[] = [...this.records.values()].map((record) => ({
             recordId: record.recordId,
             teamId: record.teamId,
             usageKey: record.usageKey,
             unit: record.unit ?? this.config.unit,
             quantity: record.quantity,
-            timestampMs,
+            timestampMs: record.timestampMs ?? flushedAtMs,
         }))
         this.records.clear()
         await this.client.ingest(records)
