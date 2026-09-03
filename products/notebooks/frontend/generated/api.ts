@@ -12,6 +12,7 @@ import type {
     NotebookApi,
     NotebookCollabPresenceApi,
     NotebookCollabSaveApi,
+    NotebookComputeOptionsResponseApi,
     NotebookKernelConfigApi,
     NotebookKernelConfigResponseApi,
     NotebookKernelStatusResponseApi,
@@ -746,6 +747,23 @@ export const getNotebooksAllActivityRetrieveUrl = (projectId: string) => {
  */
 export const notebooksAllActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getNotebooksAllActivityRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksKernelComputeOptionsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/notebooks/kernel/compute_options/`
+}
+
+/**
+ * Compute rates, presets, and the sizes the kernel config endpoint accepts. Static per region, so a client can fetch it once and price any shape a user picks.
+ */
+export const notebooksKernelComputeOptionsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<NotebookComputeOptionsResponseApi> => {
+    return apiMutator<NotebookComputeOptionsResponseApi>(getNotebooksKernelComputeOptionsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

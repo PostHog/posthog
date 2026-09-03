@@ -1177,7 +1177,9 @@ export class PiSessionController {
     failure: PromptFailure,
   ): string {
     if (failure.kind === "usage_limit") {
-      return "Usage limit reached";
+      return failure.limitCause === "model_unavailable"
+        ? "Model not available"
+        : "Usage limit reached";
     }
     if (failure.kind === "transient") {
       return "Provider temporarily unavailable";

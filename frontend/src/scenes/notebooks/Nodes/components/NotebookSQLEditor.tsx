@@ -40,7 +40,12 @@ function useNotebookDataframeTreeSections(): TreeDataItem[] {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { notebookLogic } = useValues(nodeLogic)
     const { frameNodeSummaries } = useValues(notebookLogic)
-    const { localFrames } = useValues(notebookKernelInfoLogic({ shortId: notebookLogic.props.shortId }))
+    const { localFrames } = useValues(
+        notebookKernelInfoLogic({
+            shortId: notebookLogic.props.shortId,
+            isShared: !!notebookLogic.props.cachedNotebook,
+        })
+    )
     return useMemo(() => buildDataframeTreeSection(frameNodeSummaries, localFrames), [frameNodeSummaries, localFrames])
 }
 
