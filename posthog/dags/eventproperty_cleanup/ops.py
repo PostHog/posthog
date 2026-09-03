@@ -22,6 +22,7 @@ from posthog.dataclasses import frozen
 
 from . import sql
 from .config import EventPropertyCleanupConfig
+from .cursor import read_cursor, record_cursor, reset_cursor
 from .dormancy import (
     ClickHouseProbe,
     DormancyVerdict,
@@ -279,6 +280,27 @@ def run_units(
     return mode_result
 
 
+def _resume_point(context: dagster.OpExecutionContext, config: EventPropertyCleanupConfig, mode: str) -> int:
+    """Where this mode's discovery starts. An explicit override wins over the recorded point."""
+    if config.start_after_team_id is not None:
+        return max(config.start_after_team_id, 0)
+    if not config.resume:
+        return 0
+    start = read_cursor(context.instance, mode)
+    if start:
+        context.log.info("%s: resuming above team_id %s", mode, f"{start:,}")
+    return start
+
+
+def _chunk_recorder(
+    context: dagster.OpExecutionContext, config: EventPropertyCleanupConfig, mode: str
+) -> Callable[[int], None] | None:
+    """A dry run discovers without deleting, so it must not advance the resume point."""
+    if config.dry_run:
+        return None
+    return lambda team_id: record_cursor(context, mode, team_id)
+
+
 @dagster.op
 def run_pollution_op(
     context: dagster.OpExecutionContext,
@@ -290,7 +312,13 @@ def run_pollution_op(
         context.log.info("pollution mode disabled")
         return _skipped("pollution")
     with discovery_cursor(config) as cursor:
-        return run_units(context, config, preflight, "pollution", discover_pollution_units(cursor, config), cluster)
+        units = discover_pollution_units(
+            cursor,
+            config,
+            start_after=_resume_point(context, config, "pollution"),
+            on_chunk_done=_chunk_recorder(context, config, "pollution"),
+        )
+        return run_units(context, config, preflight, "pollution", units, cluster)
 
 
 @dagster.op
@@ -305,7 +333,13 @@ def run_retention_op(
         context.log.info("retention mode disabled (retention_days is None)")
         return _skipped("retention")
     with discovery_cursor(config) as cursor:
-        return run_units(context, config, preflight, "retention", discover_retention_units(cursor, config), cluster)
+        units = discover_retention_units(
+            cursor,
+            config,
+            start_after=_resume_point(context, config, "retention"),
+            on_chunk_done=_chunk_recorder(context, config, "retention"),
+        )
+        return run_units(context, config, preflight, "retention", units, cluster)
 
 
 def score_dormant_teams(
@@ -399,6 +433,10 @@ def collect_and_vacuum_op(
     dormant: ModeResult,
 ) -> dict[str, int]:
     results = [pollution, retention, dormant]
+    if config.reset_cursor_after_run and not config.dry_run:
+        for mode in ("pollution", "retention"):
+            reset_cursor(context, mode)
+        context.log.info("resume points reset; the next run re-walks every range")
     rows_since_vacuum = sum(r.rows_since_vacuum for r in results)
     final_vacuums = 0
     if config.vacuum and not config.dry_run and rows_since_vacuum > 0:

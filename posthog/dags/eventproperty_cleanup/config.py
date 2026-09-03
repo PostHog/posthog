@@ -51,6 +51,24 @@ class EventPropertyCleanupConfig(dagster.Config):
         description="Teams that are never touched by any mode.",
     )
 
+    # Resume
+    resume: bool = Field(
+        default=True,
+        description=(
+            "Start discovery above the highest team_id an earlier run exhausted, instead of "
+            "re-walking every range. The resume point is published per mode as an asset "
+            "materialization; a live run records it as each range completes."
+        ),
+    )
+    start_after_team_id: int | None = Field(
+        default=None,
+        description="Override the recorded resume point for this run. Use 0 to re-walk everything.",
+    )
+    reset_cursor_after_run: bool = Field(
+        default=False,
+        description="Send the resume point back to 0 when the run ends, so the next pass starts over.",
+    )
+
     # Pacing
     discovery_team_chunk: int = Field(
         default=5_000,

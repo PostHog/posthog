@@ -8,10 +8,12 @@ from unittest.mock import MagicMock, patch
 from django.db import connection
 from django.db.utils import DatabaseError
 
+import dagster
 from parameterized import parameterized
 
 from posthog.dags.eventproperty_cleanup import ops
 from posthog.dags.eventproperty_cleanup.config import EventPropertyCleanupConfig
+from posthog.dags.eventproperty_cleanup.cursor import cursor_asset_key, read_cursor, record_cursor
 from posthog.dags.eventproperty_cleanup.dormancy import (
     PROBE_UNAVAILABLE,
     DormancySignals,
@@ -249,6 +251,93 @@ class TestTeamChunking:
 
         assert list(iter_team_chunks(cursor, config, "UNIVERSE", {})) == [[2, 9]]
         cursor.execute.assert_not_called()
+
+
+class TestResumeCursor:
+    def test_read_falls_back_to_the_start_when_the_instance_read_fails(self):
+        # A Dagster+ read is a network call. It must never fail the run -- falling back to 0 is
+        # the behaviour the job had before the cursor existed.
+        instance = MagicMock()
+        instance.get_latest_materialization_event.side_effect = RuntimeError("cloud unavailable")
+
+        assert read_cursor(instance, "pollution") == 0
+
+    @parameterized.expand(
+        [
+            ("no_materialization", None, 0),
+            ("no_metadata_entry", {}, 0),
+            ("unreadable_value", {"last_completed_team_id": "not-a-number"}, 0),
+            ("valid", {"last_completed_team_id": 25_000}, 25_000),
+            ("negative_is_clamped", {"last_completed_team_id": -5}, 0),
+        ]
+    )
+    def test_read_cursor_tolerates_every_stored_shape(self, _name: str, metadata: Any, expected: int):
+        instance = MagicMock()
+        if metadata is None:
+            instance.get_latest_materialization_event.return_value = None
+        else:
+            event = MagicMock()
+            event.asset_materialization = dagster.AssetMaterialization(
+                asset_key=cursor_asset_key("pollution"), metadata=metadata
+            )
+            instance.get_latest_materialization_event.return_value = event
+
+        assert read_cursor(instance, "pollution") == expected
+
+    def test_each_mode_keeps_its_own_resume_point(self):
+        assert cursor_asset_key("pollution") != cursor_asset_key("retention")
+
+    def test_record_cursor_never_raises(self):
+        context = MagicMock()
+        context.log_event.side_effect = RuntimeError("event log down")
+
+        record_cursor(context, "pollution", 500)
+
+        context.log.warning.assert_called_once()
+
+
+class TestResumeChunkWalk:
+    def make_cursor(self, max_team_id: int, per_chunk: list[list[tuple[int]]]) -> MagicMock:
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (max_team_id,)
+        cursor.fetchall.side_effect = per_chunk
+        return cursor
+
+    def test_resumed_walk_skips_the_ranges_an_earlier_run_finished(self):
+        cursor = self.make_cursor(12, [[(11,)]])
+        config = EventPropertyCleanupConfig(discovery_team_chunk=5, discovery_sleep_seconds=0)
+
+        chunks = list(iter_team_chunks(cursor, config, "UNIVERSE", {}, sleep=lambda _: None, start_after=10))
+
+        ranges = [c.kwargs or c.args[1] for c in cursor.execute.call_args_list[1:]]
+        assert [(r["lo"], r["hi"]) for r in ranges] == [(10, 12)]
+        assert chunks == [[11]]
+
+    def test_a_range_is_recorded_only_after_its_units_are_consumed(self):
+        # The generator is lazy, so a recorded range means every unit in it was already run.
+        cursor = self.make_cursor(10, [[(1,)], [(6,)]])
+        config = EventPropertyCleanupConfig(discovery_team_chunk=5, discovery_sleep_seconds=0)
+        recorded: list[int] = []
+
+        walk = iter_team_chunks(cursor, config, "UNIVERSE", {}, sleep=lambda _: None, on_chunk_done=recorded.append)
+        assert next(walk) == [1]
+        assert recorded == []
+        assert next(walk) == [6]
+        assert recorded == [5]
+        with pytest.raises(StopIteration):
+            next(walk)
+        assert recorded == [5, 10]
+
+    def test_an_empty_range_still_advances_the_resume_point(self):
+        cursor = self.make_cursor(10, [[], []])
+        config = EventPropertyCleanupConfig(discovery_team_chunk=5, discovery_sleep_seconds=0)
+        recorded: list[int] = []
+
+        assert (
+            list(iter_team_chunks(cursor, config, "UNIVERSE", {}, sleep=lambda _: None, on_chunk_done=recorded.append))
+            == []
+        )
+        assert recorded == [5, 10]
 
 
 class TestDeleteStatement:

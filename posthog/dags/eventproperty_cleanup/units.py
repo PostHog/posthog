@@ -86,8 +86,15 @@ def iter_team_chunks(
     universe_sql: str,
     params: Mapping[str, object],
     sleep: Callable[[float], None] = time.sleep,
+    *,
+    start_after: int = 0,
+    on_chunk_done: Callable[[int], None] | None = None,
 ) -> Iterator[list[int]]:
     """Yield team ids per team_id range, so no discovery statement covers a whole table.
+
+    Starts above `start_after`, so a resumed run skips the ranges an earlier run exhausted.
+    `on_chunk_done` fires once a range is fully consumed: the generator is lazy, so control only
+    returns here after the caller finished every unit of the range it just yielded.
 
     With an explicit `team_ids` config the ranges are skipped and the list is yielded once.
     """
@@ -96,23 +103,38 @@ def iter_team_chunks(
         return
     cursor.execute(sql.MAX_TEAM_ID)
     max_team_id = int(cursor.fetchone()[0])
-    lo = 0
+    lo = max(start_after, 0)
     while lo < max_team_id:
         hi = min(lo + config.discovery_team_chunk, max_team_id)
         cursor.execute(universe_sql, {**params, "lo": lo, "hi": hi})
         team_ids = [int(row[0]) for row in cursor.fetchall()]
         if team_ids:
             yield team_ids
+        if on_chunk_done is not None:
+            on_chunk_done(hi)
         lo = hi
         if config.discovery_sleep_seconds:
             sleep(config.discovery_sleep_seconds)
 
 
 def discover_pollution_units(
-    cursor, config: EventPropertyCleanupConfig, sleep: Callable[[float], None] = time.sleep
+    cursor,
+    config: EventPropertyCleanupConfig,
+    sleep: Callable[[float], None] = time.sleep,
+    *,
+    start_after: int = 0,
+    on_chunk_done: Callable[[int], None] | None = None,
 ) -> Iterator[WorkUnit]:
     """One unit per (team, property) whose property has no EVENT-type definition in the project."""
-    for team_ids in iter_team_chunks(cursor, config, sql.POLLUTION_TEAM_UNIVERSE, {}, sleep):
+    for team_ids in iter_team_chunks(
+        cursor,
+        config,
+        sql.POLLUTION_TEAM_UNIVERSE,
+        {},
+        sleep,
+        start_after=start_after,
+        on_chunk_done=on_chunk_done,
+    ):
         for scope in eligible_team_scopes(cursor, config, team_ids, apply_paying_org_filter=False):
             cursor.execute(sql.POLLUTION_CANDIDATE_NAMES, {"project_id": scope.project_id})
             names = [row[0] for row in cursor.fetchall()]
@@ -130,13 +152,26 @@ def discover_pollution_units(
 
 
 def discover_retention_units(
-    cursor, config: EventPropertyCleanupConfig, sleep: Callable[[float], None] = time.sleep
+    cursor,
+    config: EventPropertyCleanupConfig,
+    sleep: Callable[[float], None] = time.sleep,
+    *,
+    start_after: int = 0,
+    on_chunk_done: Callable[[int], None] | None = None,
 ) -> Iterator[WorkUnit]:
     """One unit per batch of event names not seen for `retention_days` in a project."""
     if config.retention_days is None:
         return
     params = {"days": config.retention_days}
-    for team_ids in iter_team_chunks(cursor, config, sql.RETENTION_TEAM_UNIVERSE, params, sleep):
+    for team_ids in iter_team_chunks(
+        cursor,
+        config,
+        sql.RETENTION_TEAM_UNIVERSE,
+        params,
+        sleep,
+        start_after=start_after,
+        on_chunk_done=on_chunk_done,
+    ):
         for scope in eligible_team_scopes(cursor, config, team_ids, apply_paying_org_filter=True):
             after = ""
             while True:
