@@ -4,6 +4,10 @@ import { basename, dirname, join } from "node:path";
 import type { ServerType } from "@hono/node-server";
 import { serve } from "@hono/node-server";
 import {
+  BENJAMIN_UPSTREAM_COMMIT,
+  isBenjaminEnabled,
+} from "@posthog/harness/extensions/benjamin-guidance";
+import {
   type AgentConversationEvent,
   MCP_TOOL_PERMISSION_OPTIONS,
   type McpToolPermissionDecision,
@@ -18,8 +22,6 @@ import { buildPosthogPropertyHeaderRecord } from "@posthog/shared/posthog-proper
 import { Hono } from "hono";
 import { z } from "zod/v4";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
-import { BENJAMIN_UPSTREAM_COMMIT } from "../adapters/benjamin/instruction";
-import { isBenjaminEnabled } from "../adapters/benjamin-guidance";
 import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
 import { resolveContextWikiPath } from "../context-wiki";
 import { OtelRunTelemetry } from "../otel-telemetry";

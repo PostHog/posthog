@@ -12,7 +12,7 @@
  * system prompt (its authors measured the same text as a skill folder at
  * -0.5%), so no one-click install can deliver it. Cloud agent sessions inject
  * it instead when POSTHOG_BENJAMIN is set - see
- * packages/agent/src/adapters/benjamin-guidance.ts.
+ * packages/harness/src/extensions/benjamin-guidance/extension.ts.
  */
 
 export interface LeanSkill {

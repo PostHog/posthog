@@ -1,5 +1,5 @@
+import { appendBenjaminGuidance } from "@posthog/harness/extensions/benjamin-guidance";
 import { buildContextWikiInstructions } from "../../../context-wiki";
-import { appendBenjaminGuidance } from "../../benjamin-guidance";
 
 const BRANCH_NAMING = `
 # Branch Naming

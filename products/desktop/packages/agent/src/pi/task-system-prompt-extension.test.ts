@@ -3,7 +3,7 @@ import type {
   SessionEntry,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildTaskSystemPrompt, type TaskContext } from "./task-system-prompt";
 import {
   createPiTaskSystemPromptExtension,
@@ -20,10 +20,6 @@ const taskContext: TaskContext = {
 };
 
 describe("Pi task system prompt", () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
   it("persists a new context and restores it on resume", () => {
     const appendCustomEntry = vi.fn();
     const manager = {
@@ -91,21 +87,6 @@ describe("Pi task system prompt", () => {
     expect(beforeAgentStart({ systemPrompt: "Pi instructions" })).toEqual({
       systemPrompt: `Pi instructions\n\n${buildTaskSystemPrompt(taskContext)}`,
     });
-  });
-
-  it("appends Benjamin guidance when enabled", () => {
-    vi.stubEnv("POSTHOG_BENJAMIN", "1");
-    const handlers = new Map<string, unknown>();
-    createPiTaskSystemPromptExtension(taskContext).factory({
-      on: (event: string, handler: unknown) => handlers.set(event, handler),
-    } as unknown as ExtensionAPI);
-    const beforeAgentStart = handlers.get("before_agent_start") as (event: {
-      systemPrompt: string;
-    }) => { systemPrompt: string };
-
-    expect(
-      beforeAgentStart({ systemPrompt: "Pi instructions" }).systemPrompt,
-    ).toContain("BENJAMIN-PLUS MODE ACTIVE");
   });
 
   it("renders the prompt with the capabilities the harness reports", () => {

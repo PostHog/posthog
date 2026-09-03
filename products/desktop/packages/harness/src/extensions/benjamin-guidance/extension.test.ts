@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { assertMitLicense } from "../../../../scripts/sync-benjamin.mts";
 import {
+  appendBenjaminGuidance,
   BENJAMIN_INSTRUCTION,
   BENJAMIN_UPSTREAM_COMMIT,
-} from "./benjamin/instruction";
-import { appendBenjaminGuidance, isBenjaminEnabled } from "./benjamin-guidance";
-import { buildAppendedInstructions } from "./claude/session/instructions";
+  isBenjaminEnabled,
+} from "./extension";
+import { assertMitLicense } from "./validation";
 
 const MARKER = "BENJAMIN-PLUS MODE ACTIVE";
 
@@ -18,7 +18,7 @@ const lock = JSON.parse(
   ),
 ) as { commit: string; sha256: string };
 
-describe("benjamin guidance", () => {
+describe("Benjamin guidance", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
@@ -61,21 +61,6 @@ describe("benjamin guidance", () => {
           MARKER,
         ),
       ).toBe(true);
-    });
-  });
-
-  describe("claude session prompt", () => {
-    test("carries the instruction when enabled", () => {
-      vi.stubEnv("POSTHOG_BENJAMIN", "1");
-      expect(buildAppendedInstructions({ spokenNarration: false })).toContain(
-        MARKER,
-      );
-    });
-
-    test("leaves the prompt untouched when unset", () => {
-      expect(
-        buildAppendedInstructions({ spokenNarration: false }),
-      ).not.toContain(MARKER);
     });
   });
 

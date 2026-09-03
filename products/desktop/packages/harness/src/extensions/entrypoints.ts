@@ -1,4 +1,5 @@
 export const HARNESS_EXTENSION_ENTRYPOINTS = {
+  "benjamin-guidance": "benjamin-guidance/index",
   "hog-branding": "hog-branding/index",
   "posthog-provider": "posthog-provider/index",
   "product-engineer": "product-engineer/index",

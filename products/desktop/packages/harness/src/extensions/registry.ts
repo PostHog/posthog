@@ -3,6 +3,7 @@ import type {
   ExtensionFactory,
   InlineExtension,
 } from "@earendil-works/pi-coding-agent";
+import { createBenjaminGuidanceExtension } from "./benjamin-guidance/extension";
 import {
   HARNESS_EXTENSION_ENTRYPOINTS,
   type HarnessExtensionName,
@@ -32,6 +33,7 @@ interface HarnessExtension {
 }
 
 const EXTENSIONS: HarnessExtension[] = [
+  { name: "benjamin-guidance", create: createBenjaminGuidanceExtension },
   { name: "hog-branding", create: createHogBrandingExtension },
   { name: "posthog-provider", create: createPosthogProviderExtension },
   { name: "product-engineer", create: () => createProductEngineerExtension() },
