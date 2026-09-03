@@ -400,6 +400,9 @@ importers:
       playwright-core:
         specifier: ^1.60.0
         version: 1.60.0
+      prettier:
+        specifier: 3.8.1
+        version: 3.8.1
       storybook:
         specifier: 10.4.1
         version: 10.4.1(@testing-library/dom@10.4.1)(@types/react@19.2.17)(prettier@3.8.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)

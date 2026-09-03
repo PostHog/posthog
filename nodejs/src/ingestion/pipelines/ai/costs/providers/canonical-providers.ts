@@ -1,10 +1,11 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-02 10:05:31 UTC
+// Generated at: 2026-09-02 20:02:25 UTC
 
 export type CanonicalProvider =
     | 'default'
     | 'aion-labs'
     | 'akashml-bf16'
+    | 'akashml-fp4'
     | 'akashml-fp8'
     | 'alibaba'
     | 'alibaba-fast'

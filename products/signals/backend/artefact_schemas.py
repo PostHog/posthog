@@ -204,6 +204,16 @@ class SuggestedReviewerEntry(BaseModel):
             "could name a privileged teammate as owner and have an implementation agent run as them."
         ),
     )
+    source_skill: str | None = Field(
+        default=None,
+        description=(
+            "Name of the scout skill whose run wrote this entry, stamped server-side at the write. "
+            "Autostart unions this skill's current owners into its identity exclusion, so the "
+            "exclusion holds even when the run's best-effort edit tally was lost — the provenance "
+            "commits atomically with the pick itself. None for entries no scout wrote (pipeline, "
+            "custom agent, human edits)."
+        ),
+    )
 
     @field_validator("github_login")
     @classmethod

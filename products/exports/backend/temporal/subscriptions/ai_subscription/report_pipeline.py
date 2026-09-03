@@ -37,6 +37,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     HOGQL_FIX_PROMPT,
     HOGQL_FIX_PROMPT_NAME,
     SYNTHESIS_PROMPT_NAME,
+    prepend_hogql_query_writing_rules,
     render_prompt,
     resolve_prompt,
 )
@@ -240,7 +241,7 @@ async def generate_ai_report(
             if ai_query_plan is not None:
                 try:
                     spec = await _spec_from_frozen_plan(
-                        team=team, prompt=prompt, window=window, ai_query_plan=ai_query_plan
+                        team=team, user=user, prompt=prompt, window=window, ai_query_plan=ai_query_plan
                     )
                     freshly_planned = False
                 except StoredPlanInvalidError as exc:
@@ -423,11 +424,12 @@ async def _plan(
 
 
 async def _spec_from_frozen_plan(
-    *, team: Team, prompt: Optional[str], window: ReportWindow, ai_query_plan: dict
+    *, team: Team, user: User, prompt: Optional[str], window: ReportWindow, ai_query_plan: dict
 ) -> EnrichedPromptSpec:
     try:
         return await database_sync_to_async(build_frozen_prompt, thread_sensitive=False)(
             team=team,
+            user=user,
             prompt=prompt,
             window=window,
             ai_query_plan=ai_query_plan,
@@ -685,6 +687,7 @@ async def _arequest_hogql_fix(
     fix_prompt = await database_sync_to_async(resolve_prompt, thread_sensitive=False)(
         team, HOGQL_FIX_PROMPT_NAME, HOGQL_FIX_PROMPT
     )
+    fix_prompt = prepend_hogql_query_writing_rules(fix_prompt)
     rendered = render_prompt(
         fix_prompt,
         {"description": step_description, "error": error_message, "original_hogql": original_hogql},

@@ -45,14 +45,25 @@ class _Override:
     reasoning_effort: str | None = None
 
 
-def _resolve(saved: AIPreferences, override_model=None, override_effort=None):
-    """Resolve with `resolve_ai_preferences` stubbed, so these stay unit tests over the
-    precedence rules rather than over the settings rows."""
-    with patch.object(run_preferences, "resolve_ai_preferences", return_value=saved):
+def _resolve(
+    saved: AIPreferences,
+    override_model=None,
+    override_effort=None,
+    central_default=None,
+):
+    """Resolve with the saved rows and the central default both stubbed, so these stay
+    unit tests over the precedence rules rather than over the rows behind them."""
+    with (
+        patch.object(run_preferences, "resolve_ai_preferences", return_value=saved),
+        patch.object(run_preferences, "_central_run_default", return_value=central_default),
+    ):
         return resolve_run_preferences(
             integration=None,  # type: ignore[arg-type]
             slack_user_id="U1",
             override=_Override(model=override_model, reasoning_effort=override_effort),
+            # Any id will do — the lookup it feeds is stubbed; passing one is what opts the
+            # central-default rung into the chain at all.
+            team_id=1,
         )
 
 
@@ -98,6 +109,42 @@ class TestResolveRunPreferences:
         adapter the model actually runs on."""
         saved = AIPreferences(runtime_adapter="codex", model="claude-fable-5", reasoning_effort=None)
         assert _resolve(saved).runtime_adapter == "claude"
+
+    # Pinning a model unconditionally is what put the project and user defaults out of
+    # reach from Slack, and it fails silently — the run still works, just never on the
+    # configured model. These lock the fall-through in both directions.
+    @pytest.mark.parametrize(
+        "saved,override_model,expected",
+        [
+            (AIPreferences(), None, AIPreferences(None, None, None)),
+            (SAVED, None, SAVED),
+            (AIPreferences(), "claude-fable-5", AIPreferences("claude", "claude-fable-5", None)),
+        ],
+    )
+    def test_with_a_central_default_only_a_slack_selection_pins_the_run(
+        self, catalogue, saved, override_model, expected
+    ):
+        central = AIPreferences(runtime_adapter="claude", model="claude-fable-5", reasoning_effort=None)
+        assert _resolve(saved, override_model=override_model, central_default=central) == expected
+
+    # An effort named on its own has no model to be validated against while the run is
+    # deferring, so without the deferred default it is silently dropped and the mention
+    # does nothing at all.
+    @pytest.mark.parametrize(
+        "deferred_model,override_effort,expected",
+        [
+            ("claude-fable-5", "xhigh", AIPreferences("claude", "claude-fable-5", "xhigh")),
+            # Sonnet 4.6 takes no `xhigh`, so the ask is impossible and the run keeps
+            # deferring rather than pinning a default it was never asked to pin.
+            ("claude-sonnet-4-6", "xhigh", AIPreferences(None, None, None)),
+        ],
+    )
+    def test_an_effort_only_mention_resolves_against_the_central_default(
+        self, catalogue, deferred_model, override_effort, expected
+    ):
+        central = AIPreferences(runtime_adapter="claude", model=deferred_model, reasoning_effort=None)
+        resolved = _resolve(AIPreferences(), override_effort=override_effort, central_default=central)
+        assert resolved == expected
 
 
 class TestResolveLiveRunOverride:

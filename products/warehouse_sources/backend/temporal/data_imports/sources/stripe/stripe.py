@@ -31,6 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookDeletionResult,
     WebhookSyncResult,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import (
+    log_fanout_parent_rows_consumed,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -916,6 +919,7 @@ def get_rows(
             # method's actual signature so both shapes get the parent id where Stripe expects it.
             parent_param_is_kwarg = resource.nested_parent_param in inspect.signature(resource.method).parameters
             skipped_parents = 0
+            parents_consumed = 0
             parents_since_checkpoint = 0
             # Seeded from where this run started, so an interruption before any parent finishes
             # checkpoints there rather than back at the first parent.
@@ -924,6 +928,22 @@ def get_rows(
             nested_resume = _trusted_nested_resume(
                 resume_config, warehouse_start, from_warehouse=warehouse_parent is not None
             )
+            sweep_resumed = bool(resume_params) or warehouse_start is not None
+
+            # Counts every parent row the listing handed over, including the ones
+            # `parent_has_nested` ruled out, so that the number means the same thing on both
+            # parent sources. Reported at every checkpoint and not only after the loop, because
+            # the pipeline raises `WorkerShuttingDownError` inside this loop for a resumable
+            # source: a line emitted only after the loop would be lost on every deploy that lands
+            # mid-sweep, which is when the longest sweeps are running.
+            def report_parent_rows_consumed() -> None:
+                log_fanout_parent_rows_consumed(
+                    logger,
+                    parent_source="warehouse" if warehouse_parent is not None else "api",
+                    rows_total=parents_consumed,
+                    resumed=sweep_resumed,
+                )
+
             for obj in parent_rows:
                 # Checkpoint the sweep's position through the parent list every so often. The only
                 # other checkpoint fires when a chunk fills, which for a sparse nested resource
@@ -937,8 +957,10 @@ def get_rows(
                         yield batcher.get_table()
                     resumable_source_manager.save_state(_resume_state(last_finished_position, last_finished_parent))
                     parents_since_checkpoint = 0
+                    report_parent_rows_consumed()
 
                 parent_obj_id = obj[resource.parent_id]
+                parents_consumed += 1
                 parents_since_checkpoint += 1
                 nested_resume_params: dict[str, Any] = {}
                 if nested_resume is not None and parent_obj_id == nested_resume.nested_parent_id:
@@ -1000,6 +1022,7 @@ def get_rows(
                 # this parent contributes nothing further, so the sweep may resume after it.
                 last_finished_parent = parent_obj_id
                 last_finished_position = parent_pages.position_after_current if parent_pages else None
+            report_parent_rows_consumed()
             if skipped_parents:
                 logger.debug(
                     f"Stripe: skipped {skipped_parents} {resource.nested_parent_param}(s) with no nested data, saving that many API calls"
