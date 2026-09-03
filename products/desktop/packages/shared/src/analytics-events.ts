@@ -156,6 +156,17 @@ export interface TaskRunStoppedProperties {
   prompts_sent?: number;
 }
 
+export interface TaskArchivedProperties {
+  /** Sessions in the batch. 1 for a single-row archive. */
+  task_count: number;
+  /** The session archived, when the batch is a single row. */
+  task_id?: string;
+  /** Wall-clock time of the archive, which a worktree teardown dominates. */
+  duration_ms: number;
+  /** False when the archive threw. Partial batch failures still count as true. */
+  success: boolean;
+}
+
 export interface PromptSentProperties {
   task_id: string;
   is_initial: boolean;
@@ -1505,6 +1516,7 @@ export const ANALYTICS_EVENTS = {
   TASK_RUN_COMPLETED: "Task run completed",
   TASK_RUN_CANCELLED: "Task run cancelled",
   TASK_RUN_STOPPED: "Task run stopped",
+  TASK_ARCHIVED: "Task archived",
   PROMPT_SENT: "Prompt sent",
   AGENT_TURN_FEEDBACK: "Agent turn feedback",
 
@@ -1716,6 +1728,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.TASK_RUN_COMPLETED]: TaskRunCompletedProperties;
   [ANALYTICS_EVENTS.TASK_RUN_CANCELLED]: TaskRunCancelledProperties;
   [ANALYTICS_EVENTS.TASK_RUN_STOPPED]: TaskRunStoppedProperties;
+  [ANALYTICS_EVENTS.TASK_ARCHIVED]: TaskArchivedProperties;
   [ANALYTICS_EVENTS.PROMPT_SENT]: PromptSentProperties;
   [ANALYTICS_EVENTS.AGENT_TURN_FEEDBACK]: AgentTurnFeedbackProperties;
 

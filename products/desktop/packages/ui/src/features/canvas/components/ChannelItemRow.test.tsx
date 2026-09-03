@@ -2,6 +2,7 @@ import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { CANVAS_DRAG_TYPE } from "@posthog/ui/features/canvas/canvasDrag";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import {
   beginSidebarPeek,
@@ -143,6 +144,7 @@ beforeEach(() => {
     selectedTaskIds: [],
     lastClickedId: null,
   });
+  useArchivingTasksStore.setState({ archivingTaskIds: new Set() });
 });
 
 describe("ChannelItemRow", () => {
@@ -717,5 +719,35 @@ describe("ChannelItemRow", () => {
     );
 
     expect(screen.queryByText(/PostHog\/code/)).not.toBeInTheDocument();
+  });
+});
+
+// A row that looks idle through a multi-second teardown reads as a dead click.
+describe("ChannelItemRow while its session is archiving", () => {
+  beforeEach(() => {
+    useArchivingTasksStore.setState({
+      archivingTaskIds: new Set(["task-1"]),
+    });
+  });
+
+  it("swaps the status dot for a spinner and dims the row", () => {
+    const { container } = renderRow(item());
+
+    expect(container.querySelector(".ph-dots-frame")).not.toBeNull();
+    expect(screen.queryByRole("img", { name: "All caught up" })).toBeNull();
+    expect(screen.getByRole("button").className).toContain("opacity-50");
+  });
+
+  it("stops the row being dragged out from under the archive", () => {
+    renderRow(item());
+
+    expect(screen.getByRole("button").getAttribute("draggable")).toBe("false");
+  });
+
+  it("leaves the other rows alone", () => {
+    const { container } = renderRow(item({ key: "task:task-2", id: "task-2" }));
+
+    expect(container.querySelector(".ph-dots-frame")).toBeNull();
+    expect(screen.getByRole("button").className).not.toContain("opacity-50");
   });
 });

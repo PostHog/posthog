@@ -16,7 +16,6 @@ import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { placeTasksInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useLiveTaskIds } from "@posthog/ui/features/tasks/useLiveTaskIds";
@@ -136,8 +135,6 @@ export function useSidebarBulkActions(
   const archiveSelected = useCallback(async () => {
     if (selectedCount === 0 || isArchiving) return;
     setIsArchiving(true);
-    const store = useArchivingTasksStore.getState();
-    for (const id of taskIds) store.startArchiving(id);
     try {
       const { archived, failed } = await archiveTasksImperative(
         taskIds,
@@ -152,8 +149,6 @@ export function useSidebarBulkActions(
       log.error("Failed to archive sessions", error);
       toast.error("Couldn't archive the selected sessions");
     } finally {
-      const current = useArchivingTasksStore.getState();
-      for (const id of taskIds) current.stopArchiving(id);
       setIsArchiving(false);
     }
   }, [

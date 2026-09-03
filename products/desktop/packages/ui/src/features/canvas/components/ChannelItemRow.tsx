@@ -28,6 +28,7 @@ import {
 import { useChannelItemMetadata } from "@posthog/ui/features/canvas/hooks/useChannelItemFacts";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { InlineEditInput } from "@posthog/ui/features/sidebar/components/items/TaskItem";
 import {
   PinnedBadge,
@@ -45,6 +46,7 @@ import { writeTaskDragData } from "@posthog/ui/features/sidebar/taskDrag";
 import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import { useMountedOnceOpened } from "@posthog/ui/hooks/useMountedOnceOpened";
+import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import {
   type DragEvent,
   type ReactNode,
@@ -75,6 +77,8 @@ const TIMESTAMP_CLASS = "shrink-0 text-[11px] text-muted-foreground";
 // the hover card — a row's identity is what you scan a task list for. The gap is
 // between stacks (a pin, then the status badges), not within one.
 const TRAILING_CLASS = "flex shrink-0 items-center gap-1";
+/** Matches the dot the spinner stands in for, so the row doesn't shift. */
+const ARCHIVING_SPINNER_SIZE = 8;
 
 /**
  * A canvas waiting out its delete-undo window. Red and flashing because it is
@@ -197,6 +201,12 @@ export function ChannelItemRowView({
   onDragStart?: (e: DragEvent) => void;
   onDragEnd?: (e: DragEvent) => void;
 }) {
+  // Read rather than passed, like the pending-delete state behind
+  // `ChannelItemDot`: it is transient, it belongs to the id the row already
+  // has, and the drag preview should show it too.
+  const isArchiving = useArchivingTasksStore((state) =>
+    state.archivingTaskIds.has(item.id),
+  );
   const pinBadge = item.pinned && showPinBadge;
   return (
     <SidebarItem
@@ -205,16 +215,26 @@ export function ChannelItemRowView({
       // which keeps SidebarItem's native cursor-default.
       className="cursor-pointer"
       depth={0}
-      icon={<ChannelItemDot item={item} status={status} />}
+      icon={
+        isArchiving ? (
+          <DotsCircleSpinner
+            size={ARCHIVING_SPINNER_SIZE}
+            className="text-muted-foreground"
+          />
+        ) : (
+          <ChannelItemDot item={item} status={status} />
+        )
+      }
       // A non-string label opts out of SidebarItem's truncation tooltip.
       label={<span>{item.title}</span>}
       subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
+      isDimmed={isArchiving}
       // Lets a drag-selection find the row and its session; canvases are not
       // selectable, so they stay unmarked and the marquee passes over them.
       {...(item.kind === "task" ? { [SESSION_ROW_ATTRIBUTE]: item.id } : {})}
-      draggable={draggable}
+      draggable={draggable && !isArchiving}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onClick={onClick}
