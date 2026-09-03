@@ -83,7 +83,7 @@ import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { Node } from '../../../queries/schema/schema-general'
-import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/types'
 
 export interface Tab {
     label: string | JSX.Element

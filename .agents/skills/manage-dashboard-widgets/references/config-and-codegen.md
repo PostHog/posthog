@@ -41,17 +41,17 @@ hogli build:openapi
 
 **Frontend config layering** (do not duplicate the full schema by hand):
 
-| File                                         | Role                                                                                              |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `generated/widget-config-schemas/*.zod.ts`   | Per-component Orval Zod (`ErrorTrackingListWidgetConfig`, shared `WidgetDateRange`, etc.)         |
-| `generated/widget-configs.zod.ts`            | Friendly re-exports, inferred types, form `.pick()` schemas (`hogli build:widget-types`)          |
-| `generated/widget-config-property-keys.json` | Per-type top-level config keys from catalog OpenAPI slice (`generate-widget-config-zod.mjs`)      |
-| `generated/widget-date-from-options.json`    | Date preset value + label pairs from `constants.py` (`build-dashboard-widget-types.py`)           |
-| `generated/widget-form-fields.json`          | Per-widget modal field manifest from `WidgetSpec.form_fields` (`build-dashboard-widget-types.py`) |
-| `widgets/widgetConfigValidation.ts`          | Shared HogQL filter helpers + `parseWidgetConfigApiError` — not the per-type schema               |
-| `widget_types/widgetConfigShared.ts`         | Re-exports date select options from generated JSON + `resolveWidgetFilterTestAccounts`            |
-| `widgets/*/*WidgetConfigValidation.ts`       | Import generated form schema; API error parsing only (colocated with validation)                  |
-| `widget_types/catalog.ts`                    | Hand-written: labels, layouts, previews, `defaultConfig` via generated Zod                        |
+| File                                         | Role                                                                                                                       |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `generated/widget-config-schemas/*.zod.ts`   | Per-component Orval Zod (`ErrorTrackingListWidgetConfig`, shared `WidgetDateRange`, etc.)                                  |
+| `generated/widget-configs.zod.ts`            | Friendly re-exports, inferred types, form `.pick()` schemas (`hogli build:widget-types`)                                   |
+| `generated/widget-config-property-keys.json` | Per-type top-level config keys from catalog OpenAPI slice (`generate-widget-config-zod.mjs`)                               |
+| `generated/widget-date-from-options.json`    | Date preset value + label pairs from `constants.py` (`build-dashboard-widget-types.py`)                                    |
+| `generated/widget-form-fields.json`          | Per-widget modal field manifest from `WidgetSpec.form_fields` (`build-dashboard-widget-types.py`)                          |
+| `widgets/widgetConfigValidation.ts`          | Shared HogQL filter helpers + `parseWidgetConfigApiError` — not the per-type schema                                        |
+| `widget_types/widgetConfigShared.ts`         | Re-exports date select options from generated JSON + `resolveWidgetFilterTestAccounts`                                     |
+| `widgets/*/*WidgetConfigValidation.ts`       | Import generated form schema; API error parsing only (colocated with validation)                                           |
+| `widget_types/catalog.ts`                    | Hand-written: labels, layouts, `defaultConfig` via generated Zod (previews: `widgets/previews/dashboardWidgetPreviews.ts`) |
 
 Copy spine defaults for new types: [widget-intake.md § Defaults](widget-intake.md#defaults-and-inference).
 

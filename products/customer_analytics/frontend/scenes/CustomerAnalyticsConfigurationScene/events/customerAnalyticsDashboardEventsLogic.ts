@@ -3,7 +3,7 @@ import type { ActionForPayloadBuilder } from 'kea'
 import { urlToAction } from 'kea-router'
 
 import { isEmptyObject } from 'lib/utils/guards'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'

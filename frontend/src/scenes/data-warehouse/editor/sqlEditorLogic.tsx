@@ -108,7 +108,6 @@ import type { DatabaseSchemaQueryResponse, Node } from '../../../queries/schema/
 import type { DataWarehouseSavedQueryFolder, UserType } from '../../../types'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
-import { dataModelingLogic } from '../scene/dataModelingLogic'
 import { captureBIEditorQueryRun, captureBIEditorQuerySaved } from './bi/biEditorAnalytics'
 import { BIEditorState, parseBIEditorState } from './bi/biEditorTypes'
 import { connectionSelectorLogic } from './connectionSelectorLogic'
@@ -2425,8 +2424,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         actions.deleteDraft(fromDraft, savedQuery?.name)
                     }
 
-                    // reload DAGs so newly created default DAG appears
-                    dataModelingLogic.findMounted()?.actions.loadDags()
+                    // reload DAGs so newly created default DAG appears. Imported on demand: the data
+                    // modeling logic pulls in the graph library, which nothing else on the SQL editor path needs.
+                    void import('../scene/dataModelingLogic').then(({ dataModelingLogic }) =>
+                        dataModelingLogic.findMounted()?.actions.loadDags()
+                    )
 
                     if (isPartialSave && savedQuery) {
                         actions.createTab(savedQuery.query?.query ?? queryToSave.query, savedQuery)

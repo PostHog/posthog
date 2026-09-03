@@ -34,7 +34,8 @@ import {
 
 import { teamLogic } from '../../../teamLogic'
 import { ActionFilterGroup } from './ActionFilterGroup/ActionFilterGroup'
-import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
+import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from './ActionFilterRow/types'
 import { LocalFilter, entityFilterLogic, toFilters } from './entityFilterLogic'
 
 export interface ActionFilterProps {

@@ -8,7 +8,7 @@ import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { getHogQLValue } from 'scenes/insights/filters/AggregationSelect'
 import { teamLogic } from 'scenes/teamLogic'
 
