@@ -23,24 +23,32 @@ EXPERIMENT_CANARY_ACTIVITIES = [
     run_experiment_metric_canary,
     report_experiment_canary_results,
 ]
+EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS = [
+    ExperimentPrecomputeEnrollmentCensusWorkflow,
+]
+EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES = [
+    run_experiment_enrollment_census,
+]
 
 WORKFLOWS = [
     ExperimentMetricsRecalculationWorkflow,
     *EXPERIMENT_CANARY_WORKFLOWS,
-    ExperimentPrecomputeEnrollmentCensusWorkflow,
+    *EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
 ]
 ACTIVITIES = [
     discover_experiment_metrics,
     calculate_experiment_metric_for_recalculation,
     update_recalculation_progress,
     *EXPERIMENT_CANARY_ACTIVITIES,
-    run_experiment_enrollment_census,
+    *EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
 ]
 
 __all__ = [
     "ACTIVITIES",
     "EXPERIMENT_CANARY_ACTIVITIES",
     "EXPERIMENT_CANARY_WORKFLOWS",
+    "EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES",
+    "EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS",
     "WORKFLOWS",
     "ExperimentMetricsRecalculationWorkflow",
     "ExperimentPrecomputeCanaryWorkflow",

@@ -54,7 +54,7 @@ class TestVisionAlertMatchOutbox(BaseTest):
             name="Checkout monitor",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
 
     def _make_match_alert(self, **overrides: Any) -> VisionAlertConfiguration:

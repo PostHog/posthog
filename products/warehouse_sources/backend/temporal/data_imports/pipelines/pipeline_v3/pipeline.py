@@ -1,5 +1,6 @@
 import time
 import asyncio
+import datetime
 from typing import TYPE_CHECKING, Any, Generic
 
 import pyarrow as pa
@@ -566,6 +567,26 @@ class PipelineV3(Generic[ResumableData]):
             str(self._job.id), self._job.team_id, self._schema.id, tracked_rows, self._logger
         )
 
+    async def _stamp_full_run(self) -> None:
+        """Record that this run took the full extraction path, for the fast-return valve.
+
+        Writes only `last_full_run_at`, which `_fast_return_eligible` is the sole reader of.
+        `last_synced_at` is deliberately left alone: it feeds data freshness, the schemas UI and
+        the signals watermark (`partition_field > last_synced_at`), so moving it on a run that
+        loaded nothing would narrow the next run's signal window.
+
+        Best-effort: a bookkeeping failure must not fail an otherwise successful sync, which is
+        how the observed-columns write above treats the same risk.
+        """
+        try:
+            await database_sync_to_async_pool(update_sync_type_config_keys)(
+                self._schema.id,
+                self._job.team_id,
+                updates={"last_full_run_at": datetime.datetime.now(datetime.UTC).isoformat()},
+            )
+        except Exception:
+            await self._logger.aexception("V3 Pipeline: Failed to stamp last_full_run_at")
+
     async def _finalize(self, row_count: int) -> None:
         # Column-picker bookkeeping — a failure here must not fail an otherwise successful sync.
         if self._observed_columns:
@@ -582,6 +603,11 @@ class PipelineV3(Generic[ResumableData]):
         total_batches = self._total_batches()
 
         if total_batches == 0:
+            # A zero-batch run still ran the full extraction, which is what the fast-return
+            # valve counts. Post-load stamps this on every other path but never runs here: with
+            # no batches the load consumer is never notified. Without this a v3 schema whose
+            # source stays quiet could never satisfy `_fast_return_eligible`.
+            await self._stamp_full_run()
             self._logger.debug("V3 Pipeline: No batches extracted, skipping finalization")
             await self._nothing_staged()
             return

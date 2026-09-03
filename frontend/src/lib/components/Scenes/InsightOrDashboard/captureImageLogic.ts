@@ -11,6 +11,8 @@ import { slugify } from 'lib/utils/strings'
 export interface CaptureImageTarget {
     /** CSS selector for the element to capture. */
     selector: string
+    /** CSS selector for elements inside the capture to leave out of the image, such as hover controls. */
+    excludeSelector?: string
     /** Keys the screenshot editor instance the image is handed to. */
     screenshotKey: string
     /** Name for the downloaded file, without the extension. */
@@ -50,7 +52,12 @@ function toFile(target: CaptureImageTarget, blob: Blob): File {
     return new File([blob], `${name || 'export'}.png`, { type: 'image/png' })
 }
 
-function editImageButton(target: CaptureImageTarget, blob: Blob): ToastButton {
+function editImageButton(target: CaptureImageTarget, blob: Blob): ToastButton | undefined {
+    // Only surfaces that mount the editor can open it, so elsewhere the toast carries no button at all
+    // rather than one that fails on click.
+    if (!takeScreenshotLogic.findMounted({ screenshotKey: target.screenshotKey })) {
+        return undefined
+    }
     return {
         label: 'Edit image',
         action: () => openScreenshotEditor(target.screenshotKey, blob),
@@ -93,7 +100,7 @@ export const captureImageLogic = kea<captureImageLogicType>([
             actions.setIsCapturing(true)
             let result: Awaited<ReturnType<typeof copyElementImageToClipboard>>
             try {
-                result = await copyElementImageToClipboard(element)
+                result = await copyElementImageToClipboard(element, target.excludeSelector)
             } finally {
                 actions.setIsCapturing(false)
             }
@@ -119,7 +126,7 @@ export const captureImageLogic = kea<captureImageLogicType>([
 
             actions.setIsCapturing(true)
             try {
-                const blob = await captureElementAsPng(element)
+                const blob = await captureElementAsPng(element, target.excludeSelector)
                 downloadFile(toFile(target, blob))
                 lemonToast.success('Image downloaded', { button: editImageButton(target, blob) })
                 posthog.capture('downloaded element image', { selector: target.selector })

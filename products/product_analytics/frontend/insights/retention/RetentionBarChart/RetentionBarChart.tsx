@@ -60,6 +60,7 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
         filteredTrendSeries,
         labelGroupType,
         shouldShowMeanPerBreakdown,
+        timezone,
         xAxisLabels,
         getRetentionColor,
     } = useValues(retentionGraphLogic(insightProps))
@@ -151,8 +152,17 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
     const goalLines = retentionFilter?.goalLines ?? EMPTY_GOAL_LINES
 
     const barConfig = useChartConfig(
-        () => buildRetentionBarChartConfig({ isPercentage, goalLines, series, tooltip: INSIGHT_TOOLTIP_CONFIG }),
-        [isPercentage, goalLines, series]
+        () =>
+            buildRetentionBarChartConfig({
+                isPercentage,
+                goalLines,
+                series,
+                tooltip: INSIGHT_TOOLTIP_CONFIG,
+                isIntervalView,
+                period,
+                timezone,
+            }),
+        [isPercentage, goalLines, series, isIntervalView, period, timezone]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {

@@ -161,6 +161,10 @@ NUM_2FA_BACKUP_CODES = 10
 MAX_PIPELINE_NOTIFICATIONS = 1000
 _PIPELINE_ID_PATTERN = re.compile(r"^(?:hog_function|batch_export|plugin_config):[0-9a-zA-Z-]{1,128}$")
 
+# `product_intro_seen` is exempt from the re-auth gate, so it gets a ceiling of its own. Only a new key
+# is refused at the ceiling, so an intro the user already dismissed still reopens and closes.
+MAX_PRODUCT_INTROS_SEEN = 100
+
 
 def _reject_locked_notification_settings(user: User, incoming: Notifications, current: Mapping[str, Any]) -> None:
     """Stop a member changing a setting their organization enforces.
@@ -986,6 +990,23 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
         )
 
 
+class ProductIntroSeenSerializer(serializers.Serializer):
+    """Request body for PATCH /api/users/@me/product_intro_seen."""
+
+    product_key = serializers.CharField(
+        max_length=128,
+        help_text=(
+            "Which key in `has_seen_product_intro_for` to set. Any string is accepted: besides the "
+            "product keys, the map holds keys composed per team and keys for surfaces that are not "
+            "products."
+        ),
+    )
+    seen = serializers.BooleanField(
+        default=True,
+        help_text="Whether the intro counts as seen. Send false to show it again.",
+    )
+
+
 class UserAuthSessionSerializer(serializers.ModelSerializer):
     """A cookie-auth login session shown on the user's 'Web sessions' screen."""
 
@@ -1103,6 +1124,7 @@ class UserViewSet(
     time_sensitive_exclude_actions = [
         "hedgehog_config",
         "scene_personalisation",
+        "product_intro_seen",
     ]
     time_sensitive_allow_actions = ["hedgehog_config"]
     filter_backends = [DjangoFilterBackend]
@@ -1463,6 +1485,53 @@ class UserViewSet(
         instance.refresh_from_db()
 
         return Response(self.get_serializer(instance=instance).data)
+
+    @extend_schema(
+        request=ProductIntroSeenSerializer,
+        responses={
+            200: OpenApiResponse(
+                response={"type": "object", "additionalProperties": {"type": "boolean"}},
+                description="The user's whole `has_seen_product_intro_for` map, after the merge.",
+            )
+        },
+    )
+    # `required_scopes` is explicit because the viewset resolves scopes from `scope_object` plus the
+    # read/write action lists, and a custom @action is in neither — leaving it unset resolves to no
+    # scopes at all, which `APIScopePermission` refuses outright, even for a wildcard token.
+    @action(methods=["PATCH"], detail=True, required_scopes=["user:write"])
+    def product_intro_seen(self, request, **kwargs) -> Response:
+        """Record that this user has seen one product intro.
+
+        Separate from the `has_seen_product_intro_for` field on the main user PATCH, which requires a
+        recently authenticated session. Dismissing an intro must not depend on that: a re-auth prompt
+        would cover the intro it interrupts, and the dismissal would never persist. Nothing reachable
+        here changes an account, an organization, or a profile.
+
+        Merging server-side also keeps two intros dismissed from separate tabs from dropping each
+        other's key, which a read-modify-write of the whole map cannot avoid.
+        """
+        serializer = ProductIntroSeenSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        product_key = serializer.validated_data["product_key"]
+
+        instance = self.get_object()
+
+        with transaction.atomic():
+            # Lock the user row so concurrent dismissals from separate tabs merge into the map instead of
+            # overwriting it wholesale, and so the size cap counts committed keys rather than a stale read.
+            locked = User.objects.select_for_update().get(pk=instance.pk)
+            seen_for = locked.has_seen_product_intro_for or {}
+
+            if product_key not in seen_for and len(seen_for) >= MAX_PRODUCT_INTROS_SEEN:
+                raise serializers.ValidationError(
+                    f"Cannot track more than {MAX_PRODUCT_INTROS_SEEN} product intros",
+                    code="invalid_input",
+                )
+
+            locked.has_seen_product_intro_for = {**seen_for, product_key: serializer.validated_data["seen"]}
+            locked.save(update_fields=["has_seen_product_intro_for"])
+
+        return Response(locked.has_seen_product_intro_for)
 
     @action(
         methods=["GET", "PATCH"],

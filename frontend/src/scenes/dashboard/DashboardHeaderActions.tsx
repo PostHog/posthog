@@ -25,16 +25,20 @@ import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 import { DashboardSubscribeButton } from './DashboardSubscribeButton'
 
 export function getAddTileMenuItems({
-    dashboardId,
     dashboardWidgetsEnabled,
     onAddInsight,
+    onAddText,
+    onAddImage,
+    onAddButton,
     push,
     setAddWidgetModalOpen,
     onBeforeSelect,
 }: {
-    dashboardId: number
     dashboardWidgetsEnabled: boolean
     onAddInsight: () => void
+    onAddText: () => void
+    onAddImage: () => void
+    onAddButton: () => void
     push: (url: string) => void
     setAddWidgetModalOpen: (open: boolean) => void
     onBeforeSelect?: () => void
@@ -54,12 +58,18 @@ export function getAddTileMenuItems({
         },
         {
             label: 'Add text',
-            onClick: withBeforeSelect(() => push(urls.dashboardTextTile(dashboardId, 'new'))),
+            onClick: withBeforeSelect(onAddText),
             'data-attr': 'dashboard-add-text-tile',
         },
         {
+            label: 'Image',
+            tag: 'new' as const,
+            onClick: withBeforeSelect(onAddImage),
+            'data-attr': 'dashboard-add-image-tile',
+        },
+        {
             label: 'Button',
-            onClick: withBeforeSelect(() => push(urls.dashboardButtonTile(dashboardId, 'new'))),
+            onClick: withBeforeSelect(onAddButton),
             'data-attr': 'dashboard-add-button-tile',
         },
         dashboardWidgetsEnabled
@@ -83,8 +93,15 @@ export function getAddTileMenuItems({
 
 export function DashboardAddTileButton(): JSX.Element | null {
     const { dashboard, dashboardWidgetsEnabled, tiles } = useValues(dashboardLogic)
-    const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion, openAddInsightModal } =
-        useActions(dashboardLogic)
+    const {
+        loadDashboard,
+        setAddWidgetModalOpen,
+        setPendingInsertion,
+        openAddInsightModal,
+        openTextTileModal,
+        openImageTileModal,
+        openButtonTileModal,
+    } = useActions(dashboardLogic)
     const { push } = useActions(router)
     const { reportDashboardAddMenuOpened } = useActions(eventUsageLogic)
 
@@ -119,9 +136,11 @@ export function DashboardAddTileButton(): JSX.Element | null {
             >
                 <LemonMenu
                     items={getAddTileMenuItems({
-                        dashboardId: dashboard.id,
                         dashboardWidgetsEnabled,
                         onAddInsight: openAddInsightModal,
+                        onAddText: openTextTileModal,
+                        onAddImage: openImageTileModal,
+                        onAddButton: openButtonTileModal,
                         push,
                         setAddWidgetModalOpen,
                         // Adding from the header appends at the bottom; drop any stale inline-insertion target.

@@ -22,6 +22,7 @@ def _make_logger() -> MagicMock:
     logger.ainfo = AsyncMock()
     logger.awarning = AsyncMock()
     logger.aerror = AsyncMock()
+    logger.aexception = AsyncMock()
     logger.exception = MagicMock()
     return logger
 
@@ -627,3 +628,29 @@ class TestNothingStaged:
             await pipeline._finalize(row_count=1)
 
         released.assert_not_awaited()
+class TestZeroBatchRunStampsTheFullRunMarker:
+    @pytest.mark.asyncio
+    async def test_a_run_that_extracted_nothing_still_counts_as_a_full_run(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._batch_results = []
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.update_sync_type_config_keys",
+            new=MagicMock(),
+        ) as update:
+            await pipeline._finalize(row_count=0)
+
+        update.assert_called_once()
+        assert "last_full_run_at" in update.call_args.kwargs["updates"]
+        assert "extra_model_fields" not in update.call_args.kwargs
+
+    @pytest.mark.asyncio
+    async def test_a_bookkeeping_failure_does_not_fail_the_sync(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._batch_results = []
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.update_sync_type_config_keys",
+            new=MagicMock(side_effect=RuntimeError("pooler is down")),
+        ):
+            await pipeline._finalize(row_count=0)
