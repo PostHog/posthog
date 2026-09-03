@@ -770,6 +770,7 @@ def _refresh_sandbox_mcp(
         project_id=task_run.team_id,
         scopes=scopes,
         interaction_origin=(state or {}).get("interaction_origin"),
+        slack_reply_context=(state or {}).get("slack_reply_context") is True,
         task_id=str(task_run.task_id),
         origin_product=task_run.task.origin_product,
     )
@@ -779,6 +780,7 @@ def _refresh_sandbox_mcp(
         user_id=actor_user.id,
         include_personal=not task_run.task.internal,
         interaction_origin=(state or {}).get("interaction_origin"),
+        slack_reply_context=(state or {}).get("slack_reply_context") is True,
         allowed_installation_ids=loop_mcp_installation_allowlist(state),
         origin_product=task_run.task.origin_product,
         task_agent_key=task_run.task.mcp_builtin_agent_key,
