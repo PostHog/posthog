@@ -38,6 +38,10 @@ from products.workflows.backend.api.hog_flow import (
 )
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
+from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+
+_AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
+_WIDER_AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "@", "operator": "icontains"}
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -2546,7 +2550,6 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("replay_vision", "$replay_vision_action_ready"),
             ("activity_log", "$activity_log_entry_created"),
             ("error_tracking", "$error_tracking_issue_created"),
             ("discussion", "$discussion_mention_created"),
@@ -2586,7 +2589,7 @@ class TestHogFlowAPI(APIBaseTest):
                     "source": "internal-events",
                     "events": [
                         {"id": "$slack_message_received", "type": "events"},
-                        {"id": "$replay_vision_action_ready", "type": "events"},
+                        {"id": "$error_tracking_issue_created", "type": "events"},
                     ],
                     "properties": [{"key": "channel", "value": ["C0ALERTS"], "operator": "exact", "type": "event"}],
                 },
@@ -2597,7 +2600,7 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
 
         assert response.status_code == 400, response.json()
-        assert "$replay_vision_action_ready" in response.json()["detail"]
+        assert "$error_tracking_issue_created" in response.json()["detail"]
 
     def test_hog_flow_internal_event_trigger_requires_an_explicit_event_even_when_draft(self):
         trigger_action = {
@@ -3676,6 +3679,122 @@ class TestHogFlowAPI(APIBaseTest):
         mock_create_invocation.assert_called_once()
         assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 50000
 
+    def test_programmatic_schedule_on_schedule_trigger_needs_no_audience_token(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["actions"][0]["config"] = {"type": "schedule"}
+        hog_flow["status"] = "active"
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+
+        scheduled = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}/schedules",
+            {"rrule": "FREQ=WEEKLY;INTERVAL=1;BYDAY=MO", "starts_at": "2026-08-03T09:00:00Z"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert scheduled.status_code == 201, scheduled.json()
+
+    def test_programmatic_schedule_on_batch_trigger_requires_audience_confirm_token(self):
+        # Scheduling a batch trigger is a recurring dispatch - the same gate as batch_jobs applies,
+        # or the token check could be sidestepped by scheduling the send instead.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["actions"][0]["config"] = {"type": "batch", "filters": {"properties": [_AUDIENCE_CONDITION]}}
+        hog_flow["status"] = "active"
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+
+        schedule_body = {"rrule": "FREQ=DAILY;INTERVAL=1", "starts_at": "2026-08-01T00:00:00Z"}
+        no_token = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/schedules",
+            schedule_body,
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert no_token.status_code == 400, no_token.json()
+        assert "workflows-blast-radius" in no_token.json()["detail"]
+
+        preview = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+            {"filters": created.json()["trigger"]["filters"]},
+        )
+        assert preview.status_code == 200, preview.json()
+        token = preview.json()["confirm_token"]
+
+        scheduled = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/schedules",
+            {**schedule_body, "confirm_token": token},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert scheduled.status_code == 201, scheduled.json()
+
+        # A draft's trigger can still be edited after previewing, so a schedule staged on a draft
+        # could fire on a broadened audience once enabled - programmatic scheduling requires active.
+        del hog_flow["status"]
+        draft_create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert draft_create.status_code == 201, draft_create.json()
+        draft_schedule = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{draft_create.json()['id']}/schedules",
+            {**schedule_body, "confirm_token": token},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert draft_schedule.status_code == 400, draft_schedule.json()
+        assert "active" in draft_schedule.json()["detail"].lower()
+
+    @parameterized.expand(
+        [
+            (
+                "trigger_converted_to_batch",
+                {"type": "schedule"},
+                {"type": "batch", "filters": {"properties": [_AUDIENCE_CONDITION]}},
+                HogFlowSchedule.Status.PAUSED,
+            ),
+            (
+                "batch_audience_edited",
+                {"type": "batch", "filters": {"properties": [_AUDIENCE_CONDITION]}},
+                {"type": "batch", "filters": {"properties": [_WIDER_AUDIENCE_CONDITION]}},
+                HogFlowSchedule.Status.PAUSED,
+            ),
+            (
+                "batch_audience_unchanged",
+                {"type": "batch", "filters": {"properties": [_AUDIENCE_CONDITION]}},
+                {"type": "batch", "filters": {"properties": [_AUDIENCE_CONDITION]}},
+                HogFlowSchedule.Status.ACTIVE,
+            ),
+        ]
+    )
+    def test_live_audience_change_pauses_schedules(self, _name, before_config, after_config, expected_status):
+        # Each firing broadcasts to whatever the trigger says at fire time, not to what was confirmed
+        # when the schedule was created, so an edit that moves the audience stops the cadence. A save
+        # that leaves the audience alone must not, or every resave would silently kill the schedule.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["actions"][0]["config"] = before_config
+        hog_flow["status"] = "active"
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+
+        scheduled = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}/schedules",
+            {"rrule": "FREQ=WEEKLY;INTERVAL=1;BYDAY=MO", "starts_at": "2026-08-03T09:00:00Z"},
+        )
+        assert scheduled.status_code == 201, scheduled.json()
+
+        hog_flow["actions"][0]["config"] = after_config
+        edited = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}",
+            {"actions": hog_flow["actions"]},
+        )
+        assert edited.status_code == 200, edited.json()
+
+        schedule = HogFlowSchedule.objects.get(id=scheduled.json()["id"])
+        assert schedule.status == expected_status
+        if expected_status == HogFlowSchedule.Status.PAUSED:
+            assert schedule.next_run_at is None
+
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
@@ -3745,39 +3864,6 @@ class TestHogFlowAPI(APIBaseTest):
         # The resolver dispatches from this snapshot rather than re-reading the live trigger, so a
         # trigger edit racing the dispatch can't widen the confirmed audience.
         assert mock_create_invocation.call_args.kwargs["filters"] == trigger_filters
-
-        # Scheduling is a recurring dispatch - the same gate applies, or the batch_jobs token
-        # check could be sidestepped by scheduling the send instead.
-        schedule_body = {"rrule": "FREQ=DAILY;INTERVAL=1", "starts_at": "2026-08-01T00:00:00Z"}
-        no_token_schedule = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/schedules",
-            schedule_body,
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-        assert no_token_schedule.status_code == 400, no_token_schedule.json()
-        assert "workflows-blast-radius" in no_token_schedule.json()["detail"]
-
-        scheduled = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/schedules",
-            {**schedule_body, "confirm_token": token},
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-        assert scheduled.status_code == 201, scheduled.json()
-
-        # A draft's trigger can still be edited after previewing, so a schedule staged on a draft
-        # could fire on a broadened audience once enabled - programmatic scheduling requires active.
-        draft_flow, _ = self._create_hog_flow_with_action(
-            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
-        )
-        draft_create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", draft_flow)
-        assert draft_create.status_code == 201, draft_create.json()
-        draft_schedule = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{draft_create.json()['id']}/schedules",
-            {**schedule_body, "confirm_token": token},
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-        assert draft_schedule.status_code == 400, draft_schedule.json()
-        assert "active" in draft_schedule.json()["detail"].lower()
 
         # A raw API key is a headless professional surface - no agent in the loop to read a count,
         # so the two-step would be ceremony. Dispatches in one call, no token. A fresh client keeps

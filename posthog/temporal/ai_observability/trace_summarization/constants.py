@@ -2,6 +2,8 @@
 
 from datetime import timedelta
 
+from django.conf import settings
+
 from temporalio.common import RetryPolicy
 
 from products.ai_observability.backend.summarization.models import OpenAIModel, SummarizationMode
@@ -15,7 +17,11 @@ DEFAULT_TRACE_BATCH_SIZE = 6  # Traces processed in small parallel batches
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
 DEFAULT_WINDOW_OFFSET_MINUTES = 30  # Offset window into the past so traces have time to fully complete
-DEFAULT_MODEL = OpenAIModel.GPT_4_1_NANO
+# parse() fails the worker at boot on a value outside OpenAIModel, naming the valid models,
+# instead of failing every summary at runtime. It cannot check the other constraint: the value
+# must also be on the Python gateway's llma_summarization allowlist
+# (services/llm-gateway/src/llm_gateway/products/config.py), or the fallback path 403s.
+DEFAULT_MODEL = OpenAIModel.parse(settings.LLMA_SUMMARIZATION_MODEL)
 
 # Max estimated raw trace size (in characters) before formatting.
 # Traces exceeding this are skipped — formatting huge traces is CPU-intensive
