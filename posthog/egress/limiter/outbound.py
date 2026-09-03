@@ -1,11 +1,11 @@
 """The outbound egress rate limiter facade.
 
-This is the only surface consumers should touch. Call ``acquire`` (async) or ``consume_sync``
-with a limiter key whose domain has a registered ``RatePolicy``; it returns True if the call fits
-the shared budget, False if it would exceed it. ``reserve`` and ``reserve_sync`` return an admission
-whose reservation ``release_sync`` can return to the budget when a provider confirms no budget was consumed. These calls
-are non-blocking — the caller decides what to do on denial. Consumers depend on this facade, never on
-the backing library, so the algorithm/backend stays swappable.
+This is the only surface consumers should touch. Call ``acquire`` (async) or ``consume_sync`` with a
+limiter key whose domain has a registered ``RatePolicy``; it returns True if the call fits the shared
+budget, False if it would exceed it. ``reserve`` and ``reserve_sync`` return an admission instead,
+whose reservation ``release_sync`` hands back to the budget once a provider confirms the call spent
+none of it. All are non-blocking: the caller decides what to do on denial. Consumers depend on this
+facade, never on the backing library, so the algorithm/backend stays swappable.
 """
 
 from __future__ import annotations
@@ -29,7 +29,6 @@ def _domain_of(key: str) -> str:
 
 @frozen
 class OutboundRateLimitReservation:
-    key: str
     token: LimitsReleaseToken | None
 
 
@@ -86,7 +85,7 @@ class OutboundRateLimiter:
         _validate(n, policy, priority)
         granted, token = await self._backend.reserve(key, policy, n, priority)
         record_outbound_decision(domain=_domain_of(key), source=source, priority=priority.value, granted=granted)
-        reservation = OutboundRateLimitReservation(key=key, token=token) if granted else None
+        reservation = OutboundRateLimitReservation(token=token) if granted else None
         return OutboundRateLimitAdmission(granted=granted, reservation=reservation)
 
     def reserve_sync(
@@ -96,7 +95,7 @@ class OutboundRateLimiter:
         _validate(n, policy, priority)
         granted, token = self._backend.reserve_sync(key, policy, n, priority)
         record_outbound_decision(domain=_domain_of(key), source=source, priority=priority.value, granted=granted)
-        reservation = OutboundRateLimitReservation(key=key, token=token) if granted else None
+        reservation = OutboundRateLimitReservation(token=token) if granted else None
         return OutboundRateLimitAdmission(granted=granted, reservation=reservation)
 
     def release_sync(self, reservation: OutboundRateLimitReservation) -> bool:

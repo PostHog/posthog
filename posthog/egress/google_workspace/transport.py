@@ -8,7 +8,7 @@ from posthog.egress.google_workspace.observability import (
     record_google_workspace_api_response,
 )
 from posthog.egress.limiter.policies import Priority
-from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
+from posthog.egress.transport.transport import EgressBudgetAdmission, EgressBudgetExhausted, EgressClient
 
 
 class GoogleWorkspaceEgressBudgetExhausted(EgressBudgetExhausted):
@@ -19,8 +19,8 @@ class GoogleWorkspaceClient(EgressClient):
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/json"}
 
-    def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
-        return consume_google_workspace_sync(scope, priority=priority, source=source)
+    def _reserve(self, scope: str, priority: Priority, source: str, url: str) -> EgressBudgetAdmission:
+        return EgressBudgetAdmission(granted=consume_google_workspace_sync(scope, priority=priority, source=source))
 
     def _record_response(
         self,

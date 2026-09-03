@@ -35,9 +35,8 @@ if not consume_github_installation_sync(installation_id, priority=Priority.BATCH
 They are **non-blocking** — the caller decides what to do on `False`.
 The GitHub helpers wrap the key construction; other domains expose their own thin gate the same way.
 
-`reserve` and `reserve_sync` return an admission with a reservation that can be passed to `release_sync` when the provider confirms the request consumed no budget.
-A release succeeds only while Redis can match the reservation to its sliding-window generation.
-The in-memory fallback cannot make that guarantee, so it keeps the count and returns `False`.
+`reserve` and `reserve_sync` return an admission instead of a bool, carrying a reservation that `release_sync` hands back to the budget once the provider confirms the call spent none of it.
+A release only succeeds while Redis can match the reservation to its sliding-window generation; the in-memory fallback cannot, so it keeps the count and returns `False`.
 
 ### Pacing (for callers that can wait)
 
@@ -140,17 +139,12 @@ Response handling — what to do on a 403/429 — stays with the caller: `raise_
 The model-coupled `GitHubIntegrationBase.api_request` layers the installation-token lifecycle (proactive refresh, 401 refresh-retry, rate-limit raising, per-instance `source` attribution) on top — hold an integration, call that; hold a bare token, call `github_request`.
 Raw `requests` calls against `api.github.com` are blocked by the `github-api-calls-go-through-egress` semgrep rule (`.semgrep/devex-rules/`), so new callers land on one of these two paths by construction.
 
-Authenticated, installation-scoped GET requests use GitHub's conditional request support.
-The transport stores a response's ETag and body for 24 hours when GitHub returns 200 with an ETag.
-Entries use the installation id and full prepared URL, including its query string, so installations and pages never share cached bodies.
-Each encoded entry is limited to 1 MiB.
-Responses without an ETag, oversized responses, streamed responses, non-GET requests, and identity-blind requests are not cached.
+Authenticated, installation-scoped GET requests go out as conditional requests.
+A 200 carrying an ETag is stored for 24 hours under the installation id and the full prepared URL, so installations and pages never share a body; entries over 1 MiB, responses with no ETag, streamed responses, non-GET requests, and identity-blind requests are not stored.
+An entry is the ETag, a newline, then the body, and only the first 256 bytes are read to send `If-None-Match` — a request that is not a 304 never pulls the body back out of Redis.
 
-A cache hit sends `If-None-Match`.
-When GitHub returns 304, the transport records the 304 before returning the cached body and a 200 status to the caller.
-The transport also releases the local limiter reservation when Redis can identify the exact sliding-window generation.
-If Redis cannot prove that the reservation is safe to release, the limiter keeps the count.
-The raw cache hit remains visible in `github_integration_api_requests_total{status_code="304"}` and can be grouped by `source` and `endpoint`.
+On a 304 the caller gets the cached body with a 200 status, and the limiter reservation goes back to the budget when Redis can still match it to its sliding-window generation; otherwise the count stands.
+The 304 itself stays visible in `github_integration_api_requests_total{status_code="304"}`, grouped by `source` and `endpoint`.
 
 Firecrawl callers go through `firecrawl/client.py` rather than `firecrawl_request` directly: `scrape(url, source=...)` returns a typed `FirecrawlScrape` (markdown, summary, plus the page title, description, status code and credits used) and raises `FirecrawlScrapeFailed` when Firecrawl answers with anything but a successful scrape, including the 200 responses that carry `success: false`.
 Only `POST /v2/scrape` is wired up, and the client reads `FIRECRAWL_API_KEY` from settings so the transport stays token-agnostic like the others.

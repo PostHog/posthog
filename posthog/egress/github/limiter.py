@@ -352,11 +352,9 @@ def consume_github_installation_sync(
 ) -> bool:
     """Sync variant of :func:`acquire_github_installation` for callers outside an event loop (e.g. the
     warehouse source iterator, which runs in a thread pool)."""
-    _note_demand_if_interactive(installation_id, priority, resource)
-    admission = get_outbound_rate_limiter().reserve_sync(
-        github_installation_key(installation_id, resource=resource), n, priority=priority, source=source
-    )
-    return admission.granted
+    return reserve_github_installation_sync(
+        installation_id, n, priority=priority, source=source, resource=resource
+    ).granted
 
 
 def reserve_github_installation_sync(
@@ -367,6 +365,8 @@ def reserve_github_installation_sync(
     source: str = "unknown",
     resource: GitHubRateResource = GitHubRateResource.CORE,
 ) -> OutboundRateLimitAdmission:
+    """As :func:`consume_github_installation_sync`, but keeps the reservation, so a caller that learns
+    the request spent no GitHub budget (a 304) can hand it back."""
     _note_demand_if_interactive(installation_id, priority, resource)
     return get_outbound_rate_limiter().reserve_sync(
         github_installation_key(installation_id, resource=resource), n, priority=priority, source=source

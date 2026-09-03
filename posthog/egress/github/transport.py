@@ -16,15 +16,14 @@ from functools import partial
 from typing import Any
 
 import requests
-import redis.exceptions
 
 from posthog.egress.github.limiter import (
     classify_github_resource,
-    consume_github_installation_sync,
     release_github_installation_sync,
     reserve_github_installation_sync,
 )
 from posthog.egress.github.observability import record_github_api_exception, record_github_api_response
+from posthog.egress.limiter.backends import REDIS_ERRORS
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetAdmission, EgressBudgetExhausted, EgressClient
 from posthog.redis import get_client
@@ -35,8 +34,9 @@ GITHUB_API_VERSION = "2022-11-28"
 GITHUB_CONDITIONAL_CACHE_TTL_SECONDS = 24 * 60 * 60
 GITHUB_CONDITIONAL_CACHE_MAX_ENTRY_BYTES = 1024 * 1024
 _CONDITIONAL_CACHE_PREFIX = "github_egress:conditional_response"
-_ETAG_LENGTH_BYTES = 2
-_REDIS_ERRORS = (redis.exceptions.RedisError, ConnectionError, TimeoutError, OSError)
+# An entry is the ETag, a newline, then the body; an RFC 9110 ETag cannot contain a newline. Reading
+# only this far keeps the body off the wire for every request that is not a 304.
+_ETAG_PROBE_BYTES = 256
 
 
 def _conditional_cache_key(installation_id: str, url: str) -> str:
@@ -44,39 +44,49 @@ def _conditional_cache_key(installation_id: str, url: str) -> str:
     return f"{_CONDITIONAL_CACHE_PREFIX}:{installation_id}:{url_digest}"
 
 
-def _prepared_url(method: str, url: str, params: object) -> str:
-    prepared_url = requests.Request(method=method, url=url, params=params).prepare().url
+def _prepared_url(url: str, params: object) -> str:
+    if not params:
+        return url
+    prepared_url = requests.Request(url=url, params=params).prepare().url
     return prepared_url or url
 
 
-def _read_conditional_cache(cache_key: str) -> tuple[str, bytes] | None:
-    try:
-        payload = get_client().get(cache_key)
-    except _REDIS_ERRORS:
-        return None
-    if not isinstance(payload, bytes) or len(payload) < _ETAG_LENGTH_BYTES:
-        return None
-    etag_length = int.from_bytes(payload[:_ETAG_LENGTH_BYTES])
-    body_offset = _ETAG_LENGTH_BYTES + etag_length
-    if etag_length == 0 or body_offset > len(payload):
+def _decoded_etag(raw: bytes) -> str | None:
+    etag, delimiter, _ = raw.partition(b"\n")
+    if not delimiter or not etag:
         return None
     try:
-        etag = payload[_ETAG_LENGTH_BYTES:body_offset].decode()
+        return etag.decode()
     except UnicodeDecodeError:
         return None
-    return etag, payload[body_offset:]
+
+
+def _read_cached_etag(cache_key: str) -> str | None:
+    try:
+        head = get_client().getrange(cache_key, 0, _ETAG_PROBE_BYTES - 1)
+    except REDIS_ERRORS:
+        return None
+    return _decoded_etag(head) if isinstance(head, bytes) else None
+
+
+def _read_cached_body(cache_key: str, etag: str) -> bytes | None:
+    """The body behind ``etag``, or None if the entry went away or was rewritten since the probe."""
+    try:
+        payload = get_client().get(cache_key)
+    except REDIS_ERRORS:
+        return None
+    if not isinstance(payload, bytes) or _decoded_etag(payload) != etag:
+        return None
+    return payload.partition(b"\n")[2]
 
 
 def _write_conditional_cache(cache_key: str, etag: str, body: bytes) -> None:
     etag_bytes = etag.encode()
-    if len(etag_bytes) >= 2 ** (_ETAG_LENGTH_BYTES * 8):
-        return
-    payload = len(etag_bytes).to_bytes(_ETAG_LENGTH_BYTES) + etag_bytes + body
-    if len(payload) > GITHUB_CONDITIONAL_CACHE_MAX_ENTRY_BYTES:
+    if len(etag_bytes) + 1 + len(body) > GITHUB_CONDITIONAL_CACHE_MAX_ENTRY_BYTES:
         return
     try:
-        get_client().setex(cache_key, GITHUB_CONDITIONAL_CACHE_TTL_SECONDS, payload)
-    except _REDIS_ERRORS:
+        get_client().setex(cache_key, GITHUB_CONDITIONAL_CACHE_TTL_SECONDS, etag_bytes + b"\n" + body)
+    except REDIS_ERRORS:
         return
 
 
@@ -153,60 +163,30 @@ class GitHubClient(EgressClient):
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": GITHUB_API_VERSION}
 
-    def request(
-        self,
-        method: str,
-        url: str,
-        *,
-        source: str,
-        headers: dict[str, str] | None = None,
-        scope: str | None = None,
-        priority: Priority = Priority.CRITICAL,
-        endpoint: str | None = None,
-        timeout: float | tuple[float, float] | None = None,
-        session: requests.Session | None = None,
-        **kwargs: Any,
-    ) -> requests.Response:
+    def request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
+        headers: dict[str, str] | None = kwargs.get("headers")
+        scope: str | None = kwargs.get("scope")
         is_authenticated = any(name.lower() == "authorization" for name in (headers or {}))
         if method.upper() != "GET" or not scope or not is_authenticated or kwargs.get("stream"):
-            return super().request(
-                method,
-                url,
-                source=source,
-                headers=headers,
-                scope=scope,
-                priority=priority,
-                endpoint=endpoint,
-                timeout=timeout,
-                session=session,
-                **kwargs,
-            )
+            return super().request(method, url, **kwargs)
 
-        full_url = _prepared_url(method, url, kwargs.get("params"))
-        cache_key = _conditional_cache_key(scope, full_url)
-        cached = _read_conditional_cache(cache_key)
-        request_headers = dict(headers or {})
-        if cached is not None:
-            request_headers["If-None-Match"] = cached[0]
+        cache_key = _conditional_cache_key(scope, _prepared_url(url, kwargs.get("params")))
+        cached_etag = _read_cached_etag(cache_key)
+        if cached_etag is not None:
+            kwargs["headers"] = {**(headers or {}), "If-None-Match": cached_etag}
 
-        response, admission = self._request(
-            method,
-            url,
-            source=source,
-            headers=request_headers,
-            scope=scope,
-            priority=priority,
-            endpoint=endpoint,
-            timeout=timeout,
-            session=session,
-            **kwargs,
-        )
-        if response.status_code == 304 and cached is not None:
+        response, admission = self._request(method, url, **kwargs)
+        if response.status_code == 304 and cached_etag is not None:
+            body = _read_cached_body(cache_key, cached_etag)
+            if body is None:
+                # A 304 carries no body, so an entry lost mid-flight has to be refetched.
+                kwargs["headers"] = headers
+                return super().request(method, url, **kwargs)
             if admission.release is not None:
                 admission.release()
             response.status_code = 200
             response.reason = "OK"
-            response._content = cached[1]
+            response._content = body
         elif response.status_code == 200:
             etag = response.headers.get("etag")
             if etag:
@@ -223,11 +203,6 @@ class GitHubClient(EgressClient):
             else None
         )
         return EgressBudgetAdmission(granted=admission.granted, release=release)
-
-    def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
-        return consume_github_installation_sync(
-            scope, resource=classify_github_resource(url), priority=priority, source=source
-        )
 
     def _record_response(
         self, response: requests.Response, *, source: str, scope: str | None, method: str, endpoint: str | None

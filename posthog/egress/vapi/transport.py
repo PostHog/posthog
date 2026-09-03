@@ -6,7 +6,7 @@ from typing import Any
 import requests
 
 from posthog.egress.limiter.policies import Priority
-from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
+from posthog.egress.transport.transport import EgressBudgetAdmission, EgressBudgetExhausted, EgressClient
 from posthog.egress.vapi.limiter import consume_vapi_api_sync
 from posthog.egress.vapi.observability import record_vapi_api_exception, record_vapi_api_response
 
@@ -19,8 +19,8 @@ class VapiClient(EgressClient):
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/json", "Content-Type": "application/json"}
 
-    def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
-        return consume_vapi_api_sync(scope, priority=priority, source=source)
+    def _reserve(self, scope: str, priority: Priority, source: str, url: str) -> EgressBudgetAdmission:
+        return EgressBudgetAdmission(granted=consume_vapi_api_sync(scope, priority=priority, source=source))
 
     def _record_response(
         self, response: requests.Response, *, source: str, scope: str | None, method: str, endpoint: str | None

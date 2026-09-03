@@ -86,12 +86,10 @@ def test_release_sync_targets_the_original_window_after_a_shift():
     assert first_admission.reservation is not None
     assert first_admission.reservation.token is not None
     first_window = first_admission.reservation.token.windows[0]
-    backend = limiter._backend
-    storage = backend._redis_storage()
-    window_keys = backend._redis_window_keys(storage, first_window.item_key)
+    _, current, _, current_generation = limiter._backend._redis_window_keys(first_window.item_key)
     redis_client = backends_module.get_client()
-    redis_client.pexpire(window_keys.current, 9_000)
-    redis_client.pexpire(window_keys.current_generation, 9_000)
+    redis_client.pexpire(current, 9_000)
+    redis_client.pexpire(current_generation, 9_000)
 
     second_admission = limiter.reserve_sync(key, 2)
     assert second_admission.granted is True

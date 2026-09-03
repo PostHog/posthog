@@ -110,9 +110,6 @@ class EgressClient(ABC):
             raise self._budget_exhausted_error(scope)
         return admission
 
-    def _reserve(self, scope: str, priority: Priority, source: str, url: str) -> EgressBudgetAdmission:
-        return EgressBudgetAdmission(granted=self._consume(scope, priority, source, url))
-
     # --- domain hooks -------------------------------------------------------------------------------
 
     @abstractmethod
@@ -120,9 +117,10 @@ class EgressClient(ABC):
         """Default headers merged under the caller's (the caller's win) — e.g. Accept, API version."""
 
     @abstractmethod
-    def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
-        """Draw ``1`` from the domain's shared budget for ``scope`` at ``priority``; True if granted.
-        ``url`` lets a domain route the draw to the resource-specific meter GitHub bills the URL to."""
+    def _reserve(self, scope: str, priority: Priority, source: str, url: str) -> EgressBudgetAdmission:
+        """Draw ``1`` from the domain's shared budget for ``scope`` at ``priority``. ``url`` lets a
+        domain route the draw to the resource-specific meter GitHub bills the URL to. Set the
+        admission's ``release`` when the domain's limiter can hand the draw back."""
 
     @abstractmethod
     def _record_response(

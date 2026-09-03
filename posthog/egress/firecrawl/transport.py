@@ -13,7 +13,7 @@ import requests
 from posthog.egress.firecrawl.limiter import consume_firecrawl_sync
 from posthog.egress.firecrawl.observability import record_firecrawl_api_exception, record_firecrawl_api_response
 from posthog.egress.limiter.policies import Priority
-from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
+from posthog.egress.transport.transport import EgressBudgetAdmission, EgressBudgetExhausted, EgressClient
 
 # The whole instance shares one Firecrawl account, so every call carries the same scope.
 _ACCOUNT_SCOPE = "default"
@@ -31,8 +31,8 @@ class FirecrawlClient(EgressClient):
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/json", "Content-Type": "application/json"}
 
-    def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
-        return consume_firecrawl_sync(priority=priority, source=source)
+    def _reserve(self, scope: str, priority: Priority, source: str, url: str) -> EgressBudgetAdmission:
+        return EgressBudgetAdmission(granted=consume_firecrawl_sync(priority=priority, source=source))
 
     def _record_response(
         self, response: requests.Response, *, source: str, scope: str | None, method: str, endpoint: str | None

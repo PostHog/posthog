@@ -1,4 +1,5 @@
 import uuid
+from functools import partial
 
 from unittest.mock import MagicMock, patch
 
@@ -37,7 +38,7 @@ class TestGitHubTransport(SimpleTestCase):
         self.redis = fakeredis.FakeRedis()
         self.installation_id = uuid.uuid4().hex
         self.headers = {"Authorization": "Bearer test"}
-        self.reservation = OutboundRateLimitReservation(key="github:installation:test", token=None)
+        self.reservation = OutboundRateLimitReservation(token=None)
         self.reserve = patch(
             "posthog.egress.github.transport.reserve_github_installation_sync",
             return_value=OutboundRateLimitAdmission(granted=True, reservation=self.reservation),
@@ -54,13 +55,11 @@ class TestGitHubTransport(SimpleTestCase):
             ("core", "https://api.github.com/repos/o/r/pulls/1", GitHubRateResource.CORE),
         ]
     )
-    def test_consume_routes_resource_by_url(self, _name: str, url: str, expected: GitHubRateResource) -> None:
+    def test_reserve_routes_resource_by_url(self, _name: str, url: str, expected: GitHubRateResource) -> None:
         # The gate must charge each URL to the meter GitHub bills it against — the whole point of the
         # per-resource split. A regression here reverts /search/code to the core envelope.
-        client = GitHubClient()
-        with patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=True) as consume:
-            client._consume("42", MagicMock(), "test", url)
-        assert consume.call_args.kwargs["resource"] == expected
+        GitHubClient()._reserve("42", MagicMock(), "test", url)
+        assert self.reserve.call_args.kwargs["resource"] == expected
 
     def test_identity_blind_call_never_touches_the_limiter(self) -> None:
         # A None installation_id (public token / raw PAT) records volume only and must skip the gate,
@@ -125,6 +124,42 @@ class TestGitHubTransport(SimpleTestCase):
         assert response.json() == {"items": [1]}
         assert statuses == [200, 304]
         self.release.assert_called_once_with(self.reservation)
+
+    def test_304_refetches_when_the_entry_is_lost_mid_flight(self) -> None:
+        # An entry evicted between the probe and the response would otherwise return an empty 200.
+        responses = [
+            _response(headers={"ETag": '"v1"'}, body=b'{"items":[1]}'),
+            _response(status=304, headers={"ETag": '"v1"'}, body=b""),
+            _response(headers={"ETag": '"v2"'}, body=b'{"items":[2]}'),
+        ]
+
+        def _send(*_args: object, **_kwargs: object) -> requests.Response:
+            response = responses[sender.call_count - 1]
+            if response.status_code == 304:
+                self.redis.flushall()
+            return response
+
+        sender = MagicMock(side_effect=_send)
+        request = partial(
+            github_request,
+            "GET",
+            "https://api.github.com/repos/o/r/branches",
+            source="test",
+            headers=self.headers,
+            installation_id=self.installation_id,
+        )
+
+        with (
+            patch("requests.request", sender),
+            patch("posthog.egress.github.transport.record_github_api_response"),
+        ):
+            request()
+            response = request()
+
+        assert sender.call_count == 3
+        assert "If-None-Match" not in sender.call_args.kwargs["headers"]
+        assert response.status_code == 200
+        assert response.json() == {"items": [2]}
 
     @parameterized.expand(
         [

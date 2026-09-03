@@ -4,7 +4,7 @@ import requests
 
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.slack.observability import record_slack_api_exception, record_slack_api_response
-from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
+from posthog.egress.transport.transport import EgressBudgetAdmission, EgressBudgetExhausted, EgressClient
 
 
 class SlackEgressBudgetExhausted(EgressBudgetExhausted):
@@ -18,8 +18,8 @@ class SlackClient(EgressClient):
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/json"}
 
-    def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
-        return True
+    def _reserve(self, scope: str, priority: Priority, source: str, url: str) -> EgressBudgetAdmission:
+        return EgressBudgetAdmission(granted=True)
 
     def _record_response(
         self,
