@@ -1,9 +1,12 @@
 import './PropertyFilters.scss'
 
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
 import { BehavioralPropertyFilterRow } from 'lib/components/PropertyFilters/components/BehavioralPropertyFilterRow'
+import { FILTER_ROW_FRAME_CLASSES } from 'lib/components/PropertyFilters/components/filterRowFrame'
+import { PropertyFilterRowOperator } from 'lib/components/PropertyFilters/components/PropertyFilterRowOperator'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import { isBehavioralPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import {
@@ -70,6 +73,7 @@ export interface PropertyFiltersProps {
      */
     triggerVariant?: 'button' | 'input'
     staticValueOptions?: PropertyFilterInternalProps['staticValueOptions']
+    renderOperatorValueSelect?: PropertyFilterInternalProps['renderOperatorValueSelect']
     /** Override inferred property definitions for contexts where one event key is polymorphic. */
     propertyDefinitionsOverride?: PropertyDefinition[]
     /** Keep the selected key fixed while leaving its operator and value editable. */
@@ -80,6 +84,7 @@ export interface PropertyFiltersProps {
      * logic, so the caller doesn't have to rebuild the list from possibly-stale props. */
     addFilterSuffix?: ((addFilter: (property: AnyPropertyFilter) => void) => JSX.Element) | null
     addFilterDivider?: boolean
+    framedRows?: boolean
 }
 
 export function PropertyFilters({
@@ -120,12 +125,14 @@ export function PropertyFilters({
     hogQLGlobals,
     triggerVariant = 'button',
     staticValueOptions,
+    renderOperatorValueSelect,
     propertyDefinitionsOverride,
     propertyKeyEditable,
     singleLine,
     showRemoveButton = true,
     addFilterSuffix,
     addFilterDivider = false,
+    framedRows = false,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew, filterIds, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -177,12 +184,30 @@ export function PropertyFilters({
                                     editable={editable}
                                     filterComponent={(onComplete) =>
                                         isBehavioralPropertyFilter(item) ? (
-                                            <BehavioralPropertyFilterRow
-                                                filter={item}
-                                                onChange={(filter) => setFilter(index, filter)}
-                                                editable={editable}
-                                                size={buttonSize}
-                                            />
+                                            <div className="TaxonomicPropertyFilter__row w-full min-w-0">
+                                                {hasRowOperator && (
+                                                    <PropertyFilterRowOperator
+                                                        index={index}
+                                                        orFiltering={orFiltering}
+                                                        propertyGroupType={propertyGroupType}
+                                                        hasKey={!!item.key}
+                                                    />
+                                                )}
+                                                <div
+                                                    className={clsx(
+                                                        'TaxonomicPropertyFilter__row-items',
+                                                        framedRows && FILTER_ROW_FRAME_CLASSES
+                                                    )}
+                                                >
+                                                    <BehavioralPropertyFilterRow
+                                                        filter={item}
+                                                        onChange={(filter) => setFilter(index, filter)}
+                                                        editable={editable}
+                                                        pageKey={`${pageKey}-behavioral-${displayedFilterIds[index]}`}
+                                                        size={buttonSize}
+                                                    />
+                                                </div>
+                                            </div>
                                         ) : (
                                             <TaxonomicPropertyFilter
                                                 pageKey={pageKey}
@@ -214,9 +239,11 @@ export function PropertyFilters({
                                                 hogQLGlobals={hogQLGlobals}
                                                 triggerVariant={triggerVariant}
                                                 staticValueOptions={staticValueOptions}
+                                                renderOperatorValueSelect={renderOperatorValueSelect}
                                                 propertyDefinitionsOverride={propertyDefinitionsOverride}
                                                 propertyKeyEditable={propertyKeyEditable}
                                                 singleLine={singleLine}
+                                                framedRows={framedRows}
                                             />
                                         )
                                     }

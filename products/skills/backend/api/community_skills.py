@@ -172,6 +172,17 @@ class CommunitySkillViewSet(
         serializer = self.get_serializer(queryset, many=True)
         return Response({"count": len(serializer.data), "results": serializer.data})
 
+    def _report_install_failed(self, request: Request, slug: str, reason: str) -> None:
+        # One event per failed install path so the dashboard can track the install failure rate and
+        # its causes. reason is a short stable code, not the user-facing message.
+        report_user_action(
+            cast(User, request.user),
+            "community skill install failed",
+            {"community_skill_slug": slug, "reason": reason},
+            team=self.team,
+            request=request,
+        )
+
     @extend_schema(request=CommunitySkillInstallSerializer, responses={201: LLMSkillSerializer})
     @action(methods=["POST"], detail=True)
     def install(self, request: Request, slug: str = "", **kwargs) -> Response:
@@ -196,6 +207,7 @@ class CommunitySkillViewSet(
                 variables=payload.validated_data.get("variables"),
             )
         except CommunitySkillNotFoundError:
+            self._report_install_failed(request, slug, "not_found")
             return Response(
                 {"detail": f"Community skill '{slug}' not found."},
                 status=status.HTTP_404_NOT_FOUND,
@@ -208,6 +220,7 @@ class CommunitySkillViewSet(
         ) as err:
             # All four are fixable by the caller (supply the value / shorter values / fix the key),
             # so they're 400s against the field that carried them.
+            self._report_install_failed(request, slug, "missing_variable")
             raise ValidationError({"variables": str(err)}) from err
         except UnknownTemplatePlaceholderError as err:
             # The template body references a variable it never declared — a content-repo bug the
@@ -219,6 +232,7 @@ class CommunitySkillViewSet(
                 slug=slug,
                 placeholder=err.placeholder,
             )
+            self._report_install_failed(request, slug, "undeclared_placeholder")
             return Response(
                 {"detail": str(err)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -226,6 +240,7 @@ class CommunitySkillViewSet(
         except LLMSkillDuplicateNameConflictError:
             # Only blame the new_name field when the caller actually supplied it — otherwise the
             # conflicting name is the skill's own slug, so a generic message is accurate.
+            self._report_install_failed(request, slug, "name_conflict")
             if payload.validated_data.get("new_name"):
                 return Response(
                     {"attr": "new_name", "detail": "A skill with this name already exists in your project."},
@@ -239,9 +254,11 @@ class CommunitySkillViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except CommunitySkillInvalidPayloadError as err:
+            self._report_install_failed(request, slug, "invalid_payload")
             return Response({"detail": err.detail}, status=status.HTTP_400_BAD_REQUEST)
         except (LLMSkillFileLimitError, LLMSkillFilePathConflictError):
             # The synced community payload violates the skill limits (too many files / bad paths).
+            self._report_install_failed(request, slug, "invalid_files")
             return Response(
                 {"detail": "This community skill can't be installed because its bundled files are invalid."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -279,4 +296,12 @@ class CommunitySkillViewSet(
                 {"detail": f"Community skill '{slug}' not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+
+        report_user_action(
+            cast(User, request.user),
+            "community skill voted",
+            {"community_skill_slug": slug, "voted": has_voted, "vote_count": vote_count},
+            team=self.team,
+            request=request,
+        )
         return Response({"vote_count": vote_count, "has_voted": has_voted})

@@ -42,6 +42,23 @@ describe('getToolRecoveryHint', () => {
     it('fires when status is unknown but the URL is a logs query endpoint', () => {
         expect(getToolRecoveryHint({ url: LOGS_QUERY_URL })).not.toBeUndefined()
     })
+
+    it.each([
+        'https://us.posthog.com/api/projects/2/surveys/',
+        'https://us.posthog.com/api/projects/2/surveys/018f-abc/',
+    ])('returns the structured-param hint for a 5xx on the survey write endpoint %s', (url: string) => {
+        const hint = getToolRecoveryHint({ url, status: 500 })
+
+        expect(hint).not.toBeUndefined()
+        expect(hint).toContain('JSON-encoded string')
+        expect(hint).toContain('targeting_flag_filters')
+    })
+
+    it('does not fire for a survey sub-action endpoint — its 5xx is a query problem', () => {
+        expect(
+            getToolRecoveryHint({ url: 'https://us.posthog.com/api/projects/2/surveys/018f-abc/stats/', status: 500 })
+        ).toBeUndefined()
+    })
 })
 
 describe('handleToolError recovery hints', () => {

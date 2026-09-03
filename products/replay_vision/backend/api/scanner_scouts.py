@@ -13,7 +13,7 @@ from products.replay_vision.backend.scanner_access import scanner_for_recording_
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
 from products.signals.backend.facade import api as signals_facade
 from products.signals.backend.scout_harness.serializers import SignalScoutConfigSerializer, SignalScoutCreateSerializer
-from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
+from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission, scout_config_context
 
 
 class ScannerScoutCreateSerializer(SignalScoutCreateSerializer):
@@ -108,6 +108,12 @@ class ScannerScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             source_id=str(scanner.id),
         )
         return Response(
-            ScannerScoutCreateResponseSerializer({"created": result.created, "config": result.config}).data,
+            ScannerScoutCreateResponseSerializer(
+                {"created": result.created, "config": result.config},
+                # The config serializer reads the scout's skill for its description, origin, and
+                # owners; without this the response would describe the scout it just created as
+                # nameless, custom, and unowned.
+                context=scout_config_context(canonical_team, [result.config.skill_name], request),
+            ).data,
             status=status.HTTP_201_CREATED if result.created else status.HTTP_200_OK,
         )

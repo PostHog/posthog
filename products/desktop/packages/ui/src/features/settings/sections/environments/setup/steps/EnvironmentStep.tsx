@@ -1,7 +1,6 @@
 import {
   type EnvironmentSetupPlan,
   type SetupTarget,
-  stepError,
   withEnvironmentName,
   withRepositories,
 } from "@posthog/core/settings/environmentSetup";
@@ -9,6 +8,7 @@ import { Checkbox, Input, Label, Text } from "@posthog/quill";
 import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
 import { StepBody } from "@posthog/ui/features/settings/sections/environments/setup/StepBody";
+import { StepFieldError } from "@posthog/ui/features/settings/sections/environments/setup/StepFieldError";
 import { RadioCards } from "@posthog/ui/primitives/RadioCards";
 import { useId } from "react";
 
@@ -26,6 +26,7 @@ interface EnvironmentStepProps {
    * between a new one and an existing one has no place on the page.
    */
   editing?: boolean;
+  error: string | null;
 }
 
 /**
@@ -38,15 +39,15 @@ export function EnvironmentStep({
   environments,
   onChange,
   editing = false,
+  error,
 }: EnvironmentStepProps) {
   const nameId = useId();
   const privateId = useId();
-  const nameError = stepError(plan, "environment");
 
   return (
     <StepBody
       title={editing ? "Name and repositories" : "What are you setting up?"}
-      description="Name it, and pick the repositories its sessions work on."
+      description="Name it, and pick the repositories its sessions work on"
     >
       {/* Targeting an existing environment only attaches an image to it, so
           without custom images there is nothing this choice could do. */}
@@ -87,7 +88,7 @@ export function EnvironmentStep({
             }
           />
           <Text className="text-(--gray-10) text-[11.5px]">
-            {nameError ?? "Shown in the workspace picker."}
+            {error ?? "Shown in the workspace picker."}
           </Text>
         </div>
       )}
@@ -105,9 +106,13 @@ export function EnvironmentStep({
             }))}
             onChange={(environmentId) => onChange({ ...plan, environmentId })}
           />
-          <Text className="text-(--gray-10) text-[11.5px]">
-            It keeps its own access settings. Only its base image changes.
-          </Text>
+          {error ? (
+            <StepFieldError>{error}</StepFieldError>
+          ) : (
+            <Text className="text-(--gray-10) text-[11.5px]">
+              It keeps its own access settings. Only its base image changes.
+            </Text>
+          )}
         </div>
       )}
 

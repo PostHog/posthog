@@ -48,6 +48,7 @@ import { AIObservabilityTraces } from './AIObservabilityTracesScene'
 import { AIObservabilityUsers } from './AIObservabilityUsers'
 import { aiObservabilityEmptyState } from './emptyState/aiObservabilityEmptyState'
 import { useSortableColumns } from './hooks/useSortableColumns'
+import { InstrumentationChecklistCard } from './instrumentationChecklist/InstrumentationChecklistCard'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { AIObservabilitySelfDriving } from './selfDriving/AIObservabilitySelfDriving'
 import { GENERATION_SENTIMENT_SELECT } from './sentimentResults'
@@ -170,6 +171,8 @@ function AIObservabilityDashboard(): JSX.Element {
     return (
         <div className="@container/dashboard" data-attr="llm-analytics-costs">
             <Filters />
+
+            <InstrumentationChecklistCard />
 
             {availableDashboardsLoading || !selectedDashboardId ? (
                 <div className="text-center p-8">

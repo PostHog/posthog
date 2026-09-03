@@ -26,10 +26,33 @@ pub struct Upvalue {
 
 pub type UpvalueCell = Rc<RefCell<Upvalue>>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Num {
     Integer(i64),
     Float(f64),
+}
+
+/// The reference VMs treat all numbers as one numeric domain, because JS has only f64 and Python's
+/// `1 == 1.0` is true. Equality must therefore unify the variants. A mixed pair widens to f64 and
+/// compares with IEEE `==`, which is what `Num::binary_op` does for `Lt`/`Gt`, so `a == b` stays
+/// consistent with `!(a < b) && !(a > b)`. Two integers compare as i64, so values beyond 2^53 stay
+/// exact against each other. A mixed pair above 2^53 rounds like the TS reference; Python compares
+/// mixed pairs exactly and can disagree there.
+///
+/// Those two rules together are NOT transitive above 2^53: `Integer(2^53 + 1) == Float(2^53)` and
+/// `Float(2^53) == Integer(2^53)`, yet the two integers stay unequal. Never feed `Num` to `dedup`,
+/// `sort_by`, `binary_search` or a hash set, where that would make the result depend on input order.
+///
+/// Do not assume `Num::compare` agrees. It widens too, but then applies `total_cmp`, a total order
+/// that ranks NaN and separates `-0.0` from `0`. IEEE `==` instead keeps NaN unequal to NaN and
+/// calls `0` and `-0.0` equal, so the two disagree on those two inputs.
+impl PartialEq for Num {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Num::Integer(a), Num::Integer(b)) => a == b,
+            _ => self.to_float() == other.to_float(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -176,9 +199,12 @@ impl HogValue {
     }
 
     pub fn equals(&self, rhs: &HogValue, heap: &VmHeap) -> Result<HogLiteral, VmError> {
-        // Legacy structural equality, shared by every consumer. The cohort evaluator's temporal
-        // epoch-equality lives behind the opt-in flag in `HogVM::eq_op`, not here, so `Eq`/`in`/`has`
-        // stay unchanged for `cymbal` and other shared-crate users.
+        // Top-level structural equality with numeric unification, shared by every consumer:
+        // `1 == 1.0` is true here because both reference VMs treat all numbers as one domain (see
+        // `PartialEq for Num`). Only the two operands are dereferenced, so a nested array or object
+        // compares by heap reference, which matches the TS bytecode VM. The cohort evaluator's
+        // temporal epoch-equality is the only opt-in part, and it lives behind the flag in
+        // `HogVM::eq_op`, not here.
         let (lhs, rhs) = (self.deref(heap)?, rhs.deref(heap)?);
         lhs.equals(rhs)
     }
@@ -346,6 +372,8 @@ impl HogLiteral {
     }
 
     fn equals(&self, rhs: &HogLiteral) -> Result<HogLiteral, VmError> {
+        // Coercion runs first, so a numeric string equals a number. Membership (`in`, `has`,
+        // `indexOf`) compares elements through here and inherits that, unlike the reference VMs.
         let Ok((lhs, rhs)) = self.coerce_types(rhs) else {
             return Ok(false.into()); // If we can't coerce types, they are not equal
         };
@@ -438,11 +466,13 @@ pub(crate) fn temporal_seconds_pair(
 /// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, two concerns in order:
 ///
 /// OPT-IN ONLY: this is reached exclusively from the coercing `compare_op` path, which the VM takes
-/// only when the context sets [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons)
-/// — today just the realtime-cohort evaluator. Every other shared-crate consumer (e.g. `cymbal`)
-/// keeps the strict path where operands other than numbers and numeric arrays error, so this coercion
-/// does NOT change their behavior. The semantics here match the Python/TS reference VMs (and
-/// ClickHouse for temporals).
+/// only when the context sets [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons),
+/// today just the realtime-cohort evaluator. Every other shared-crate consumer (e.g. `cymbal`) keeps
+/// the strict ordering path where operands other than numbers and numeric arrays error, so this
+/// coercion of ORDERING operands does NOT change their behavior. It says nothing about equality:
+/// `Eq`/`NotEq` unify the int and float variants of a number on every path (see
+/// [`PartialEq for Num`](Num)). The semantics here match the Python/TS reference VMs (and ClickHouse
+/// for temporals).
 ///
 /// 1. A temporal comparison ([`temporal_seconds_pair`]) orders by epoch seconds to match ClickHouse
 ///    and the Python/TS reference VMs; see the [`crate::stl`] module note.
@@ -928,5 +958,42 @@ mod tests {
                 Ordering::Less | Ordering::Equal | Ordering::Greater
             ));
         }
+    }
+
+    #[test]
+    fn int_float_equality_unifies() {
+        assert_eq!(Num::Integer(1), Num::Float(1.0));
+        assert_eq!(Num::Float(1.0), Num::Integer(1));
+        assert_ne!(Num::Integer(2), Num::Float(1.0));
+        assert_ne!(Num::Float(1.0), Num::Integer(2));
+        // Signed zero is the second input where `Num::compare` disagrees; IEEE `==` unifies it.
+        assert_eq!(Num::Integer(0), Num::Float(-0.0));
+    }
+
+    #[test]
+    fn nan_is_never_equal() {
+        // A NaN literal cannot be written in bytecode JSON, so the NaN contract is pinned here
+        // rather than in a VM-level test. The VM can still produce one, for example `0.0 / 0.0`.
+        assert_ne!(Num::Float(f64::NAN), Num::Float(f64::NAN));
+        assert_ne!(Num::Integer(1), Num::Float(f64::NAN));
+        assert_ne!(Num::Float(f64::NAN), Num::Integer(1));
+    }
+
+    #[test]
+    fn integer_pairs_stay_exact_beyond_f64() {
+        // Both operands are integers, so they must compare as i64. Widening everything to f64 would
+        // round both to the same value and call them equal.
+        assert_ne!(Num::Integer(1 << 53), Num::Integer((1 << 53) + 1));
+    }
+
+    #[test]
+    fn mixed_pairs_beyond_2p53_follow_the_ts_oracle() {
+        // Deliberate, documented divergence from Python: widening an integer past 2^53 rounds it, so
+        // this pair is equal here and in the TS reference (which only has f64), while Python compares
+        // int against float exactly and calls it unequal.
+        assert_eq!(
+            Num::Integer(9_007_199_254_740_993),
+            Num::Float(9_007_199_254_740_992.0)
+        );
     }
 }

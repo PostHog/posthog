@@ -10,6 +10,7 @@ import structlog
 from posthog.tasks.email import send_external_data_failure_digest
 
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
+from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus, ExternalDataSchemaStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -54,13 +55,13 @@ def get_team_ids_with_recent_sync_failures(
     # Schemas are one row each, and their jobs are reachable via the schema_id FK index.
     unnotified_failed_job = ExternalDataJob.objects.filter(
         schema_id=OuterRef("id"),
-        status=ExternalDataJob.Status.FAILED,
+        status=ExternalDataJobStatus.FAILED,
         finished_at__gte=cutoff,
     ).filter(Q(schema__last_error_notified_at__isnull=True) | Q(finished_at__gt=OuterRef("last_error_notified_at")))
     return list(
         ExternalDataSchema.objects.exclude(deleted=True)
         .exclude(source__deleted=True)
-        .filter(status=ExternalDataSchema.Status.FAILED)
+        .filter(status=ExternalDataSchemaStatus.FAILED)
         .filter(Exists(unnotified_failed_job) | Q(last_error_notified_at__lt=renotify_cutoff))
         .values_list("team_id", flat=True)
         .distinct()
@@ -85,13 +86,13 @@ def notify_external_data_sync_failures(
         renotify_cutoff = dt.datetime.now(dt.UTC) - renotify_after
         newer_failed_job = ExternalDataJob.objects.filter(
             schema_id=OuterRef("id"),
-            status=ExternalDataJob.Status.FAILED,
+            status=ExternalDataJobStatus.FAILED,
             finished_at__gt=OuterRef("last_error_notified_at"),
         )
         failing_schemas = list(
             ExternalDataSchema.objects.exclude(deleted=True)
             .exclude(source__deleted=True)
-            .filter(team_id=team_id, status=ExternalDataSchema.Status.FAILED)
+            .filter(team_id=team_id, status=ExternalDataSchemaStatus.FAILED)
             .filter(
                 Q(last_error_notified_at__isnull=True)
                 | Q(last_error_notified_at__lt=renotify_cutoff)

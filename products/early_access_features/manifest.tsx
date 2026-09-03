@@ -13,6 +13,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             description: 'Allow your users to individually enable or disable features that are in public beta.',
             iconType: 'early_access_feature',
+            docsHref: 'https://posthog.com/docs/feature-flags/early-access-feature-management',
         },
         EarlyAccessFeature: {
             name: 'Early access feature',

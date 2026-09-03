@@ -124,11 +124,7 @@ describe("SidebarNavSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAppView.mockReturnValue({ type: "task-input" });
-    useSidebarStore.setState({
-      navItemOverrides: {},
-      navItemOrder: [],
-      channelsEnabled: true,
-    });
+    useSidebarStore.setState({ channelsEnabled: true });
   });
 
   it("renders Search directly and removes the More dropdown", () => {
@@ -138,19 +134,6 @@ describe("SidebarNavSection", () => {
     expect(
       screen.queryByRole("button", { name: "More" }),
     ).not.toBeInTheDocument();
-  });
-
-  it.each([
-    ["inbox", "Self-driving"],
-    ["command-center", "Command Center"],
-    ["activity", "Activity"],
-    ["configure", "Settings"],
-    ["loops", "Loops"],
-  ] as const)("removes %s from the sidebar when hidden", (id, label) => {
-    useSidebarStore.setState({ navItemOverrides: { [id]: false } });
-    renderNav();
-
-    expect(screen.queryByText(label)).not.toBeInTheDocument();
   });
 
   it("renders Activity directly under Inbox by default", () => {

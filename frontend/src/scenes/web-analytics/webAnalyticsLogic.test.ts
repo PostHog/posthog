@@ -12,6 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator, UserType } from '~/types'
 
+import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { GraphsTab, ProductTab, TileId } from './common'
 import { FOCUS_MODE_TILE_IDS } from './focus-mode/focusModeMapping'
 import { WebAnalyticsConcern, getFocusModeOnboardingSeenKey } from './focus-mode/types'
@@ -476,35 +477,6 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(router.values.searchParams[key]).toBe(expected)
     })
 
-    it('keeps all page performance controls in the shareable URL', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
-        })
-        logic.actions.setProductTab(ProductTab.PAGE_PERFORMANCE)
-        logic.actions.setDates('-30d', '2026-08-05')
-        logic.actions.setConversionGoal({ actionId: 42 })
-        logic.actions.setCompareFilter({ compare: true, compare_to: '-1y' })
-        logic.actions.setIsPathCleaningEnabled(false)
-        logic.actions.setShouldFilterTestAccounts(true)
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(router.values.location.pathname.endsWith('/web/page-performance')).toBe(true)
-        expect(router.values.searchParams).toMatchObject({
-            date_from: '-30d',
-            date_to: '2026-08-05',
-            'conversionGoal.actionId': 42,
-            compare_filter: { compare: true, compare_to: '-1y' },
-            path_cleaning: false,
-            filter_test_accounts: true,
-        })
-    })
-
-    const enableBackNavReset = (): void => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET]: true,
-        })
-    }
-
     const FILTER_A = {
         type: PropertyFilterType.Session as const,
         key: '$entry_utm_source',
@@ -516,6 +488,123 @@ describe('webAnalyticsLogic URL restoration', () => {
         key: '$entry_utm_medium',
         operator: PropertyOperator.Exact,
         value: ['cpc'],
+    }
+
+    it('keeps all page performance controls in the shareable URL', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
+        })
+        logic.actions.setProductTab(ProductTab.PAGE_PERFORMANCE)
+        logic.actions.setDates('-30d', '2026-08-05')
+        logic.actions.setConversionGoal({ actionId: 42 })
+        logic.actions.setCompareFilter({ compare: true, compare_to: '-1y' })
+        logic.actions.setIsPathCleaningEnabled(false)
+        logic.actions.setShouldFilterTestAccounts(true)
+        logic.actions.setWebAnalyticsFilters([FILTER_A])
+        logic.actions.setDomainFilter('https://hedgebox.net')
+        logic.actions.setDeviceTypeFilter('Desktop')
+        // country and referrer fold into the page-performance queries too, so they must round-trip
+        // through the URL or a shared link shows different numbers than the sender saw.
+        logic.actions.setCountryFilter('US')
+        logic.actions.setReferrerFilter('google.com')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname.endsWith('/web/page-performance')).toBe(true)
+        expect(router.values.searchParams).toMatchObject({
+            date_from: '-30d',
+            date_to: '2026-08-05',
+            'conversionGoal.actionId': 42,
+            compare_filter: { compare: true, compare_to: '-1y' },
+            path_cleaning: false,
+            filter_test_accounts: true,
+            filters: [FILTER_A],
+            domain: 'https://hedgebox.net',
+            device_type: 'Desktop',
+            country: 'US',
+            referrer: 'google.com',
+        })
+    })
+
+    it("scrubs another tab's filters param when switching to the bots tab", async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+        })
+        logic.actions.setWebAnalyticsFilters([FILTER_A])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams['filters']).toEqual([FILTER_A])
+
+        // The bots content (and so botAnalyticsLogic) has not mounted yet at serialization time.
+        logic.actions.setProductTab(ProductTab.BOT_ANALYTICS)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname.endsWith('/web/bots')).toBe(true)
+        expect(router.values.searchParams['filters']).toBeUndefined()
+    })
+
+    it('adopts a deep-linked filters param when the bots tab mounts', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+        })
+        router.actions.push('/web/bots', { filters: [FILTER_A] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        const botLogic = botAnalyticsLogic()
+        botLogic.mount()
+        try {
+            await expectLogic(botLogic).toFinishAllListeners()
+            expect(botLogic.values.rawBotAnalyticsFilters).toEqual([FILTER_A])
+            expect(router.values.searchParams['filters']).toEqual([FILTER_A])
+        } finally {
+            botLogic.unmount()
+        }
+    })
+
+    it('writes persisted bot filters into the URL when the bots tab mounts', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+        })
+        router.actions.push('/web/bots')
+        await expectLogic(logic).toFinishAllListeners()
+
+        // First visit sets bot filters (persisted), then the user leaves the tab.
+        const botLogic = botAnalyticsLogic()
+        botLogic.mount()
+        botLogic.actions.setBotAnalyticsFilters([FILTER_B])
+        await expectLogic(botLogic).toFinishAllListeners()
+        expect(router.values.searchParams['filters']).toEqual([FILTER_B])
+        botLogic.unmount()
+
+        // Returning through a bare URL: the mount serializes the persisted filters back.
+        router.actions.push('/web/bots')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams['filters']).toBeUndefined()
+
+        const botLogicAgain = botAnalyticsLogic()
+        botLogicAgain.mount()
+        try {
+            await expectLogic(botLogicAgain).toFinishAllListeners()
+            expect(router.values.searchParams['filters']).toEqual([FILTER_B])
+        } finally {
+            botLogicAgain.unmount()
+        }
+    })
+
+    it('applies property filters from a shared page performance URL', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
+        })
+
+        router.actions.push('/web/page-performance', { filters: [FILTER_A] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.productTab).toBe(ProductTab.PAGE_PERFORMANCE)
+        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+    })
+
+    const enableBackNavReset = (): void => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET]: true,
+        })
     }
 
     it('clears a drilled-in filter when navigating back to a URL without filters (flag on)', async () => {
@@ -541,6 +630,34 @@ describe('webAnalyticsLogic URL restoration', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
     })
+
+    it.each<[string, string, () => unknown]>([
+        ['domain', 'example.com', () => logic.values.domainFilter],
+        ['device_type', 'Desktop', () => logic.values.deviceTypeFilter],
+        ['country', 'US', () => logic.values.countryFilter],
+        ['referrer', 'google.com', () => logic.values.referrerFilter],
+    ])(
+        'clears a drilled-in %s filter when navigating back to a URL without it (flag on)',
+        async (param, value, read) => {
+            // These drill-downs fold into the query like `filters` do, so a back-navigation that
+            // omits the param must clear the value — otherwise the shown data no longer matches the URL.
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET, FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE],
+                {
+                    [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET]: true,
+                    [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
+                }
+            )
+
+            router.actions.push('/web/page-performance', { [param]: value })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(read()).toBe(value)
+
+            router.actions.push('/web/page-performance')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(read()).toBeNull()
+        }
+    )
 
     it('leaves a drilled-in filter in place on back-navigation when the flag is off', async () => {
         router.actions.push('/web', { filters: [FILTER_A] })

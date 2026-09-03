@@ -8,7 +8,6 @@ import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { ok } from '~/ingestion/framework/results'
 import { runSessionReplayPipeline } from '~/ingestion/pipelines/sessionreplay'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
-import { createParseAndAnonymizeMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
@@ -23,12 +22,13 @@ import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
 import { createMlMirrorReplayPipeline } from './ml-mirror-pipeline'
+import { createParseAndAnonymizeMessageStep } from './parse-and-anonymize-step'
 
 jest.mock('~/ingestion/common/steps/event-preprocessing', () => ({
     createParseHeadersStep: jest.fn(),
     createApplyEventRestrictionsStep: jest.fn(),
 }))
-jest.mock('~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step', () => ({
+jest.mock('./parse-and-anonymize-step', () => ({
     createParseAndAnonymizeMessageStep: jest.fn(),
 }))
 

@@ -76,6 +76,11 @@ def reload_integrations_on_workers(team_id: int, integration_ids: list[int]):
     publish_message("reload-integrations", {"teamId": team_id, "integrationIds": integration_ids})
 
 
+def reload_team_workflows_config_on_workers(team_id: int):
+    logger.info(f"Reloading team workflows config for team {team_id} on workers")
+    publish_message("reload-team-workflows-config", {"teamId": team_id})
+
+
 def populate_plugin_capabilities_on_workers(plugin_id: str):
     logger.info(f"Populating plugin capabilities for plugin {plugin_id} on workers")
     publish_message("populate-plugin-capabilities", {"pluginId": plugin_id})
@@ -103,10 +108,13 @@ def create_hog_flow_scheduled_invocation(
     team_id: int, hog_flow_id: str, variables: dict[str, object]
 ) -> requests.Response:
     logger.info(f"Creating scheduled hog flow invocation for hog flow {hog_flow_id} on workers")
+    # Same rationale as get_hog_flow_in_flight_count below: a stalled CDP connection must not pin
+    # the calling request thread indefinitely.
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/scheduled_invocations",
         json={"variables": variables},
         headers=get_internal_api_headers(),
+        timeout=10,
     )
 
 

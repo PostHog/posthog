@@ -1,0 +1,13 @@
+name: wal
+description: WAL generation and write/sync activity.
+interval: 60s
+scope: cluster
+kind: cumulative
+min_pg_version: 140000
+key: [id]
+query: |
+  SELECT 1 AS id,
+         wal_records, wal_fpi, wal_bytes::bigint AS wal_bytes, wal_buffers_full,
+         wal_write, wal_sync, wal_write_time, wal_sync_time,
+         stats_reset
+  FROM pg_stat_wal

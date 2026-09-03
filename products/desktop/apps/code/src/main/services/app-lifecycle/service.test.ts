@@ -9,6 +9,7 @@ const {
   mockWatcherRegistry,
   mockProcessTracking,
   mockWorkspaceService,
+  mockCleanupAllCodexHomes,
   mockTrackAppEvent,
   mockShutdownPostHog,
   mockShutdownOtelTransport,
@@ -31,6 +32,7 @@ const {
       pendingCreationCount: 0,
       waitForPendingCreations: vi.fn(() => Promise.resolve()),
     },
+    mockCleanupAllCodexHomes: vi.fn(() => Promise.resolve()),
     mockProcessTracking: {
       getSnapshot: vi.fn(() =>
         Promise.resolve({
@@ -97,6 +99,10 @@ vi.mock("@posthog/shared/analytics-events", () => ({
   },
 }));
 
+vi.mock("@posthog/workspace-server/services/agent/codex-home", () => ({
+  cleanupAllCodexHomes: mockCleanupAllCodexHomes,
+}));
+
 describe("AppLifecycleService", () => {
   let service: AppLifecycleService;
   const originalProcessExit = process.exit;
@@ -115,6 +121,7 @@ describe("AppLifecycleService", () => {
       mockWatcherRegistry as never,
       mockProcessTracking as never,
       mockWorkspaceService as never,
+      { appDataPath: "/app-data" } as never,
       { getBrowserWindow: () => mockBrowserWindow } as never,
     );
   });
@@ -175,6 +182,14 @@ describe("AppLifecycleService", () => {
   });
 
   describe("shutdown", () => {
+    it("cleans all app-owned Codex state", async () => {
+      const promise = service.shutdown();
+      await vi.runAllTimersAsync();
+      await promise;
+
+      expect(mockCleanupAllCodexHomes).toHaveBeenCalledWith("/app-data");
+    });
+
     it("tracks app quit event", async () => {
       const promise = service.shutdown();
       await vi.runAllTimersAsync();

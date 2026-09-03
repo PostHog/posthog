@@ -7,6 +7,7 @@
 
 use posthog_replay_anonymizer::allow_lists::AllowLists;
 use posthog_replay_anonymizer::collect::{hash_image_bytes, image_ref};
+use posthog_replay_anonymizer::context::ImageSourceCount;
 use posthog_replay_anonymizer::snapshot::{
     anonymize_kafka_payload, anonymize_kafka_payload_opts, anonymize_via_tree, AnonymizeOpts,
     AnonymizedMessage, FailKind, Failure, FLAG_ACTIVE, FLAG_CLICK, FLAG_KEYPRESS,
@@ -832,6 +833,30 @@ fn image_collection_replaces_images_with_refs_and_returns_the_bytes() {
             assert_eq!(entry.offset, 0);
             assert_eq!(entry.len, png.len());
             assert_eq!(out.image_bytes, png, "walk={byte_walk}");
+            assert_eq!(
+                out.meta.image_sources,
+                vec![
+                    ImageSourceCount {
+                        source: "css",
+                        property: "background",
+                        kind: "inline",
+                        count: 1,
+                    },
+                    ImageSourceCount {
+                        source: "html",
+                        property: "rr_dataURL",
+                        kind: "inline",
+                        count: 1,
+                    },
+                    ImageSourceCount {
+                        source: "html",
+                        property: "src",
+                        kind: "inline",
+                        count: 1,
+                    },
+                ],
+                "walk={byte_walk} images={image_policy:?}"
+            );
         }
     }
 }
@@ -883,5 +908,6 @@ fn image_collection_svg_stays_on_the_inline_scrub_path() {
     .expect("anonymizes");
     let lines = String::from_utf8(out.lines.clone()).unwrap();
     assert!(out.meta.images.is_empty(), "svg must not be collected");
+    assert!(out.meta.image_sources.is_empty());
     assert!(!lines.contains(&svg), "raw svg must not pass through");
 }

@@ -17,6 +17,7 @@ from posthog.cdp.validation import (
     RecordAliasRewriter,
     compile_hog,
     generate_template_bytecode,
+    reserved_functions_used,
 )
 from posthog.models.integration import Integration
 
@@ -944,6 +945,44 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             "bytecode": ["_H", 1, 32, "test@posthog.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
         }
 
+    def test_internal_destination_filters_are_normalized_to_internal_events(self):
+        serializer = HogFunctionFiltersSerializer(
+            data={"events": [{"id": "$internal_event", "type": "events"}]},
+            context={**self.filters_context, "function_type": "internal_destination"},
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        assert serializer.validated_data["source"] == "internal-events"
+
+    @parameterized.expand(
+        [
+            ("no_events", {"source": "internal-events"}),
+            ("empty_event_id", {"source": "internal-events", "events": [{"id": "", "type": "events"}]}),
+            (
+                "actions",
+                {
+                    "source": "internal-events",
+                    "events": [{"id": "$internal_event", "type": "events"}],
+                    "actions": [{"id": "1", "type": "actions"}],
+                },
+            ),
+            (
+                "data_warehouse",
+                {
+                    "source": "internal-events",
+                    "events": [{"id": "$internal_event", "type": "events"}],
+                    "data_warehouse": [{"id": "1"}],
+                },
+            ),
+        ]
+    )
+    def test_internal_event_filters_require_explicit_events(self, _name, filters):
+        serializer = HogFunctionFiltersSerializer(data=filters, context=self.filters_context)
+
+        with self.assertRaises(ValidationError):
+            serializer.is_valid(raise_exception=True)
+
     @parameterized.expand(
         [
             ("valid_dotted", "{person.properties.email}", False),
@@ -1208,6 +1247,11 @@ class TestTaskInputTypeValidation(SimpleTestCase):
             ("installations_string_list", "task_mcp_installations", ["id-1", "id-2"], True),
             ("installations_not_list", "task_mcp_installations", "id-1", False),
             ("installations_not_strings", "task_mcp_installations", [1, 2], False),
+            ("signals_scout_string", "signals_scout", "signals-scout-error-tracking", True),
+            ("signals_scout_not_string", "signals_scout", 123, False),
+            ("skills_string_list", "task_skills", ["error-triage", "db-runbook"], True),
+            ("skills_not_list", "task_skills", "error-triage", False),
+            ("skills_not_strings", "task_skills", [{"name": "error-triage"}], False),
         ]
     )
     def test_task_input_value_shapes(self, _name, schema_type, value, expect_valid):
@@ -1219,3 +1263,25 @@ class TestTaskInputTypeValidation(SimpleTestCase):
         else:
             with pytest.raises(ValidationError):
                 validate_inputs(schema, inputs)
+
+
+class TestReservedFunctionsUsed(SimpleTestCase):
+    # The worker's async function registry is global, so the save-time check is the only thing
+    # that stops user-authored hog from reaching a handler only PostHog's machinery should call.
+    @parameterized.expand(
+        [
+            ("direct_call", "let res := sendEmail(inputs.email)", {"sendEmail"}),
+            ("bare_reference", "let f := sendEmail", {"sendEmail"}),
+            ("inside_block", "if (true) { sendEmail(inputs.email) }", {"sendEmail"}),
+            ("inside_lambda", "let f := (to) -> sendEmail(to)", {"sendEmail"}),
+            ("as_argument", "print(sendEmail)", {"sendEmail"}),
+            ("two_names", "sendEmail(1)\nsendPushNotification(2)", {"sendEmail", "sendPushNotification"}),
+            ("supported_function", "let res := fetch('https://example.com', {})", set()),
+            ("similar_name", "let res := sendEmails(inputs.email)", set()),
+            ("property_of_same_name", "return inputs.sendEmail", set()),
+            ("string_only", "return f'sendEmail is not called here'", set()),
+            ("does_not_parse", "let res := sendEmail(", set()),
+        ]
+    )
+    def test_reserved_functions_used(self, _name: str, hog: str, expected: set[str]) -> None:
+        assert reserved_functions_used(hog) == expected

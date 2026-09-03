@@ -12,11 +12,16 @@ export interface SettingsSearchEntry {
 // Hand-curated index of the settings each page holds. When a page gains or
 // loses a setting, update its entries here so search keeps finding it. Page
 // display names come from SETTINGS_PAGE_LABELS, not repeated per entry.
-export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
+const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   {
     category: "general",
     label: "Theme",
     keywords: ["appearance", "light", "dark", "system"],
+  },
+  {
+    category: "general",
+    label: "Profile picture",
+    keywords: ["gravatar", "avatar", "photo", "picture", "account"],
   },
   {
     category: "general",
@@ -120,6 +125,11 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     category: "personalization",
     label: "Custom instructions",
     keywords: ["agents.md", "claude.md", "instructions", "sync"],
+  },
+  {
+    category: "personalization",
+    label: "Simplified Technical English (ASD-STE100)",
+    keywords: ["ste100", "clear language", "writing style"],
   },
   {
     category: "personalization",
@@ -242,11 +252,6 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     category: "discord",
     label: "Discord",
     keywords: ["presence", "integration"],
-  },
-  {
-    category: "sidebar",
-    label: "Sidebar",
-    keywords: ["nav", "customize", "reorder"],
   },
 
   {

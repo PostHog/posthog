@@ -1169,7 +1169,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                         // Process plugin snapshots (console logs)
                         if (_isPluginSnapshot(snapshot) && snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME) {
-                            const data = snapshot.data.payload as RRWebRecordingConsoleLogPayload
+                            const data = snapshot.data.payload as RRWebRecordingConsoleLogPayload | undefined
+                            // A console log snapshot without a payload has nothing to show. Skip it so one
+                            // malformed event does not take down the whole player.
+                            if (!data) {
+                                return
+                            }
                             const { level, payload, trace } = data
                             const lines = (Array.isArray(payload) ? payload : [payload]).filter((x) => !!x) as string[]
                             const content = lines.join('\n')

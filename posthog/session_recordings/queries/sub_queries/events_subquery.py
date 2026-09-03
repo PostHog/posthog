@@ -11,6 +11,7 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
+    PersonsOnEventsMode,
     PropertyOperator,
     RecordingsQuery,
 )
@@ -47,6 +48,15 @@ NEGATIVE_BLOCKLIST_LIMIT = 1_000_000
 REPLAY_NEGATIVE_BLOCKLIST_TRUNCATED_COUNTER = Counter(
     "replay_negative_blocklist_truncated",
     "A replay exclusion blocklist hit its row cap, so some sessions were not excluded from the results",
+)
+
+# Modes where events.person_id is resolved through person_distinct_id_overrides, so it follows
+# a person merge instead of reporting whoever the event was attributed to at ingest.
+PERSON_ID_OVERRIDE_MODES = frozenset(
+    {
+        PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+        PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+    }
 )
 
 # Person properties eligible for hybrid query optimization
@@ -180,6 +190,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         This solves the "late identification problem" where filtering by person properties
         in standard PoE mode only finds sessions where those properties existed at event time.
+
+        The flag is the only switch. Turn it off and this path is dead, whatever mode the
+        project is in.
         """
         return feature_enabled_or_false(
             "enable-hybrid-poe-replay-filtering",
@@ -278,19 +291,18 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
     def _build_sessions_query(
         self,
-        distinct_ids_subquery: ast.SelectQuery,
+        person_match: ast.Expr,
     ) -> ast.SelectQuery:
         """
-        Stage 3: Build query to find all sessions for the distinct_ids from Stage 2.
-
-        This finds all session_ids from events where the distinct_id matches any of
-        the distinct_ids from Stage 2, within the query date range (with buffers).
+        Final stage: every session an event attributes to the matching persons, within the
+        query date range (with buffers).
 
         Args:
-            distinct_ids_subquery: The query from Stage 2 that returns distinct_ids
+            person_match: how an event is tied back to those persons, either by resolved
+                person id or by one of their distinct ids
 
         Returns:
-            SelectQuery that finds all session_ids for those distinct_ids
+            SelectQuery that finds all session_ids for those persons
         """
         # Calculate date range with ±1 day buffer to match events_subquery behavior
         # Events can arrive before session starts or after it ends
@@ -307,11 +319,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                         left=ast.Field(chain=["team_id"]),
                         right=ast.Constant(value=self._team.pk),
                     ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["distinct_id"]),
-                        right=distinct_ids_subquery,
-                    ),
+                    person_match,
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.GtEq,
                         left=ast.Field(chain=["timestamp"]),
@@ -322,11 +330,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                         left=ast.Field(chain=["timestamp"]),
                         right=ast.Constant(value=date_to_buffered),
                     ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.NotEq,
-                        left=ast.Call(name="empty", args=[_event_session_id_field()]),
-                        right=ast.Constant(value=1),
-                    ),
+                    # notEmpty, not `empty(...) != 1`: an absent session id reads as NULL, and
+                    # HogQL prints `!=` as ifNull(notEquals(...), 1), so the NULL would compare
+                    # true and reach the GROUP BY. The caller matches this against the replay
+                    # table's non-nullable session_id, which rejects a NULL in the set.
+                    ast.Call(name="notEmpty", args=[_event_session_id_field()]),
                 ]
             ),
             group_by=[_event_session_id_field()],  # DISTINCT session_id
@@ -423,17 +431,36 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         except Exception as e:
             posthoganalytics.capture_exception(e, properties={"context": "hybrid_query_monitoring"})
 
-        # Build the three-stage query using Pure AST
-        # Stage 1: Find person_ids from persons table
+        # Stage 1: the persons whose properties match
         persons_query = self._build_persons_query(person_properties, person_id_limit)
 
-        # Stage 2: Find distinct_ids for those person_ids
-        distinct_ids_query = self._build_distinct_ids_query(persons_query)
+        if self._team.person_on_events_mode in PERSON_ID_OVERRIDE_MODES:
+            # events.person_id already resolves through the overrides table in these modes, so it
+            # follows a merge: an event sent under an anonymous distinct id reports the person it
+            # was later merged into. Matching on it reaches pre-identification sessions directly,
+            # the same way the person profile's replay tab does.
+            #
+            # This trusts person_distinct_id_overrides to hold the merge. A merge that reached
+            # person_distinct_ids but not the overrides table would be missed here and found by
+            # the distinct-id expansion below, which reads the other table. The two are written
+            # by the same merge path, so they only diverge while one lags.
+            return self._build_sessions_query(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["person_id"]),
+                    right=persons_query,
+                )
+            )
 
-        # Stage 3: Find sessions for those distinct_ids
-        sessions_query = self._build_sessions_query(distinct_ids_query)
-
-        return sessions_query
+        # Otherwise events.person_id is the value frozen at ingest and does not follow a merge,
+        # so the persons have to be expanded to their distinct ids first.
+        return self._build_sessions_query(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["distinct_id"]),
+                right=self._build_distinct_ids_query(persons_query),
+            )
+        )
 
     def _get_queries_for_matching(
         self, select_expr: ast.Expr, group_by: list[ast.Expr], union_entities: bool = False

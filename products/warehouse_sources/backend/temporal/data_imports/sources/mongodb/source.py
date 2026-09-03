@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
+    MONGO_DOCUMENT_MISSING_ID_ERROR,
     _parse_connection_string,
     filter_mongo_incremental_fields,
     get_collection_names,
@@ -75,6 +76,17 @@ _MONGO_NOT_AUTHORIZED_MESSAGE = (
 
 _MONGO_CONNECT_FAILED_MESSAGE = (
     "Could not connect to your MongoDB database. Check your connection string and credentials, then try again."
+)
+
+# MongoDB error code 211 (KeyNotFound): the cluster's internal keystore has no HMAC key valid for
+# the requested timestamp. This is a cluster-side key management problem (e.g. key rotation
+# removed keys the importer needed). Retrying reads the same cursor against the same cluster and
+# always fails with the same error, so it is non-retryable.
+_MONGO_KEY_NOT_FOUND_MESSAGE = (
+    "PostHog couldn't sync this MongoDB collection because your cluster reported a key management "
+    "error (MongoDB code 211: KeyNotFound). Your cluster's keystore does not have a valid HMAC key "
+    "for the time range being queried. Check your MongoDB cluster's key management configuration "
+    "and ensure all replica set members are healthy, then try again."
 )
 
 # Connection succeeded but nothing importable came back. This is usually a wrong-database or
@@ -140,6 +152,10 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # reach the user — match the stable 'not authorized' fragment. Granting permission is a
             # config change the user must make, so this never recovers on retry.
             "not authorized": _MONGO_NOT_AUTHORIZED_MESSAGE,
+            # A view whose pipeline drops `_id` yields documents the importer can't key on. mongo.py
+            # raises MONGO_DOCUMENT_MISSING_ID_ERROR for this instead of a bare KeyError. Every retry
+            # reads the same `_id`-less documents, so it never recovers. Match our own stable phrase.
+            "one of its documents has no _id field": MONGO_DOCUMENT_MISSING_ID_ERROR,
             "SSL handshake failed": None,
             # Atlas SQL / Data Federation endpoints live under *.query.mongodb.net and are served by
             # a query proxy the standard MongoDB driver can't drive: the handshake is closed, the
@@ -162,6 +178,12 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # differently (a bare AutoReconnect / NetworkTimeout with no topology description) and
             # stays retryable.
             "Topology Description:": _MONGO_UNREACHABLE_MESSAGE,
+            # MongoDB OperationFailure code 211 (KeyNotFound): the cluster's HMAC keystore has no
+            # valid key for the cursor's timestamp. pymongo formats the full server error response
+            # as part of the exception message; the leading phrase before the variable parts
+            # (timestamp, key id) is stable and unambiguous. Retrying the same cursor against the
+            # same cluster always fails with the same error.
+            "No keys found for HMAC": _MONGO_KEY_NOT_FOUND_MESSAGE,
         }
 
     def get_retryable_errors(self) -> set[str]:

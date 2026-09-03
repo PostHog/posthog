@@ -1,0 +1,13 @@
+name: system_disk
+description: Per-device I/O counters from /proc/diskstats via pg_proctab (cumulative).
+interval: 60s
+scope: cluster
+kind: cumulative
+requires: { extension: pg_proctab }
+key: [devname]
+query: |
+  SELECT devname, reads_completed, reads_merged, sectors_read, readtime AS read_time_ms,
+         writes_completed, writes_merged, sectors_written, writetime AS write_time_ms,
+         iotime AS io_time_ms, totaliotime AS weighted_io_time_ms
+  FROM pg_diskusage()
+  WHERE devname !~ '^(loop|ram)'

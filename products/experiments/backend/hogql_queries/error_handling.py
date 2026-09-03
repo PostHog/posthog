@@ -14,7 +14,12 @@ from rest_framework.exceptions import ValidationError
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.errors import ExposedCHQueryError, QueryErrorCategory, look_up_clickhouse_error_code_meta
+from posthog.errors import (
+    CHQueryErrorNotAnAggregate,
+    ExposedCHQueryError,
+    QueryErrorCategory,
+    look_up_clickhouse_error_code_meta,
+)
 from posthog.event_usage import groups
 from posthog.exceptions import (
     ClickHouseAtCapacity,
@@ -114,6 +119,10 @@ def classify_experiment_query_error(error: Exception) -> str:
         return "rate_limited"
     if isinstance(error, ServerException):
         meta = look_up_clickhouse_error_code_meta(error)
+        if meta.name == "NOT_AN_AGGREGATE":
+            # Only known producer in experiment queries is user-authored HogQL referencing a
+            # row-level column outside an aggregate — a metric-config error, not a platform one.
+            return "validation_error"
         if meta.name in ("TIMEOUT_EXCEEDED", "SOCKET_TIMEOUT"):
             return "timeout"
         if meta.name == "MEMORY_LIMIT_EXCEEDED":
@@ -225,6 +234,28 @@ def experiment_error_handler(method: F) -> F:
             # Still terminal user pain (the metric fails to load every time), so still counted.
             _emit_runner_terminal_error_event(args[0] if args else None, e)
             raise
+        except CHQueryErrorNotAnAggregate as e:
+            # Only known producer in experiment queries is user-authored HogQL (math_hogql /
+            # warehouse math_property) referencing a row-level column outside an aggregate —
+            # builder-generated SQL is snapshot-tested, and every tracked occurrence carried
+            # contains_user_hogql. A metric-config error: give an actionable message, keep it
+            # out of error tracking, and let classify_experiment_query_error's validation_error
+            # mapping make the recalculation worker fail it permanently instead of retrying.
+            self = args[0] if args else None
+            logger.warning(
+                "Experiment metric HogQL references column outside aggregate",
+                experiment_id=getattr(self, "experiment_id", None),
+                error_message=str(e),
+            )
+            user_error = ValidationError(
+                "This metric's HogQL expression references an event column outside an aggregate "
+                "function. Wrap the value in an aggregation, e.g. sum(properties.value)."
+            )
+            _emit_runner_terminal_error_event(self, user_error)
+            if self is not None and not getattr(self, "user_facing", True):
+                # Internal callers (recalculation, timeseries) expect raw types and classify themselves.
+                raise
+            raise user_error from e
         except Exception as e:
             # Get context for logging
             self = args[0] if args else None

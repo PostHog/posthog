@@ -1,6 +1,8 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { NEW_QUERY_STARTED_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -18,7 +20,7 @@ import { metricsSceneLogic } from '../metricsSceneLogic'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
-import { metricsViewerLogic, NEW_QUERY_STARTED_ERROR_MESSAGE } from './metricsViewerLogic'
+import { metricsViewerLogic } from './metricsViewerLogic'
 
 jest.mock('posthog-js')
 
@@ -108,7 +110,11 @@ describe('metricsUsageTrackingLogic', () => {
             () => metricsSamplesLogic.actions.setActiveTab('samples'),
             { tab: 'samples' },
         ],
-        ['metrics add to dashboard clicked', () => metricsViewerLogic.actions.addToDashboard(), { aggregation: 'sum' }],
+        [
+            'metrics add to dashboard clicked',
+            () => metricsViewerLogic.actions.addToDashboard(),
+            { aggregation: 'sum', clause_count: 1, has_formula: false },
+        ],
         [
             // Reports the aggregation persisted on the insight, not the viewer's
             // current one — those diverge when the user changes the aggregation
@@ -122,7 +128,7 @@ describe('metricsUsageTrackingLogic', () => {
                     } as any,
                     {} as any
                 ),
-            { aggregation: 'p95' },
+            { aggregation: 'p95', clause_count: 1, has_formula: false },
         ],
     ])('%s fires with enum/count properties only', (event, dispatch, expectedProperties) => {
         dispatch()
@@ -154,6 +160,24 @@ describe('metricsUsageTrackingLogic', () => {
 
         metricsViewerLogic.actions.setMetricName('')
         expect(captures('metrics viewer metric selected')).toHaveLength(1)
+    })
+
+    // Restoring a shared /metrics link replays the viewer setters; counting those dispatches
+    // as interactions would inflate the usage tiles on every link open or refresh.
+    it('a URL restore captures no viewer interactions', async () => {
+        await expectLogic(logic, () => {
+            router.actions.push('/metrics', {
+                metricName: SECRET_METRIC,
+                aggregation: 'p95',
+                dateFrom: '-24h',
+                groupBy: '["env"]',
+            })
+        }).toFinishAllListeners()
+
+        expect(captures('metrics viewer metric selected')).toHaveLength(0)
+        expect(captures('metrics viewer aggregation changed')).toHaveLength(0)
+        expect(captures('metrics viewer date range changed')).toHaveLength(0)
+        expect(captures('metrics viewer group by changed')).toHaveLength(0)
     })
 
     // Selecting a metric auto-applies its recommended aggregation; counting that dispatch as a

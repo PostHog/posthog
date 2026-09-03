@@ -8,7 +8,8 @@ from posthog.exceptions import ClickHouseAtCapacity
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.facade.models import Insight, InsightViewed
+from products.product_analytics.backend.facade.api import record_insight_views
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestWarming(APIBaseTest):
@@ -38,15 +39,14 @@ class TestWarming(APIBaseTest):
         self.dashboard_tile2 = DashboardTile.objects.create(insight=self.insight3, dashboard=self.dashboard2)
         self.dashboard_tile3 = DashboardTile.objects.create(insight=self.insight5, dashboard=self.dashboard3)
 
-        # Create test InsightViewed records
-        InsightViewed.objects.create(
-            team=self.team, user=self.user, insight=self.insight2, last_viewed_at=datetime.now(UTC) - timedelta(days=2)
-        )
-        InsightViewed.objects.create(
-            team=self.team, user=self.user, insight=self.insight4, last_viewed_at=datetime.now(UTC) - timedelta(days=35)
-        )
-        InsightViewed.objects.create(
-            team=self.team, user=self.user, insight=self.insight5, last_viewed_at=datetime.now(UTC) - timedelta(days=1)
+        record_insight_views(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            last_viewed_at_by_insight_id={
+                self.insight2.id: datetime.now(UTC) - timedelta(days=2),
+                self.insight4.id: datetime.now(UTC) - timedelta(days=35),
+                self.insight5.id: datetime.now(UTC) - timedelta(days=1),
+            },
         )
 
     @patch("posthog.caching.warming.get_stale_insights")

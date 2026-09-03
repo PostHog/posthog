@@ -3,6 +3,7 @@ import uuid
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -71,6 +72,13 @@ class TestExternalTicketAPI(BaseTest):
         self.team.save(update_fields=["conversations_enabled"])
         response = self.client.get(self.url, **self._auth_headers())
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_authenticated_requests_increment_the_legacy_auth_counter(self):
+        labels = {"auth_method": "secret_api_token", "http_method": "get"}
+        before = REGISTRY.get_sample_value("posthog_conversations_ticket_action_auth_total", labels) or 0
+        self.client.get(self.url, **self._auth_headers())
+        after = REGISTRY.get_sample_value("posthog_conversations_ticket_action_auth_total", labels)
+        self.assertEqual(after, before + 1)
 
     # -- GET ticket -------------------------------------------------------
 
@@ -246,7 +254,7 @@ class TestExternalTicketAPI(BaseTest):
 
         # 2026-01-05 10:00 UTC is a Monday.
         frozen_now = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
-        with patch("products.conversations.backend.api.external.timezone.now", return_value=frozen_now):
+        with patch("products.conversations.backend.api.ticket_actions.timezone.now", return_value=frozen_now):
             response = self.client.patch(
                 self.url,
                 {"sla_amount": 4, "sla_unit": "hour"},
@@ -264,7 +272,7 @@ class TestExternalTicketAPI(BaseTest):
         from unittest.mock import patch
 
         frozen_now = datetime(2026, 1, 8, 16, 0, tzinfo=UTC)  # Thursday 16:00 UTC
-        with patch("products.conversations.backend.api.external.timezone.now", return_value=frozen_now):
+        with patch("products.conversations.backend.api.ticket_actions.timezone.now", return_value=frozen_now):
             response = self.client.patch(
                 self.url,
                 {

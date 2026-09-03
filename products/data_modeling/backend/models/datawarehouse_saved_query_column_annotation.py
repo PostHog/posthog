@@ -3,7 +3,7 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
-from products.warehouse_sources.backend.facade.models import WarehouseColumnAnnotation
+from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
 
 
 class DataWarehouseSavedQueryColumnAnnotation(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
@@ -15,7 +15,7 @@ class DataWarehouseSavedQueryColumnAnnotation(TeamScopedRootMixin, CreatedMetaFi
     """
 
     # Reuse the physical-table annotation's provenance enum so the two annotation models never drift.
-    DescriptionSource = WarehouseColumnAnnotation.DescriptionSource
+    DescriptionSource = WarehouseColumnAnnotationDescriptionSource
 
     # db_constraint=False on the FKs to hot tables (posthog_team, posthog_user): creating a real FK
     # constraint takes a SHARE ROW EXCLUSIVE lock on the parent, which stalls under write traffic. Team

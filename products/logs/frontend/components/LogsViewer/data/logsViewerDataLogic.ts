@@ -21,18 +21,16 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { dataColorVars } from 'lib/colors'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
+import {
+    NEW_QUERY_STARTED_ERROR_MESSAGE,
+    UNMOUNTING_ERROR_MESSAGE,
+    isUserInitiatedError,
+} from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 
-import {
-    LogMessage,
-    LogsQuery,
-    LogsSparklineBreakdownBy,
-    ProductIntentContext,
-    ProductKey,
-} from '~/queries/schema/schema-general'
+import { LogMessage, LogsQuery, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
 import { JsonType, PropertyGroupFilter, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
 
@@ -54,8 +52,6 @@ import type { LogsColumnConfig } from '../config/columns'
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
 const DEFAULT_LOGS_PAGE_SIZE: number = 250
 export const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
-const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
-const UNMOUNTING_ERROR_MESSAGE = 'unmounting component' as const
 
 // Parse cache keyed on log object identity — leak-free by construction (entries die with their
 // logs) and shared across logic instances. Parsing is pure per object, so cached entries are
@@ -85,15 +81,6 @@ function classifyQueryError(error: unknown): { error_type: string; status_code: 
         return { error_type: 'server_error', status_code: statusCode }
     }
     return { error_type: 'unknown', status_code: statusCode }
-}
-
-// kea-loaders reduces a rejection to its message, so an aborted request arrives here as the reason
-// text we passed to `abort()`. Neither of our reasons contains "abort", so both need matching by
-// name: an unmatched one is treated as a genuine failure, which toasts the user and fires a
-// `logs query failed` capture for a request that was cancelled on purpose.
-function isUserInitiatedError(error: unknown): boolean {
-    const errorStr = String(error).toLowerCase()
-    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || error === UNMOUNTING_ERROR_MESSAGE || errorStr.includes('abort')
 }
 
 const stringifyLogAttributes = (attributes: Record<string, any>): Record<string, string> => {
@@ -149,7 +136,6 @@ export function shouldSkipFilterGroupChange(
 export interface logsViewerDataLogicValues {
     customColumns: string[] | undefined // logsViewerConfigLogic
     orderBy: LogsOrderBy // logsViewerConfigLogic
-    sparklineBreakdownBy: LogsSparklineBreakdownBy // logsViewerConfigLogic
     filterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
     filters: LogsViewerFilters // logsViewerFiltersLogic
     personId: string | undefined // logsViewerFiltersLogic
@@ -210,9 +196,9 @@ export interface logsViewerDataLogicActions {
         orderBy: LogsOrderBy
         source: 'header' | 'toolbar'
     } // logsViewerConfigLogic
-    setSparklineBreakdownBy: (sparklineBreakdownBy: LogsSparklineBreakdownBy) => {
-        sparklineBreakdownBy: LogsSparklineBreakdownBy
-    } // logsViewerConfigLogic
+    bumpFacetRefresh: () => {
+        value: true
+    } // logsViewerFiltersLogic
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
     } // logsViewerFiltersLogic
@@ -325,6 +311,9 @@ export interface logsViewerDataLogicActions {
         filterType: string
     }
     pollForNewLogs: () => {
+        value: true
+    }
+    refreshQuery: () => {
         value: true
     }
     runQuery: (debounce?: integer) => {
@@ -445,10 +434,7 @@ export interface logsViewerDataLogicMeta {
             liveTailExpired: boolean
         ) => string | undefined
         parsedLogs: (logs: LogMessage[]) => ParsedLogMessage[]
-        sparklineData: (
-            sparkline: any[],
-            sparklineBreakdownBy: LogsSparklineBreakdownBy
-        ) => {
+        sparklineData: (sparkline: any[]) => {
             data: {
                 color: string | undefined
                 name: string
@@ -489,15 +475,15 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             teamLogic,
             ['addProductIntent'],
             logsViewerFiltersLogic({ id }),
-            ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm'],
+            ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm', 'bumpFacetRefresh'],
             logsViewerConfigLogic({ id }),
-            ['setSparklineBreakdownBy', 'setOrderBy', 'setColumns', 'addColumn', 'removeColumn'],
+            ['setOrderBy', 'setColumns', 'addColumn', 'removeColumn'],
         ],
         values: [
             logsViewerFiltersLogic({ id }),
             ['filters', 'utcDateRange', 'filterGroup', 'queryFilterGroup', 'personId'],
             logsViewerConfigLogic({ id }),
-            ['sparklineBreakdownBy', 'orderBy', 'customColumns'],
+            ['orderBy', 'customColumns'],
         ],
     })),
 
@@ -507,6 +493,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             extraProps,
         }),
         runQuery: (debounce?: integer) => ({ debounce }),
+        refreshQuery: true,
         fetchNextLogsPage: (limit?: number) => ({ limit }),
         truncateLogs: (limit: number) => ({ limit }),
         clearLogs: true,
@@ -770,7 +757,9 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             searchTerm: values.filters.searchTerm,
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             ...unsetColumnQueryFields(),
-                            sparklineBreakdownBy: values.sparklineBreakdownBy,
+                            // The severity result key, colors, and live-tail merge all assume a
+                            // severity breakdown, so state it rather than lean on the server default.
+                            sparklineBreakdownBy: 'severity',
                             personId: values.personId,
                         },
                         signal,
@@ -852,13 +841,11 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             },
         ],
         sparklineData: [
-            (s) => [s.sparkline, s.sparklineBreakdownBy],
-            (sparkline: any[] | null, sparklineBreakdownBy: LogsSparklineBreakdownBy) => {
+            (s) => [s.sparkline],
+            (sparkline: any[] | null) => {
                 if (!sparkline) {
                     return { dates: [], data: [] }
                 }
-
-                const breakdownKey = sparklineBreakdownBy
 
                 let lastTime = ''
                 let i = -1
@@ -870,7 +857,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             lastTime = currentItem.time
                             i++
                         }
-                        const key = currentItem[breakdownKey]
+                        const key = currentItem.severity
                         if (!key) {
                             return accumulator
                         }
@@ -903,20 +890,17 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 const data = Object.entries(accumulated)
                     .filter(([name]) => name !== OTHER_BREAKDOWN_VALUE)
                     .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([name, values], index) => ({
+                    .map(([name, values]) => ({
                         name,
                         values: padToDatesLength(values as number[]),
-                        color:
-                            sparklineBreakdownBy === 'service'
-                                ? dataColorVars[index % dataColorVars.length]
-                                : {
-                                      fatal: 'danger-dark',
-                                      error: 'danger',
-                                      warn: 'warning',
-                                      info: 'brand-blue',
-                                      debug: 'muted',
-                                      trace: 'muted-alt',
-                                  }[name],
+                        color: {
+                            fatal: 'danger-dark',
+                            error: 'danger',
+                            warn: 'warning',
+                            info: 'brand-blue',
+                            debug: 'muted',
+                            trace: 'muted-alt',
+                        }[name],
                     }))
                 const otherValues = accumulated[OTHER_BREAKDOWN_VALUE]
                 if (otherValues) {
@@ -1026,9 +1010,6 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             posthog.capture('logs setting changed', { setting: 'order_by', value: orderBy, source })
             actions.runQuery()
         },
-        setSparklineBreakdownBy: () => {
-            actions.fetchSparkline()
-        },
         // Structural column changes refetch only when the lowered wire value differs from what
         // the last query sent — resizing or reordering columns never re-runs the query.
         setColumns: () => {
@@ -1112,6 +1093,10 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             actions.fetchLogs()
             actions.fetchSparkline()
             actions.cancelInProgressLiveTail(null)
+        },
+        refreshQuery: () => {
+            actions.runQuery()
+            actions.bumpFacetRefresh()
         },
         cancelInProgressLogs: ({ logsAbortController }) => {
             if (values.logsAbortController !== null) {
@@ -1233,12 +1218,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 }
             }
         },
-        // insert logs into the sparkline data (only works for severity breakdown)
         addLogsToSparkline: (logs: LogMessage[]) => {
-            // Only update incrementally for severity breakdown - service would need service_name from logs
-            if (values.sparklineBreakdownBy !== 'severity') {
-                return
-            }
             // if the sparkline hasn't loaded do nothing.
             if (!values.sparkline || values.sparkline.length < 2) {
                 return

@@ -69,7 +69,9 @@ def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
 _MERGE_QUEUE_BRANCH_RE = re.compile(r"^trunk-merge/pr-(?P<pr_number>\d+)/")
 
 
-def _verified_merge_queue_source_pr(github: GitHubIntegration, repo_full_name: str, branch: str) -> int | None:
+def _verified_merge_queue_source_pr(
+    github: GitHubIntegration, repo_full_name: str, branch: str, head_ref: str | None = None
+) -> int | None:
     """Source PR number for a merge-queue branch, verified against GitHub.
 
     Merge-queue branches (``trunk-merge/pr-<n>/<uuid>``) are freshly
@@ -110,7 +112,10 @@ def _verified_merge_queue_source_pr(github: GitHubIntegration, repo_full_name: s
     if not pr_head_sha:
         return None
 
-    if _get_merge_base_sha(github, repo_full_name, pr_head_sha, branch) != pr_head_sha:
+    # Compare against *head_ref* when the caller has the commit: the branch is
+    # deleted as soon as its batch resolves, and a 404 here reads as "unverified"
+    # and silently drops the inheritance this function exists to grant.
+    if _get_merge_base_sha(github, repo_full_name, pr_head_sha, head_ref or branch) != pr_head_sha:
         logger.warning(
             "visual_review.merge_queue_source_pr_unverified",
             repo=repo_full_name,

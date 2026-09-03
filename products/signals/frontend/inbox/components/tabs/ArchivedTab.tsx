@@ -1,6 +1,5 @@
 import { IconArchive } from '@posthog/icons'
 
-import { INBOX_FLAT_TAB_LIST_PARAMS } from '../../logics/reportListLogic'
 import { ReportCard } from '../cards/ReportCard'
 import { InboxReportList } from '../InboxReportList'
 
@@ -13,7 +12,6 @@ export function ArchivedTab(): JSX.Element {
     return (
         <InboxReportList
             tabKey="archived"
-            listParams={INBOX_FLAT_TAB_LIST_PARAMS.archived}
             Card={ReportCard}
             emptyState={{
                 icon: <IconArchive className="text-2xl" />,

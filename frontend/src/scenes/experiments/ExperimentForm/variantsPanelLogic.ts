@@ -2,16 +2,17 @@ import { MakeLogicType, kea } from 'kea'
 
 import api from 'lib/api'
 import { toParams } from 'lib/utils/url'
-import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { Experiment, FeatureFlagType } from '~/types'
 
+import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
+
+import type { ExperimentsResult } from '../../../../../products/experiments/frontend/scenes/experimentsLogic'
 import type { ExperimentIdType } from '../../../types'
 import type { FeatureFlagsResult } from '../../feature-flags/featureFlagsLogic'
-import type { ExperimentsResult } from '../experimentsLogic'
 
 export type FeatureFlagKeyValidation = {
     valid: boolean
@@ -265,7 +266,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
             (s) => [s.featureFlags, s.experiments],
             (
                 featureFlags: import('scenes/feature-flags/featureFlagsLogic').FeatureFlagsResult,
-                experiments: import('scenes/experiments/experimentsLogic').ExperimentsResult
+                experiments: import('products/experiments/frontend/scenes/experimentsLogic').ExperimentsResult
             ) => {
                 return new Set([
                     ...featureFlags.results.map((flag) => flag.key),

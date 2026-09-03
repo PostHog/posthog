@@ -387,7 +387,7 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
                     String(values.currentProjectId),
                     props.repoId,
                     props.runType,
-                    { identifier: props.identifier, reason: '' }
+                    { identifier: props.identifier }
                 )
                 lemonToast.success('Identifier unquarantined — future runs will gate on it again')
                 actions.loadQuarantineEntry()
@@ -405,7 +405,7 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
                     String(values.currentProjectId),
                     props.repoId,
                     props.runType,
-                    { identifier: sibling, reason: '' }
+                    { identifier: sibling }
                 )
                 lemonToast.success('Sibling unquarantined — future runs will gate on it again')
                 actions.loadSiblingQuarantineEntry()

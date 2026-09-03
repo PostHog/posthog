@@ -29,6 +29,7 @@ from products.replay_vision.backend.temporal.types import (
     MarkObservationRunningInputs,
     MarkObservationSucceededInputs,
 )
+from products.replay_vision.backend.temporal.vision_alerts.match_hook import record_alert_matches_guarded
 
 logger = structlog.get_logger(__name__)
 
@@ -157,6 +158,12 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
                 "model": model,
                 "credits": credits,
             },
+        )
+        record_alert_matches_guarded(
+            observation_id=inputs.observation_id,
+            team_id=obs["team_id"],
+            scanner_id=obs["scanner_id"],
+            model_output=inputs.scanner_result.model_output.model_dump(mode="json"),
         )
     record_observation("succeeded", inputs.scanner_type)
     record_observation_e2e(inputs.scanner_type, (timezone.now() - obs["created_at"]).total_seconds())

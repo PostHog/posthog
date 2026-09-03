@@ -18,21 +18,29 @@ describe("finish tool", () => {
 
   it.each([
     {
-      name: "background cloud run with requestFinish",
+      name: "background cloud run with an unknown origin (fetch failed)",
       ctx: { cwd: "/repo", requestFinish },
       meta: { environment: "cloud", background: true },
-      expected: true,
+      expected: false,
     },
     {
       name: "background cloud run without requestFinish or run ids",
       ctx: { cwd: "/repo" },
-      meta: { environment: "cloud", background: true },
+      meta: {
+        environment: "cloud",
+        background: true,
+        taskOriginProduct: "user_created",
+      },
       expected: false,
     },
     {
       name: "background cloud run with run ids only (out-of-process adapter)",
       ctx: { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
-      meta: { environment: "cloud", background: true },
+      meta: {
+        environment: "cloud",
+        background: true,
+        taskOriginProduct: "user_created",
+      },
       expected: true,
     },
     {
@@ -52,6 +60,37 @@ describe("finish tool", () => {
       ctx: { cwd: "/repo", requestFinish },
       meta: { environment: "local", background: true },
       expected: false,
+    },
+    {
+      name: "workflow-origin background cloud run",
+      ctx: { cwd: "/repo", requestFinish },
+      meta: {
+        environment: "cloud",
+        background: true,
+        taskOriginProduct: "workflow",
+      },
+      expected: false,
+    },
+    {
+      name: "workflow-origin run with the end-run opt-in",
+      ctx: { cwd: "/repo", requestFinish },
+      meta: {
+        environment: "cloud",
+        background: true,
+        taskOriginProduct: "workflow",
+        endRunWhenDone: true,
+      },
+      expected: true,
+    },
+    {
+      name: "non-workflow-origin background cloud run",
+      ctx: { cwd: "/repo", requestFinish },
+      meta: {
+        environment: "cloud",
+        background: true,
+        taskOriginProduct: "user_created",
+      },
+      expected: true,
     },
     {
       name: "no gate meta",

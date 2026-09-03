@@ -1,0 +1,12 @@
+{
+    "id": "KA6",
+    "file": "tools/pr-approval-agent/review_pr.py",
+    "lines": "225,587-590",
+    "priority": "must_fix",
+    "title": "Self-driving flag can approve a human-authored draft",
+    "problem": "The flag bypasses the draft gate without checking that the author is a bot. A mislabeled human draft can therefore reach approval. This behavior exceeds the stated bot-PR carve-out.",
+    "suggestion": "Validate the invariant after loading the PR. Reject or clear `self_driving` when `pr.author_is_bot` is false. Apply the draft exception only when both conditions are true.",
+    "cluster": 6,
+    "cluster_issue": "Draft/bot gate relaxations in Pipeline are keyed only on self_driving, not coupled to pr.author_is_bot",
+    "cluster_verified": "1/3"
+}

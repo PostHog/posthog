@@ -1,3 +1,6 @@
+from collections.abc import Iterator
+from typing import Any
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     Endpoint,
@@ -8,9 +11,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.settings import HIBOB_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.settings import (
+    HIBOB_ENDPOINTS,
+    TIME_OFF_CALENDARS,
+)
 
 HIBOB_BASE_URL = "https://api.hibob.com"
+
+# HiBob rejects more than 5000 employee ids in one calendar search (400 tooManyEmployeeIds).
+EMPLOYEE_ID_BATCH_SIZE = 5000
+# Max page size the calendars search accepts.
+CALENDAR_PAGE_LIMIT = 1000
+REQUEST_TIMEOUT_SECONDS = 30
 
 
 def validate_credentials(service_user_id: str, service_user_token: str) -> tuple[bool, str | None]:
@@ -32,6 +44,69 @@ def validate_credentials(service_user_id: str, service_user_token: str) -> tuple
         session.close()
 
 
+def _leaf_key(key: str) -> str:
+    """HiBob returns calendar fields under JSON-pointer keys (e.g. `/employeeCalendar/employeeId`).
+    Keep only the leaf segment so columns are clean; a flat key is returned unchanged."""
+    return key.rsplit("/", 1)[-1] if "/" in key else key
+
+
+def _iter_employee_ids(session: Any) -> Iterator[str]:
+    employees_config = HIBOB_ENDPOINTS["employees"]
+    response = session.post(
+        f"{HIBOB_BASE_URL}{employees_config.path}",
+        json=employees_config.body,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    for employee in response.json().get(employees_config.data_key, []):
+        employee_id = employee.get("id")
+        if employee_id is not None:
+            # HiBob ids exceed JS safe-integer range, so send them back as strings.
+            yield str(employee_id)
+
+
+def _search_employee_calendars(session: Any, path: str, employee_ids: list[str]) -> Iterator[list[dict[str, Any]]]:
+    cursor: str | None = None
+    while True:
+        body: dict[str, Any] = {
+            "filters": [
+                {"fieldId": "/employeeCalendar/employeeId", "operator": "equals", "values": employee_ids},
+            ],
+            "limit": CALENDAR_PAGE_LIMIT,
+        }
+        if cursor:
+            body["cursor"] = cursor
+
+        response = session.post(f"{HIBOB_BASE_URL}{path}", json=body, timeout=REQUEST_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        data = response.json()
+
+        items = data.get("items", [])
+        if items:
+            yield [{_leaf_key(key): value for key, value in item.items()} for item in items]
+
+        cursor = (data.get("response_metadata") or {}).get("next_cursor")
+        if not cursor:
+            break
+
+
+def _time_off_calendars_rows(
+    service_user_id: str, service_user_token: str, path: str
+) -> Iterator[list[dict[str, Any]]]:
+    # The search resolves the holiday calendar for a supplied set of employee ids, so fan out over
+    # every employee. Repeated 401/403s trip HiBob's WAF, so auth errors fail loud (raise_for_status)
+    # rather than retry — the tracked session only retries 429/5xx.
+    session = make_tracked_session(redact_values=(service_user_token,))
+    session.auth = (service_user_id, service_user_token)
+    try:
+        employee_ids = list(_iter_employee_ids(session))
+        for start in range(0, len(employee_ids), EMPLOYEE_ID_BATCH_SIZE):
+            batch = employee_ids[start : start + EMPLOYEE_ID_BATCH_SIZE]
+            yield from _search_employee_calendars(session, path, batch)
+    finally:
+        session.close()
+
+
 def hibob_source(
     service_user_id: str,
     service_user_token: str,
@@ -40,6 +115,16 @@ def hibob_source(
     job_id: str,
 ) -> SourceResponse:
     config = HIBOB_ENDPOINTS[endpoint]
+
+    if endpoint == TIME_OFF_CALENDARS:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _time_off_calendars_rows(service_user_id, service_user_token, config.path),
+            primary_keys=[config.primary_key],
+            partition_count=1,
+            partition_size=1,
+            sort_mode="asc",
+        )
 
     # Basic auth carries the token; supplying it via the framework auth config redacts the
     # token from any raised error. Repeated 401/403s trip HiBob's WAF, so auth errors must

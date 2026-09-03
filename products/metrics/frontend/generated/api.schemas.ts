@@ -53,6 +53,8 @@ export interface _MetricAttributeKeysResponseApi {
  * * `sum` - sum
  * * `avg` - avg
  * * `count` - count
+ * * `min` - min
+ * * `max` - max
  * * `p95` - p95
  * * `rate` - rate
  * * `increase` - increase
@@ -64,6 +66,8 @@ export const AggregationEnumApi = {
     Sum: 'sum',
     Avg: 'avg',
     Count: 'count',
+    Min: 'min',
+    Max: 'max',
     P95: 'p95',
     Rate: 'rate',
     Increase: 'increase',
@@ -143,6 +147,8 @@ export interface _MetricAnomalyBodyApi {
      * * `sum` - sum
      * * `avg` - avg
      * * `count` - count
+     * * `min` - min
+     * * `max` - max
      * * `p95` - p95
      * * `rate` - rate
      * * `increase` - increase
@@ -270,6 +276,23 @@ export interface _MetricAnomalyReportApi {
     series: _MetricSeriesApi
 }
 
+export interface _MetricErrorSpikeApi {
+    /** When the error spike was detected, ISO 8601. */
+    detected_at: string
+    /** Error Tracking issue that spiked. */
+    issue_id: string
+    /**
+     * Issue name, if one is set.
+     * @nullable
+     */
+    issue_name: string | null
+}
+
+export interface _MetricErrorSpikesResponseApi {
+    /** Error Tracking issue spikes detected in the window, newest first. Team-wide: not yet scoped to a specific metric's service. */
+    results: _MetricErrorSpikeApi[]
+}
+
 /**
  * * `gauge` - gauge
  * * `sum` - sum
@@ -329,6 +352,8 @@ export interface _MetricExplainBodyApi {
      * * `sum` - sum
      * * `avg` - avg
      * * `count` - count
+     * * `min` - min
+     * * `max` - max
      * * `p95` - p95
      * * `rate` - rate
      * * `increase` - increase
@@ -571,6 +596,8 @@ export interface _MetricClauseApi {
      * * `sum` - sum
      * * `avg` - avg
      * * `count` - count
+     * * `min` - min
+     * * `max` - max
      * * `p95` - p95
      * * `rate` - rate
      * * `increase` - increase
@@ -603,11 +630,13 @@ export interface _MetricQueryBodyApi {
      * * `exponential_histogram` - exponential_histogram
      * * `summary` - summary */
     metricType?: OtelMetricTypeEnumApi | null
-    /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
+    /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
      *
      * * `sum` - sum
      * * `avg` - avg
      * * `count` - count
+     * * `min` - min
+     * * `max` - max
      * * `p95` - p95
      * * `rate` - rate
      * * `increase` - increase
@@ -661,10 +690,10 @@ export interface _MetricQueryResponseApi {
 
 export interface _MetricSamplesBodyApi {
     /**
-     * Exact metric name to list raw emissions for (e.g. 'http.server.duration').
+     * Exact metric name to list raw emissions for (e.g. 'http.server.duration'). Omit to list emissions across all metric names — allowed only with traceId (the trace->metrics pivot).
      * @maxLength 255
      */
-    metricName: string
+    metricName?: string
     /** Lower bound (inclusive) for the sample window. ISO 8601. */
     dateFrom: string
     /** Upper bound (exclusive) for the sample window. Defaults to now if omitted. */
@@ -674,6 +703,11 @@ export interface _MetricSamplesBodyApi {
      * @maxLength 255
      */
     traceId?: string
+    /**
+     * Restrict to emissions recorded on this span (hex span id). Requires traceId, since a span id is only unique within its trace.
+     * @maxLength 255
+     */
+    spanId?: string
     /** Constrain the emissions to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, emissions of every type sharing the name are listed together. Pass the same value used for the chart so both describe the same series.
      *
      * * `gauge` - gauge
@@ -805,6 +839,17 @@ export type MetricsAttributesRetrieveParams = {
      * @maxLength 255
      */
     search?: string
+}
+
+export type MetricsErrorSpikesRetrieveParams = {
+    /**
+     * Lower bound (inclusive) for the spike window. ISO 8601.
+     */
+    dateFrom: string
+    /**
+     * Upper bound (exclusive) for the spike window. Defaults to now if omitted.
+     */
+    dateTo?: string
 }
 
 export type MetricsValuesRetrieveParams = {

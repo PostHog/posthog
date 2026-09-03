@@ -5,7 +5,9 @@ import { HttpResponse } from 'msw'
 
 import { processAllSnapshots, SnapshotSourceType, SourceKey, ViewportResolution } from '@posthog/replay-shared'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingMetaLogic } from 'scenes/session-recordings/player/sessionRecordingMetaLogic'
@@ -64,6 +66,154 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 sessionEventsData: null,
                 sessionEventsDataLoading: false,
             })
+        })
+    })
+
+    describe('oversized recording gate', () => {
+        const oversizedMeta = {
+            ...recordingMetaJson,
+            snapshot_source: 'web',
+            total_size: 40 * 1024 * 1024,
+            event_count: 100,
+        }
+
+        const mountWithMeta = (
+            sessionRecordingId: string,
+            meta: Record<string, any>,
+            flagEnabled: boolean
+        ): ReturnType<typeof sessionRecordingDataCoordinatorLogic.build> => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(
+                flagEnabled ? [FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE] : [],
+                flagEnabled ? { [FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]: true } : {}
+            )
+            overrideSessionRecordingMocks({
+                getMocks: { '/api/environments/:team_id/session_recordings/:id': meta },
+            })
+            const gatedLogic = sessionRecordingDataCoordinatorLogic({ sessionRecordingId, blobV2PollingDisabled: true })
+            gatedLogic.mount()
+            gatedLogic.actions.loadRecordingMeta()
+            return gatedLogic
+        }
+
+        it('never loads snapshots for an unplayably large recording', async () => {
+            const gatedLogic = mountWithMeta('oversized-gated', oversizedMeta, true)
+
+            await expectLogic(gatedLogic)
+                .toDispatchActions(['loadRecordingMetaSuccess'])
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['loadSnapshotSources'])
+                .toMatchValues({ recordingTooLargeToPlay: true })
+        })
+
+        it.each([
+            ['the flag is disabled', 'oversized-flag-off', oversizedMeta, false],
+            ['the recording is mobile', 'oversized-mobile', { ...oversizedMeta, snapshot_source: 'mobile' }, true],
+            [
+                'the recording is large but made of ordinary small events',
+                'oversized-small-events',
+                { ...oversizedMeta, event_count: 1_000_000 },
+                true,
+            ],
+            [
+                'the recording is small',
+                'oversized-small',
+                { ...oversizedMeta, total_size: 1024, event_count: 10 },
+                true,
+            ],
+        ])('auto-loads snapshots when %s', async (_name, sessionRecordingId, meta, flagEnabled) => {
+            const gatedLogic = mountWithMeta(sessionRecordingId, meta, flagEnabled)
+
+            await expectLogic(gatedLogic)
+                .toDispatchActions(['loadRecordingMetaSuccess', 'loadSnapshotSources'])
+                .toMatchValues({ recordingTooLargeToPlay: false })
+        })
+
+        const mutationSnapshots = (
+            eventCount: number,
+            addsPerEvent: number,
+            gapMs: number = 1,
+            startTs: number = 1000
+        ): RecordingSnapshot[] =>
+            Array.from(
+                { length: eventCount },
+                (_, i) =>
+                    ({
+                        windowId: '1',
+                        timestamp: startTs + i * gapMs,
+                        type: 3,
+                        data: { source: 0, adds: new Array(addsPerEvent).fill({}) },
+                    }) as unknown as RecordingSnapshot
+            )
+
+        it.each([
+            ['a concentrated burst of adds', mutationSnapshots(10, 5000), true, true],
+            ['the same adds spread over minutes', mutationSnapshots(10, 5000, 30_000), true, false],
+            ['a single large render', mutationSnapshots(2, 5000), true, false],
+            [
+                'malformed mutations without adds',
+                mutationSnapshots(10, 0).map((s) => ({ ...s, data: { source: 0 } }) as unknown as RecordingSnapshot),
+                true,
+                false,
+            ],
+            ['the flag is disabled', mutationSnapshots(10, 5000), false, false],
+        ])('detects oversized mutations with %s', (_name, snapshots, flagEnabled, expected) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(
+                flagEnabled ? [FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE] : [],
+                flagEnabled ? { [FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]: true } : {}
+            )
+            logic.actions.setProcessedSnapshots(snapshots)
+
+            expect(logic.values.hasOversizedMutations).toBe(expected)
+        })
+
+        const fullSnapshot = (timestamp: number): RecordingSnapshot =>
+            ({ windowId: '1', timestamp, type: 2, data: {} }) as unknown as RecordingSnapshot
+
+        it.each([
+            [
+                'excises the burst but keeps the recovering full snapshot and everything around it',
+                [
+                    ...mutationSnapshots(1, 10, 1, -5000), // a small mutation more than a second before the burst
+                    ...mutationSnapshots(10, 5000),
+                    fullSnapshot(20_000),
+                    ...mutationSnapshots(1, 10, 1, 30_000),
+                ],
+                [-5000, 20_000, 30_000],
+            ],
+            [
+                'recovers at a full snapshot inside the burst window',
+                [...mutationSnapshots(2, 5000), fullSnapshot(1002), ...mutationSnapshots(2, 5000, 1, 1003)],
+                [1002, 1003, 1004],
+            ],
+            [
+                'excises everything after a burst with no later full snapshot',
+                [
+                    ...mutationSnapshots(1, 10, 1, -5000),
+                    ...mutationSnapshots(10, 5000),
+                    ...mutationSnapshots(1, 10, 1, 30_000),
+                ],
+                [-5000],
+            ],
+        ])('%s', (_name, snapshots, expectedTimestamps) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE], {
+                [FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]: true,
+            })
+            logic.actions.setProcessedSnapshots(snapshots)
+
+            expect(logic.values.playableSnapshotsByWindowId['1'].map((s) => s.timestamp)).toEqual(expectedTimestamps)
+        })
+
+        it('passes snapshots through unchanged when nothing is oversized', () => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE], {
+                [FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]: true,
+            })
+            logic.actions.setProcessedSnapshots(mutationSnapshots(2, 5000))
+
+            expect(logic.values.playableSnapshotsByWindowId).toBe(logic.values.snapshotsByWindowId)
         })
     })
 

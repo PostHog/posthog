@@ -5,11 +5,15 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { Breadcrumb } from '~/types'
+
 import { visionObservationsRetrieve } from '../generated/api'
 import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { OBSERVATION_LIST_FILTER_KEYS } from '../replay_scanners/types'
+import { scannerBreadcrumb } from '../utils/breadcrumbs'
+import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
 import { observationProgressLogic } from './observationProgressLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
@@ -36,6 +40,31 @@ export function neighborFilterParams(searchParams: Record<string, unknown>): Vis
         }
     }
     return params as VisionObservationsRetrieveParams
+}
+
+/**
+ * Where an observation belongs, and so where both ways off its page lead: going back, and retrying.
+ *
+ * A saved scanner owns its observations and lists them. A one-off scan is owned by the recording it
+ * ran from, which is also the safe side of [hasScannerPage] because it always resolves.
+ */
+export function observationParentUrl(observation: ReplayObservationApi): string {
+    return hasScannerPage(observation)
+        ? urls.replayVision(observation.scanner_id)
+        : urls.replaySingle(observation.session_id)
+}
+
+/** The crumb the observation page's back button returns to. */
+export function observationParentBreadcrumb(observation: ReplayObservationApi): Breadcrumb {
+    if (hasScannerPage(observation)) {
+        return scannerBreadcrumb(observation.scanner_id, scannerLabel(observation))
+    }
+    return {
+        key: `recording-${observation.session_id}`,
+        name: 'Recording',
+        path: observationParentUrl(observation),
+        iconType: 'session_replay',
+    }
 }
 
 /** Canonical link to an observation's detail page, carrying list filters so prev/next honors them. */
@@ -151,11 +180,9 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                         neighborFilterParams(router.values.searchParams)
                     )
                     actions.loadObservationSuccess(response)
-                    // Link the breadcrumb to the parent scanner so "back" returns to the scanner, not the vision home.
-                    replayObservationSceneLogic().actions.setScannerContext(
-                        response.scanner_id,
-                        response.scanner_snapshot?.name ?? null
-                    )
+                    // Point the breadcrumb at whatever owns this observation, so "back" returns there
+                    // instead of the vision home.
+                    replayObservationSceneLogic().actions.setParentBreadcrumb(observationParentBreadcrumb(response))
                 } catch (error: any) {
                     // Only toast the initial load — background poll retries would otherwise spam one toast per tick.
                     if (!values.observation) {
@@ -169,20 +196,23 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             loadObservationFailure: reschedulePoll,
 
             retryObservation: async () => {
+                // The retried row is deleted, so this page's id dangles afterwards. Hand off to whatever
+                // owns the observation, which is where the replacement appears.
+                const observation = values.observation
+                const lands = observation && hasScannerPage(observation) ? 'scanner page' : 'recording'
                 const retried = await requestObservationRetry(
                     props.id,
-                    'Retrying scan — the new observation will appear on the scanner page shortly.'
+                    `Retrying scan. The new observation will appear on the ${lands} shortly.`
                 )
                 if (!retried) {
                     actions.retryObservationFailure()
                     return
                 }
                 actions.retryObservationSuccess()
-                // The retried row is deleted, so this page's id now dangles — hand off to the scanner.
-                const scannerId = values.observation?.scanner_id
-                if (scannerId) {
-                    router.actions.push(urls.replayVision(scannerId))
+                if (!observation) {
+                    return
                 }
+                router.actions.push(observationParentUrl(observation))
             },
 
             // When the stream reports the observation has settled, reload once to render the final result.

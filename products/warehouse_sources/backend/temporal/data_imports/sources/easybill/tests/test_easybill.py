@@ -136,7 +136,9 @@ class TestIncrementalParams:
 
         assert "edited_at" not in params[0]
 
-    @parameterized.expand(["DocumentPayments", "Customers", "Positions", "Projects", "CustomerGroups"])
+    @parameterized.expand(
+        ["DocumentPayments", "IncomingDocuments", "Customers", "Positions", "Projects", "CustomerGroups"]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_incremental_endpoints_never_filter(self, endpoint: str, MockSession) -> None:
         session = MockSession.return_value
@@ -214,6 +216,7 @@ class TestSourceResponseShape:
     @parameterized.expand(
         [
             ("Documents", "documents", "created_at"),
+            ("IncomingDocuments", "incoming_documents", "created_at"),
             ("Customers", "customers", "created_at"),
             ("Positions", "positions", None),
             ("Projects", "projects", None),

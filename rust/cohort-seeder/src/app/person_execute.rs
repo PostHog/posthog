@@ -13,11 +13,14 @@ use tokio_util::sync::CancellationToken;
 
 use cohort_core::hogvm::VmErrorClass;
 
-use crate::clickhouse::person_scanner::{PersonScanError, PersonScanner};
+use clickhouse::query::RowCursor;
+
+use crate::clickhouse::person_scanner::{PersonRow, PersonScanError, PersonScanner};
 use crate::clickhouse::person_sql::PersonScanSpec;
+use crate::clickhouse::scan_volume::{self, ScanKind};
 use crate::domain::{
     CancelCause, ClaimedChunk, Halted, PersonChunkSpecError, PersonEvaluator, PersonRowOutcome,
-    PersonSeedContext, PinnedPersonRun, RecordStats, StreamedChunk,
+    PersonSeedContext, PinnedPersonRun, RecordStats, RetryBackoffPolicy, StreamedChunk,
 };
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
@@ -43,6 +46,7 @@ pub(super) struct PersonChunkTaskContext {
     pub(super) pacer: TilePacer,
     pub(super) producer_settings: ProducerSettings,
     pub(super) emit_nonmatchers: bool,
+    pub(super) retry_backoff: RetryBackoffPolicy,
 }
 
 pub(super) async fn execute_person_chunk(
@@ -59,6 +63,7 @@ pub(super) async fn execute_person_chunk(
         pacer,
         producer_settings,
         emit_nonmatchers,
+        retry_backoff,
     } = ctx;
     let lease_cancel = lease.cancellation_token();
 
@@ -77,17 +82,19 @@ pub(super) async fn execute_person_chunk(
     .await
     {
         Ok(pair) => pair,
-        Err(halt) => return resolve_halt(&store, halt, &shutdown).await,
+        Err(halt) => return resolve_halt(&store, halt, &shutdown, retry_backoff).await,
     };
     // PreMark: CAS `scanning`→`produced` — the row is still `scanning` on failure.
     let enqueued = match store.mark_produced_streamed(streamed).await {
         Ok(enqueued) => enqueued,
-        Err(halt) => return resolve_halt(&store, mark_produced_halt(halt), &shutdown).await,
+        Err(halt) => {
+            return resolve_halt(&store, mark_produced_halt(halt), &shutdown, retry_backoff).await
+        }
     };
     // PostMark: drain the remaining delivery acks, then the terminal confirm.
     let produced = match deliver::await_deliveries(enqueued, inflight, &lease_cancel).await {
         Ok(produced) => produced,
-        Err(halt) => return resolve_halt(&store, halt, &shutdown).await,
+        Err(halt) => return resolve_halt(&store, halt, &shutdown, retry_backoff).await,
     };
     let lease = produced.spec().lease;
     let seeds_produced = produced.tiles_produced();
@@ -96,7 +103,7 @@ pub(super) async fn execute_person_chunk(
             lease,
             tiles_produced: seeds_produced,
         },
-        Err(halt) => resolve_halt(&store, halt, &shutdown).await,
+        Err(halt) => resolve_halt(&store, halt, &shutdown, retry_backoff).await,
     }
 }
 
@@ -117,7 +124,7 @@ async fn stream_chunk(
         Err(error) => return Err(Halted::failed(chunk, PersonChunkError::Spec(error))),
     };
     let scan_spec = PersonScanSpec::new(spec.team_id, run.scan_since, spec.range);
-    let mut cursor = match scanner.scan_rows(&scan_spec) {
+    let mut cursor = match scanner.scan_rows(&scan_spec, chunk.spec()) {
         Ok(cursor) => cursor,
         Err(error) => return Err(Halted::failed(chunk, PersonChunkError::Scan(error))),
     };
@@ -134,33 +141,70 @@ async fn stream_chunk(
     // near-zero samples.
     let _timer = MetricTimer::start(PERSON_CHUNK_SCAN_DURATION_SECONDS);
 
+    // Every way out of the fold funnels back here, so the volume is metered once whether the scan
+    // finished, was cancelled, or failed mid-stream.
+    let folded = fold_person_rows(
+        &mut cursor,
+        &mut evaluator,
+        &seed_ctx,
+        producer,
+        &mut inflight,
+        pacer,
+        settings,
+        &mut seeds_produced,
+        lease_cancel,
+        shutdown,
+    )
+    .await;
+    let volume = scan_volume::observe(ScanKind::Person, &cursor);
+    match folded {
+        Ok(()) => Ok((chunk.into_streamed(seeds_produced, volume), inflight)),
+        Err(stop) => Err(stop.into_halt(chunk)),
+    }
+}
+
+/// Drive the person cursor into the evaluator and the paced producer until it is exhausted,
+/// cancelled, or fails. Returns rather than metering, so the caller owns the single recording site.
+#[allow(clippy::too_many_arguments)]
+async fn fold_person_rows(
+    cursor: &mut RowCursor<PersonRow>,
+    evaluator: &mut PersonEvaluator,
+    seed_ctx: &PersonSeedContext,
+    producer: &SeedTileProducer,
+    inflight: &mut InFlight,
+    pacer: &TilePacer,
+    settings: ProducerSettings,
+    seeds_produced: &mut u64,
+    lease_cancel: &CancellationToken,
+    shutdown: &CancellationToken,
+) -> Result<(), PersonStreamStop> {
     loop {
         let row = tokio::select! {
             biased;
             _ = shutdown.cancelled() => {
-                return Err(Halted::cancelled(chunk, CancelCause::Shutdown));
+                return Err(PersonStreamStop::Cancelled(CancelCause::Shutdown));
             }
             _ = lease_cancel.cancelled() => {
-                return Err(Halted::cancelled(chunk, CancelCause::LeaseLost));
+                return Err(PersonStreamStop::Cancelled(CancelCause::LeaseLost));
             }
             row = cursor.next() => match row {
                 Ok(row) => row,
                 Err(error) => {
-                    return Err(Halted::failed(chunk, PersonChunkError::Cursor(error)));
+                    return Err(PersonStreamStop::Failed(PersonChunkError::Cursor(error)));
                 }
             },
         };
         let Some(row) = row else {
-            break;
+            return Ok(());
         };
         counter!(PERSONS_SCANNED).increment(1);
-        let (outcome, stats) = evaluator.evaluate_row(&row.id, &row.properties, &seed_ctx);
+        let (outcome, stats) = evaluator.evaluate_row(&row.id, &row.properties, seed_ctx);
         record_row_stats(stats);
         match outcome {
             PersonRowOutcome::Seed(seed) => {
                 if let Err(stop) = deliver::enqueue_one(
                     || producer.enqueue_person(&seed),
-                    &mut inflight,
+                    inflight,
                     pacer,
                     settings,
                     lease_cancel,
@@ -168,9 +212,9 @@ async fn stream_chunk(
                 )
                 .await
                 {
-                    return Err(produce_halt(chunk, stop));
+                    return Err(stop.into());
                 }
-                seeds_produced += 1;
+                *seeds_produced += 1;
                 counter!(PERSON_SEEDS_PRODUCED).increment(1);
             }
             PersonRowOutcome::NonMatcher => {
@@ -181,14 +225,30 @@ async fn stream_chunk(
             }
         }
     }
-
-    Ok((chunk.into_streamed(seeds_produced), inflight))
 }
 
-fn produce_halt(chunk: ClaimedChunk, stop: ProduceStop) -> Halted<ClaimedChunk, PersonChunkError> {
-    match stop {
-        ProduceStop::Cancelled(cause) => Halted::cancelled(chunk, cause),
-        ProduceStop::Failed(error) => Halted::failed(chunk, PersonChunkError::Produce(error)),
+/// Why the person fold stopped, carried without the chunk so the caller can meter the cursor before
+/// giving the chunk up to [`Halted`].
+enum PersonStreamStop {
+    Cancelled(CancelCause),
+    Failed(PersonChunkError),
+}
+
+impl PersonStreamStop {
+    fn into_halt(self, chunk: ClaimedChunk) -> Halted<ClaimedChunk, PersonChunkError> {
+        match self {
+            Self::Cancelled(cause) => Halted::cancelled(chunk, cause),
+            Self::Failed(error) => Halted::failed(chunk, error),
+        }
+    }
+}
+
+impl From<ProduceStop> for PersonStreamStop {
+    fn from(stop: ProduceStop) -> Self {
+        match stop {
+            ProduceStop::Cancelled(cause) => Self::Cancelled(cause),
+            ProduceStop::Failed(error) => Self::Failed(PersonChunkError::Produce(error)),
+        }
     }
 }
 

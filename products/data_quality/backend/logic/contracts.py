@@ -18,6 +18,19 @@ class Evaluation(StrEnum):
 
 
 @dataclass(frozen=True)
+class SubjectIdentity:
+    """A subject named the way rows record it: by kind and id, never by name.
+
+    Names move. A rename rewrites one, and deleting an object frees its name for anything else to
+    take, so authorization that has to survive either keys off this instead. Hashable, so a page of
+    them resolves to current names in one lookup.
+    """
+
+    subject_type: str
+    subject_uuid: str
+
+
+@dataclass(frozen=True)
 class SubjectRef:
     """A resolved check subject.
 

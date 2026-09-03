@@ -41,6 +41,7 @@ import {
   type Options,
   type Query,
   query,
+  type SDKMessage,
   type SDKUserMessage,
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -51,6 +52,8 @@ import {
   isMethod,
   POSTHOG_METHODS,
   POSTHOG_NOTIFICATIONS,
+  type SteerDeclineCause,
+  steerDeclined,
 } from "../../acp-extensions";
 import {
   createEnrichment,
@@ -106,6 +109,7 @@ import {
   taskStateToPlanEntries,
 } from "./conversion/task-state";
 import type { EnrichedReadCache } from "./hooks";
+import type { MachineClaudeAuth } from "./machine-auth";
 import { createLocalToolsMcpServer } from "./mcp/local-tools";
 import {
   clearMcpToolMetadataCache,
@@ -126,16 +130,15 @@ import {
   CONTEXT_WINDOW_1M_BETA,
   CONTEXT_WINDOW_200K_TOKENS,
   DEFAULT_EFFORT,
-  DEFAULT_MODEL,
   fastModeStateEnabled,
   getContextWindowOptions,
   getEffortOptions,
+  rerootedModelOptions,
   resolveEffortForModel,
   resolveModelPreference,
   supports1MContext,
   supportsFastMode,
   supportsMcpInjection,
-  toSdkModelId,
 } from "./session/models";
 import {
   buildSessionOptions,
@@ -243,13 +246,13 @@ function confirmConsumedSteers(turn: Turn): void {
 }
 
 /** Report every steer left on a finishing turn as undelivered so callers redeliver it. */
-function declinePendingSteers(turn: Turn): void {
+function declinePendingSteers(turn: Turn, cause: SteerDeclineCause): void {
   if (turn.steerTimer) {
     clearTimeout(turn.steerTimer);
     turn.steerTimer = undefined;
   }
   for (const steer of turn.pendingSteers.values()) {
-    steer.settle(false);
+    steer.settle(false, cause);
   }
   turn.pendingSteers.clear();
 }
@@ -340,11 +343,16 @@ export interface ClaudeAcpAgentOptions {
   posthogApiConfig?: PostHogAPIConfig;
   /** Explicit gateway config — avoids global process.env mutation across concurrent sessions. */
   gatewayEnv?: GatewayEnv;
+  machineAuth?: MachineClaudeAuth;
   /** Per-session context wiki mount — avoids global process.env mutation across concurrent sessions. */
   contextWiki?: ContextWikiEnv;
 }
 
 export class ClaudeAcpAgent extends BaseAcpAgent {
+  protected override usesMachineAuth(): boolean {
+    return !!this.options?.machineAuth;
+  }
+
   readonly adapterName = "claude";
   declare session: Session;
   toolUseCache: ToolUseCache;
@@ -597,7 +605,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       this.session.activeTurn !== null || this.session.turnQueue.length > 0;
 
     const isSteer = isSteerMeta(params._meta);
-    if (hasInFlightTurns && isSteer) {
+    if (hasInFlightTurns && isSteer && !this.session.compacting) {
       // Fold into the running turn (promptToClaude tagged it priority:"now");
       // the benign end_turn is ignored by clients, which key off _meta.steer.
       const owner =
@@ -606,15 +614,19 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       // Decline before pushing, so the message is redelivered rather than also
       // applied by a later turn.
       if (!owner) {
-        return { stopReason: "end_turn", _meta: { steer: false } };
+        return steerDeclined("no_owner_turn");
       }
       // Only a declined steer is redelivered, so acking on submission loses any
       // steer the SDK never folds in. Wait for the model to act on it instead.
       const ack = new Promise<PromptResponse>((resolve) => {
         owner.pendingSteers.set(promptUuid, {
           consumed: false,
-          settle: (reachedModel) =>
-            resolve({ stopReason: "end_turn", _meta: { steer: reachedModel } }),
+          settle: (reachedModel, cause) =>
+            resolve(
+              reachedModel
+                ? { stopReason: "end_turn", _meta: { steer: true } }
+                : steerDeclined(cause ?? "turn_ended_first"),
+            ),
         });
       });
       this.session.input.push(userMessage);
@@ -622,7 +634,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       return ack;
     }
     if (isSteer) {
-      return { stopReason: "end_turn", _meta: { steer: false } };
+      return steerDeclined(
+        this.session.compacting ? "compacting" : "no_in_flight_turn",
+      );
     }
 
     if (!hasInFlightTurns && !isLocalOnlyCommand) {
@@ -687,7 +701,48 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
     const input = head.pendingInput;
     head.pendingInput = undefined;
+    head.dispatchedAt = performance.now();
     session.input.push(input);
+  }
+
+  /** Time the window between handing a prompt to the SDK and the SDK's first
+   *  emission for it. Nothing crosses the wire during that window, so without
+   *  this line a slow first turn cannot be attributed after the fact: the log
+   *  names both how long the wait was and which message ended it, which
+   *  separates pre-model setup (a `commands_changed` skill rescan, for
+   *  example) from the model call itself. */
+  private timeFirstSdkMessage(
+    session: Session,
+    sessionId: string,
+    message: SDKMessage,
+  ): void {
+    const turn =
+      session.activeTurn ?? session.turnQueue.find((t) => !t.settled);
+    if (turn?.dispatchedAt === undefined || turn.firstMessageTimed) {
+      return;
+    }
+    turn.firstMessageTimed = true;
+    this.logger.debug("First SDK message after prompt dispatch", {
+      sessionId,
+      waitMs: Math.max(0, Math.round(performance.now() - turn.dispatchedAt)),
+      messageType: message.type,
+      messageSubtype: (message as { subtype?: string }).subtype,
+    });
+  }
+
+  /** Time to the first assistant message, which is the first output a person
+   *  sees. Reported once per turn so a slow turn splits into the wait before
+   *  the model answered and the tool work after it. */
+  private timeFirstModelOutput(session: Session, sessionId: string): void {
+    const turn = session.activeTurn;
+    if (turn?.dispatchedAt === undefined || turn.firstOutputTimed) {
+      return;
+    }
+    turn.firstOutputTimed = true;
+    this.logger.debug("First model output after prompt dispatch", {
+      sessionId,
+      waitMs: Math.max(0, Math.round(performance.now() - turn.dispatchedAt)),
+    });
   }
 
   private ensureConsumer(sessionId: string): void {
@@ -754,13 +809,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       cache_read_input_tokens: 0,
       cache_creation_input_tokens: 0,
     };
-    // Tracks whether we're inside a compaction. The SDK emits the terminal
-    // `status` (compact_result success/failed) twice for a single failed
-    // compaction, and the two messages are indistinguishable, so we report the
-    // outcome only while a compaction is in progress, then clear this. A fresh
-    // `compacting` status sets it again, so every distinct compaction (e.g.
-    // repeated auto-compactions in a long turn) is still shown.
-    let compactionInProgress = false;
     let stopReason: PromptResponse["stopReason"] = "end_turn";
 
     // Read live: model switches reset session.lastContextWindowSize.
@@ -831,7 +879,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         cache_read_input_tokens: 0,
         cache_creation_input_tokens: 0,
       };
-      compactionInProgress = false;
+      session.compacting = false;
       stopReason = "end_turn";
       // sessionResources is intentionally NOT reset — the products list
       // accumulates across the whole session and is deduped, not per-turn.
@@ -883,7 +931,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         return;
       }
       turn.settled = true;
-      declinePendingSteers(turn);
+      declinePendingSteers(
+        turn,
+        session.cancelled ? "cancelled" : "turn_ended_first",
+      );
       if (session.forceCancelTimer) {
         clearTimeout(session.forceCancelTimer);
         session.forceCancelTimer = undefined;
@@ -905,7 +956,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         return;
       }
       turn.settled = true;
-      declinePendingSteers(turn);
+      declinePendingSteers(turn, "turn_failed");
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
       this.toolUseStreamCache.clear();
@@ -931,7 +982,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       for (const turn of turns) {
         if (!turn.settled) {
           turn.settled = true;
-          declinePendingSteers(turn);
+          declinePendingSteers(turn, "turn_failed");
           turn.reject(error);
         }
       }
@@ -976,7 +1027,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           for (const queued of [...session.turnQueue]) {
             if (!queued.settled) {
               queued.settled = true;
-              declinePendingSteers(queued);
+              declinePendingSteers(
+                queued,
+                session.cancelled ? "cancelled" : "turn_failed",
+              );
               queued.reject(
                 RequestError.internalError(undefined, SESSION_ENDED_MESSAGE),
               );
@@ -986,6 +1040,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           this.closeQueryStream(session);
           return;
         }
+
+        this.timeFirstSdkMessage(session, sessionId, message);
 
         if (
           session.emitRawSDKMessages &&
@@ -1047,18 +1103,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               // The SDK signals manual `/compact` completion with a status
               // message carrying `compact_result`, not the `compact_boundary`
               // message (which only fires when there's content to compact).
-              // Gate the user-facing outcome on `compactionInProgress` to
+              // Gate the user-facing outcome on `session.compacting` to
               // dedupe the duplicate terminal status the SDK emits for failed
               // compactions.
               if (message.status === "compacting") {
-                compactionInProgress = true;
+                session.compacting = true;
                 // Fall through to handleSystemMessage so the COMPACTING
                 // extNotification still fires.
               } else if (
                 message.compact_result === "success" &&
-                compactionInProgress
+                session.compacting
               ) {
-                compactionInProgress = false;
+                session.compacting = false;
                 await this.client.sessionUpdate({
                   sessionId,
                   update: {
@@ -1083,9 +1139,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 break;
               } else if (
                 message.compact_result === "failed" &&
-                compactionInProgress
+                session.compacting
               ) {
-                compactionInProgress = false;
+                session.compacting = false;
                 // A failed compaction never emits a `compact_boundary`, so emit a
                 // structured failure status: the renderer clears the "Compacting…"
                 // spinner and reports the outcome as its own status row (a separator
@@ -1140,7 +1196,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   },
                 });
                 head.settled = true;
-                declinePendingSteers(head);
+                declinePendingSteers(head, "turn_failed");
                 session.turnQueue = session.turnQueue.filter((t) => t !== head);
                 this.dispatchQueuedInput(session);
                 head.resolve({ stopReason: "end_turn" });
@@ -1459,6 +1515,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             }
 
             if (message.type === "assistant") {
+              this.timeFirstModelOutput(session, sessionId);
               // Subagent output is a separate model context, so it is no
               // evidence the steer reached this turn's model.
               if (session.activeTurn && message.parent_tool_use_id === null) {
@@ -1631,7 +1688,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         continue;
       }
       turn.settled = true;
-      declinePendingSteers(turn);
+      declinePendingSteers(turn, "cancelled");
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       if (!turn.pendingInput) {
         session.pendingOrphanResults += 1;
@@ -1864,7 +1921,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController: newAbortController,
         // `rest.model` is the creation-time value; the user may have switched
         // models since, so re-root the new Query on the live session model.
-        ...(session.modelId && { model: toSdkModelId(session.modelId) }),
+        ...rerootedModelOptions(
+          session.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const newInput = new Pushable<SDKUserMessage>();
@@ -2088,9 +2149,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController,
         // `rest.model` is the creation-time value; the user may have
         // switched models since, so answer on the live session model.
-        ...(this.session.modelId && {
-          model: toSdkModelId(this.session.modelId),
-        }),
+        ...rerootedModelOptions(
+          this.session.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const oneShot = query({
@@ -2200,7 +2263,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController: newAbortController,
         // `rest.model` is the creation-time value; the user may have switched
         // models since, so re-root the new Query on the live session model.
-        ...(prev.modelId && { model: toSdkModelId(prev.modelId) }),
+        ...rerootedModelOptions(
+          prev.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const newInput = new Pushable<SDKUserMessage>();
@@ -2370,8 +2437,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         },
       });
     } else if (params.configId === "model") {
-      const sdkModelId = toSdkModelId(resolvedValue);
-      await this.session.query.setModel(sdkModelId);
+      await this.session.query.setModel(resolvedValue);
       this.session.modelId = resolvedValue;
       this.session.lastContextWindowSize =
         this.getContextWindowForModel(resolvedValue);
@@ -2592,7 +2658,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const input = new Pushable<SDKUserMessage>();
 
-    const settingsManager = new SettingsManager(cwd);
+    const settingsManager = new SettingsManager(
+      cwd,
+      !!this.options?.machineAuth,
+    );
     await settingsManager.initialize();
 
     // The session's explicit pick outranks the shared claude settings file:
@@ -2616,6 +2685,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       typeof meta?.taskOriginProduct === "string"
         ? meta.taskOriginProduct
         : undefined;
+    const endRunWhenDone = meta?.endRunWhenDone === true;
     const spokenNarration = resolveSpokenNarration(meta);
     const bedrockGatewayVariant = resolveBedrockGatewayVariant(meta);
     const requestFinish = this.buildRequestFinish(taskId, meta?.taskRunId);
@@ -2639,6 +2709,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           background: meta?.mode === "background",
           peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
           taskOriginProduct,
+          endRunWhenDone,
         },
       );
       return server ? { [LOCAL_TOOLS_MCP_NAME]: server } : {};
@@ -2731,6 +2802,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       taskState,
       getCurrentModelId: () => this.session?.modelId,
       gatewayEnv: this.options?.gatewayEnv,
+      machineAuth: this.options?.machineAuth,
       bedrockGatewayVariant,
       contextWiki: this.options?.contextWiki,
       onTaskStateChange: async () => {
@@ -2931,14 +3003,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         ? CONTEXT_WINDOW_200K_TOKENS
         : this.getContextWindowForModel(resolvedModelId);
 
-    const resolvedSdkModel = toSdkModelId(resolvedModelId);
-
-    // New sessions start with options.model = DEFAULT_MODEL, so only a
-    // non-default pick needs a setModel call. Resumed sessions always need
-    // it: the SDK does not carry the model across resume and would silently
-    // run its default otherwise.
-    if (isResume || resolvedSdkModel !== DEFAULT_MODEL) {
-      await this.session.query.setModel(resolvedSdkModel);
+    if (isResume || resolvedModelId !== options.model) {
+      await this.session.query.setModel(resolvedModelId);
     }
 
     // Keep thinking enabled by default for effort-capable models (see

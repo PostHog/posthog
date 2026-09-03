@@ -5,7 +5,7 @@ import { InternalPerson } from '~/types'
 
 import { PersonContext } from './person-context'
 import { PersonMergeService } from './person-merge-service'
-import { createDefaultSyncMergeMode } from './person-merge-types'
+import { PersonMergeResult, createDefaultSyncMergeMode } from './person-merge-types'
 
 describe('PersonMergeService', () => {
     let teamCounter = 1000
@@ -26,30 +26,69 @@ describe('PersonMergeService', () => {
         }
     }
 
+    let teamId: number
+    let queueMessages: jest.Mock
+
+    beforeEach(() => {
+        teamId = teamCounter++
+        queueMessages = jest.fn().mockResolvedValue(undefined)
+    })
+
+    function service(targetDistinctId: string): PersonMergeService {
+        const context = new PersonContext(
+            { uuid: 'event-uuid', event: '$identify', distinct_id: targetDistinctId, properties: {} } as any,
+            { id: teamId } as any,
+            targetDistinctId,
+            DateTime.now(),
+            true,
+            { queueMessages } as any,
+            {} as any,
+            0,
+            createDefaultSyncMergeMode(),
+            false,
+            false
+        )
+        return new PersonMergeService(context)
+    }
+
+    describe('merge with an illegal distinct id', () => {
+        it.each([
+            ['target', 'null', 'user'],
+            ['source', 'user', 'null'],
+        ])(
+            'returns before the %s warning is acked and hands the ack back as kafkaAck',
+            async (_side, mergeIntoDistinctId, otherPersonDistinctId) => {
+                let ackWarning!: () => void
+                queueMessages.mockReturnValue(new Promise<void>((resolve) => (ackWarning = resolve)))
+
+                const result = await service(mergeIntoDistinctId).merge(
+                    otherPersonDistinctId,
+                    mergeIntoDistinctId,
+                    teamId,
+                    DateTime.now()
+                )
+
+                expect(result).toMatchObject({ success: true, person: undefined, needsPersonUpdate: true })
+                if (!result.success) {
+                    throw new Error('unreachable')
+                }
+                expect(queueMessages).toHaveBeenCalledWith(INGESTION_WARNINGS_OUTPUT, [{ value: expect.any(Buffer) }])
+
+                let acked = false
+                void result.kafkaAck.then(() => (acked = true))
+                await Promise.resolve()
+                expect(acked).toBe(false)
+
+                ackWarning()
+                await result.kafkaAck
+                expect(acked).toBe(true)
+            }
+        )
+    })
+
     describe('mergePeople with an already identified source', () => {
-        let teamId: number
-        let queueMessages: jest.Mock
-
-        beforeEach(() => {
-            teamId = teamCounter++
-            queueMessages = jest.fn().mockResolvedValue(undefined)
-        })
-
-        function refuseMerge(targetDistinctId: string) {
-            const context = new PersonContext(
-                { uuid: 'event-uuid', event: '$identify', distinct_id: targetDistinctId, properties: {} } as any,
-                { id: teamId } as any,
-                targetDistinctId,
-                DateTime.now(),
-                true,
-                { queueMessages } as any,
-                {} as any,
-                0,
-                createDefaultSyncMergeMode(),
-                false,
-                false
-            )
-            return new PersonMergeService(context).mergePeople({
+        function refuseMerge(targetDistinctId: string): Promise<PersonMergeResult> {
+            return service(targetDistinctId).mergePeople({
                 mergeInto: person('target-uuid', true, teamId),
                 mergeIntoDistinctId: targetDistinctId,
                 otherPerson: person('source-uuid', true, teamId),

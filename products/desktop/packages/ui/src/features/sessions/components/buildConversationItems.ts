@@ -133,6 +133,7 @@ export interface ItemBuilder {
    *  frozen and only re-derive the active turn. */
   currentTurnStartIndex: number;
   pendingPrompts: Map<number | string, TurnState>;
+  promptDeliveryIds: Set<string>;
   shellExecutes: Map<string, { item: UserShellExecute; index: number }>;
   isCompacting: boolean;
   isClearing: boolean;
@@ -172,6 +173,7 @@ export function createItemBuilder(): ItemBuilder {
     currentTurn: null,
     currentTurnStartIndex: 0,
     pendingPrompts: new Map(),
+    promptDeliveryIds: new Set(),
     shellExecutes: new Map(),
     isCompacting: false,
     isClearing: false,
@@ -403,7 +405,7 @@ export function buildAgentConversationItems(
   };
 }
 
-export function processAgentConversationEvent(
+function processAgentConversationEvent(
   b: ItemBuilder,
   event: AgentConversationEvent,
 ): void {
@@ -465,7 +467,10 @@ export function processAgentConversationEvent(
   }
 
   if (event.type === "progress") {
-    handleProgress(b, event, event.timestamp, false);
+    handleProgress(b, event, event.timestamp, {
+      waitForRunStarted: false,
+      appendOnSetupRestart: true,
+    });
     return;
   }
 
@@ -581,6 +586,13 @@ function handlePromptRequest(
 
   const userPrompt = extractUserPrompt(msg.params);
   const userContent = userPrompt.content;
+  const messageId = (msg.params as { _meta?: { messageId?: unknown } } | null)
+    ?._meta?.messageId;
+  const isRedelivery =
+    typeof messageId === "string" && b.promptDeliveryIds.has(messageId);
+  if (typeof messageId === "string") {
+    b.promptDeliveryIds.add(messageId);
+  }
 
   if (userContent.trim().length === 0 && userPrompt.attachments.length === 0) {
     return;
@@ -653,7 +665,7 @@ function handlePromptRequest(
       id: `${turnId}-skill-action`,
       buttonId: skillButtonId,
     });
-  } else {
+  } else if (!isRedelivery) {
     b.items.splice(insertIndex, 0, {
       type: "user_message",
       id: `${turnId}-user`,
@@ -1010,7 +1022,10 @@ function handleProgress(
   b: ItemBuilder,
   rawParams: unknown,
   ts: number,
-  waitForRunStarted = true,
+  options?: {
+    waitForRunStarted?: boolean;
+    appendOnSetupRestart?: boolean;
+  },
 ) {
   const params = rawParams as
     | {
@@ -1024,6 +1039,18 @@ function handleProgress(
   if (!params?.step || !params.label || !params.group) return;
 
   const status = normalizeStepStatus(params.status);
+  const existingCard = b.progressCards.get(params.group);
+  const previousAgentStatus = existingCard?.steps.get("agent")?.status;
+  const startsNewSetup =
+    options?.appendOnSetupRestart === true &&
+    params.step === "sandbox" &&
+    status === "in_progress" &&
+    previousAgentStatus !== undefined &&
+    previousAgentStatus !== "in_progress";
+  if (startsNewSetup) {
+    b.progressCards.delete(params.group);
+  }
+
   const card = ensureProgressCardForGroup(b, params.group, ts);
   if (!card) return;
   if (card.itemIndex < b.lowestTouchedProgressIndex) {
@@ -1035,7 +1062,7 @@ function handleProgress(
     label: params.label,
     detail: params.detail,
   });
-  syncProgressCard(card, b, waitForRunStarted);
+  syncProgressCard(card, b, options?.waitForRunStarted);
 }
 
 function normalizeStepStatus(raw: string | undefined): StepStatus {

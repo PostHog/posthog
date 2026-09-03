@@ -21,8 +21,8 @@ class TestReplayVisionScanningSkillExamples:
     def test_extraction_still_finds_the_examples(self):
         # Exact counts, not floors: a new example whose fence the regex can't parse (```JSON,
         # a trailing space) would ship unvalidated while the old blocks kept a floor green.
-        assert len(_JSON_BLOCKS) == 3
-        assert len(_SQL_BLOCKS) == 2
+        assert len(_JSON_BLOCKS) == 2
+        assert len(_SQL_BLOCKS) == 1
 
     @parameterized.expand(_JSON_BLOCKS)
     def test_json_examples_stay_valid(self, index, body):

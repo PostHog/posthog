@@ -1,5 +1,6 @@
 import math
 import hashlib
+from collections import Counter
 from datetime import timedelta
 from typing import Any, cast
 
@@ -17,6 +18,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
+    OpenApiResponse,
     extend_schema,
     extend_schema_field,
     extend_schema_view,
@@ -44,7 +46,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, uuid7
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
@@ -62,8 +64,49 @@ from products.notebooks.backend.analytics import (
     notebook_node_count,
 )
 from products.notebooks.backend.collab import submit_steps
+from products.notebooks.backend.facade.compute_pricing import (
+    COMPUTE_PRESETS,
+    DEFAULT_COMPUTE_PRESET_KEY,
+    ComputeShape,
+    find_matching_preset,
+    get_compute_rates,
+)
+from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
+from products.notebooks.backend.facade.sql_v2 import acquire_run_slots, release_run_slots
+from products.notebooks.backend.facade.widgets import (
+    WidgetConflictError,
+    WidgetError,
+    WidgetRateLimitError,
+    cancel_widget_generation,
+    get_widget_status,
+    infer_widget_inputs,
+    inspect_widget_inputs,
+    is_notebook_widget_enabled,
+    list_widget_versions,
+    read_widget_frame,
+    read_widget_source,
+    revert_widget_version,
+    start_widget_generation,
+)
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.presentation.widget_serializers import (
+    WidgetCancelRequestSerializer,
+    WidgetErrorSerializer,
+    WidgetFrameQuerySerializer,
+    WidgetFrameSerializer,
+    WidgetGenerateRequestSerializer,
+    WidgetRevertRequestSerializer,
+    WidgetSourceQuerySerializer,
+    WidgetSourceSerializer,
+    WidgetStatusSerializer,
+    WidgetVersionPageSerializer,
+    WidgetVersionQuerySerializer,
+)
+from products.notebooks.backend.presentation.widget_throttles import (
+    WidgetFrameBurstThrottle,
+    WidgetFrameSustainedThrottle,
+)
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
 from products.notebooks.backend.sql_v2 import (
@@ -79,11 +122,14 @@ from products.notebooks.backend.sql_v2_direct import cancel_direct_run, enqueue_
 from products.notebooks.backend.sql_v2_references import (
     SQLV2Ref,
     SQLV2ReferenceError,
+    SQLV2RunPlan,
     resolve_python_node_inputs,
     resolve_sql_node_run,
 )
 from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run, finish_node_run
 from products.notebooks.backend.sql_v2_serializers import (
+    MAX_VARIABLES_PER_NOTEBOOK,
+    NotebookComputeOptionsResponseSerializer,
     NotebookKernelConfigResponseSerializer,
     NotebookKernelStatusResponseSerializer,
     NotebookSQLV2InterruptResponseSerializer,
@@ -92,11 +138,18 @@ from products.notebooks.backend.sql_v2_serializers import (
     NotebookSQLV2RunResponseSerializer,
     NotebookSQLV2RunStatusResponseSerializer,
     NotebookSQLV2StateResponseSerializer,
+    NotebookVariableSerializer,
 )
 from products.notebooks.backend.sql_v2_state import (
     NotebookCellLimitExceeded,
     build_notebook_cell_state,
     validate_cell_count,
+)
+from products.notebooks.backend.sql_v2_variables import (
+    NotebookVariableError,
+    build_notebook_variables,
+    python_variable_bindings,
+    reject_variables_in_raw_query,
 )
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
@@ -202,6 +255,17 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
+    variables = NotebookVariableSerializer(
+        many=True,
+        required=False,
+        # DRF forwards this to the ListSerializer (LIST_SERIALIZER_KWARGS); the stubs only
+        # type Serializer.__init__, so mypy cannot see it.
+        max_length=MAX_VARIABLES_PER_NOTEBOOK,  # type: ignore[call-arg]
+        help_text=(
+            "Notebook-level variables, in display order. A SQL cell reads one as a `{name}` "
+            "placeholder and a Python cell as a global. Names must be unique."
+        ),
+    )
     parent_resource = serializers.SerializerMethodField(
         help_text=(
             "Parent resource this notebook is attached to, or `null`. Returns "
@@ -226,6 +290,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_by",
             "user_access_level",
             "parent_resource",
+            "variables",
             "_create_in_folder",
         ]
         read_only_fields = [
@@ -246,6 +311,18 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
             },
         }
+
+    def validate_variables(self, value: list[dict]) -> list[dict]:
+        # A Python cell reads variables and cell dataframes out of one namespace, so a duplicate
+        # would make which value binds depend on ordering. Dataframe names live in `content` and
+        # are checked in the editor; this guards the notebook's own list.
+        # Counted in one pass: `list.count` per entry is quadratic, and the 20 MB body cap
+        # admits enough names for that to tie up a worker.
+        counts = Counter(variable["name"] for variable in value)
+        duplicates = sorted(name for name, count in counts.items() if count > 1)
+        if duplicates:
+            raise serializers.ValidationError(f"Variable names must be unique. Repeated: {', '.join(duplicates)}.")
+        return value
 
     @extend_schema_field(_PARENT_RESOURCE_SCHEMA)
     def get_parent_resource(self, obj: Notebook) -> dict | None:
@@ -694,6 +771,342 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         )
         return Response(serializer.data)
 
+    def _widget_error_response(self, error: WidgetError) -> Response:
+        if isinstance(error, WidgetRateLimitError):
+            response_status = 429
+        elif isinstance(error, WidgetConflictError):
+            response_status = 409
+        elif error.code == "frame_not_allowed":
+            response_status = 403
+        elif error.code == "ai_data_processing_not_approved":
+            response_status = 403
+        elif error.code == "node_not_found":
+            response_status = 404
+        else:
+            response_status = 400
+        return Response(
+            WidgetErrorSerializer({"code": error.code, "detail": error.detail}).data, status=response_status
+        )
+
+    def _authorize_widget_run(self, run: NotebookNodeRun) -> None:
+        self._require_run_connection_access(run, self._current_user())
+
+    @extend_schema(
+        operation_id="notebooks_widget_generate",
+        request=WidgetGenerateRequestSerializer,
+        responses={
+            202: WidgetStatusSerializer,
+            400: WidgetErrorSerializer,
+            403: WidgetErrorSerializer,
+            404: WidgetErrorSerializer,
+            409: WidgetErrorSerializer,
+            429: WidgetErrorSerializer,
+        },
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the generated widget node.",
+            )
+        ],
+    )
+    @action(
+        methods=["POST"],
+        url_path="widgets/(?P<node_id>[^/.]+)/generate",
+        detail=True,
+        required_scopes=["notebook:write", "query:read"],
+    )
+    def widget_generate(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        if node_id is None:
+            raise Http404()
+        user = self._current_user()
+        if user is None:
+            raise PermissionDenied("A user is required to generate a widget.")
+        if not is_notebook_widget_enabled(user):
+            raise Http404()
+        serializer = WidgetGenerateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self.get_object()
+        self._require_query_access()
+        try:
+            input_candidates = infer_widget_inputs(notebook, node_id)
+            inspection = inspect_widget_inputs(
+                notebook,
+                input_candidates,
+                self._authorize_widget_run,
+                node_id=node_id,
+            )
+            result = start_widget_generation(
+                notebook=notebook,
+                node_id=node_id,
+                prompt=serializer.validated_data["prompt"],
+                user_id=user.id,
+                inspection=inspection,
+                model=serializer.validated_data["model"],
+                generation_id=serializer.validated_data["generation_id"],
+                operation=serializer.validated_data["generation_operation"],
+                expected_current_version_id=serializer.validated_data.get("expected_current_version_id"),
+            )
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetStatusSerializer(result).data, status=202)
+
+    @extend_schema(
+        operation_id="notebooks_widget_cancel",
+        request=WidgetCancelRequestSerializer,
+        responses={204: None, 400: WidgetErrorSerializer, 404: WidgetErrorSerializer},
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the generated widget node.",
+            )
+        ],
+    )
+    @action(
+        methods=["POST"],
+        url_path="widgets/(?P<node_id>[^/.]+)/cancel",
+        detail=True,
+        required_scopes=["notebook:write"],
+    )
+    def widget_cancel(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        if node_id is None:
+            raise Http404()
+        user = self._current_user()
+        if user is None:
+            raise PermissionDenied("A user is required to cancel widget generation.")
+        if not is_notebook_widget_enabled(user):
+            raise Http404()
+        serializer = WidgetCancelRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            cancel_widget_generation(
+                notebook=self.get_object(),
+                node_id=node_id,
+                generation_id=serializer.validated_data["generation_id"],
+            )
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(status=204)
+
+    @extend_schema(
+        operation_id="notebooks_widget_status",
+        responses={200: WidgetStatusSerializer, 404: WidgetErrorSerializer},
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the generated widget node.",
+            )
+        ],
+    )
+    @action(
+        methods=["GET"],
+        url_path="widgets/(?P<node_id>[^/.]+)/status",
+        detail=True,
+        required_scopes=["notebook:read"],
+    )
+    def widget_status(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        if node_id is None:
+            raise Http404()
+        if not is_notebook_widget_enabled(self._current_user()):
+            raise Http404()
+        try:
+            result = get_widget_status(notebook=self.get_object(), node_id=node_id)
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetStatusSerializer(result).data)
+
+    @extend_schema(
+        operation_id="notebooks_widget_versions",
+        responses={200: WidgetVersionPageSerializer, 404: WidgetErrorSerializer},
+        parameters=[
+            OpenApiParameter("node_id", OpenApiTypes.STR, OpenApiParameter.PATH, description="Widget node identifier."),
+            OpenApiParameter("offset", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("limit", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+        ],
+    )
+    @action(
+        methods=["GET"],
+        url_path="widgets/(?P<node_id>[^/.]+)/versions",
+        detail=True,
+        required_scopes=["notebook:read"],
+    )
+    def widget_versions(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        if node_id is None:
+            raise Http404()
+        if not is_notebook_widget_enabled(self._current_user()):
+            raise Http404()
+        query = WidgetVersionQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        try:
+            result = list_widget_versions(
+                notebook=self.get_object(),
+                node_id=node_id,
+                offset=query.validated_data["offset"],
+                limit=query.validated_data["limit"],
+            )
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetVersionPageSerializer(result).data)
+
+    @extend_schema(
+        operation_id="notebooks_widget_source",
+        responses={200: WidgetSourceSerializer, 400: WidgetErrorSerializer, 404: WidgetErrorSerializer},
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the generated widget node.",
+            ),
+            OpenApiParameter(
+                "version_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Immutable widget version whose source should be returned.",
+            ),
+        ],
+    )
+    @action(
+        methods=["GET"],
+        url_path="widgets/(?P<node_id>[^/.]+)/source",
+        detail=True,
+        required_scopes=["notebook:read"],
+    )
+    def widget_source(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        if node_id is None:
+            raise Http404()
+        if not is_notebook_widget_enabled(self._current_user()):
+            raise Http404()
+        query = WidgetSourceQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        try:
+            source = read_widget_source(
+                notebook=self.get_object(),
+                node_id=node_id,
+                version_id=query.validated_data.get("version_id"),
+            )
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetSourceSerializer({"source": source}).data)
+
+    @extend_schema(
+        operation_id="notebooks_widget_revert",
+        request=WidgetRevertRequestSerializer,
+        responses={
+            200: WidgetStatusSerializer,
+            400: WidgetErrorSerializer,
+            404: WidgetErrorSerializer,
+            409: WidgetErrorSerializer,
+            429: WidgetErrorSerializer,
+        },
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the generated widget node.",
+            )
+        ],
+    )
+    @action(
+        methods=["POST"],
+        url_path="widgets/(?P<node_id>[^/.]+)/revert",
+        detail=True,
+        required_scopes=["notebook:write"],
+    )
+    def widget_revert(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        if node_id is None:
+            raise Http404()
+        user = self._current_user()
+        if user is None:
+            raise PermissionDenied("A user is required to restore a widget version.")
+        if not is_notebook_widget_enabled(user):
+            raise Http404()
+        serializer = WidgetRevertRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = revert_widget_version(
+                notebook=self.get_object(),
+                node_id=node_id,
+                version_id=serializer.validated_data["version_id"],
+                expected_current_version_id=serializer.validated_data["expected_current_version_id"],
+                user_id=user.id,
+            )
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetStatusSerializer(result).data)
+
+    @extend_schema(
+        operation_id="notebooks_widget_frame",
+        responses={
+            200: WidgetFrameSerializer,
+            403: WidgetErrorSerializer,
+            404: WidgetErrorSerializer,
+            409: WidgetErrorSerializer,
+            429: WidgetErrorSerializer,
+        },
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the generated widget node.",
+            ),
+            OpenApiParameter(
+                "frame_name",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Allowed dataframe slot requested by the widget.",
+            ),
+            OpenApiParameter("version_id", OpenApiTypes.UUID, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("run_id", OpenApiTypes.UUID, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("offset", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("limit", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+        ],
+    )
+    @action(
+        methods=["GET"],
+        url_path="widgets/(?P<node_id>[^/.]+)/frames/(?P<frame_name>[^/.]+)",
+        detail=True,
+        required_scopes=["notebook:read", "query:read"],
+        throttle_classes=[WidgetFrameBurstThrottle, WidgetFrameSustainedThrottle],
+    )
+    def widget_frame(
+        self,
+        request: Request,
+        node_id: str | None = None,
+        frame_name: str | None = None,
+        **kwargs,
+    ) -> Response:
+        if node_id is None or frame_name is None:
+            raise Http404()
+        query = WidgetFrameQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        self._require_query_access()
+        if not is_notebook_widget_enabled(self._current_user()):
+            raise Http404()
+        try:
+            result = read_widget_frame(
+                notebook=self.get_object(),
+                node_id=node_id,
+                frame_name=frame_name,
+                authorize_run=self._authorize_widget_run,
+                user=self._current_user(),
+                version_id=query.validated_data.get("version_id"),
+                run_id=query.validated_data.get("run_id"),
+                offset=query.validated_data["offset"],
+                limit=query.validated_data["limit"],
+            )
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetFrameSerializer(result.frame).data)
+
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
             # Soft-deleted notebooks can be brought back with a PATCH request
@@ -910,34 +1323,42 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 runtime.status = status
                 runtime.save(update_fields=["status"])
 
-        return Response(
-            {
-                "backend": backend,
-                "status": status,
-                "last_used_at": runtime.last_used_at.isoformat() if runtime else None,
-                "last_error": runtime.last_error if runtime else None,
-                "runtime_id": str(runtime.id) if runtime else None,
-                "kernel_id": runtime.kernel_id if runtime else None,
-                "kernel_pid": runtime.kernel_pid if runtime else None,
-                "sandbox_id": runtime.sandbox_id if runtime else None,
-                # Journey 7: what a SQL node can currently SELECT from. Gated twice. On the
-                # live-checked status, not runtime.status — the row above is the latest by
-                # last_used_at regardless of state, and a dead kernel's frames are not
-                # SELECT-able. And on query access, because these are column names and types
-                # derived from the user's data: notebook access alone gates liveness (which is
-                # all this endpoint used to return), but not schema. The rest of SQLV2 draws
-                # that line already; this keeps the endpoint's existing surface ungated.
-                "frames": (
-                    (runtime.frames or [])
-                    if runtime and status == KernelRuntime.Status.RUNNING and self._has_query_access()
-                    else []
-                ),
-                "cpu_cores": cpu_cores,
-                "memory_gb": sandbox_config.memory_gb,
-                "disk_size_gb": sandbox_config.disk_size_gb,
-                "idle_timeout_seconds": sandbox_config.ttl_seconds,
-            }
+        # A running sandbox keeps the shape it started with, so price that rather than the
+        # notebook's configuration. They differ between a resize and the restart that applies it.
+        is_live = status in (KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING)
+        priced = self._priced_shape(
+            runtime if is_live else None,
+            ComputeShape(cpu_cores=cpu_cores, memory_gb=sandbox_config.memory_gb),
         )
+        payload = {
+            "backend": backend,
+            "status": status,
+            "last_used_at": runtime.last_used_at.isoformat() if runtime else None,
+            "last_error": runtime.last_error if runtime else None,
+            "runtime_id": str(runtime.id) if runtime else None,
+            "kernel_id": runtime.kernel_id if runtime else None,
+            "kernel_pid": runtime.kernel_pid if runtime else None,
+            "sandbox_id": runtime.sandbox_id if runtime else None,
+            # Journey 7: what a SQL node can currently SELECT from. Gated twice. On the
+            # live-checked status, not runtime.status — the row above is the latest by
+            # last_used_at regardless of state, and a dead kernel's frames are not
+            # SELECT-able. And on query access, because these are column names and types
+            # derived from the user's data: notebook access alone gates liveness (which is
+            # all this endpoint used to return), but not schema. The rest of SQLV2 draws
+            # that line already; this keeps the endpoint's existing surface ungated.
+            "frames": (
+                (runtime.frames or [])
+                if runtime and status == KernelRuntime.Status.RUNNING and self._has_query_access()
+                else []
+            ),
+            "cpu_cores": cpu_cores,
+            "memory_gb": sandbox_config.memory_gb,
+            "disk_size_gb": sandbox_config.disk_size_gb,
+            "idle_timeout_seconds": sandbox_config.ttl_seconds,
+            "hourly_price": get_compute_rates().hourly_price(cpu_cores=priced.cpu_cores, memory_gb=priced.memory_gb),
+            "preset_key": self._preset_key_for(priced.cpu_cores, priced.memory_gb),
+        }
+        return Response(NotebookKernelStatusResponseSerializer(payload).data)
 
     @extend_schema(
         request=NotebookKernelConfigSerializer,
@@ -953,6 +1374,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer.is_valid(raise_exception=True)
         notebook = self._get_notebook_for_kernel()
         update_fields = []
+        # A sandbox takes its size at provision time, so a live one keeps the old shape until it
+        # restarts. Capture the shape before the write as the fallback baseline for the restart
+        # decision, used when no runtime has recorded the running shape.
+        shape_before = build_notebook_sandbox_config(notebook)
 
         if "cpu_cores" in serializer.validated_data:
             notebook.kernel_cpu_cores = serializer.validated_data["cpu_cores"]
@@ -967,18 +1392,139 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if notebook.pk:
             notebook.save(update_fields=update_fields)
 
-        return Response(
-            {
-                "cpu_cores": notebook.kernel_cpu_cores,
-                "memory_gb": notebook.kernel_memory_gb,
-                "idle_timeout_seconds": notebook.kernel_idle_timeout_seconds,
-                "restart_required": KernelRuntime.objects.filter(
-                    team_id=self.team_id,
-                    notebook_short_id=notebook.short_id,
-                    status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
-                ).exists(),
-            }
+        # Price the shape the next sandbox will actually get, so a notebook that leaves one knob
+        # unset is still quoted against the default that fills it in.
+        configured = build_notebook_sandbox_config(notebook)
+        # Scoped to the requester, like kernel_status: runtimes are per user, and restarting on a
+        # collaborator's row would provision a paid sandbox for whoever called this while leaving
+        # that collaborator on the old shape.
+        config_user = self._current_user()
+        live_runtime = (
+            KernelRuntime.objects.filter(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user=config_user if isinstance(config_user, User) else None,
+                status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
+            )
+            .order_by("-last_used_at")
+            .first()
         )
+        # A RUNNING row can outlive its sandbox, and restarting on a stale one would turn a
+        # config-only call into new paid compute. Confirm the sandbox before acting on the row.
+        kernel_is_live = live_runtime is not None and self._sandbox_is_running(notebook, config_user, live_runtime)
+        # Compare the desired shape against what the running sandbox was provisioned with, not just
+        # this request's change, so a retry after a failed restart still triggers one. Fall back to
+        # the pre-write config when no runtime has recorded a shape.
+        running = self._priced_shape(
+            live_runtime,
+            ComputeShape(cpu_cores=shape_before.cpu_cores, memory_gb=shape_before.memory_gb),
+        )
+        shape_changed = (
+            abs(running.cpu_cores - configured.cpu_cores) > 1e-6 or abs(running.memory_gb - configured.memory_gb) > 1e-6
+        )
+
+        # Restart on a resize so the quoted price describes the sandbox that is actually running.
+        # Only on a resize: a restart discards every materialized dataframe, which is too much to
+        # spend on an idle-timeout change that a live sandbox cannot pick up anyway.
+        restarted = False
+        if kernel_is_live and shape_changed:
+            try:
+                get_kernel_runtime(notebook, config_user).restart()
+                restarted = True
+            except (SandboxProvisionError, RuntimeError):
+                logger.exception("notebook_kernel_config_restart_failed", notebook_short_id=notebook.short_id)
+                # The configuration stays saved: it is what the next sandbox gets. Status prices
+                # the runtime's own shape while one is alive, so a failed restart no longer makes
+                # the panel quote a sandbox nobody is on.
+
+        # Price the same thing status prices, so the field does not mean the running sandbox on
+        # one endpoint and the configuration on the other. After a restart this is the new
+        # sandbox; after a failed one it is the old sandbox still serving the notebook.
+        priced_runtime = (
+            KernelRuntime.objects.filter(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user=config_user if isinstance(config_user, User) else None,
+                status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
+            )
+            .order_by("-last_used_at")
+            .first()
+        )
+        priced = self._priced_shape(
+            priced_runtime,
+            ComputeShape(cpu_cores=configured.cpu_cores, memory_gb=configured.memory_gb),
+        )
+        config_payload = {
+            "cpu_cores": notebook.kernel_cpu_cores,
+            "memory_gb": notebook.kernel_memory_gb,
+            "idle_timeout_seconds": notebook.kernel_idle_timeout_seconds,
+            "restarted": restarted,
+            "restart_required": kernel_is_live and not restarted,
+            "hourly_price": get_compute_rates().hourly_price(cpu_cores=priced.cpu_cores, memory_gb=priced.memory_gb),
+            "preset_key": self._preset_key_for(priced.cpu_cores, priced.memory_gb),
+        }
+        return Response(NotebookKernelConfigResponseSerializer(config_payload).data)
+
+    def _priced_shape(self, runtime: KernelRuntime | None, fallback: ComputeShape) -> ComputeShape:
+        """The shape hourly_price describes: what a live sandbox runs, else what the next one gets.
+
+        Both kernel endpoints price through this so the field means one thing. A runtime from
+        before the shape was recorded reads as unknown and falls back.
+        """
+        if runtime and runtime.provisioned_cpu_cores is not None and runtime.provisioned_memory_gb is not None:
+            return ComputeShape(cpu_cores=runtime.provisioned_cpu_cores, memory_gb=runtime.provisioned_memory_gb)
+        return fallback
+
+    def _sandbox_is_running(self, notebook: Notebook, user: Any, runtime: KernelRuntime) -> bool:
+        """Whether the runtime row still has a sandbox behind it, the check kernel_status makes."""
+        if not runtime.sandbox_id or runtime.backend not in (
+            KernelRuntime.Backend.MODAL,
+            KernelRuntime.Backend.DOCKER,
+        ):
+            return False
+        try:
+            service = get_kernel_runtime(notebook, user).service
+            sandbox = service._get_sandbox_class(runtime.backend).get_by_id(runtime.sandbox_id)
+            return sandbox.get_status() == SandboxStatus.RUNNING
+        except Exception:
+            return False
+
+    @staticmethod
+    def _preset_key_for(cpu_cores: float | None, memory_gb: float | None) -> str | None:
+        preset = find_matching_preset(cpu_cores=cpu_cores, memory_gb=memory_gb)
+        return preset.key if preset else None
+
+    @extend_schema(
+        responses={200: NotebookComputeOptionsResponseSerializer},
+        description=(
+            "Compute rates, presets, and the sizes the kernel config endpoint accepts. Static per region, "
+            "so a client can fetch it once and price any shape a user picks."
+        ),
+    )
+    @action(methods=["GET"], url_path="kernel/compute_options", detail=False, required_scopes=["notebook:read"])
+    def kernel_compute_options(self, request: Request, **kwargs) -> Response:
+        rates = get_compute_rates()
+        options_payload = {
+            "currency": "USD",
+            "cpu_rate_per_core_hour": rates.cpu_per_core_hour,
+            "memory_rate_per_gb_hour": rates.memory_per_gb_hour,
+            "default_preset_key": DEFAULT_COMPUTE_PRESET_KEY,
+            "presets": [
+                {
+                    "key": preset.key,
+                    "name": preset.name,
+                    "description": preset.description,
+                    "cpu_cores": preset.cpu_cores,
+                    "memory_gb": preset.memory_gb,
+                    "hourly_price": rates.hourly_price(cpu_cores=preset.cpu_cores, memory_gb=preset.memory_gb),
+                }
+                for preset in COMPUTE_PRESETS
+            ],
+            "allowed_cpu_cores": ALLOWED_KERNEL_CPU_CORES,
+            "allowed_memory_gb": ALLOWED_KERNEL_MEMORY_GB,
+            "allowed_idle_timeout_seconds": ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS,
+        }
+        return Response(NotebookComputeOptionsResponseSerializer(options_payload).data)
 
     @action(methods=["POST"], url_path="kernel/execute", detail=True)
     def kernel_execute(self, request: Request, **kwargs):
@@ -1142,10 +1688,26 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     @extend_schema(
         request=NotebookSQLV2RunRequestSerializer,
-        responses={200: NotebookSQLV2RunResponseSerializer},
+        responses={
+            200: NotebookSQLV2RunResponseSerializer,
+            409: OpenApiResponse(
+                description=(
+                    "The notebook already has a cell running. Wait for it to finish, then run this one. "
+                    "A conflict with the notebook's state rather than a rate, so it is not worth retrying "
+                    "on a timer."
+                )
+            ),
+            429: OpenApiResponse(
+                description=(
+                    "The project has as many notebook cells in flight as it may. Unlike the 409, retrying "
+                    "shortly is the right response."
+                )
+            ),
+        },
         description=(
             "Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; "
-            "poll the run result endpoint until the status is terminal. Flag-gated (revamped-py-notebooks)."
+            "poll the run result endpoint until the status is terminal. One run at a time per notebook. "
+            "Flag-gated (revamped-py-notebooks)."
         ),
     )
     @action(methods=["POST"], url_path="sql_v2/run", detail=True, required_scopes=["notebook:write", "query:read"])
@@ -1237,40 +1799,69 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     cross_engine_error.format(name=name) if spec["node_id"] in other_engine_nodes else None
                 ),
             )
+        # The notebook's variables as of this run. A SQL node has them bound into its code
+        # below; a python node carries them to the kernel, which binds them as globals.
+        variables = build_notebook_variables(serializer.validated_data.get("variables") or [], self.team.timezone_info)
         try:
             if node_type == "python":
                 # A python node stores its code as-is; referenced frames become kernel inputs,
                 # keyed by the upstream run_id so a re-run yields a fresh (not stale) frame.
-                run_code, inputs = code, resolve_python_node_inputs(code, refs)
+                plan = SQLV2RunPlan(node_type="python", code=code, inputs=resolve_python_node_inputs(code, refs))
             elif send_raw_query:
                 # Raw SQL is the connection's own dialect, so the HogQL parser can't read it and
-                # there is nothing to inline: it reaches the engine exactly as written.
-                run_code, inputs = code, []
+                # there is nothing to inline: it reaches the engine exactly as written. Variables
+                # are refused here rather than escaped by hand — see reject_variables_in_raw_query.
+                reject_variables_in_raw_query(code, variables)
+                plan = SQLV2RunPlan(node_type="hogql", code=code, inputs=[])
             else:
                 # A SQL node pushes to ClickHouse — unless it references a local frame, which
                 # reroutes it to the sandbox's DuckDB (Journey 5).
-                node_type, run_code, inputs = resolve_sql_node_run(code, refs)
+                plan = resolve_sql_node_run(code, refs, variables)
         # ExposedHogQLError: with refs present the user's own code is parsed at dispatch, so a
         # plain typo raises here — it's a bad query (400 with the parse message), not a 500.
-        except (SQLV2ReferenceError, ExposedHogQLError) as e:
+        except (SQLV2ReferenceError, NotebookVariableError, ExposedHogQLError) as e:
             return Response({"detail": str(e)}, status=400)
 
-        run = NotebookNodeRun.objects.create(
-            team_id=self.team_id,
-            notebook=notebook,
-            # The same user the run's kernel is resolved for, so the callback can scope the
-            # frame snapshot to that kernel. A token user has no kernel of its own, hence None.
-            user=user if isinstance(user, User) else None,
-            node_id=serializer.validated_data["node_id"],
-            code=run_code,
-            node_type=node_type,
-            connection_id=connection_id,
-            send_raw_query=send_raw_query,
-            status=NotebookNodeRun.Status.RUNNING,
-        )
+        # Taken before the row exists, so a refused dispatch writes nothing: an agent retrying
+        # into a full ceiling must not leave a trail of rows behind it. The id is minted here
+        # because the slot is keyed on it and has to be released by the run that took it.
+        # Not `run_id`: the ref-inlining loop above binds that name to each *upstream* run, and
+        # reusing it here would leave two different runs behind one variable.
+        new_run_id = uuid7()
+        try:
+            acquire_run_slots(self.team_id, notebook.short_id, str(new_run_id))
+        except NotebookRunBusy as e:
+            # 409, not 429: a conflict with the notebook's state rather than a rate. The MCP
+            # client retries every 429 with backoff and then replaces the body with its own
+            # rate-limit message, so a 429 here would cost an agent seconds of pointless waiting
+            # and hide the sentence telling it to wait for the running cell.
+            return Response({"detail": str(e)}, status=409)
+        except TeamRunCapacityFull as e:
+            return Response({"detail": str(e)}, status=429)
 
         try:
-            if node_type == NotebookNodeRun.NodeType.HOGQL:
+            run = NotebookNodeRun.objects.create(
+                id=new_run_id,
+                team_id=self.team_id,
+                notebook=notebook,
+                # The same user the run's kernel is resolved for, so the callback can scope the
+                # frame snapshot to that kernel. A token user has no kernel of its own, hence None.
+                user=user if isinstance(user, User) else None,
+                node_id=serializer.validated_data["node_id"],
+                code=plan.code,
+                node_type=plan.node_type,
+                connection_id=connection_id,
+                send_raw_query=send_raw_query,
+                status=NotebookNodeRun.Status.RUNNING,
+            )
+        except Exception:
+            # No row means no release site will ever learn this run id, so hand the slots back
+            # here or the notebook stays blocked with nothing running in it.
+            release_run_slots(self.team_id, notebook.short_id, str(new_run_id))
+            raise
+
+        try:
+            if plan.node_type == "hogql":
                 # Direct lane: a pure-HogQL run never touches the sandbox — it rides the
                 # async query manager, and the run-result poll advances the row.
                 enqueue_direct_run(self.team, user if isinstance(user, User) else None, run)
@@ -1281,10 +1872,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                         notebook_short_id=notebook.short_id,
                         team_id=self.team_id,
                         user_id=user.id if isinstance(user, User) else None,
-                        code=run_code,
-                        node_type=node_type,
+                        code=plan.code,
+                        node_type=plan.node_type,
                         output_name=output_name,
-                        inputs=inputs,
+                        inputs=plan.inputs,
+                        # A python node reads these as globals; a duckdb node binds them as
+                        # `$name` query parameters, so it carries only the ones its SQL uses.
+                        variables=(
+                            python_variable_bindings(variables) if plan.node_type == "python" else plan.variables
+                        ),
                     )
                 )
         except Exception:
@@ -1294,7 +1890,38 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             finish_node_run(run, NotebookNodeRun.Status.FAILED, error="Failed to start run.")
             return Response({"detail": "Failed to start run."}, status=503)
 
-        return Response({"run_id": str(run.id)})
+        # Whether this run has to build a sandbox, decided here rather than inferred by a client
+        # from a kernel status poll that can be ten seconds old. That cache could stay silent
+        # through a sandbox that timed out between polls, which is the one case worth disclosing.
+        uses_sandbox = plan.node_type != "hogql"
+        live_runtime = (
+            KernelRuntime.objects.filter(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user=user if isinstance(user, User) else None,
+                status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
+            )
+            .order_by("-last_used_at")
+            .first()
+            if uses_sandbox
+            else None
+        )
+        starts_sandbox = uses_sandbox and not (
+            live_runtime is not None and self._sandbox_is_running(notebook, user, live_runtime)
+        )
+        sandbox_config = build_notebook_sandbox_config(notebook) if starts_sandbox else None
+        run_payload = {
+            "run_id": str(run.id),
+            "starts_sandbox": starts_sandbox,
+            # Only a modal sandbox is charged, so a docker kernel carries no price to disclose.
+            "sandbox_hourly_price": (
+                get_compute_rates().hourly_price(cpu_cores=sandbox_config.cpu_cores, memory_gb=sandbox_config.memory_gb)
+                if sandbox_config is not None
+                and get_kernel_runtime(notebook, user).service._get_backend() == KernelRuntime.Backend.MODAL
+                else None
+            ),
+        }
+        return Response(NotebookSQLV2RunResponseSerializer(run_payload).data)
 
     @extend_schema(
         parameters=[

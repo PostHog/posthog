@@ -43,10 +43,10 @@ export const BlankEnumApi = {
  * * `NoOp` - Noop
  * * `FileDownload` - File Download
  */
-export type BatchExportDestinationTypeEnumApi =
-    (typeof BatchExportDestinationTypeEnumApi)[keyof typeof BatchExportDestinationTypeEnumApi]
+export type BatchExportDestinationDestinationEnumApi =
+    (typeof BatchExportDestinationDestinationEnumApi)[keyof typeof BatchExportDestinationDestinationEnumApi]
 
-export const BatchExportDestinationTypeEnumApi = {
+export const BatchExportDestinationDestinationEnumApi = {
     S3: 'S3',
     AwsS3: 'AwsS3',
     S3Compatible: 'S3Compatible',
@@ -335,6 +335,105 @@ export interface SnowflakeDestinationConfigApi {
     type: SnowflakeDestinationConfigApiType
 }
 
+/**
+ * * `varchar` - varchar
+ * * `super` - super
+ */
+export type PropertiesDataTypeEnumApi = (typeof PropertiesDataTypeEnumApi)[keyof typeof PropertiesDataTypeEnumApi]
+
+export const PropertiesDataTypeEnumApi = {
+    Varchar: 'varchar',
+    Super: 'super',
+} as const
+
+/**
+ * * `INSERT` - INSERT
+ * * `COPY` - COPY
+ */
+export type RedshiftExportModeEnumApi = (typeof RedshiftExportModeEnumApi)[keyof typeof RedshiftExportModeEnumApi]
+
+export const RedshiftExportModeEnumApi = {
+    Insert: 'INSERT',
+    Copy: 'COPY',
+} as const
+
+/**
+ * Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.
+ */
+export type RedshiftCopyInputsApiAuthorization =
+    | number
+    | string
+    | {
+          aws_access_key_id: string
+          aws_secret_access_key: string
+      }
+
+/**
+ * Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.
+ */
+export type RedshiftCopyInputsApiBucketCredentials =
+    | number
+    | {
+          aws_access_key_id: string
+          aws_secret_access_key: string
+      }
+
+/**
+ * S3 staging configuration for a Redshift batch export running in COPY mode.
+ */
+export interface RedshiftCopyInputsApi {
+    /** S3 bucket where files are staged before the Redshift COPY. */
+    s3_bucket: string
+    /** AWS region of the staging S3 bucket. */
+    region_name: string
+    /** Key prefix for staged files in the S3 bucket. */
+    s3_key_prefix: string
+    /** Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration. */
+    authorization: RedshiftCopyInputsApiAuthorization
+    /** Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration. */
+    bucket_credentials: RedshiftCopyInputsApiBucketCredentials
+}
+
+export type RedshiftDestinationConfigApiType =
+    (typeof RedshiftDestinationConfigApiType)[keyof typeof RedshiftDestinationConfigApiType]
+
+export const RedshiftDestinationConfigApiType = {
+    Redshift: 'Redshift',
+} as const
+
+/**
+ * Typed configuration for a Redshift batch-export destination.
+ *
+ * Connection credentials may live in a linked Integration (when one is provided) or inline in
+ * this config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
+ * `products/batch_exports/backend/service.py`.
+ */
+export interface RedshiftDestinationConfigApi {
+    /** Redshift database name to connect to. */
+    database: string
+    /** Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves. */
+    host?: string
+    /** Redshift schema name containing the destination table. */
+    schema?: string
+    /** Redshift table name to write exported rows into. */
+    table_name?: string
+    /** Port the Redshift server listens on. */
+    port?: number
+    /** Data type used for JSON-like columns such as event properties.
+     *
+     * * `varchar` - varchar
+     * * `super` - super */
+    properties_data_type?: PropertiesDataTypeEnumApi
+    /** How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.
+     *
+     * * `INSERT` - INSERT
+     * * `COPY` - COPY */
+    mode?: RedshiftExportModeEnumApi
+    /** S3 staging configuration, required when mode is 'COPY'. */
+    copy_inputs?: RedshiftCopyInputsApi
+    type: RedshiftDestinationConfigApiType
+}
+
 export type BatchExportDestinationConfigApi =
     | DatabricksDestinationConfigApi
     | AzureBlobDestinationConfigApi
@@ -343,14 +442,15 @@ export type BatchExportDestinationConfigApi =
     | AwsS3DestinationConfigApi
     | S3CompatibleDestinationConfigApi
     | SnowflakeDestinationConfigApi
+    | RedshiftDestinationConfigApi
 
 /**
  * Serializer for an BatchExportDestination model.
  *
  * The `config` field is polymorphic and typed only for destinations that keep
  * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
- * AwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a
- * typed OpenAPI schema. Secret fields are stripped from `config` on read.
+ * AwsS3, S3Compatible, Snowflake, Redshift). Other destination types accept the same JSON shape
+ * but without a typed OpenAPI schema. Secret fields are stripped from `config` on read.
  */
 export interface BatchExportDestinationApi {
     /** A choice of supported BatchExportDestination types.
@@ -368,8 +468,8 @@ export interface BatchExportDestinationApi {
      * * `HTTP` - Http
      * * `NoOp` - Noop
      * * `FileDownload` - File Download */
-    type: BatchExportDestinationTypeEnumApi
-    /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+    type: BatchExportDestinationDestinationEnumApi
+    /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
     config: BatchExportDestinationConfigApi
     /**
      * The integration for this destination.
@@ -377,7 +477,7 @@ export interface BatchExportDestinationApi {
      */
     integration?: number | null
     /**
-     * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.
+     * ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake, which still supports inline credentials.
      * @nullable
      */
     integration_id?: number | null
@@ -1274,7 +1374,7 @@ export const AwsS3DestinationRequestApiType = {
  */
 export interface AwsS3DestinationRequestApi {
     type: AwsS3DestinationRequestApiType
-    /** ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+    /** ID of an aws-s3-kind Integration providing AWS credentials. Use the integrations-list MCP tool to find one. */
     integration_id: number
     config: AwsS3DestinationConfigApi
 }
@@ -1291,7 +1391,7 @@ export const S3CompatibleDestinationRequestApiType = {
  */
 export interface S3CompatibleDestinationRequestApi {
     type: S3CompatibleDestinationRequestApiType
-    /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+    /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Use the integrations-list MCP tool to find one. */
     integration_id: number
     config: S3CompatibleDestinationConfigApi
 }
@@ -1313,6 +1413,23 @@ export interface SnowflakeDestinationRequestApi {
     config: SnowflakeDestinationConfigApi
 }
 
+export type RedshiftDestinationRequestApiType =
+    (typeof RedshiftDestinationRequestApiType)[keyof typeof RedshiftDestinationRequestApiType]
+
+export const RedshiftDestinationRequestApiType = {
+    Redshift: 'Redshift',
+} as const
+
+/**
+ * Request shape for creating or updating a Redshift batch-export destination.
+ */
+export interface RedshiftDestinationRequestApi {
+    type: RedshiftDestinationRequestApiType
+    /** ID of an aws-redshift-kind Integration providing connection credentials. Use the integrations-list MCP tool to find one. */
+    integration_id: number
+    config: RedshiftDestinationConfigApi
+}
+
 export type BatchExportDestinationRequestApi =
     | DatabricksDestinationRequestApi
     | AzureBlobDestinationRequestApi
@@ -1321,6 +1438,7 @@ export type BatchExportDestinationRequestApi =
     | AwsS3DestinationRequestApi
     | S3CompatibleDestinationRequestApi
     | SnowflakeDestinationRequestApi
+    | RedshiftDestinationRequestApi
 
 /**
  * Request body for create/partial_update on BatchExportViewSet.
@@ -1763,6 +1881,39 @@ export interface FileDownloadBatchExportOnDemandApi {
 }
 
 /**
+ * * `hogql` - hogql
+ */
+export type FileDownloadHogQLModelEnumApi =
+    (typeof FileDownloadHogQLModelEnumApi)[keyof typeof FileDownloadHogQLModelEnumApi]
+
+export const FileDownloadHogQLModelEnumApi = {
+    Hogql: 'hogql',
+} as const
+
+/**
+ * Request shape for counting the rows a file download batch export would produce.
+ */
+export interface FileDownloadCountRowsRequestApi {
+    /** Model to count rows for. Only 'hogql' is supported.
+     *
+     * * `hogql` - hogql */
+    model: FileDownloadHogQLModelEnumApi
+    /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+    hogql_query: string
+}
+
+/**
+ * Typed output for view set `count_rows`.
+ */
+export interface FileDownloadCountRowsResponseApi {
+    /**
+     * Number of rows the query returns now. A HogQL batch export runs its query as of the time the export starts, so a run started now would export this many rows.
+     * @minimum 0
+     */
+    count: number
+}
+
+/**
  * * `events` - events
  */
 export type FileDownloadEventsRequestModelEnumApi =
@@ -1790,16 +1941,6 @@ export type FileDownloadSessionsRequestModelEnumApi =
 
 export const FileDownloadSessionsRequestModelEnumApi = {
     Sessions: 'sessions',
-} as const
-
-/**
- * * `hogql` - hogql
- */
-export type FileDownloadHogQLRequestModelEnumApi =
-    (typeof FileDownloadHogQLRequestModelEnumApi)[keyof typeof FileDownloadHogQLRequestModelEnumApi]
-
-export const FileDownloadHogQLRequestModelEnumApi = {
-    Hogql: 'hogql',
 } as const
 
 /**
@@ -1914,6 +2055,16 @@ export const SnowflakeDestinationRequestTypeEnumApi = {
     Snowflake: 'Snowflake',
 } as const
 
+/**
+ * * `Redshift` - Redshift
+ */
+export type RedshiftDestinationRequestTypeEnumApi =
+    (typeof RedshiftDestinationRequestTypeEnumApi)[keyof typeof RedshiftDestinationRequestTypeEnumApi]
+
+export const RedshiftDestinationRequestTypeEnumApi = {
+    Redshift: 'Redshift',
+} as const
+
 export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
@@ -1938,14 +2089,62 @@ export type BatchExportsBackfillsListParams = {
 
 export type BatchExportsRunsListParams = {
     /**
+     * Only return runs created at or after this point. Accepts an ISO-8601 datetime or a relative value like `-7d`. Defaults to `-7d`. Ignored when ordering by `data_interval_start`.
+     */
+    after?: string
+    /**
+     * Only return runs created at or before this point. Accepts an ISO-8601 datetime or a relative value like `-1d`. Defaults to now. Ignored when ordering by `data_interval_start`.
+     */
+    before?: string
+    /**
      * The pagination cursor value.
      */
     cursor?: string
     /**
+     * Only return runs whose data interval ends at or before this point. Accepts an ISO-8601 datetime or a relative value like `-1d`. Defaults to now. Only applies when ordering by `data_interval_start`.
+     */
+    end?: string
+    /**
      * Which field to use when ordering the results.
      */
     ordering?: string
+    /**
+     * Only return runs whose data interval starts at or after this point. Accepts an ISO-8601 datetime or a relative value like `-7d`. Defaults to `-7d`. Only applies when ordering by `data_interval_start`.
+     */
+    start?: string
+    /**
+     * Only return runs in these statuses. Repeat the parameter to pass more than one status.
+     */
+    status?: BatchExportsRunsListStatusItem[]
 }
+
+/**
+ * * `Cancelled` - Cancelled
+ * * `Completed` - Completed
+ * * `ContinuedAsNew` - Continued As New
+ * * `Failed` - Failed
+ * * `FailedRetryable` - Failed Retryable
+ * * `FailedBilling` - Failed Billing
+ * * `Terminated` - Terminated
+ * * `TimedOut` - Timedout
+ * * `Running` - Running
+ * * `Starting` - Starting
+ */
+export type BatchExportsRunsListStatusItem =
+    (typeof BatchExportsRunsListStatusItem)[keyof typeof BatchExportsRunsListStatusItem]
+
+export const BatchExportsRunsListStatusItem = {
+    Cancelled: 'Cancelled',
+    Completed: 'Completed',
+    ContinuedAsNew: 'ContinuedAsNew',
+    Failed: 'Failed',
+    FailedRetryable: 'FailedRetryable',
+    FailedBilling: 'FailedBilling',
+    Terminated: 'Terminated',
+    TimedOut: 'TimedOut',
+    Running: 'Running',
+    Starting: 'Starting',
+} as const
 
 export type BatchExportsRunsLogsRetrieveParams = {
     /**

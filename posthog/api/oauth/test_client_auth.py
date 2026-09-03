@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from django.contrib.auth.hashers import make_password
 from django.test import SimpleTestCase
 
@@ -32,6 +34,10 @@ class TestVerifyClientSecret(SimpleTestCase):
         # a credential-less request and every confidential app that holds no secret.
         assert OAuthValidator()._check_secret("", make_password("")) is False
         assert OAuthValidator()._check_secret("s3cret", make_password("s3cret")) is True
+
+    @parameterized.expand([("missing", None), ("blank", "")])
+    def test_validator_skips_application_lookup_without_client_id(self, _name, client_id):
+        assert OAuthValidator()._load_application(client_id, SimpleNamespace(client=None)) is None
 
 
 class TestCredentialRepr(SimpleTestCase):

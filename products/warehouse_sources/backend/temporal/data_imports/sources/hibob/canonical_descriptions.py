@@ -43,4 +43,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "listName": "Name of the task list the task belongs to.",
         },
     },
+    "time_off_calendars": {
+        "description": "The holiday calendar that applies to each employee, resolved from their employment override or their site default.",
+        "docs_url": "https://apidocs.hibob.com/reference/post_timeoff-calendars-employees-search",
+        "columns": {
+            "employeeId": "Identifier of the employee the calendar is resolved for.",
+            "calendarId": "Identifier of the resolved holiday calendar, or null when no calendar applies.",
+            "calendarName": "Display name of the resolved holiday calendar, or null when no calendar applies.",
+            "source": "How the calendar was resolved: employment (an employment override), site (the site default), or none.",
+            "siteId": "Identifier of the employee's site, or null when they have no site.",
+        },
+    },
 }

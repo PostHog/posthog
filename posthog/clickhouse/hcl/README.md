@@ -83,9 +83,9 @@ reconciling a new role.
 Every role `manifest.hcl` composes for the gate's env is dumped and gated — for `local-multi` that is
 each node the multinode stack runs, one per published port in `dump-live.sh`'s `ROLES`, compared
 against its `golden/local-multi/<role>.hcl` (`aux` is filed as `auxiliary`, see `golden_name` in
-`lib.sh`). Every logs node composes `roles/logs/{base,traces,traces_kafka_metrics}`; the local one
-adds a self-contained `roles/logs/local` (extracted from the live node) for the legacy `logs32`
-family it still runs, and skips the cloud-only metrics ingest in `roles/logs/cloud`.
+`lib.sh`). Every logs node composes `roles/logs/{base,traces,traces_kafka_metrics,metrics}`; the
+local one adds a self-contained `roles/logs/local` (extracted from the live node) for the legacy
+`logs32` family it still runs.
 
 `node_roles` is **derived**: an object in `roles/shared/` appears in every node's composition →
 `node_roles` = every role the manifest declares; an object under `roles/ops/` appears only in the ops

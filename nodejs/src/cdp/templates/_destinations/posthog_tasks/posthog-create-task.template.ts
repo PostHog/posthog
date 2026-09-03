@@ -41,6 +41,10 @@ if (not empty(inputs.connectors)) {
   payload.connectors := inputs.connectors
 }
 
+if (not empty(inputs.skills)) {
+  payload.skills := inputs.skills
+}
+
 if (not empty(inputs.posthog_mcp_scopes)) {
   payload.posthog_mcp_scopes := inputs.posthog_mcp_scopes
 }
@@ -115,7 +119,16 @@ return response.body
             secret: false,
             required: false,
             description:
-                'Connectors from the MCP store the agent can use. Team-shared connections and the workflow creator’s own connections are available.',
+                'MCP servers the agent can use. Only servers shared with everyone in this project can be selected.',
+        },
+        {
+            key: 'skills',
+            type: 'task_skills',
+            label: 'Skills',
+            secret: false,
+            required: false,
+            description:
+                'Skills from your project’s skills store. The agent gets a short summary of each one and reads the full skill when it needs it. Always the latest saved version.',
         },
         {
             key: 'posthog_mcp_scopes',
@@ -143,6 +156,8 @@ return response.body
         {
             // Only meaningful on a Slack-triggered workflow; the builder hides it for other
             // triggers, and the hog code above no-ops when the trigger event isn't a Slack message.
+            // Off, the backend sees no slack_context and ends the run when the agent finishes;
+            // on, the run stays open for its idle window so the thread reply can relay.
             key: 'reply_in_slack_thread',
             type: 'boolean',
             label: 'Reply in the Slack thread',
@@ -151,7 +166,7 @@ return response.body
             default: true,
             templating: false,
             description:
-                'The agent posts its updates as replies in the Slack thread that started this workflow. Replies in that thread are sent to the agent.',
+                'The agent posts its updates as replies in the Slack thread that started this workflow. Replies in that thread are sent to the agent. The run stays open for about 2 minutes after the agent finishes so replies can reach it.',
         },
         {
             // The engine treats a 4xx as a step failure before the code above runs, unless the

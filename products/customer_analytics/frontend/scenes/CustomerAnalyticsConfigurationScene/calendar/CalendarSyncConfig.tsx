@@ -11,6 +11,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { ICONS } from 'lib/integrations/utils'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { calendarSyncLogic } from './calendarSyncLogic'
 
@@ -21,14 +22,18 @@ export function CalendarSyncConfig(): JSX.Element {
     const { deleteIntegration } = useActions(integrationsLogic)
     const { statusByIntegrationId, triggeringIntegrationIds } = useValues(calendarSyncLogic)
     const { syncNow } = useActions(calendarSyncLogic)
-    const restrictedReason = useRestrictedArea({
+    const { user } = useValues(userLogic)
+    const adminRestrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
     const calendarIntegrations = integrations?.filter((integration) => integration.kind === 'google-calendar') ?? []
+    const managementRestrictedReason = (createdById?: number): string | null =>
+        createdById === user?.id ? null : adminRestrictedReason
     const needsEmailPermission = calendarIntegrations.some(
         (integration) =>
+            !managementRestrictedReason(integration.created_by?.id) &&
             !String(integration.config?.scope ?? '')
                 .split(' ')
                 .includes(GMAIL_READONLY_SCOPE)
@@ -56,6 +61,7 @@ export function CalendarSyncConfig(): JSX.Element {
             {calendarIntegrations.map((integration) => {
                 const syncStatus = statusByIntegrationId[integration.id]
                 const isSyncing = !!syncStatus?.is_syncing || triggeringIntegrationIds.includes(integration.id)
+                const restrictedReason = managementRestrictedReason(integration.created_by?.id)
                 return (
                     <IntegrationView
                         key={integration.id}

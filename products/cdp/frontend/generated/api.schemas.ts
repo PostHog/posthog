@@ -284,6 +284,8 @@ export const HogFunctionTypeEnumApi = {
  * * `task_model` - task_model
  * * `task_repository` - task_repository
  * * `task_mcp_installations` - task_mcp_installations
+ * * `signals_scout` - signals_scout
+ * * `task_skills` - task_skills
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -308,6 +310,8 @@ export const InputsSchemaItemTypeEnumApi = {
     TaskModel: 'task_model',
     TaskRepository: 'task_repository',
     TaskMcpInstallations: 'task_mcp_installations',
+    SignalsScout: 'signals_scout',
+    TaskSkills: 'task_skills',
 } as const
 
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }
@@ -333,6 +337,7 @@ export interface InputsSchemaItemApi {
 
 /**
  * * `events` - events
+ * * `internal-events` - internal-events
  * * `person-updates` - person-updates
  * * `data-warehouse-table` - data-warehouse-table
  * * `data-warehouse-view` - data-warehouse-view
@@ -342,6 +347,7 @@ export type HogFunctionFiltersSourceEnumApi =
 
 export const HogFunctionFiltersSourceEnumApi = {
     Events: 'events',
+    InternalEvents: 'internal-events',
     PersonUpdates: 'person-updates',
     DataWarehouseTable: 'data-warehouse-table',
     DataWarehouseView: 'data-warehouse-view',

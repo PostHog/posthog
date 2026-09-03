@@ -27,6 +27,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import is_mcp_request
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 
 from ..facade import api, contracts
@@ -41,6 +42,7 @@ from ..facade.contracts import (
     UpdateRepoInput,
     UpdateRepoRequestInput,
 )
+from ..facade.enums import ActorType
 from .serializers import (
     AddSnapshotsInputSerializer,
     AddSnapshotsResultSerializer,
@@ -62,8 +64,19 @@ from .serializers import (
     SnapshotHistoryEntrySerializer,
     SnapshotSerializer,
     ToleratedHashEntrySerializer,
+    UnquarantineQuerySerializer,
     UpdateRepoInputSerializer,
 )
+
+
+def _actor(request: Request) -> ActorType:
+    """Who is making this write, for attribution on the row it creates.
+
+    `is_mcp_request` needs both a scoped token and the MCP server's user agent, so a
+    browser session is never recorded as an agent. The marker is client-supplied, so
+    this attributes a write and must never gate one.
+    """
+    return ActorType.AGENT if is_mcp_request(request) else ActorType.HUMAN
 
 
 def _parse_uuid(value: str, field: str = "id") -> UUID:
@@ -271,22 +284,23 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 input=request.validated_data,
                 user_id=cast(int, request.user.id),
                 team_id=self.team_id,
+                source=_actor(request),
             )
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(QuarantinedIdentifierEntrySerializer(instance=entry).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
-        request_serializer=QuarantineInputSerializer,
+        request_serializer=UnquarantineQuerySerializer,
         responses={204: None},
     )
     @action(detail=True, methods=["post"], url_path=r"quarantine/(?P<run_type>[^/]+)/expire")
-    def unquarantine(self, request: TypedRequest[QuarantineInput], pk: str, run_type: str, **kwargs) -> Response:
+    def unquarantine(self, request: TypedRequest, pk: str, run_type: str, **kwargs) -> Response:
         """Expire all active quarantine entries for an identifier."""
         try:
             api.unquarantine_identifier(
                 repo_id=_parse_uuid(pk),
-                identifier=request.validated_data.identifier,
+                identifier=request.validated_data["identifier"],
                 run_type=run_type,
                 team_id=self.team_id,
             )
@@ -320,12 +334,14 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
         responses={200: FlakinessOverviewSerializer},
         description=(
-            "Snapshots in a repo whose rendering cannot be trusted: those carrying at least one "
-            "live tolerated variant against their current baseline, and those under an active "
-            "quarantine. Everything else is omitted, so this is far smaller than the baselines "
-            "universe; `totals.tracked` gives the full denominator. Variant counts are scoped to "
-            "the current baseline hash, because a toleration recorded against an earlier baseline "
-            "can never match again. Capped at "
+            "Snapshots in a repo whose rendering cannot be trusted: those that failed the gate or "
+            "were absorbed by a toleration on a recent default-branch run, and those under an "
+            "active quarantine. Everything else is omitted, so this is far smaller than the "
+            "baselines universe; `totals.tracked` gives the full denominator. Each entry carries "
+            f"the share of the last {contracts.FLAKINESS_RATE_DAYS} days of default-branch runs "
+            "that failed the gate (`hard_rate`) and the share a toleration absorbed "
+            "(`soft_rate`), plus `headroom`, the fraction of the diff threshold its worst "
+            "absorbed run leaves free. Capped at "
             f"{contracts.FLAKINESS_MAX_ENTRIES} entries, which sets `truncated`. Filtering, "
             "faceting and search are done client-side; this endpoint takes no filter query params."
         ),
@@ -569,6 +585,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 snapshot_id=request.validated_data["snapshot_id"],
                 user_id=cast(int, request.user.id),
                 team_id=self.team_id,
+                actor=_actor(request),
             )
         except api.RunNotFoundError:
             return Response({"detail": "Snapshot or run not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -662,7 +679,9 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Mark snapshots reviewed (DB only).
 
         Records the per-snapshot "Accept change" decision. Does not commit the baseline
-        or change the GitHub gate — call finalize to ship the run.
+        or change the GitHub gate — call finalize to ship the run. Works on a quarantined
+        snapshot too: a quarantined NEW snapshot approved here is committed by finalize,
+        which gives a quarantined story a baseline entry without lifting the quarantine.
         """
         body = request.validated_data
         run_id = _parse_uuid(pk)
@@ -691,8 +710,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
         and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
-        any still-pending changed/new snapshot is approved first. With commit_to_github=false
-        the server returns the signed baseline YAML instead of committing it.
+        any still-pending changed/new snapshot is approved first; quarantined snapshots are
+        skipped, but a quarantined NEW snapshot approved by identifier is still committed.
+        With commit_to_github=false the server returns the signed baseline YAML instead of
+        committing it.
         """
         body = request.validated_data
         run_id = _parse_uuid(pk)

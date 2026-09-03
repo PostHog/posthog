@@ -232,9 +232,12 @@ export const RunsWithData: Story = {
                 '/api/environments/:team_id/batch_exports/': batchExports,
                 [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/`]: EXISTING_EXPORT,
                 '/api/environments/:team_id/batch_exports/test/': { steps: [] },
-                [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/runs/`]: {
-                    results: MOCK_RUNS,
-                    next: null,
+                [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/runs/`]: ({ request }) => {
+                    const statuses = new URL(request.url).searchParams.getAll('status')
+                    const results = statuses.length
+                        ? MOCK_RUNS.filter((run) => statuses.includes(run.status))
+                        : MOCK_RUNS
+                    return { results, next: null }
                 },
                 [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/backfills/`]: { results: [] },
             },

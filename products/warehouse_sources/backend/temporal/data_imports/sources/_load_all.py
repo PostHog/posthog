@@ -57,6 +57,7 @@ from .amplitude.source import AmplitudeSource
 from .anodot_cost.source import AnodotCostSource
 from .anomalo.source import AnomaloSource
 from .anthropic.source import AnthropicSource
+from .anvil.source import AnvilSource
 from .apaleo.source import ApaleoSource
 from .apify_dataset.source import ApifyDatasetSource
 from .apitally.source import ApitallySource
@@ -301,6 +302,7 @@ from .contentsquare.source import ContentsquareSource
 from .convertkit.source import ConvertKitSource
 from .convex.source import ConvexSource
 from .convonite.source import ConvoniteSource
+from .coolify.source import CoolifySource
 from .copper.source import CopperSource
 from .coralogix.source import CoralogixSource
 from .cortex.source import CortexSource
@@ -341,6 +343,7 @@ from .deel.source import DeelSource
 from .deelflows.source import DeelFlowsSource
 from .deepgram.source import DeepgramSource
 from .deepsource.source import DeepsourceSource
+from .demodesk.source import DemodeskSource
 from .deno_deploy.source import DenoDeploySource
 from .depot.source import DepotSource
 from .deputy.source import DeputySource
@@ -702,6 +705,7 @@ from .lokalise.source import LokaliseSource
 from .looker.source import LookerSource
 from .loop_returns.source import LoopReturnsSource
 from .loops.source import LoopsSource
+from .lovable.source import LovableSource
 from .luma.source import LumaSource
 from .m3ter.source import M3terSource
 from .mailchimp.source import MailchimpSource
@@ -718,10 +722,12 @@ from .marketstack.source import MarketstackSource
 from .mastodon.source import MastodonSource
 from .matomo.source import MatomoSource
 from .maxio.source import MaxioSource
+from .medusa.source import MedusaSource
 from .meetup.source import MeetupSource
 from .meltwater.source import MeltwaterSource
 from .mem0.source import Mem0Source
 from .memberful.source import MemberfulSource
+from .membrain.source import MembrainSource
 from .mendeley.source import MendeleySource
 from .mention.source import MentionSource
 from .mercado_ads.source import MercadoAdsSource
@@ -966,6 +972,7 @@ from .raygun.source import RaygunSource
 from .razorpay.source import RazorpaySource
 from .rb2b.source import RB2BSource
 from .rd_station_marketing.source import RDStationMarketingSource
+from .recall_ai.source import RecallAISource
 from .recharge.source import RechargeSource
 from .recreation.source import RecreationSource
 from .recruitee.source import RecruiteeSource
@@ -996,6 +1003,7 @@ from .roark.source import RoarkSource
 from .rocket_chat.source import RocketChatSource
 from .rocket_matter.source import RocketMatterSource
 from .rocketlane.source import RocketlaneSource
+from .rokt_ads.source import RoktAdsSource
 from .rollbar.source import RollbarSource
 from .rootly.source import RootlySource
 from .rss.source import RssSource
@@ -1094,6 +1102,7 @@ from .snovio.source import SnovioSource
 from .snowflake.source import SnowflakeSource
 from .snowplow.source import SnowplowSource
 from .snyk.source import SnykSource
+from .socialpilot.source import SocialPilotSource
 from .soda_cloud.source import SodaCloudSource
 from .solarwinds_service_desk.source import SolarwindsServiceDeskSource
 from .sonar_cloud.source import SonarCloudSource
@@ -1122,6 +1131,7 @@ from .statuspage.source import StatuspageSource
 from .stigg.source import StiggSource
 from .stockdata.source import StockDataSource
 from .stockx.source import StockxSource
+from .strato.source import StratoSource
 from .strava.source import StravaSource
 from .streamelements.source import StreamElementsSource
 from .streamlabs.source import StreamlabsSource
@@ -1195,6 +1205,7 @@ from .travis_ci.source import TravisCISource
 from .trello.source import TrelloSource
 from .tremendous.source import TremendousSource
 from .trigger_dev.source import TriggerDevSource
+from .trino.source import TrinoSource
 from .triple_whale.source import TripleWhaleSource
 from .trunk_io.source import TrunkIoSource
 from .trustpilot.source import TrustPilotSource
@@ -1299,6 +1310,7 @@ from .zalando_zdirect.source import ZalandoZdirectSource
 from .zapier_supported_storage.source import ZapierSupportedStorageSource
 from .zapsign.source import ZapSignSource
 from .zellify.source import ZellifySource
+from .zenchef.source import ZenchefSource
 from .zendesk.source import ZendeskSource
 from .zendesk_sell.source import ZendeskSellSource
 from .zendesk_sunshine.source import ZendeskSunshineSource

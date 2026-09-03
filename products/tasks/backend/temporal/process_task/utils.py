@@ -20,12 +20,16 @@ from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, h
 from products.mcp_store.backend.facade.api import get_installations_for_sandbox
 from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
+    CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+    INITIAL_PERMISSION_MODE_CHOICES,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
     InitialPermissionMode,
     SnapshotKind,
     filter_user_sandbox_env_vars,
+    is_same_run_resume_idle_state,
+    is_same_run_resume_state,
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
@@ -128,6 +132,10 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.MAX,
     ),
+    "zai-org/glm-5.3-flash": (
+        ReasoningEffort.HIGH,
+        ReasoningEffort.MAX,
+    ),
     "moonshotai/kimi-k3": (),
     "claude-opus-4-5": (
         ReasoningEffort.LOW,
@@ -166,6 +174,14 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.ULTRACODE,
     ),
     "claude-fable-5": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
+    ),
+    "claude-fable-5-1": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
         ReasoningEffort.HIGH,
@@ -255,6 +271,53 @@ def get_provider_for_runtime_adapter(
         return RUNTIME_PROVIDER_BY_ADAPTER[RuntimeAdapter(adapter_value)]
     except ValueError:
         return None
+
+
+def clamp_initial_permission_mode(
+    runtime_adapter: str | None,
+    initial_permission_mode: str | None,
+) -> str | None:
+    """The permission mode this adapter can launch with.
+
+    A mode the caller already chose is kept when this adapter's vocabulary offers it;
+    one named in the other runtime's terms — the caller may not know which runtime the
+    run resolves to — falls to the adapter's baseline (`auto` for Codex, so a headless
+    run doesn't stall on a prompt; `default` for Claude) rather than failing the run
+    downstream.
+    """
+    if runtime_adapter == RuntimeAdapter.CODEX.value:
+        if initial_permission_mode in CODEX_INITIAL_PERMISSION_MODE_CHOICES:
+            return initial_permission_mode
+        return "auto"
+    if (
+        runtime_adapter == RuntimeAdapter.CLAUDE.value
+        and initial_permission_mode is not None
+        and initial_permission_mode not in INITIAL_PERMISSION_MODE_CHOICES
+    ):
+        return "default"
+    return initial_permission_mode
+
+
+def apply_runtime_adapter_run_state(
+    state: dict,
+    runtime_adapter: str | None,
+    *,
+    initial_permission_mode: str | None,
+) -> str | None:
+    """Write the run-state keys a runtime adapter implies, returning the permission mode
+    to launch with.
+
+    The agent server derives the provider from the adapter, and the mode is clamped to
+    the adapter's vocabulary (see ``clamp_initial_permission_mode``). Shared so the
+    explicitly-pinned and resolved-default paths can't drift on what an adapter implies.
+    """
+    if not runtime_adapter:
+        return initial_permission_mode
+
+    provider = get_provider_for_runtime_adapter(runtime_adapter)
+    if provider is not None:
+        state["provider"] = provider.value
+    return clamp_initial_permission_mode(runtime_adapter, initial_permission_mode)
 
 
 def get_supported_reasoning_efforts(
@@ -389,8 +452,8 @@ class RunState(BaseModel, extra="allow"):
     context_window: str | None = None
     fast_mode: bool | None = None
     resume_from_run_id: str | None = None
-    handoff_resumed: bool = False
-    handoff_resume_idle: bool = False
+    same_run_resume: bool = False
+    same_run_resume_idle: bool = False
     snapshot_external_id: str | None = None
     snapshot_kind: str | None = None
     snapshot_mount_path: str | None = None
@@ -436,7 +499,10 @@ class RunState(BaseModel, extra="allow"):
 
 
 def parse_run_state(state: dict[str, Any] | None) -> RunState:
-    return RunState.model_validate(state or {})
+    normalized_state = dict(state or {})
+    normalized_state["same_run_resume"] = is_same_run_resume_state(state)
+    normalized_state["same_run_resume_idle"] = is_same_run_resume_idle_state(state)
+    return RunState.model_validate(normalized_state)
 
 
 @dataclass(frozen=True)
@@ -539,20 +605,26 @@ class McpServerConfig:
     - name: server identifier
     - url: server endpoint
     - headers: list of {name, value} pairs
+    - description: one-line summary of what the server does (pi only; the agent server
+      strips it before handing the list to claude or codex over ACP)
     """
 
     type: str
     name: str
     url: str
     headers: list[dict[str, str]] = field(default_factory=list)
+    description: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        config: dict[str, Any] = {
             "type": self.type,
             "name": self.name,
             "url": self.url,
             "headers": self.headers,
         }
+        if self.description:
+            config["description"] = self.description
+        return config
 
 
 def get_sandbox_api_url() -> str:
@@ -570,7 +642,10 @@ def loop_mcp_installation_allowlist(state: dict | None) -> list[str] | None:
     state) so the caller keeps its current unfiltered behavior. Once a loop snapshot exists, a
     missing or malformed id list fails closed to an empty allowlist (mount nothing) — a loop that
     selected no connectors, or whose config omitted the key, must not fall back to mounting every
-    connector the owner has."""
+    connector the owner has. A workflow snapshot keys its connectors by gateway server
+    (``mcp_gateway_server_ids``) and carries no installation ids, so it lands here too: the run
+    mounts nothing through the member path, and its selection applies through
+    ``Task.mcp_gateway_server_allowlist`` on the agent path."""
     config_snapshot = (state or {}).get("config_snapshot")
     if not isinstance(config_snapshot, dict):
         return None
@@ -606,16 +681,17 @@ def get_user_mcp_server_configs(
     ``include_personal`` includes the user's personal installations when a
     ``user_id`` is provided.
 
-    ``allowed_installation_ids`` restricts the mounted connectors to a snapshotted allowlist (a
+    ``allowed_installation_ids`` restricts the member-path mounts to a snapshotted allowlist (a
     loop run's selected ``mcp_installation_ids``): ``None`` leaves the set unfiltered (current
     behavior for regular tasks), an empty list mounts nothing, and a populated list keeps only
     those installations. Without it, an unattended loop run would mount every shared team connector
     rather than only the ones its owner chose.
 
-    ``allowed_gateway_server_ids`` is the built-in agent counterpart (a scout's per-scout
-    selection, from ``Task.mcp_gateway_server_allowlist``): it narrows the agent's mounts to
-    the listed gateway servers regardless of grant scope. ``None`` leaves them unfiltered;
-    an empty list mounts nothing.
+    ``allowed_gateway_server_ids`` is the built-in agent counterpart (a scout's or workflow
+    step's selection, from ``Task.mcp_gateway_server_allowlist``): it narrows the agent's
+    mounts to the listed gateway servers regardless of grant scope. ``None`` leaves them
+    unfiltered; an empty list mounts nothing. The facade applies each allowlist on its own
+    path, so an agent run is never filtered by installation ids it does not mount by.
 
     The `x-posthog-mcp-consumer` header is set on every config so the agent's
     identity propagates through the MCP Store proxy to whichever upstream MCP
@@ -632,11 +708,9 @@ def get_user_mcp_server_configs(
         task_origin=origin_product,
         task_agent_key=task_agent_key,
         credential_owner_id=credential_owner_id,
+        allowed_installation_ids=allowed_installation_ids,
         allowed_gateway_server_ids=allowed_gateway_server_ids,
     )
-    if allowed_installation_ids is not None:
-        allowed = {str(i) for i in allowed_installation_ids}
-        installations = [installation for installation in installations if str(installation.id) in allowed]
     api_base = get_sandbox_api_url().rstrip("/")
     consumer = _resolve_mcp_consumer(interaction_origin)
 
@@ -652,6 +726,7 @@ def get_user_mcp_server_configs(
                 name=installation.name,
                 url=f"{api_base}{installation.proxy_path}",
                 headers=headers,
+                description=installation.description or None,
             )
         )
 
@@ -771,6 +846,15 @@ def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
     return "posthog-code"
 
 
+# Names capabilities rather than describing the server, because the agent's tool search reads
+# this before the PostHog MCP has ever connected.
+POSTHOG_MCP_DESCRIPTION = (
+    "Query and manage a PostHog project: events, insights, dashboards, SQL queries, "
+    "feature flags, experiments, surveys, error tracking, session replay, logs, "
+    "LLM analytics, and the data warehouse."
+)
+
+
 def get_sandbox_ph_mcp_configs(
     token: str,
     project_id: int,
@@ -778,12 +862,17 @@ def get_sandbox_ph_mcp_configs(
     scopes: PosthogMcpScopes = "read_only",
     interaction_origin: str | None = None,
     task_id: str | None = None,
+    origin_product: str | None = None,
 ) -> list[McpServerConfig]:
     """Return PostHog MCP server configurations for sandbox agents.
 
     `task_id` is baked into an `X-PostHog-Task-Id` header so the MCP server (and through it the
     PostHog API) can deterministically attribute the agent's writes to its task — the LLM never
     handles its own task id.
+
+    `origin_product` rides along as `X-PostHog-Task-Origin`. The consumer header can't carry it
+    (scouts and Desktop tasks both send `posthog-code`), and the MCP server needs it to keep
+    `exec` from advertising gateway tools to runs that mount those servers directly.
 
     Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
     - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp
@@ -804,7 +893,17 @@ def get_sandbox_ph_mcp_configs(
     ]
     if task_id:
         headers.append({"name": "X-PostHog-Task-Id", "value": str(task_id)})
-    return [McpServerConfig(type="http", name="posthog", url=url, headers=headers)]
+    if origin_product:
+        headers.append({"name": "X-PostHog-Task-Origin", "value": origin_product})
+    return [
+        McpServerConfig(
+            type="http",
+            name="posthog",
+            url=url,
+            headers=headers,
+            description=POSTHOG_MCP_DESCRIPTION,
+        )
+    ]
 
 
 def get_github_token(github_integration_id: int) -> Optional[str]:

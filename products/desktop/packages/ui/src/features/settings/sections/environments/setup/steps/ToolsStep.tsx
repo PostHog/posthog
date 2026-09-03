@@ -52,7 +52,7 @@ export function ToolsStep({ plan, onChange }: ToolsStepProps) {
   return (
     <StepBody
       title="Tools on the image"
-      description="Tools an agent reaches for on most runs. Each one is listed with the reason it is here."
+      description="Tools an agent reaches for on most runs; each one is listed with the reason it is here"
     >
       <div className="flex w-full items-center gap-3">
         <div className="relative flex-1">
@@ -83,7 +83,7 @@ export function ToolsStep({ plan, onChange }: ToolsStepProps) {
           anything else you name.
         </Text>
       ) : (
-        <div className="relative max-h-[360px] w-full overflow-y-auto rounded-(--radius-3) border border-(--gray-5)">
+        <div className="relative max-h-[360px] w-full overflow-y-auto rounded-(--radius-3) border border-border">
           <TooltipProvider delay={TOOLTIP_DELAY_MS}>
             {IMAGE_TOOL_CATEGORIES.map((category) => {
               const tools = visible.filter(
@@ -197,7 +197,7 @@ function ToolReason({ htmlFor, reason }: { htmlFor: string; reason: string }) {
         render={
           <label
             htmlFor={htmlFor}
-            className="block cursor-pointer truncate text-(--gray-11) text-[11.5px] leading-5"
+            className="block cursor-pointer truncate text-(--gray-11) text-[11.5px] leading-snug"
           >
             {reason}
           </label>

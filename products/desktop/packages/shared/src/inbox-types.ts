@@ -21,7 +21,7 @@ export type SignalRecordKind =
  * backend emitter and, if it uses OAuth, a bespoke setup form). `setup: "dynamic"` renders
  * the generic credential form; the three legacy special-cased flows keep their own key.
  */
-export interface ExternalInboxSource {
+interface ExternalInboxSource {
   /**
    * Backend `source_product` (lowercase). Declared as `string` here so the registry can
    * define the universe: `ExternalInboxSourceProduct` is derived from the literal values
@@ -419,15 +419,23 @@ export type SourceProduct =
   | "error_tracking"
   | "health_checks"
   | "llm_analytics"
+  | "replay_vision"
   | "session_replay"
   | "signals_scout"
   | ExternalInboxSourceProduct;
 
 /**
- * Products that render as a toggle in the Self-driving sources modal. Excludes `signals_scout`,
- * which appears only as a signal origin and is always on rather than user-toggled.
+ * Products that render as a toggle in the Self-driving sources modal.
+ *
+ * `signals_scout` appears only as a signal origin and is always on. `replay_vision` authorizes
+ * itself through each scanner's own `emits_signals` flag, so there is no config row to toggle.
+ * `session_replay` is retired: the session summarization behind it is gone, and it survives here
+ * only so reports emitted before that still render their source.
  */
-export type ToggleableSourceProduct = Exclude<SourceProduct, "signals_scout">;
+export type ToggleableSourceProduct = Exclude<
+  SourceProduct,
+  "signals_scout" | "replay_vision" | "session_replay"
+>;
 
 /**
  * Every backend signal `source_type`: the PostHog-native types (alphabetical) plus the

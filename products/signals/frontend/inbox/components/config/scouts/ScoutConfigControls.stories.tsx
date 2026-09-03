@@ -28,7 +28,7 @@ const meta: Meta<typeof ScoutConfigForm> = {
     title: 'Scenes-App/Inbox/ScoutConfigForm',
     component: ScoutConfigForm,
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true },
+        featureFlags: { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true, [FEATURE_FLAGS.SCOUTS_MODEL_CONFIG]: true },
     },
 }
 export default meta

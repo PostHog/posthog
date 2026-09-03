@@ -162,6 +162,15 @@ class GoogleAdsSource(
             "Request had invalid authentication credentials": "Your Google Ads connection could not be authenticated. Please reconnect your Google Ads account.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # A quota/rate-limit RESOURCE_EXHAUSTED ("Resource has been exhausted (e.g. check
+        # quota).") is already ridden out in-process by `_call_with_transient_retry` (see
+        # `_is_transient_grpc_error` in google_ads.py). A search that still fails after that
+        # budget has hit a longer-lived quota window than a few seconds of backoff can clear,
+        # but Temporal's activity retry recovers once it does — self-recovering, not a bug, so
+        # keep it out of error tracking as noise.
+        return {"Resource has been exhausted (e.g. check quota)"}
+
     # TODO: clean up google ads source to not have two auth config options
     def parse_config(self, job_inputs: dict) -> GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig:
         if "google_ads_integration_id" in job_inputs.keys():

@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { Field } from 'kea-forms'
 
 import { LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 
@@ -18,7 +19,7 @@ export function EvaluationPromptEditor(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <Field name="prompt" label="Evaluation prompt">
+            <LemonField.Pure label="Evaluation prompt">
                 <div className="space-y-2">
                     <LemonTextArea
                         value={prompt}
@@ -46,7 +47,7 @@ Example: Is this response helpful and accurate? Return true if yes, false if no.
                         </div>
                     </div>
                 </div>
-            </Field>
+            </LemonField.Pure>
 
             {prompt.length > 0 && (
                 <div className="bg-bg-light border rounded p-3">

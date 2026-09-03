@@ -381,6 +381,21 @@ class TestFramer:
         assert valid is False
         assert error is not None and "project URL or ID" in error
 
+    def test_validate_credentials_transient_error_is_clean(self) -> None:
+        # A transient channel condition must surface a clean retry message, not Framer's raw
+        # "Framer API error <CODE>" text.
+        server = FakeFramerServer(ready_message={"type": "error", "code": "POOL_EXHAUSTED", "message": "busy"})
+        with pytest.MonkeyPatch.context() as patcher:
+            patcher.setattr(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.framer.framer.websocket_connect",
+                server,
+            )
+            valid, error = validate_credentials(PROJECT_ID, "key", "0.1.29")
+        assert valid is False
+        assert error is not None
+        assert "Framer API error" not in error
+        assert "try again" in error
+
     def _run_endpoint(self, endpoint: str, methods: dict[str, Any]) -> list[dict[str, Any]]:
         server = FakeFramerServer(methods=methods)
         response = framer_source(PROJECT_ID, "key", endpoint, protocol_version="0.1.29")

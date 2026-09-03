@@ -73,7 +73,6 @@ export function useSessionCallbacks({
         session: currentSession
           ? {
               taskRunId: currentSession.taskRunId,
-              logUrl: currentSession.logUrl,
               events: currentEvents,
             }
           : null,
@@ -281,23 +280,11 @@ export function useSessionCallbacks({
     [taskId, repoPath, sessionService, shellClient],
   );
 
-  const initiateHandoffToCloud = useCallback(async () => {
-    if (!repoPath) return;
-    try {
-      await sessionService.handoffToCloud(taskId, repoPath);
-    } catch (error) {
-      log.error("Failed to hand off to cloud", error);
-      const message = error instanceof Error ? error.message : "Unknown error";
-      toast.error(`Failed to continue in cloud: ${message}`);
-    }
-  }, [taskId, repoPath, sessionService]);
-
   return {
     handleSendPrompt,
     handleCancelPrompt,
     handleRetry,
     handleNewSession,
     handleBashCommand,
-    initiateHandoffToCloud,
   };
 }

@@ -10,6 +10,7 @@ import {
 import type { PrCheck, PrCheckBucket } from "@posthog/core/git/router-schemas";
 import { Spinner } from "@posthog/quill";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
+import { Spin } from "@posthog/ui/primitives/Spinner";
 import { useMemo } from "react";
 import { openExternalUrl } from "../../shell/openExternal";
 import { usePrChecks } from "./usePrChecks";
@@ -178,10 +179,9 @@ function CheckBucketIcon({ bucket }: { bucket: PrCheckBucket }) {
       return <ProhibitIcon size={14} className="shrink-0 text-(--gray-9)" />;
     case "pending":
       return (
-        <CircleNotchIcon
-          size={14}
-          className="shrink-0 animate-spin text-(--amber-9)"
-        />
+        <Spin className="shrink-0 text-(--amber-9)">
+          <CircleNotchIcon size={14} />
+        </Spin>
       );
     case "pass":
       return (

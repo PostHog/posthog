@@ -8,7 +8,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
-import { STATUS_TAG_SETTINGS } from 'scenes/models/nodeDetailConstants'
 import { urls } from 'scenes/urls'
 
 import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
@@ -19,6 +18,8 @@ import {
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryRunHistory,
 } from '~/types'
+
+import { STATUS_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
 
 import { TableCertificationTag } from '../TableCertificationBadge'
 import { PAGE_SIZE, viewsTabLogic } from './viewsTabLogic'

@@ -37,3 +37,15 @@ export const OrganizationMember: Story = {
     },
   },
 };
+
+export const ProviderRateLimit: Story = {
+  args: {
+    content: {
+      title: "Usage limit reached",
+      description:
+        "This app hit a usage limit. Resets in 12 minutes. Please try again shortly.",
+      actionLabel: null,
+      dismissLabel: "Got it",
+    },
+  },
+};

@@ -9,26 +9,38 @@ A devbox is a Coder workspace running the full PostHog stack on an EC2 instance,
 
 ## Prerequisite: tailnet access (the thing people miss)
 
-The devbox control plane lives inside a private VPC reachable only over Tailscale. The ACL that grants the route is [`tailnet-policy.hujson`](https://github.com/PostHog/posthog-cloud-infra/blob/main/tailnet-policy.hujson) in `posthog-cloud-infra`: your email must be in **`group:engineering`**. Without that grant, the Coder control plane (`10.70.0.1:443`) is simply unroutable and _every_ `hogli devbox:*` command dies at the reachability check — not an auth or install problem, and no amount of re-running `devbox:setup` fixes it.
+The devbox control plane lives inside a private VPC reachable only over Tailscale. Two things have to be true, and they fail in ways that look identical at the reachability check — _every_ `hogli devbox:*` command dies there, and it is neither an auth nor an install problem, so no amount of re-running `devbox:setup` fixes it:
 
-If `hogli devbox:doctor` reports the control plane unreachable, the fix is a PR adding the user to `group:engineering` in `tailnet-policy.hujson` (then ask Team DevEx if still blocked). Diagnose this before touching anything else.
+1. **You are signed into the `posthog.com` tailnet.** PostHog has several tailnets — `dev`, `prod-us`, `prod-eu` and `internal` exist for CI runners and subnet routers, and none of them route you to devboxes. Humans want `posthog.com` and nothing else.
+2. **Your email is in `group:engineering`** in [`tailnet-policy.hujson`](https://github.com/PostHog/posthog-cloud-infra/blob/main/tailnet-policy.hujson) (`posthog-cloud-infra`), the ACL that grants the route to the Coder control plane (`10.70.0.1:443`).
 
-### Control plane unreachable with a DNS cause? Check the exit node first
-
-When doctor shows `[ok] Tailscale connected` but fails reachability with a **DNS** cause (`DNS lookup for coder.dev.posthog.dev failed`), that's usually not the grant: the client's split-DNS routes don't cover `dev.posthog.dev`, so the name never reaches the internal resolver.
-The fix is selecting a Tailscale **exit node** — it routes DNS through infra that resolves `*.dev.posthog.dev`.
-Check available exit nodes and select one via the Tailscale menu bar app (Exit Node) or CLI:
+Check the tailnet first — it's cheap, and it's the more common of the two:
 
 ```bash
-tailscale exit-node list                            # list available exit nodes
-tailscale set --exit-node=<name>                    # enable one (use the Name from the list)
+tailscale switch --list                 # the active tailnet is marked; you want posthog.com
+tailscale switch posthog.com            # if you've signed into it before
+tailscale logout && tailscale login     # otherwise — pick posthog.com at the tailnet picker
 # on macOS when `tailscale` isn't on PATH:
-/Applications/Tailscale.app/Contents/MacOS/Tailscale exit-node list
-/Applications/Tailscale.app/Contents/MacOS/Tailscale set --exit-node=<name>
+/Applications/Tailscale.app/Contents/MacOS/Tailscale switch --list
 ```
 
-Do not suggest `/etc/hosts` or `/etc/resolver` workarounds — they hardcode internal ELB IPs that rotate, and the exit node is the supported path.
+Being on the wrong tailnet is sticky and invisible: the picker only appears at first sign-in, so someone who clicked past it a year ago has been on `dev` ever since and was never asked again. In the GUI it's **Add account** → sign in as usual → select `posthog.com`. Suspect this whenever a dev says "it used to work on my other laptop" or is on a new machine.
+
+If the tailnet is right and `hogli devbox:doctor` still reports the control plane unreachable, the fix is a PR adding the user to `group:engineering` in `tailnet-policy.hujson` (then ask Team DevEx if still blocked). Diagnose both of these before touching anything else.
+
+### Control plane unreachable with a DNS cause?
+
+When doctor shows `[ok] Tailscale connected` but fails reachability with a **DNS** cause (`DNS lookup for coder.dev.posthog.dev failed`), the name is never reaching the internal resolver. In order:
+
+1. **Wrong tailnet** (above). The other tailnets have no route to `dev.posthog.dev`, and this is what it looks like. Rule it out first.
+2. **MagicDNS off.** "Use Tailscale DNS" in the client's DNS settings is what points the machine at the internal resolver; without it nothing internal resolves.
+3. **Stale resolver upstream.** MagicDNS on and names still failing, but `tailscale ping <internal-ip>` pongs and the service loads over its raw IP? That's the machine's router/ISP resolver. Adding `8.8.8.8` or `1.1.1.1` to the host's DNS settings has fixed this for several people.
+
 To confirm it's resolution rather than the grant: `dig coder.dev.posthog.dev @10.90.0.2` answering while the system resolver fails proves the name exists and only the resolution path is missing.
+
+**Do not reach for an exit node.** Devboxes are reached as tailnet peers, so an exit node is not required for devbox access — it just routes all of the dev's traffic through infra, which is noticeably slower, and it masks whichever of the three causes above is the real one. Don't suggest `/etc/hosts` or `/etc/resolver` workarounds either: they hardcode internal ELB IPs that rotate.
+
+Full write-up, kept current by Team Cloud Foundations: [wiki.posthog.com/access/vpn](https://wiki.posthog.com/access/vpn#which-tailnet).
 
 ## Workflow
 
@@ -38,7 +50,7 @@ To confirm it's resolution rather than the grant: `dig coder.dev.posthog.dev @10
 hogli devbox:doctor          # read-only: tailnet access, reachability, auth, ssh config, saved setup
 ```
 
-A safe probe — it never prompts or mutates host config (unlike `devbox:setup`). If it flags the control plane unreachable, resolve the tailnet grant before anything else. For more detail: `hogli devbox:list` (your boxes), `hogli devbox:status` (state, template freshness), `hogli devbox:secret:list` (secret names only).
+A safe probe — it never prompts or mutates host config (unlike `devbox:setup`). It names the active tailnet on its own line (`Tailnet: … (need posthog.com)`) and, when that's the problem, says so outright (`Cause: Signed into the 'dev' tailnet, not 'posthog.com'.`) — trust that over any other symptom. If it flags the control plane unreachable, resolve the tailnet (and then the ACL grant) before anything else. For more detail: `hogli devbox:list` (your boxes), `hogli devbox:status` (state, template freshness), `hogli devbox:secret:list` (secret names only).
 
 ### 2. One-time local setup — `hogli devbox:setup`
 

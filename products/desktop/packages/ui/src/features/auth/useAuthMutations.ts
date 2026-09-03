@@ -16,17 +16,6 @@ export function useLoginMutation() {
   });
 }
 
-export function useSignupMutation() {
-  const hostClient = useHostTRPCClient();
-  const fx = useService<IAuthSideEffects>(AUTH_SIDE_EFFECTS);
-  return useMutation({
-    mutationFn: (region: CloudRegion) =>
-      hostClient.auth.signup.mutate({ region }).then((r) => r.state),
-    onSuccess: (state, region) =>
-      fx.onAuthSuccess(region, state.currentProjectId),
-  });
-}
-
 export function useSelectProjectMutation() {
   const hostClient = useHostTRPCClient();
   const fx = useService<IAuthSideEffects>(AUTH_SIDE_EFFECTS);
@@ -48,14 +37,6 @@ export function useSwitchOrgMutation() {
       return hostClient.auth.switchOrg.mutate({ orgId });
     },
     onSuccess: () => fx.onProjectSelected(),
-  });
-}
-
-export function useRedeemInviteCodeMutation() {
-  const hostClient = useHostTRPCClient();
-  return useMutation({
-    mutationFn: (code: string) =>
-      hostClient.auth.redeemInviteCode.mutate({ code }),
   });
 }
 

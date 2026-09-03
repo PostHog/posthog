@@ -30,7 +30,8 @@ def finalize_run(
     derived from DB state — exactly the snapshots with ``review_state == APPROVED``, by
     their approved hash — so a tolerated snapshot keeps its existing baseline and is
     never silently overwritten, and the commit always contains the full approved set
-    regardless of how many calls it took to review them.
+    regardless of how many calls it took to review them. A quarantined NEW snapshot that
+    was approved by identifier is committed too (see ``_approved_baseline_updates``).
 
     With ``approve_all=True`` every still-pending changed/new snapshot is approved first
     (tolerated ones are left untouched) — the "approve everything and ship" path. Without
@@ -92,8 +93,9 @@ def finalize_run(
         )
 
     # Commit set is derived from DB state, not a caller-supplied list, so it always reflects
-    # the full approved set however many calls reviewed it.
-    approved_updates = baselines._approved_baseline_updates(actionable)
+    # the full approved set however many calls reviewed it. It reads every snapshot, not only
+    # the actionable ones, so an approved quarantined NEW snapshot reaches the commit.
+    approved_updates = baselines._approved_baseline_updates(run.snapshots.using(WRITER_DB).all())
     has_removed = run.snapshots.using(WRITER_DB).filter(result=SnapshotResult.REMOVED).exists()
 
     # Commit first — before DB writes — so a GitHub failure aborts cleanly. Removed snapshots

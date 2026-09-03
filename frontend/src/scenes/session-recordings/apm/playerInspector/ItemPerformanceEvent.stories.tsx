@@ -136,6 +136,33 @@ export const NoPerformanceObserverCapturedData: Story = {
     },
 }
 
+// A fetch that recorded no response (blocked, network error, or cancelled) has a method but no
+// status, and the browser cannot measure its size. It should read as "no response", not a success.
+export const NoResponseRecorded: Story = {
+    args: {
+        item: {
+            entry_type: 'resource',
+            initiator_type: 'fetch',
+            method: 'GET',
+            name: 'https://api.company.com/v1/counts',
+            start_time: 858859,
+            end_time: 859613,
+            duration: 754,
+            time_origin: '1726567602079',
+            timestamp: 1726568460938,
+        } as unknown as PerformanceEvent,
+    },
+}
+
+export function TimedOutBodyDisplay(): JSX.Element {
+    return (
+        <BodyDisplay
+            content="[SessionReplay] Timeout while trying to read body"
+            headers={{ 'content-type': 'application/json' }}
+        />
+    )
+}
+
 export function InitialHeadersDisplay(): JSX.Element {
     return <HeadersDisplay request={undefined} response={undefined} isInitial={true} />
 }

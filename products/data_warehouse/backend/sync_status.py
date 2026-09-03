@@ -8,6 +8,7 @@ from django.db.models import Q
 import humanize
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
 if TYPE_CHECKING:
     from posthog.schema import DataWarehouseSyncWarning
@@ -73,7 +74,7 @@ def _build_warning_for_schema(
             message=message,
         )
 
-    if schema_status == ExternalDataSchema.Status.FAILED:
+    if schema_status == ExternalDataSchemaStatus.FAILED:
         message = f"Last sync of `{table_name}` (from {source_type}) failed."
         if schema.last_synced_at:
             message += f" Results reflect data from {humanize.naturaltime(now - _ensure_utc(schema.last_synced_at))}."
@@ -83,27 +84,27 @@ def _build_warning_for_schema(
         # credentials, stack traces) and this message reaches LLM contexts via MCP/Max. The full
         # error stays in the data warehouse source screen, which is access-scoped.
         message += " Check the data warehouse source for details."
-        return build(status=ExternalDataSchema.Status.FAILED, message=message)
+        return build(status=ExternalDataSchemaStatus.FAILED, message=message)
 
-    if schema_status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
+    if schema_status == ExternalDataSchemaStatus.BILLING_LIMIT_REACHED:
         return build(
-            status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
+            status=ExternalDataSchemaStatus.BILLING_LIMIT_REACHED,
             message=(
                 f"Sync of `{table_name}` (from {source_type}) is paused because the data warehouse "
                 "billing limit has been reached. Results may be out of date."
             ),
         )
 
-    if schema_status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW:
+    if schema_status == ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW:
         return build(
-            status=ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
+            status=ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW,
             message=(
                 f"Sync of `{table_name}` (from {source_type}) is paused because the configured "
                 "billing limit is too low. Results may be out of date."
             ),
         )
 
-    if schema_status == ExternalDataSchema.Status.PAUSED or not schema.should_sync:
+    if schema_status == ExternalDataSchemaStatus.PAUSED or not schema.should_sync:
         if schema.last_synced_at is None:
             message = (
                 f"Sync of `{table_name}` (from {source_type}) is paused and hasn't completed a sync yet "
@@ -121,7 +122,7 @@ def _build_warning_for_schema(
                     f"Sync of `{table_name}` (from {source_type}) is paused — results are current as of "
                     f"{ago}, but won't update until syncing is re-enabled."
                 )
-        return build(status=ExternalDataSchema.Status.PAUSED, message=message)
+        return build(status=ExternalDataSchemaStatus.PAUSED, message=message)
 
     # Enabled and healthy: warn only once data is actually stale (covers RUNNING and idle COMPLETED).
     last_synced = schema.last_synced_at
@@ -129,7 +130,7 @@ def _build_warning_for_schema(
         return None
 
     ago = humanize.naturaltime(now - _ensure_utc(last_synced))
-    if schema_status == ExternalDataSchema.Status.RUNNING:
+    if schema_status == ExternalDataSchemaStatus.RUNNING:
         message = (
             f"`{table_name}` (from {source_type}) last completed syncing {ago}, more than twice its "
             "configured sync interval. A new sync is in progress but results may be out of date."
@@ -139,7 +140,7 @@ def _build_warning_for_schema(
             f"`{table_name}` (from {source_type}) last synced {ago}, more than twice its configured "
             "sync interval. Results may be out of date."
         )
-    return build(status=schema_status or ExternalDataSchema.Status.RUNNING, message=message)
+    return build(status=schema_status or ExternalDataSchemaStatus.RUNNING, message=message)
 
 
 def get_warehouse_sync_warnings(
