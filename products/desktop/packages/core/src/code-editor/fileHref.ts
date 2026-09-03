@@ -6,16 +6,29 @@ export interface FileHrefTarget {
 
 const SCHEME_RE = /^[a-zA-Z][a-zA-Z\d+.-]*:/;
 const FILE_SCHEME_RE = /^file:/i;
-// `path/to/file.ts:12`, `path/to/file.ts:12-40`, and `path/to/file.ts#L12`.
-const LINE_SUFFIX_RE = /^(.*[^/])(?::(\d+)(?:-\d+)?|#L(\d+))$/;
-const LINE_FRAGMENT_RE = /^#L\d+$/;
+// `path/to/file.ts:12` and `path/to/file.ts:12-40`.
+const LINE_SUFFIX_RE = /^(.*[^/]):(\d+)(?:-\d+)?$/;
+// `#L12`, and the range GitHub writes, `#L12-L40`.
+const LINE_FRAGMENT_RE = /^#L(\d+)(?:-L?\d+)?$/;
 const WINDOWS_DRIVE_RE = /^\/[a-zA-Z]:/;
 
+function toLine(digits: string | undefined): number | null {
+  if (!digits) return null;
+  const line = Number.parseInt(digits, 10);
+  return line > 0 ? line : null;
+}
+
 function splitLineSuffix(path: string): FileHrefTarget {
+  const hash = path.indexOf("#");
+  // A fragment names either a line or a heading anchor. Neither is part of the
+  // filename, so it comes off the path whether or not a line comes out of it.
+  if (hash !== -1) {
+    const fragment = LINE_FRAGMENT_RE.exec(path.slice(hash));
+    return { path: path.slice(0, hash), line: toLine(fragment?.[1]) };
+  }
   const match = LINE_SUFFIX_RE.exec(path);
   if (!match) return { path, line: null };
-  const line = Number.parseInt(match[2] ?? match[3], 10);
-  return { path: match[1], line: line > 0 ? line : null };
+  return { path: match[1], line: toLine(match[2]) };
 }
 
 function pathFromFileUrl(href: string): FileHrefTarget | null {
@@ -23,11 +36,9 @@ function pathFromFileUrl(href: string): FileHrefTarget | null {
     const url = new URL(href);
     // `file://host/share` names another machine, which this app cannot read.
     if (url.hostname && url.hostname !== "localhost") return null;
-    // Split the line off the raw text. `#L12` sits in the fragment, outside
-    // the pathname, and a percent-encoded `:` or `#` belongs to the filename.
-    const target = splitLineSuffix(
-      LINE_FRAGMENT_RE.test(url.hash) ? url.pathname + url.hash : url.pathname,
-    );
+    // Split the line off the raw text. The fragment sits outside the pathname,
+    // and a percent-encoded `:` or `#` belongs to the filename.
+    const target = splitLineSuffix(url.pathname + url.hash);
     const path = decodeURIComponent(target.path);
     return {
       path: WINDOWS_DRIVE_RE.test(path) ? path.slice(1) : path,

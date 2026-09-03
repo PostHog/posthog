@@ -37,11 +37,14 @@ describe("parseFileHref", () => {
     });
   });
 
-  it("reads a GitHub-style line fragment", () => {
-    expect(parseFileHref("src/App.tsx#L79")).toEqual({
-      path: "src/App.tsx",
-      line: 79,
-    });
+  it.each([
+    ["src/App.tsx#L79", { path: "src/App.tsx", line: 79 }],
+    ["src/App.tsx#L79-L98", { path: "src/App.tsx", line: 79 }],
+    ["src/App.tsx#L79-98", { path: "src/App.tsx", line: 79 }],
+    ["README.md#installation", { path: "README.md", line: null }],
+    ["docs/guide.md#usage-notes", { path: "docs/guide.md", line: null }],
+  ])("takes the fragment off %s", (href, expected) => {
+    expect(parseFileHref(href)).toEqual(expected);
   });
 
   it("reads a file URL", () => {
@@ -65,6 +68,10 @@ describe("parseFileHref", () => {
     ["file:///repo/src/App%3A12", { path: "/repo/src/App:12", line: null }],
     ["file:///repo/src/App%23L12", { path: "/repo/src/App#L12", line: null }],
     ["file:///repo/src/App.tsx#top", { path: "/repo/src/App.tsx", line: null }],
+    [
+      "file:///repo/src/App.tsx#L12-L40",
+      { path: "/repo/src/App.tsx", line: 12 },
+    ],
   ])("reads %s", (href, expected) => {
     expect(parseFileHref(href)).toEqual(expected);
   });
