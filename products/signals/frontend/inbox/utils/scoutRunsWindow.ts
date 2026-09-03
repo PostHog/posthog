@@ -664,9 +664,9 @@ export function scoutCronScheduleError(expression: string): string | null {
     if (parsedFields.some((field) => field.kind === 'invalid')) {
         return invalidShape
     }
-    // Cron matches day-of-month OR day-of-week, so a restricted weekday keeps the schedule alive
-    // whatever the day-of-month field says.
-    if (fields[2] !== '*' && fields[4] === '*' && daysOfMonth.kind === 'values' && months.kind === 'values') {
+    // A day-of-month no month in the set reaches kills the schedule, whatever the weekday field
+    // says: croniter refuses "0 0 31 2 MON" the same as "0 0 31 2 *".
+    if (fields[2] !== '*' && daysOfMonth.kind === 'values' && months.kind === 'values') {
         const occurs = months.values.some((month) => daysOfMonth.values.some((day) => day <= DAYS_IN_MONTH[month - 1]))
         if (!occurs) {
             return 'This schedule never matches a real date. Check the day and month.'
