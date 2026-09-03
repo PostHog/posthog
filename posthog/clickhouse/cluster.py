@@ -801,7 +801,9 @@ class MutationCapacityTimeout(Exception):
     """Raised when another mutation held the table past a runner's ``capacity_timeout``."""
 
 
-@dataclass
+# Mutability is intentional: subclasses set fields in __post_init__ and callers build these
+# incrementally. Stated explicitly so the bare-dataclass ratchet has a declared choice.
+@dataclass(frozen=False)
 class MutationRunner(abc.ABC):
     table: str
     parameters: Mapping[str, Any] = field(default_factory=dict, kw_only=True)

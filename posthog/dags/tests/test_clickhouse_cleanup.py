@@ -676,6 +676,23 @@ def test_clears_cohort_rows_and_marks_the_deletion_verified_on_the_next_run(
 
 
 @pytest.mark.django_db
+def test_cohort_sweep_can_be_switched_off_without_stopping_the_person_sweep(
+    cluster: ClickhouseCluster, persons_database
+):
+    create_person(team_id=TEAM_ID, version=0, is_deleted=True)
+    seed_cohort_rows(cluster, count=10)
+    AsyncDeletion.objects.create(deletion_type=DeletionType.Cohort_full, team_id=TEAM_ID, key=f"{COHORT_ID}_0")
+
+    # The lever to pull if cohort mutations misbehave mid-rollout: the person half still runs.
+    switched_off = {"ops": {"clear_removed_cohort_data": {"config": {"dry_run": False, "cohort_sweep": False}}}}
+    result = run_job(cluster, persons_database, run_config=switched_off)
+
+    assert result.success
+    assert cluster.any_host(cohort_rows).result() == 10
+    assert AsyncDeletion.objects.get(team_id=TEAM_ID).delete_verified_at is None
+
+
+@pytest.mark.django_db
 def test_cohort_delete_pass_runs_when_the_mark_pass_fails(cluster: ClickhouseCluster, persons_database):
     seed_cohort_rows(cluster, count=10)
     AsyncDeletion.objects.create(deletion_type=DeletionType.Cohort_full, team_id=TEAM_ID, key=f"{COHORT_ID}_0")

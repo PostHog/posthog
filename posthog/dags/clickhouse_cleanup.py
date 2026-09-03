@@ -77,6 +77,12 @@ PERSIST_PAGE_SIZE = 50_000
 # raise team_batches together with max_persons when draining a large backlog in checkpoints.
 DEFAULT_TEAM_BATCHES = 1
 
+# How many cohorts one run sweeps per deletion type. Bounded rather than unlimited because a
+# sensor can start this run unattended. One delete chunk covers 500 cohorts and was measured on
+# prod-EU reading 0.63% of `cohortpeople`, so this is a few chunks of work per run, and a capped
+# run leaves the rest queued.
+DEFAULT_MAX_COHORTS = 2_000
+
 
 class CleanupConfig(dagster.Config):
     """Read once, by the first op, and carried to every later op on CleanupRun.
@@ -118,10 +124,15 @@ class CleanupConfig(dagster.Config):
         description="Fail a delete batch that has not finished after this many seconds, even when it is healthy. "
         "A mutation blocked behind another table-sized mutation would otherwise hold the run open forever.",
     )
+    cohort_sweep: bool = pydantic.Field(
+        default=True,
+        description="Run the cohort membership sweep. False skips it and goes straight to the person sweep, "
+        "which is the lever to pull if cohort mutations misbehave.",
+    )
     max_cohorts: int = pydantic.Field(
-        default=0,
+        default=DEFAULT_MAX_COHORTS,
         description="Sweep at most this many cohorts per deletion type, 0 for all of them. A capped run "
-        "leaves the rest queued for the next one.",
+        "leaves the rest queued for the next one. Bounded by default because this job can run unattended.",
     )
     max_persons: int = pydantic.Field(
         default=0,
@@ -454,6 +465,7 @@ class CleanupRun:
     dry_run: bool
     cleanup: bool
     team_batches: int
+    cohort_sweep: bool
     max_cohorts: int
     shards: int
     max_execution_time: int
@@ -483,6 +495,7 @@ class CleanupRun:
             dry_run=config.dry_run,
             cleanup=config.cleanup,
             team_batches=config.team_batches,
+            cohort_sweep=config.cohort_sweep,
             max_cohorts=config.max_cohorts,
             shards=config.shards,
             max_execution_time=config.max_execution_time,
@@ -564,6 +577,10 @@ def clear_removed_cohort_data(
 
     if run.dry_run:
         context.log.info("dry run: skipping the cohort sweep")
+        return run
+
+    if not run.cohort_sweep:
+        context.log.warning("cohort sweep disabled, going straight to the person sweep")
         return run
 
     failed = sweep_cohort_deletions(max_cohorts=run.max_cohorts)
