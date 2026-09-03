@@ -5856,14 +5856,14 @@
         }
     },
     "inbox-reports-claim": {
-        "description": "Claim a ready, pending_input, potential, or suppressed report before working on it. Calling this again as another actor silently takes over the claim. Optionally pass `pr_url` to attach or replace one GitHub pull request; the report does not need a pull request to be claimed or resolved. Pass `release=true` to clear only ownership while preserving any attached pull request. Only the current owner can release a claim. A connected repository is checked immediately; an unconnected GitHub pull request is accepted with unknown state and will not receive webhook updates. Returns the full report with work_state, assignee, and pull request fields.",
+        "description": "Claim a ready, pending_input, potential, or suppressed report before working on it. Calling this again as another actor silently takes over the claim. Optionally pass `pr_url` to attach or replace one GitHub pull request; the report does not need a pull request to be claimed or resolved. Pass `release=true` to clear only ownership while preserving any attached pull request. Only the current owner can release a claim. A connected repository is checked immediately; an unconnected GitHub pull request is accepted with unknown state and will not receive webhook updates. A pull request that the check finds already merged resolves the report, and one already closed dismisses it. Returns the full report with work_state, assignee, and pull request fields.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Claim or release a signal report",
         "title": "Claim or release a signal report",
         "required_scopes": ["task:write"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
