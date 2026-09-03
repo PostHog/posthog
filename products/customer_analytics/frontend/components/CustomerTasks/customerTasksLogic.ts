@@ -332,7 +332,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
             }),
         ],
     })),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
         setFilters: () => actions.loadTaskPage(),
         setSearch: () => actions.loadTaskPage(),
         setAccountFilter: () => actions.loadTaskPage(),
@@ -403,19 +403,10 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
             }
             actions.mutationStarted(taskId)
             try {
-                const updatedTask = await customerTasksPartialUpdate(String(values.currentTeamId), taskId, patch)
+                await customerTasksPartialUpdate(String(values.currentTeamId), taskId, patch)
                 actions.mutationFinished(taskId)
                 actions.closeModal()
-                const updatesOnlyDueAt = Object.keys(patch).length === 1 && 'due_at' in patch
-                const dueFilterStillMatches = props.context === 'account' || values.filters.due === 'any'
-                if (updatesOnlyDueAt && dueFilterStillMatches && values.taskPage) {
-                    actions.loadTaskPageSuccess({
-                        ...values.taskPage,
-                        results: values.taskPage.results.map((task) => (task.id === taskId ? updatedTask : task)),
-                    })
-                } else {
-                    actions.loadTaskPage()
-                }
+                actions.loadTaskPage()
             } catch {
                 actions.mutationFinished(taskId)
                 lemonToast.error('Could not save the task. Try again.')

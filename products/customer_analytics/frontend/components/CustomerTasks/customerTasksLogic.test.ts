@@ -157,41 +157,23 @@ describe('customerTasksLogic', () => {
         expect(JSON.stringify(localStorage)).not.toContain('completed')
     })
 
-    test('keeps a task visible when setting a due date without a due filter', async () => {
+    test('reloads the server-sorted page after setting a due date', async () => {
         const originalTask = task()
         const updatedTask = { ...originalTask, due_at: '2026-09-03T12:00:00Z' }
+        const otherTask = { ...task(), id: 'task-2', name: 'Other task' }
         mockList.mockResolvedValueOnce({ count: 1, next: null, previous: null, results: [originalTask] })
         mockUpdate.mockResolvedValueOnce(updatedTask)
         logic = customerTasksLogic({ context: 'account', accountId: 'account-1' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         mockList.mockClear()
-
-        logic.actions.updateTask(originalTask.id, { due_at: updatedTask.due_at })
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(mockList).not.toHaveBeenCalled()
-        expect(logic.values.tasks).toEqual([updatedTask])
-    })
-
-    test('reloads after setting a due date when an explicit due filter may stop matching', async () => {
-        const originalTask = task()
-        const updatedTask = { ...originalTask, due_at: '2026-09-03T12:00:00Z' }
-        mockList.mockResolvedValue({ count: 1, next: null, previous: null, results: [originalTask] })
-        mockUpdate.mockResolvedValueOnce(updatedTask)
-        logic = customerTasksLogic({ context: 'inbox', canViewAll: true })
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.setFilters({ due: 'no_due_date' })
-        await expectLogic(logic).toFinishAllListeners()
-        mockList.mockClear()
-        mockList.mockResolvedValueOnce({ count: 0, next: null, previous: null, results: [] })
+        mockList.mockResolvedValueOnce({ count: 2, next: null, previous: null, results: [updatedTask, otherTask] })
 
         logic.actions.updateTask(originalTask.id, { due_at: updatedTask.due_at })
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockList).toHaveBeenCalledTimes(1)
-        expect(logic.values.tasks).toEqual([])
+        expect(logic.values.tasks).toEqual([updatedTask, otherTask])
     })
 
     test('does not submit a no-op or a mutation for a task the user cannot edit', async () => {
