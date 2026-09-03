@@ -826,6 +826,9 @@ tools:
     customer-profile-configs-update:
         operation: customer_profile_configs_update
         enabled: false
+    customer-tasks-activities-list:
+        operation: customerTasksActivitiesList
+        enabled: false
     customer-tasks-archive-create:
         operation: customer_tasks_archive_create
         enabled: false
@@ -846,9 +849,6 @@ tools:
         enabled: false
     customer-tasks-update:
         operation: customer_tasks_update
-        enabled: false
-    customer-tasks-activities-list:
-        operation: customerTasksActivitiesList
         enabled: false
     event-streams-add-account:
         operation: event_streams_add_account_create
