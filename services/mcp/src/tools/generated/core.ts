@@ -353,6 +353,9 @@ const projectSettingsUpdate = (): ToolBase<
         if (params.workflows_config !== undefined) {
             body['workflows_config'] = params.workflows_config
         }
+        if (params.feature_flag_policy_config !== undefined) {
+            body['feature_flag_policy_config'] = params.feature_flag_policy_config
+        }
         if (params.base_currency !== undefined) {
             body['base_currency'] = params.base_currency
         }

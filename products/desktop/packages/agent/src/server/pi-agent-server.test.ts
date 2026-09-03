@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AgentConversationEvent } from "@posthog/shared";
 import { describe, expect, it, vi } from "vitest";
 import { PiAgentServer } from "./pi-agent-server";
 import type { AgentServerConfig } from "./types";
@@ -962,4 +963,78 @@ describe("PiAgentServer", () => {
       }),
     );
   });
+
+  it("reports cumulative run token usage after each settled Pi turn", async () => {
+    const updateTaskRun = vi.fn(async () => ({}));
+    const handled: AgentConversationEvent[] = [];
+    const server = new PiAgentServer(config()) as unknown as {
+      posthogAPI: { updateTaskRun: typeof updateTaskRun };
+      handleEvent(event: AgentConversationEvent): void;
+      handleConversationEvent(event: AgentConversationEvent): void;
+    };
+    server.posthogAPI = { updateTaskRun };
+    server.handleEvent = (event) => {
+      handled.push(event);
+    };
+    const turn: AgentConversationEvent = {
+      type: "turn_completed",
+      timestamp: 1,
+      stopReason: "stop",
+      totalTokens: 165,
+      usage: {
+        inputTokens: 100,
+        outputTokens: 50,
+        cachedReadTokens: 10,
+        cachedWriteTokens: 5,
+        totalTokens: 165,
+      },
+    };
+
+    server.handleConversationEvent(turn);
+    server.handleConversationEvent(turn);
+
+    expect(handled).toHaveLength(2);
+    await vi.waitFor(() => expect(updateTaskRun).toHaveBeenCalledTimes(2));
+    expect(updateTaskRun).toHaveBeenLastCalledWith("task-1", "run-1", {
+      state: {
+        token_usage: {
+          input_tokens: 200,
+          output_tokens: 100,
+          cache_read_tokens: 20,
+          cache_write_tokens: 10,
+          thought_tokens: 0,
+          total_tokens: 330,
+          turns: 2,
+        },
+      },
+    });
+  });
+
+  it.each([
+    [{ type: "set_model", provider: "anthropic", modelId: "big" }, 1_000_000],
+    [{ type: "prompt", message: "hello" }, 200_000],
+  ])(
+    "keeps the stamped context window in step with the live model after %o",
+    async (command, expectedContextWindow) => {
+      const getState = vi.fn(async () => ({
+        model: { contextWindow: 1_000_000 },
+      }));
+      const sendCommand = vi.fn(async () => ({ ok: true }));
+      const server = new PiAgentServer(config()) as unknown as {
+        session: unknown;
+        modelContextWindow: number | null;
+        executeCommand(
+          method: string,
+          params: Record<string, unknown>,
+        ): Promise<unknown>;
+      };
+      server.session = { runtime: { client: { getState }, sendCommand } };
+      server.modelContextWindow = 200_000;
+
+      await server.executeCommand("pi/rpc", { command });
+
+      expect(sendCommand).toHaveBeenCalledWith(command);
+      expect(server.modelContextWindow).toBe(expectedContextWindow);
+    },
+  );
 });
