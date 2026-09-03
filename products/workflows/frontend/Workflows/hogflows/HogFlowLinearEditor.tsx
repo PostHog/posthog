@@ -36,7 +36,6 @@ function HogFlowLinearDropzone({ active, edge }: { active: boolean; edge?: HogFl
             }}
             data-attr="workflow-linear-dropzone"
         >
-            <div className="pointer-events-none absolute inset-y-0 left-1/2 border-l-2 border-primary" />
             <div className="pointer-events-none relative flex size-8 items-center justify-center rounded-full border-2 bg-surface-primary">
                 <IconPlus className="text-lg text-primary" />
             </div>
