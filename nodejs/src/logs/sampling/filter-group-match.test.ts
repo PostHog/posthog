@@ -188,7 +188,9 @@ describe('matchFilterGroup', () => {
         // / `name` keeps resolving through the attribute map instead of reading the absent
         // span column and silently stopping.
         it('log_attribute status_code reads the attribute map, not the absent span column', () => {
-            const g = group({ values: [{ key: 'status_code', type: 'log_attribute', operator: 'exact', value: '500' }] })
+            const g = group({
+                values: [{ key: 'status_code', type: 'log_attribute', operator: 'exact', value: '500' }],
+            })
             expect(matchFilterGroup(g, baseRecord({ attributes: { status_code: '500' } }))).toBe(true)
             expect(matchFilterGroup(g, baseRecord({ attributes: { status_code: '200' } }))).toBe(false)
         })
