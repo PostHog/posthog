@@ -309,7 +309,7 @@ impl ServerHandle {
     pub async fn for_v1_topic_with_signing_secret(topic: &EphemeralTopic, secret: &str) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
         config.capture_v1_sinks = "msk".to_string();
-        config.ai_gateway_signing_secret = Some(secret.to_string());
+        config.ai_gateway_signing_secret = Some(secret.into());
         // The gateway tests send AI events, which route to the AI topic;
         // point it at the same ephemeral topic so the consumer sees them.
         config.kafka.capture_analytics_ai_events_topic = topic.topic_name().to_string();
@@ -321,10 +321,29 @@ impl ServerHandle {
         Self::for_config_with_sink_env(config, std::env::vars().collect()).await
     }
 
+    /// Boots the server on an already-built `Config`, resolving the v1 sinks
+    /// (and anything else `config_resolution` owns) from `sink_env`.
     pub async fn for_config_with_sink_env(
         config: Config,
         sink_env: HashMap<String, String>,
     ) -> Self {
+        Self::for_resolved(
+            capture::config_resolution::resolve_with_config(config, &sink_env)
+                .expect("test config must resolve"),
+        )
+        .await
+    }
+
+    /// Boots the server the way production does: every setting, including the
+    /// emergency Kafka fallback, comes from one env snapshot.
+    pub async fn for_env(env: HashMap<String, String>) -> Self {
+        Self::for_resolved(
+            capture::config_resolution::resolve(&env).expect("test env must resolve"),
+        )
+        .await
+    }
+
+    async fn for_resolved(resolved: capture::config_resolution::Resolved) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
@@ -336,9 +355,9 @@ impl ServerHandle {
             .with_shutdown_token(shutdown_token.clone())
             .build();
 
-        let handles = setup::register_components(&mut manager, &config);
+        let handles = setup::register_components(&mut manager, resolved.config());
         let _monitor = manager.monitor_background();
-        let components = setup::build_components(config, sink_env, handles).await;
+        let components = setup::build_components(resolved, handles).await;
         let event_restriction_service = components.event_restriction_service.clone();
 
         tokio::spawn(async move { serve(listener, components).await });

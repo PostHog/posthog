@@ -28,9 +28,12 @@ async fn start_server_with_header_timeout(
         .with_shutdown_token(shutdown_token.clone())
         .build();
 
-    let handles = setup::register_components(&mut manager, &config);
+    let resolved =
+        capture::config_resolution::resolve_with_config(config, &std::env::vars().collect())
+            .expect("test config must resolve");
+    let handles = setup::register_components(&mut manager, resolved.config());
     let _monitor = manager.monitor_background();
-    let components = setup::build_components(config, std::env::vars().collect(), handles).await;
+    let components = setup::build_components(resolved, handles).await;
 
     tokio::spawn(async move { serve(listener, components).await });
 

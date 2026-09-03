@@ -113,6 +113,7 @@ impl Config {
 
 /// Parsed set of v1 sink configs. The first entry in the CSV is the
 /// default sink for single-write mode.
+#[derive(Debug)]
 pub struct Sinks {
     pub default: SinkName,
     pub configs: HashMap<SinkName, Config>,
@@ -138,16 +139,10 @@ impl Sinks {
 // Loaders
 // ---------------------------------------------------------------------------
 
-/// Production entry point: reads env vars and loads sink configs.
-pub fn load_sinks(sinks_csv: &str) -> anyhow::Result<Sinks> {
-    let env: HashMap<String, String> = std::env::vars().collect();
-    load_sinks_from(sinks_csv, &env)
-}
-
 /// Parse the comma-separated sink names without loading per-sink configs.
 /// Used by `register_components` to register lifecycle handles before the
 /// full config is available.
-pub fn parse_sink_names(sinks_csv: &str) -> anyhow::Result<Vec<SinkName>> {
+pub(crate) fn parse_sink_names(sinks_csv: &str) -> anyhow::Result<Vec<SinkName>> {
     let names: Vec<SinkName> = sinks_csv
         .split(',')
         .filter(|s| !s.trim().is_empty())
@@ -159,8 +154,13 @@ pub fn parse_sink_names(sinks_csv: &str) -> anyhow::Result<Vec<SinkName>> {
     Ok(names)
 }
 
-/// Testable core: loads sink configs from a provided env snapshot.
-pub fn load_sinks_from(sinks_csv: &str, env: &HashMap<String, String>) -> anyhow::Result<Sinks> {
+/// Loads sink configs from an env snapshot. Reached through
+/// `crate::config_resolution::resolve`, which is what applies the emergency
+/// Kafka fallback and the deployment-level AI topics to what comes back.
+pub(crate) fn load_sinks_from(
+    sinks_csv: &str,
+    env: &HashMap<String, String>,
+) -> anyhow::Result<Sinks> {
     let names = parse_sink_names(sinks_csv)?;
     let default = names[0];
 
@@ -201,6 +201,7 @@ fn load_sink_config(name: SinkName, env: &HashMap<String, String>) -> anyhow::Re
         }
     }
 
+    // nosemgrep: capture-config-via-config-resolution -- the sink half of config_resolution::resolve, which applies the fallback to what this returns
     let kafka = kafka::config::Config::init_from_hashmap(&kafka_map)
         .map_err(|e| anyhow::anyhow!("kafka config: {e}"))?;
 

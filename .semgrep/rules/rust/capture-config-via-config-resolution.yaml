@@ -1,0 +1,47 @@
+rules:
+    - id: capture-config-via-config-resolution
+      message: |
+          capture config is being parsed straight from the environment.
+
+          Obtain it through `config_resolution::resolve(&env)` instead, and read the
+          result with `resolved.config()`.
+
+          `resolve` is the choke point that applies the emergency Kafka fallback
+          (`CAPTURE_ANALYTICS_KAFKA_EMERGENCY_FALLBACK`) to every broker address before
+          anything is built. An envconfig parse returns pre-fallback config, so a producer
+          built from it keeps pointing at the primary cluster while the switch is armed —
+          which is exactly the outage the switch exists for.
+
+          Test code that needs a hand-built `Config` should use
+          `config_resolution::resolve_with_config`, which is gated behind the `test-utils`
+          feature and still applies the fallback.
+
+          For a genuine exception, add
+          `// nosemgrep: capture-config-via-config-resolution -- <reason>` at the call site.
+      severity: ERROR
+      languages: [rust]
+      paths:
+          include:
+              - 'rust/capture/src/**'
+          exclude:
+              # The resolver itself: the one place allowed to parse the environment.
+              - 'rust/capture/src/config_resolution.rs'
+              # Test scaffolding, compiled only under `cfg(test)` or the
+              # `test-utils` feature, so it never builds a production producer.
+              - 'rust/capture/src/v1/test_utils.rs'
+      patterns:
+          - pattern-either:
+                - pattern: $X::init_from_env(...)
+                - pattern: $X::init_from_hashmap(...)
+                - pattern: <$T as $TRAIT>::init_from_env(...)
+                - pattern: <$T as $TRAIT>::init_from_hashmap(...)
+          # Inline unit tests build configs directly on purpose. Semgrep's Rust
+          # support does not match a metavariable module name here, so this
+          # relies on the crate's `mod tests` naming convention.
+          - pattern-not-inside: mod tests { ... }
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit
+          technology:
+              - rust

@@ -84,7 +84,46 @@ impl std::str::FromStr for EnvelopeCompression {
     }
 }
 
-#[derive(Envconfig, Clone)]
+/// A config value that must never reach a log. `Debug` prints a placeholder
+/// instead of the value, so deriving `Debug` on a config struct cannot leak it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Secret(String);
+
+impl Secret {
+    /// Read the underlying value. Every call site is a place the secret can
+    /// escape, so keep them few and close to the code that needs the bytes.
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("<redacted>")
+    }
+}
+
+impl std::str::FromStr for Secret {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(s.to_string()))
+    }
+}
+
+impl From<String> for Secret {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&str> for Secret {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
+#[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(default = "false")]
     pub print_sink: bool,
@@ -363,7 +402,7 @@ pub struct Config {
     // carrying a valid PostHog-Ai-Gateway-* signature are stamped verified and
     // exempted from the llm_events quota limiter. Unset disables verification
     // (all $ai_gateway* props are stripped as untrusted).
-    pub ai_gateway_signing_secret: Option<String>,
+    pub ai_gateway_signing_secret: Option<Secret>,
 
     // HTTP/1 header read timeout in milliseconds - closes connections that don't
     // send complete headers within this duration (slow loris protection).
@@ -385,7 +424,8 @@ pub struct Config {
     pub continuous_profiling: ContinuousProfilingConfig,
 
     /// Comma-separated list of active v1 sinks (e.g. "msk" or "msk,ws").
-    /// Parsed by `v1::sinks::load_sinks()` after `Config::init_from_env()`.
+    /// Read by `crate::config_resolution::resolve`, which loads each named
+    /// sink's config from the same env snapshot as this struct.
     /// Empty string means the v1 sink layer is disabled.
     #[envconfig(default = "")]
     pub capture_v1_sinks: String,
@@ -485,7 +525,7 @@ pub struct Config {
     pub ai_byte_limit_local_cache_max_entries: u64,
 }
 
-#[derive(Envconfig, Clone)]
+#[derive(Envconfig, Clone, Debug)]
 pub struct KafkaConfig {
     #[envconfig(default = "20")]
     pub kafka_producer_linger_ms: u32, // Maximum time between producer batches during low traffic
