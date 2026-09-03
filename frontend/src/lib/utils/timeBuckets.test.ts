@@ -13,6 +13,14 @@ import {
 } from './timeBuckets'
 
 describe('timeBuckets', () => {
+    beforeEach(() => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
     describe('normalizeBucket', () => {
         // Guards the flat-zero-sparkline bug: however the query serializes the bucket, its
         // wall-clock digits must survive verbatim, even when the browser sits in a different
@@ -145,6 +153,18 @@ describe('timeBuckets', () => {
     })
 
     describe('resolveInterval', () => {
+        // Relative windows resolve against the clock, so a -7d window that sits inside one calendar
+        // month on most days straddles two at a month boundary. Pin the clock mid-month, or those
+        // cases invert on the 1st of every month.
+        beforeEach(() => {
+            jest.useFakeTimers()
+            jest.setSystemTime(new Date('2026-06-15T12:00:00.000Z'))
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
         // A pin outlives the window it was set on, so it has to give way once the window outgrows it:
         // charting a year hour by hour also runs past the query's row limit, which drops the newest
         // buckets. A pin that still fits has to beat the auto-choice — that's the point of pinning.
@@ -160,6 +180,15 @@ describe('timeBuckets', () => {
     })
 
     describe('intervalOptionsForWindow', () => {
+        beforeEach(() => {
+            jest.useFakeTimers()
+            jest.setSystemTime(new Date('2026-06-15T12:00:00.000Z'))
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
         it('disables the intervals that would smear or collapse the window', () => {
             expect(intervalOptionsForWindow('-1y', null, 'UTC')).toEqual([
                 { value: 'hour', label: 'Hour', disabledReason: 'Range too long' },
