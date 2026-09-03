@@ -295,6 +295,9 @@ def test_retryable_errors_cover_exhausted_quota_retries():
     [
         "('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))",
         "HTTPSConnectionPool(host='analyticsdata.googleapis.com', port=443): Read timed out.",
+        "HTTPSConnectionPool(host='analyticsdata.googleapis.com', port=443): Max retries exceeded with url: "
+        "/v1beta/properties/123456789:runReport (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection "
+        "object at 0x7f00>: Failed to establish a new connection: [Errno -2] Name or service not known'))",
         "('Connection broken: IncompleteRead(5398 bytes read, 4842 more expected)', IncompleteRead(...))",
         "(\"Connection broken: InvalidChunkLength(got length b'', 0 bytes read)\", InvalidChunkLength(...))",
         "(\"Connection broken: ConnectionResetError(104, 'Connection reset by peer')\", ConnectionResetError(104))",
@@ -303,7 +306,8 @@ def test_retryable_errors_cover_exhausted_quota_retries():
 def test_retryable_errors_cover_connection_drops(error_msg):
     # `_run_report` backs off on these inline, so they reach the activity only once that budget is
     # spent. The next Temporal retry restarts from the last saved chunk, so they must stay
-    # classified as retryable and not page as a bug. The last three are the truncated-body shapes
-    # `requests` raises as `ChunkedEncodingError`.
+    # classified as retryable and not page as a bug. The third is the wrapper urllib3 puts around a
+    # connect that never succeeded, once the shared adapter's own retries are exhausted, and the last
+    # three are the truncated-body shapes `requests` raises as `ChunkedEncodingError`.
     patterns = GoogleAnalyticsSource().get_retryable_errors()
     assert error_message_matches(error_msg, patterns)
