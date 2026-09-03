@@ -3679,7 +3679,9 @@ class SignalReportArtefactViewSet(
     - PUT edits a report's suggested reviewers: it appends a new `suggested_reviewers` status
       artefact (latest-wins, so the new row becomes current) with bespoke reviewer enrichment,
       merging commits/names forward from the current reviewers. Other types return 400.
-    - POST / PATCH / DELETE manage artefacts of *any* type — no type is writer-restricted.
+    - POST / PATCH / DELETE manage artefacts, except for the types the pipeline owns
+      (`NON_WRITABLE_ARTEFACT_TYPES`) and, for DELETE, the append-only `task_run` log; all of
+      those return 400 naming the type.
       Log entries accumulate; status types (judgments, repo selection, suggested reviewers, channel assignments)
       are latest-wins, so appending a new version supersedes the previous one as the report's
       canonical status. Content is validated against the type's schema. Team scoping is
@@ -4055,7 +4057,10 @@ class SignalReportArtefactViewSet(
         description=(
             "Delete an artefact, addressed by id. Deleting the latest row of a status type reverts "
             "the report's canonical status to the previous version (latest-wins over what remains). "
-            "`task_run` artefacts are an append-only work log and cannot be deleted."
+            "`task_run` artefacts are an append-only work log and cannot be deleted. Neither can the "
+            "types this API cannot write, which the pipeline owns: "
+            # Interpolated from the constant the guard tests, so the contract cannot drift from it.
+            f"{', '.join(f'`{artefact_type}`' for artefact_type in sorted(NON_WRITABLE_ARTEFACT_TYPES))}."
         ),
         parameters=[_REPORT_ID_PARAMETER],
         operation_id="signals_report_artefacts_destroy",

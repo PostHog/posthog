@@ -5589,7 +5589,7 @@
         }
     },
     "inbox-report-artefacts-delete": {
-        "description": "Delete an artefact by its id when it is no longer correct or relevant. Deleting the latest row of a status type (e.g. priority_judgment) reverts the report's canonical status to the previous version. `task_run` artefacts are an append-only work log and cannot be deleted.",
+        "description": "Delete an artefact by its id when it is no longer correct or relevant. Deleting the latest row of a status type (e.g. priority_judgment) reverts the report's canonical status to the previous version. `task_run` artefacts are an append-only work log and cannot be deleted, and neither can the types PostHog's own pipeline writes: `video_segment`, `title_change`, `summary_change`, `code_review`, `implementation_decision`. Deleting one of those returns 400 and names the type.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Delete an artefact",
