@@ -58,13 +58,7 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQueryColumnAnnotation,
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin, DataWarehouseSavedQueryFolder
-from products.data_warehouse.backend.facade.api import (
-    pause_saved_query_schedule,
-    saved_query_workflow_exists,
-    sync_saved_query_workflow,
-    trigger_saved_query_schedule,
-    unpause_saved_query_schedule,
-)
+from products.data_warehouse.backend.facade.api import saved_query_workflow_exists, unpause_saved_query_schedule
 from products.data_warehouse.backend.presentation.views.column_annotation_base import (
     DESCRIPTION_HELP_TEXT,
     upsert_annotation,
@@ -964,19 +958,12 @@ class DataWarehouseSavedQuerySerializer(
             )
 
         dag_managed_frequency = False
-        if sync_frequency and posthoganalytics.feature_enabled(
-            "data-modeling-backend-v2",
-            str(instance.team.uuid),
-            groups={
-                "organization": str(instance.team.organization_id),
-                "project": str(instance.team.id),
-            },
-        ):
+        if sync_frequency:
             from products.data_modeling.backend.facade.api import tiered_schedules_enabled
 
-            # On tiered v2 the frequency writes through to the DAG node's freshness target;
-            # on single-schedule v2 the DAG's one schedule owns cadence and per-query
-            # frequency edits are rejected.
+            # On tiered schedules the frequency writes through to the DAG node's freshness target;
+            # on a single DAG schedule that one schedule owns cadence and per-query frequency edits
+            # are rejected.
             if not tiered_schedules_enabled(instance.team):
                 raise serializers.ValidationError("Schedule is managed by the DAG. Edit the DAG schedule instead.")
             dag_managed_frequency = True
@@ -1006,18 +993,10 @@ class DataWarehouseSavedQuerySerializer(
                     raise serializers.ValidationError("The query was modified by someone else.")
 
             if dag_managed_frequency:
-                # Tiered v2: the node target is the only store of frequency intent. The
-                # interval column stays NULL so a stale v1 schedule can never be revived
-                # from it.
+                # The node target is the only store of frequency intent. The interval column
+                # stays NULL so a stale v1 schedule can never be revived from it.
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
-            elif sync_frequency == "never":
-                locked_instance.sync_frequency_interval = None
-                validated_data["sync_frequency_interval"] = None
-            elif sync_frequency:
-                sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
-                validated_data["sync_frequency_interval"] = sync_frequency_interval
-                locked_instance.sync_frequency_interval = sync_frequency_interval
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
 
@@ -1145,24 +1124,6 @@ class DataWarehouseSavedQuerySerializer(
                     .first()
                 )
                 self.context["activity_log"] = latest_activity_log
-            # Update the v1 temporal schedule if it exists. Skipped on the DAG-managed path even
-            # when a stale v1 schedule lingers from a half-finished migration — syncing it here
-            # would revive it alongside the DAG's schedules.
-            if not dag_managed_frequency:
-                temporal_schedule_exists = saved_query_workflow_exists(view)
-                if temporal_schedule_exists:
-                    try:
-                        if sync_frequency == "never":
-                            pause_saved_query_schedule(view)
-                        elif sync_frequency:
-                            sync_saved_query_workflow(view, create=not temporal_schedule_exists)
-                    except Exception as e:
-                        capture_exception(e)
-                        logger.exception(
-                            "Failed to update temporal schedule when updating view: view=%s sync_frequency=%s",
-                            view.name,
-                            sync_frequency,
-                        )
         # best effort sync to new data modeling DAG representation
         if "query" in validated_data:
             try:
@@ -1513,23 +1474,15 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         return context
 
     def _team_frequency_mode(self) -> str:
-        """Which backend owns materialization cadence for this team.
+        """Which scheduler owns materialization cadence for this team.
 
-        Mirrors the branch `update()` takes on a `sync_frequency` write: `legacy` writes the interval
-        column, `tiered` writes the DAG node's freshness target and is the only mode with bounds, and
-        `dag_schedule` rejects the write because the team's one DAG schedule owns cadence. Team-scoped,
-        so the per-view rejections (managed viewsets, views with no node) are not reflected here.
+        Mirrors the branch `update()` takes on a `sync_frequency` write: `tiered` writes the DAG node's
+        freshness target and is the only mode with bounds, and `dag_schedule` rejects the write because
+        the team's one DAG schedule owns cadence. Team-scoped, so the per-view rejections (managed
+        viewsets, views with no node) are not reflected here.
         """
         from products.data_modeling.backend.facade.api import tiered_schedules_enabled
 
-        v2_enabled = posthoganalytics.feature_enabled(
-            "data-modeling-backend-v2",
-            str(self.team.uuid),
-            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
-            send_feature_flag_events=False,
-        )
-        if not v2_enabled:
-            return "legacy"
         return "tiered" if tiered_schedules_enabled(self.team) else "dag_schedule"
 
     def get_serializer_class(self):
@@ -1654,8 +1607,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Run this saved query."""
         from products.data_modeling.backend.facade.api import (
+            MissingDagNodeError,
             clear_incremental_state,
-            is_saved_query_on_v2_schedule,
             materialize_saved_query,
         )
 
@@ -1666,13 +1619,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         if body.validated_data["full_refresh"]:
             # Dropping the watermark is the whole mechanism: the next run finds no progress to
-            # build on and rebuilds. Done before dispatch so the run it triggers is the rebuild.
+            # build on and rebuilds. Commit it before dispatch, and outside any transaction the
+            # dispatch could roll back, or the worker reads the old watermark and runs
+            # incrementally instead.
             clear_incremental_state(saved_query)
 
-        if is_saved_query_on_v2_schedule(saved_query):
+        try:
             materialize_saved_query(saved_query)
-        else:
-            trigger_saved_query_schedule(saved_query)
+        except MissingDagNodeError:
+            raise exceptions.ValidationError(
+                detail="This view isn't fully set up to materialize. Save the query again, then try syncing."
+            )
 
         log_activity(
             organization_id=self.team.organization_id,
@@ -1833,7 +1790,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
                 raise serializers.ValidationError(str(e))
 
-        should_unpause = saved_query.sync_frequency_interval is None
         previous_interval = saved_query.sync_frequency_interval
         previously_materialized = saved_query.is_materialized
 
@@ -1844,7 +1800,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         # Enable materialization - this handles model path setup and schedule creation
         # If this fails, it will set is_materialized = False
         try:
-            saved_query.schedule_materialization(unpause=should_unpause, trigger_immediate_run=True)
+            saved_query.schedule_materialization(trigger_immediate_run=True)
         except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
             # The check above already refused every cadence the lineage forbids, so reaching here
             # means the lineage moved mid-request. Say so plainly rather than forwarding a message

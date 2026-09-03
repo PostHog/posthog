@@ -20,13 +20,11 @@ from rest_framework.response import Response
 from posthog.hogql.errors import QueryError
 
 from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS
-from posthog.settings.temporal import DATA_MODELING_TASK_QUEUE
 from posthog.sync import database_sync_to_async
 
-from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError
+from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, get_declared_target
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node
-from products.data_warehouse.backend.facade.api import get_saved_query_schedule
 from products.endpoints.backend.logic.execution import EndpointExecutionService
 from products.endpoints.backend.logic.materialization import (
     EndpointMaterializationService,
@@ -53,30 +51,26 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             "query": "SELECT event, distinct_id FROM events WHERE event = '$pageview' LIMIT 100",
         }
         # Mock Temporal-related functions to avoid connection errors
-        self.sync_workflow_patcher = mock.patch(
-            "products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"
-        )
-        self.workflow_exists_patcher = mock.patch(
-            "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
-            return_value=False,
-        )
         self.delete_schedule_patcher = mock.patch(
             "products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"
         )
         # The DAG node exists by scheduling time, so the v2 lookup would hit Temporal for real.
         self.v2_dag_ids_patcher = mock.patch(
-            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids", return_value=set()
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            side_effect=lambda candidate_dag_ids=None: set(candidate_dag_ids or []),
         )
-        self.mock_sync_workflow = self.sync_workflow_patcher.start()
-        self.mock_workflow_exists = self.workflow_exists_patcher.start()
+        self.tiered_schedules_patcher = mock.patch(
+            "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+            return_value=True,
+        )
         self.mock_delete_schedule = self.delete_schedule_patcher.start()
         self.mock_v2_dag_ids = self.v2_dag_ids_patcher.start()
+        self.tiered_schedules_patcher.start()
 
     def tearDown(self):
-        self.sync_workflow_patcher.stop()
-        self.workflow_exists_patcher.stop()
         self.delete_schedule_patcher.stop()
         self.v2_dag_ids_patcher.stop()
+        self.tiered_schedules_patcher.stop()
         super().tearDown()
 
     def test_enable_materialization_creates_saved_query(self):
@@ -120,15 +114,8 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(saved_query.query, version.query)
         self.assertTrue(saved_query.is_materialized)
         self.assertEqual(saved_query.origin, DataWarehouseSavedQuery.Origin.ENDPOINT)
-
-        # Verify sync_frequency_interval is set
-        self.assertEqual(saved_query.sync_frequency_interval, timedelta(hours=24))
-
-        # Verify ModelPath was created
-        self.assertTrue(
-            DataWarehouseModelPath.objects.filter(team=self.team, saved_query=saved_query).exists(),
-            "DataWarehouseModelPath should be created for the saved_query",
-        )
+        self.assertIsNone(saved_query.sync_frequency_interval)
+        self.assertEqual(get_declared_target(Node.objects.get(saved_query=saved_query)), timedelta(hours=24))
 
     def test_create_with_materialization_enabled_schedules_saved_query(self):
         response = self.client.post(
@@ -232,8 +219,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         version.refresh_from_db()
         self.assertIsNone(version.saved_query)
 
-    def test_data_freshness_updates_saved_query_sync_interval(self):
-        """Test that updating data_freshness_seconds updates the SavedQuery's sync_interval."""
+    def test_data_freshness_updates_node_target(self):
         # Create and materialize an endpoint
         endpoint = create_endpoint_with_version(
             name="test_sync_frequency",
@@ -256,7 +242,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         version.refresh_from_db()
         saved_query = version.saved_query
         assert saved_query is not None
-        self.assertEqual(saved_query.sync_frequency_interval, timedelta(hours=24))
+        node = Node.objects.get(saved_query=saved_query)
+        self.assertIsNone(saved_query.sync_frequency_interval)
+        self.assertEqual(get_declared_target(node), timedelta(hours=24))
 
         # Update to 12-hour frequency
         response = self.client.patch(
@@ -270,9 +258,10 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Verify sync_interval was updated
         saved_query.refresh_from_db()
-        self.assertEqual(saved_query.sync_frequency_interval, timedelta(hours=12))
+        node.refresh_from_db()
+        self.assertIsNone(saved_query.sync_frequency_interval)
+        self.assertEqual(get_declared_target(node), timedelta(hours=12))
 
         # Update to 1-hour frequency
         response = self.client.patch(
@@ -286,9 +275,10 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Verify sync_interval was updated
         saved_query.refresh_from_db()
-        self.assertEqual(saved_query.sync_frequency_interval, timedelta(hours=1))
+        node.refresh_from_db()
+        self.assertIsNone(saved_query.sync_frequency_interval)
+        self.assertEqual(get_declared_target(node), timedelta(hours=1))
 
         # Update to 30-minute frequency
         response = self.client.patch(
@@ -303,7 +293,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         saved_query.refresh_from_db()
-        self.assertEqual(saved_query.sync_frequency_interval, timedelta(minutes=30))
+        node.refresh_from_db()
+        self.assertIsNone(saved_query.sync_frequency_interval)
+        self.assertEqual(get_declared_target(node), timedelta(minutes=30))
 
         # Update to 15-minute frequency (the new floor)
         response = self.client.patch(
@@ -318,7 +310,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         saved_query.refresh_from_db()
-        self.assertEqual(saved_query.sync_frequency_interval, timedelta(minutes=15))
+        node.refresh_from_db()
+        self.assertIsNone(saved_query.sync_frequency_interval)
+        self.assertEqual(get_declared_target(node), timedelta(minutes=15))
 
     @parameterized.expand(
         [
@@ -2364,57 +2358,3 @@ class TestEndpointMaterializationTemporal:
         await sync_to_async(version.save)()
 
         yield endpoint
-
-    async def test_saved_query_temporal_schedule_created(self, materialized_endpoint):
-        """Test that a Temporal schedule is created for the SavedQuery."""
-        version = await sync_to_async(materialized_endpoint.get_version)()
-
-        def get_saved_query(v):
-            return v.saved_query
-
-        saved_query = await sync_to_async(get_saved_query)(version)
-        assert saved_query is not None
-
-        # Get the schedule that should be created
-        schedule = await sync_to_async(get_saved_query_schedule)(saved_query)
-
-        # Verify schedule configuration
-        from temporalio.client import ScheduleActionStartWorkflow, ScheduleOverlapPolicy
-
-        assert isinstance(schedule.action, ScheduleActionStartWorkflow)
-        assert schedule.action.id == str(saved_query.id)
-        assert schedule.action.task_queue == DATA_MODELING_TASK_QUEUE
-
-        # Verify schedule uses calendar spec (medium interval for 12h)
-        assert len(schedule.spec.calendars) == 1
-        assert schedule.spec.jitter == timedelta(hours=1)
-
-        # Verify schedule policy
-        assert schedule.policy.overlap == ScheduleOverlapPolicy.CANCEL_OTHER
-
-    async def test_sync_frequency_affects_schedule_interval(self, materialized_endpoint):
-        """Test that different sync_frequency values create schedules with correct intervals."""
-        version = await sync_to_async(materialized_endpoint.get_version)()
-
-        def get_saved_query(v):
-            return v.saved_query
-
-        saved_query = await sync_to_async(get_saved_query)(version)
-
-        # Test 1-hour frequency (short interval: calendar with minute buckets, 1min jitter)
-        saved_query.sync_frequency_interval = timedelta(hours=1)
-        schedule = await sync_to_async(get_saved_query_schedule)(saved_query)
-        assert len(schedule.spec.calendars) == 1
-        assert schedule.spec.jitter == timedelta(minutes=1)
-
-        # Test 12-hour frequency (medium interval: calendar with hour buckets, 1hr jitter)
-        saved_query.sync_frequency_interval = timedelta(hours=12)
-        schedule = await sync_to_async(get_saved_query_schedule)(saved_query)
-        assert len(schedule.spec.calendars) == 1
-        assert schedule.spec.jitter == timedelta(hours=1)
-
-        # Test 24-hour frequency (medium interval: calendar with hour buckets, 1hr jitter)
-        saved_query.sync_frequency_interval = timedelta(hours=24)
-        schedule = await sync_to_async(get_saved_query_schedule)(saved_query)
-        assert len(schedule.spec.calendars) == 1
-        assert schedule.spec.jitter == timedelta(hours=1)

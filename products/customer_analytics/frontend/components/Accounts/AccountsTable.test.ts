@@ -79,6 +79,7 @@ const createCustomPropertyDefinition = (
     display_type: 'number',
     is_canonical: false,
     source: null,
+    has_workflow_reference: false,
     created_at: '2026-01-01T00:00:00Z',
     created_by: null,
     updated_at: null,
@@ -91,14 +92,8 @@ describe('isCustomPropertyEditable', () => {
         ['manual', createCustomPropertyDefinition(), true],
         ['canonical', createCustomPropertyDefinition({ is_canonical: true }), false],
         ['data warehouse managed', createCustomPropertyDefinition({ source: createCustomPropertySource() }), false],
-        [
-            'workflow managed',
-            createCustomPropertyDefinition({
-                references: [{ id: 'workflow-1', name: 'Update value', status: 'active', type: 'workflow' }],
-            }),
-            false,
-        ],
-    ])('marks %s definitions editable only when users can safely set their value', (_, value, expected) => {
+        ['workflow managed', createCustomPropertyDefinition({ has_workflow_reference: true }), true],
+    ])('marks %s definitions editable unless PostHog or the warehouse manages their values', (_, value, expected) => {
         expect(isCustomPropertyEditable(value)).toBe(expected)
     })
 })

@@ -7,9 +7,10 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
-import type { MetricContext } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
-import { experimentMetricModalLogic } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
 import { getDefaultMetricTitle, getMetricTag } from '~/scenes/experiments/MetricsView/shared/utils'
+
+import type { MetricContext } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 
 import { MetricConversionWindow } from './MetricConversionWindow'
 import { MetricEventDetails } from './MetricEventDetails'
