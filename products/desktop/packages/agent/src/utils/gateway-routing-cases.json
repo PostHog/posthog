@@ -102,6 +102,30 @@
       "ai_stage": null,
       "internal": false,
       "expected": "posthog_code"
+    },
+    {
+      "origin_product": "review_hog",
+      "ai_stage": "validation-c1",
+      "internal": true,
+      "expected": "review_hog"
+    },
+    {
+      "origin_product": "review_hog",
+      "ai_stage": "resolution",
+      "internal": true,
+      "expected": "review_hog"
+    },
+    {
+      "origin_product": "review_hog",
+      "ai_stage": null,
+      "internal": true,
+      "expected": "review_hog"
+    },
+    {
+      "origin_product": "review_hog",
+      "ai_stage": "validation-c1",
+      "internal": false,
+      "expected": "posthog_code"
     }
   ],
   "routed": [
@@ -160,6 +184,20 @@
       "internal": true,
       "allowlist": "signals",
       "expected": true
+    },
+    {
+      "origin_product": "review_hog",
+      "ai_stage": "validation-c1",
+      "internal": true,
+      "allowlist": "review_hog,signals_scout",
+      "expected": true
+    },
+    {
+      "origin_product": "review_hog",
+      "ai_stage": "resolution",
+      "internal": true,
+      "allowlist": "signals_scout",
+      "expected": false
     }
   ]
 }

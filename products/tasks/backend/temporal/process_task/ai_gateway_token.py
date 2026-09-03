@@ -33,6 +33,7 @@ _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "loop": "posthog_code",
     "onboarding": "onboarding",
     "posthog_ai": "posthog_ai",
+    "review_hog": "review_hog",
     "scout_suggestions": "signals",
     "signal_report": "signals",
     "signals_scout": "signals",
@@ -50,10 +51,14 @@ _MAX_CAP_DECIMAL_PLACES = 6
 # Products whose runs may mint an internally funded token. Mint scope needs
 # server-side provenance: `internal` and some origin_product values are
 # API-settable, so an unmapped origin marked internal resolves to
-# background_agents and must never mint. Signals products qualify because their
-# stages are set only by server flows and the signals_scout origin is reserved.
+# background_agents and must never mint. Signals products qualify because they
+# are reachable only through the server-stamped, PATCH-protected ai_stage.
+# review_hog qualifies because validate_origin_product reserves the origin and
+# the resolver requires the server-stamped `internal` flag; rows predating the
+# reservation resolve to posthog_code and cannot mint.
 MINTABLE_PRODUCTS = frozenset(
     {
+        "review_hog",
         "signals_scout",
         "signals_research",
         "signals_implementation",
@@ -61,6 +66,36 @@ MINTABLE_PRODUCTS = frozenset(
         "signals_custom_agent",
     }
 )
+
+# Model pins carried on the minted token: the pipeline's stage pins, the
+# implicit agent-SDK calls (the haiku small/fast utility model and the sonnet
+# generations the explore subagent's bare `sonnet` alias resolves to), and
+# every registry-supported reviewer-arm model. Persisted arms resolve against
+# the live registry with no re-pin step, and a dispatch denial does not fall
+# back to the legacy gateway, so an arm outside the pin would fail its turns
+# outright. Gateway-served models (slash-namespaced) stay out: an entry the
+# gateway cannot resolve fails the whole mint with a 400. A gateway without
+# allowed_models support ignores the field.
+_PRODUCT_ALLOWED_MODELS: dict[str, list[str]] = {
+    "review_hog": [
+        "claude-haiku-4-5",
+        "claude-sonnet-4-5",
+        "claude-sonnet-4-6",
+        "claude-sonnet-5",
+        "claude-opus-4-5",
+        "claude-opus-4-6",
+        "claude-opus-4-7",
+        "claude-opus-4-8",
+        "claude-opus-5",
+        "claude-fable-5",
+        "claude-fable-5-1",
+        "gpt-5",
+        "gpt-5.5",
+        "gpt-5.6-sol",
+        "gpt-5.6-luna",
+        "gpt-5.6-terra",
+    ],
+}
 
 # Minting is optional (no token = Python-gateway fallback), so the total budget
 # stays a few seconds: 2 attempts x 3s + one short backoff, not a 30s provisioning stall.
@@ -71,6 +106,11 @@ _MINT_TIMEOUT_SECONDS = 3
 def resolve_sandbox_ai_product(origin_product: str | None, ai_stage: str | None, *, internal: bool = False) -> str:
     """The `ai_product` the agent server will resolve for this run."""
     gateway_product = _ORIGIN_TO_GATEWAY_PRODUCT.get(origin_product or "")
+    # Stored rows may carry a caller-set review_hog origin predating its
+    # reservation; only the server-stamped `internal` flag admits the mintable product.
+    if gateway_product == "review_hog" and not internal:
+        logger.warning("review_hog origin without server-stamped internal flag; resolving posthog_code")
+        return "posthog_code"
     if gateway_product is None:
         gateway_product = "background_agents" if internal else "posthog_code"
     if gateway_product == "signals" and ai_stage:
@@ -178,6 +218,9 @@ def mint_scoped_token(*, ai_product: str, team_id: int, user: str | None = None)
     }
     if user:
         body["user"] = user
+    allowed_models = _PRODUCT_ALLOWED_MODELS.get(ai_product)
+    if allowed_models:
+        body["allowed_models"] = allowed_models
     last_error: str = ""
     for attempt in range(_MINT_ATTEMPTS):
         try:

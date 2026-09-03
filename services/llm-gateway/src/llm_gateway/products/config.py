@@ -159,8 +159,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "gpt-5.2",
                 "gpt-5-mini",
                 "gpt-5.6-luna",
-                # ReviewHog sandbox runs route here (no review_hog entry in the agent's
-                # origin→product map), so its reviewer-experiment arms must be allowed.
+                # ReviewHog sandbox runs route here: the agent's legacy leg maps
+                # review_hog to this slug (LEGACY_PRODUCT_OVERRIDES in the desktop
+                # agent's gateway.ts), so its reviewer-experiment arms must be allowed.
                 "gpt-5.6-sol",
             }
             | BEDROCK_MODELS

@@ -7,7 +7,8 @@ export type GatewayProduct =
   | "slack_app"
   | "posthog_ai"
   | "conversations"
-  | "onboarding";
+  | "onboarding"
+  | "review_hog";
 
 export function resolveGatewayProduct({
   isInternal,
@@ -23,6 +24,7 @@ export function resolveGatewayProduct({
     loop: "posthog_code",
     onboarding: "onboarding",
     posthog_ai: "posthog_ai",
+    review_hog: "review_hog",
     scout_suggestions: "signals",
     signal_report: "signals",
     signals_chat: "signals",
@@ -32,12 +34,31 @@ export function resolveGatewayProduct({
   };
 
   if (originProduct && originProduct in originProductToGatewayProductMap) {
-    return originProductToGatewayProductMap[originProduct];
+    const mapped = originProductToGatewayProductMap[originProduct];
+    // Stored rows may carry a caller-set review_hog origin predating its
+    // reservation; only the server-stamped `internal` flag admits the mintable product.
+    if (mapped === "review_hog" && !isInternal) {
+      return "posthog_code";
+    }
+    return mapped;
   }
   if (isInternal) {
     return "background_agents";
   }
   return "posthog_code";
+}
+
+// The legacy gateway's review_hog product is API-key-only, so sandbox OAuth
+// tokens 403 on that slug; the legacy leg, including the mint-failure
+// fallback, uses background_agents.
+const LEGACY_PRODUCT_OVERRIDES: Partial<
+  Record<GatewayProduct, GatewayProduct>
+> = {
+  review_hog: "background_agents",
+};
+
+function legacyProduct(product: GatewayProduct): GatewayProduct {
+  return LEGACY_PRODUCT_OVERRIDES[product] ?? product;
 }
 
 function getGatewayBaseUrl(posthogHost: string): string {
@@ -48,7 +69,7 @@ export function getLlmGatewayUrl(
   posthogHost: string,
   product: GatewayProduct = "posthog_code",
 ): string {
-  return `${getGatewayBaseUrl(posthogHost)}/${product}`;
+  return `${getGatewayBaseUrl(posthogHost)}/${legacyProduct(product)}`;
 }
 
 /**
@@ -75,7 +96,7 @@ export function resolveLlmGatewayUrl(
     return base.replace(/\/v1$/, "");
   }
   if (envUrl) {
-    return `${envUrl.replace(/\/$/, "")}/${product}`;
+    return `${envUrl.replace(/\/$/, "")}/${legacyProduct(product)}`;
   }
   return getLlmGatewayUrl(posthogHost, product);
 }
@@ -142,7 +163,7 @@ export function getGatewayUsageUrl(
   posthogHost: string,
   product: GatewayProduct = "posthog_code",
 ): string {
-  return `${getGatewayBaseUrl(posthogHost)}/v1/usage/${product}`;
+  return `${getGatewayBaseUrl(posthogHost)}/v1/usage/${legacyProduct(product)}`;
 }
 
 export interface GatewayTarget {

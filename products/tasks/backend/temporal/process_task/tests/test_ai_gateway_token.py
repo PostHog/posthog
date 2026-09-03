@@ -39,6 +39,12 @@ class TestResolveSandboxAiProduct:
     def test_mapping(self, origin_product, ai_stage, expected):
         assert resolve_sandbox_ai_product(origin_product, ai_stage) == expected
 
+    def test_review_hog_requires_the_server_stamped_internal_flag(self):
+        assert resolve_sandbox_ai_product("review_hog", "validation-c1", internal=True) == "review_hog"
+        assert resolve_sandbox_ai_product("review_hog", None, internal=True) == "review_hog"
+        assert resolve_sandbox_ai_product("review_hog", "validation-c1") == "posthog_code"
+        assert resolve_sandbox_ai_product("review_hog", None, internal=False) == "posthog_code"
+
     def test_unmapped_internal_is_background_agents(self):
         assert resolve_sandbox_ai_product("image_builder", None, internal=True) == "background_agents"
 
@@ -47,6 +53,7 @@ class TestResolveSandboxAiProduct:
 
     def test_stage_does_not_split_non_signals_products(self):
         assert resolve_sandbox_ai_product("loop", "implementation") == "posthog_code"
+        assert resolve_sandbox_ai_product("review_hog", "implementation", internal=True) == "review_hog"
 
 
 class TestSharedRoutingContract:
@@ -126,6 +133,53 @@ class TestMintScopedToken:
         }
         assert kwargs["headers"] == {"Authorization": "Bearer phs_test_mint"}
         assert kwargs["timeout"] == 3
+
+    def test_review_hog_mint_carries_the_model_pin(self, mint_settings):
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response(201, {"token": "phe_abc"})
+            assert mint_scoped_token(ai_product="review_hog", team_id=2) == "phe_abc"
+        body = post.call_args.kwargs["json"]
+        assert body["product"] == "review_hog"
+        assert body["allowed_models"] == [
+            "claude-haiku-4-5",
+            "claude-sonnet-4-5",
+            "claude-sonnet-4-6",
+            "claude-sonnet-5",
+            "claude-opus-4-5",
+            "claude-opus-4-6",
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+            "claude-opus-5",
+            "claude-fable-5",
+            "claude-fable-5-1",
+            "gpt-5",
+            "gpt-5.5",
+            "gpt-5.6-sol",
+            "gpt-5.6-luna",
+            "gpt-5.6-terra",
+        ]
+
+    def test_review_hog_pin_covers_every_registry_arm_model(self):
+        """A persisted reviewer arm resolves against the live registry with no
+        re-pin, so any registry model missing from the pin fails its turns
+        after cutover. Slash-namespaced served models are exempt: the reviewer
+        never draws them, and an entry the gateway cannot resolve fails the
+        whole mint."""
+        from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter
+        from products.tasks.backend.temporal.process_task.ai_gateway_token import _PRODUCT_ALLOWED_MODELS
+
+        registry = set(get_models_for_runtime_adapter(RuntimeAdapter.CLAUDE)) | set(
+            get_models_for_runtime_adapter(RuntimeAdapter.CODEX)
+        )
+        arm_models = {model for model in registry if "/" not in model}
+        missing = arm_models - set(_PRODUCT_ALLOWED_MODELS["review_hog"])
+        assert not missing, f"registry arm models absent from the review_hog pin: {sorted(missing)}"
+
+    def test_non_pinned_products_send_no_allowed_models(self, mint_settings):
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response(201, {"token": "phe_abc"})
+            mint_scoped_token(ai_product="signals_scout", team_id=123)
+        assert "allowed_models" not in post.call_args.kwargs["json"]
 
     def test_retries_mint_rate_limit_then_succeeds(self, mint_settings):
         with (
@@ -260,6 +314,23 @@ class TestMintableGate:
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "background_agents"
         with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
             env = ai_gateway_env_vars(team_id=123, origin_product="image_builder", internal=True)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    def test_routed_review_hog_mints(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "review_hog"
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
+            return_value="phe_abc",
+        ) as mint:
+            env = ai_gateway_env_vars(team_id=2, origin_product="review_hog", ai_stage="validation-c1", internal=True)
+        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+        mint.assert_called_once_with(ai_product="review_hog", team_id=2, user=None)
+
+    def test_non_internal_review_hog_does_not_mint(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "review_hog"
+        with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
+            env = ai_gateway_env_vars(team_id=2, origin_product="review_hog", ai_stage="validation-c1", internal=False)
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
 
