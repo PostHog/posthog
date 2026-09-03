@@ -137,8 +137,8 @@ describe('identityProviderConfigLogic', () => {
             saml_acs_url: 'https://idp.example.com/sso',
             saml_x509_cert: 'certificate',
         })
-        // First save stays on the configuration page so the generated SCIM base URL
-        // and one-time token remain visible instead of redirecting to the settings list.
+        // Saving keeps the user on the configuration page (the URL adopts the saved config's id)
+        // so the generated SCIM base URL and one-time token remain visible.
         expect(router.values.location.pathname).toContain(
             urls.identityProviderConfig(ConfigScopeEnumApi.Saml, CREATED_CONFIG.id)
         )
