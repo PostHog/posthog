@@ -34,12 +34,6 @@ export interface EvidenceCardData {
   headline?: ChartHeadlineStat | null;
   /** Mini chart of the primary series; `labels` carries bucket dates. */
   spark?: { points: number[]; labels?: string[]; render: "line" | "bar" };
-  /**
-   * The full shaped chart behind `headline`/`spark`, kept so the object's
-   * page can render its interactive chart from the same fetch instead of
-   * re-running the query. Only set by the query-backed kinds (insight,
-   * hogql); object kinds shape their own `chart` inside `getEvidencePreview`.
-   */
   chartData?: ReportChartData;
   /** A titled multi-series time chart, drawn with hover values on full pages. */
   chart?: {

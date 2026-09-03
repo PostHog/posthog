@@ -5,8 +5,6 @@ import { describe, expect, it, vi } from "vitest";
 import { PostHogObjectPage } from "./PostHogObjectPage";
 
 const writeText = vi.fn().mockResolvedValue(undefined);
-// Mirror the real hook: a flag page resolves only from a numeric id, so the
-// link is available only if the page passes the resolved id, not the key.
 const useEvidenceUrl = vi.hoisted(() =>
   vi.fn((_kind: string, id: string) =>
     /^\d+$/.test(id)
@@ -15,8 +13,6 @@ const useEvidenceUrl = vi.hoisted(() =>
   ),
 );
 
-// quill-charts is canvas-backed and does not load in the test environment;
-// the card chrome around it is what these tests exercise.
 vi.mock("@posthog/quill-charts", () => ({
   BarChart: () => <div data-testid="chart-plot" />,
   LineChart: () => <div data-testid="chart-plot" />,
@@ -25,8 +21,6 @@ vi.mock("@posthog/quill-charts", () => ({
   useChartTheme: () => ({}),
 }));
 
-// The page reads the shared evidence-preview entry. Each test sets the cache
-// state it needs through this mutable stand-in.
 const queryState = vi.hoisted(() => ({
   current: {
     isPending: false,
@@ -34,7 +28,6 @@ const queryState = vi.hoisted(() => ({
     data: {
       title: "new-checkout-flow",
       detail: "Enabled",
-      // The preview resolves the flag key to its numeric id.
       resolvedId: "42",
       facts: ["100% rollout", "Used by 1 experiment"],
       sections: [
@@ -122,7 +115,6 @@ describe("PostHogObjectPage", () => {
     expect(
       screen.getByText("Referenced 2 times in this task"),
     ).toBeInTheDocument();
-    // A flag cited by key still links out, via the resolved numeric id.
     expect(screen.getByText(/Open in PostHog/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Copy ID" }));
     expect(writeText).toHaveBeenCalledWith("new-checkout-flow");
@@ -155,7 +147,6 @@ describe("PostHogObjectPage", () => {
       </Theme>,
     );
 
-    // The chart renders from the warmed cache: value present, no skeleton.
     expect(screen.getByTestId("report-chart")).toBeInTheDocument();
     expect(screen.getByText("68,831,577")).toBeInTheDocument();
   });
@@ -238,8 +229,6 @@ describe("PostHogObjectPage", () => {
     );
 
     expect(screen.getByTestId("report-chart")).toBeInTheDocument();
-    // The card title is the page title (header + card both show it); the raw
-    // SQL series label only ever reaches the (mocked) chart plot, not the DOM.
     expect(screen.getAllByText("Events by day").length).toBeGreaterThan(0);
     expect(screen.queryByText("arrayJoin(events.event)")).toBeNull();
   });

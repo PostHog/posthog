@@ -26,7 +26,6 @@ describe("fetchEvidencePreview", () => {
       headline: { value: "1.5M", delta: { direction: "down" } },
       spark: { points: [5096547, 1506301], render: "line" },
     });
-    // The page renders the full shaped chart from the same fetch.
     expect(preview?.chartData).toMatchObject({
       type: "series",
       labels: ["2026-08-13", "2026-08-14"],
@@ -55,8 +54,6 @@ describe("fetchEvidencePreview", () => {
     expect(preview?.detail).toBeUndefined();
     expect(preview?.facts?.join(" ")).not.toContain("arrayJoin");
     expect(preview?.facts?.join(" ")).not.toContain("ifNull");
-    // The page's chart table keeps the real columns; only the hover reduction
-    // hides the raw SQL.
     expect(preview?.chartData).toMatchObject({
       type: "table",
       columns: ["arrayJoin(events.event)", "ifNull(count(), 0)"],
@@ -138,7 +135,6 @@ describe("fetchEvidencePreview", () => {
       title: "Checkout funnel",
       spark: { points: [5096547, 1506301] },
     });
-    // chartData rides along for the page chart without renaming the insight.
     expect(preview?.chartData).toMatchObject({ type: "series" });
     expect(preview?.title).toBe("Checkout funnel");
   });
@@ -185,7 +181,6 @@ describe("fetchEvidencePreview", () => {
     });
     expect(runQuery).not.toHaveBeenCalled();
 
-    // The saved-result short-circuit still produces the page's chart data.
     const preview = await fetchEvidencePreview(client, {
       kind: "insight",
       id: "sdyR2Pn8",

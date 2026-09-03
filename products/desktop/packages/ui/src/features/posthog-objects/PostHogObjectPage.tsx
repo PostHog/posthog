@@ -100,15 +100,6 @@ const STATUS_BADGE_VARIANT = {
   critical: "destructive",
 } as const;
 
-/**
- * Full interactive chart for a query-backed object (insight, hogql), rendered
- * from the shared evidence-preview cache. The hover card and idle prefetch
- * already ran the query and kept the shaped result on `preview.chartData`, so
- * opening the page draws the chart without a second fetch. Title comes from
- * the page header (the insight's live name, or the chip label for hogql),
- * never from a chart series label — a HogQL series label is raw SQL, not a
- * name worth showing.
- */
 function ObjectChartCard({
   objectKind,
   objectId,
@@ -316,8 +307,6 @@ export function PostHogObjectPageView({
               {preview && <PostHogObjectDetails preview={preview} />}
             </div>
           ) : usesChartRenderer ? (
-            // The shared evidence-preview cache carries the shaped chart, so a
-            // page opened from a hovered or prefetched chip draws immediately.
             state === "loading" ? (
               <Skeleton className="h-72 w-full rounded-lg" />
             ) : state === "error" ? (
@@ -345,8 +334,6 @@ export function PostHogObjectPageView({
                 }}
               />
             ) : (
-              // The preview resolved without chart data: the insight's query
-              // plan isn't runnable here, so link out like InsightChartCard.
               <ObjectChartCard
                 objectKind={objectKind}
                 objectId={objectId}
@@ -396,9 +383,6 @@ export function PostHogObjectPage({
     Partial<Omit<PostHogObjectArtifactMetadata, "object_kind" | "object_id">>;
   fallbackName: string;
 }) {
-  // The page reads the same evidence-preview entry the hover card and idle
-  // prefetch warm, for every kind. For insight/hogql that entry now carries
-  // the shaped chart, so opening from a chip draws the chart with no refetch.
   const query = useAuthenticatedQuery(
     evidencePreviewQueryKey({
       kind: metadata.object_kind,
