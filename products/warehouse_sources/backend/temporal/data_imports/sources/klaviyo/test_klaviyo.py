@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -29,8 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.kl
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.settings import (
     KLAVIYO_ENDPOINTS,
-    SERIES_REPORT_TIMEFRAME_KEY,
+    SERIES_REPORT_TIMEFRAME_DAYS,
     KlaviyoEndpointConfig,
+    KlaviyoValuesReportConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.source import KlaviyoSource
 
@@ -1090,7 +1091,15 @@ class TestReportVariants:
             for row in table.to_pylist()
         ]
 
-        assert captured["body"]["data"]["attributes"]["interval"] == "weekly"
+        attributes = captured["body"]["data"]["attributes"]
+        assert attributes["interval"] == "weekly"
+        # Klaviyo rejects a weekly series report whose window is over 52 weeks, and rejects any
+        # timeframe key it does not publish. A custom start/end pair is the only form that fits.
+        assert "key" not in attributes["timeframe"]
+        window = datetime.fromisoformat(attributes["timeframe"]["end"]) - datetime.fromisoformat(
+            attributes["timeframe"]["start"]
+        )
+        assert timedelta(days=SERIES_REPORT_TIMEFRAME_DAYS) <= window < timedelta(weeks=52)
         assert rows == [
             {
                 "flow_id": "F1",
@@ -1098,7 +1107,7 @@ class TestReportVariants:
                 "send_channel": "email",
                 "date_time": "2026-01-05T00:00:00+00:00",
                 "opens": 1,
-                "timeframe_key": SERIES_REPORT_TIMEFRAME_KEY,
+                "timeframe_key": f"last_{SERIES_REPORT_TIMEFRAME_DAYS}_days",
                 "conversion_metric_id": "M_ORDER",
             },
             {
@@ -1107,7 +1116,7 @@ class TestReportVariants:
                 "send_channel": "email",
                 "date_time": "2026-01-12T00:00:00+00:00",
                 "opens": 2,
-                "timeframe_key": SERIES_REPORT_TIMEFRAME_KEY,
+                "timeframe_key": f"last_{SERIES_REPORT_TIMEFRAME_DAYS}_days",
                 "conversion_metric_id": "M_ORDER",
             },
         ]
@@ -1170,10 +1179,23 @@ class TestReportVariants:
         assert "date_time" in config.primary_keys
         assert [f["field"] for f in config.incremental_fields] == ["date_time"]
         assert config.default_incremental_field == "date_time"
-        # Klaviyo caps weekly-interval series reports at 52 weeks; last_365_days (365 days) exceeds
-        # that by one day and causes a 400. All series endpoints must use the shorter key.
+        # Klaviyo caps a weekly series report at 52 weeks, which rules out last_365_days, and
+        # rejects any key outside its published set, which rules out inventing a 52-week one. Both
+        # rejections are 400s that fail the whole sync, so the window must go as a custom pair.
         assert config.values_report is not None
-        assert config.values_report.timeframe_key == SERIES_REPORT_TIMEFRAME_KEY
+        assert config.values_report.timeframe_key is None
+        assert config.values_report.timeframe_days == SERIES_REPORT_TIMEFRAME_DAYS
+
+    def test_a_timeframe_key_klaviyo_does_not_publish_is_refused(self) -> None:
+        # An unpublished key reads like a real one but 400s every request the endpoint makes, so
+        # the config has to refuse it here rather than at sync time.
+        with pytest.raises(ValueError):
+            KlaviyoValuesReportConfig(
+                report_type="flow-series-report",
+                statistics=["opens"],
+                group_by=["flow_id"],
+                timeframe_key="last_52_weeks",
+            )
 
 
 class TestEndpointRequestParams:

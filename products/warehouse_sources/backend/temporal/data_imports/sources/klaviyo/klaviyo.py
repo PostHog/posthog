@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.se
     KLAVIYO_ENDPOINTS,
     KlaviyoEndpointConfig,
     KlaviyoFanOutConfig,
+    KlaviyoValuesReportConfig,
 )
 
 KLAVIYO_BASE_URL = "https://a.klaviyo.com/api"
@@ -478,6 +479,22 @@ def _series_rows(
             yield row
 
 
+def _build_timeframe(report: KlaviyoValuesReportConfig) -> tuple[dict[str, str], str]:
+    """Build a report's timeframe attribute, and the label every row records the window under.
+
+    Klaviyo takes a timeframe either as one of its predefined keys or as a custom start/end pair.
+    A window no key matches, such as the 52 weeks a weekly-interval series report is capped at,
+    has to go as the custom pair, computed per request because the window rolls with the clock.
+    """
+    if report.timeframe_days is not None:
+        end = datetime.now(UTC).replace(microsecond=0)
+        start = (end - timedelta(days=report.timeframe_days)).replace(hour=0, minute=0, second=0)
+        return {"start": start.isoformat(), "end": end.isoformat()}, f"last_{report.timeframe_days}_days"
+
+    assert report.timeframe_key is not None
+    return {"key": report.timeframe_key}, report.timeframe_key
+
+
 def _get_values_report_rows(
     session: requests.Session,
     headers: dict[str, str],
@@ -508,9 +525,10 @@ def _get_values_report_rows(
             )
             return
 
+    timeframe, timeframe_label = _build_timeframe(report)
     attributes: dict[str, Any] = {
         "statistics": report.statistics,
-        "timeframe": {"key": report.timeframe_key},
+        "timeframe": timeframe,
     }
     if report.group_by:
         attributes["group_by"] = report.group_by
@@ -526,7 +544,7 @@ def _get_values_report_rows(
 
     # Tagged onto every row so each row records the window (and conversion metric)
     # it was computed over.
-    common: dict[str, Any] = {"timeframe_key": report.timeframe_key}
+    common: dict[str, Any] = {"timeframe_key": timeframe_label}
     if metric_id:
         common["conversion_metric_id"] = metric_id
 

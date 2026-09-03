@@ -26,6 +26,28 @@ class KlaviyoFanOutConfig:
     grandparent: Optional["KlaviyoFanOutConfig"] = None
 
 
+# The timeframe keys Klaviyo's reporting API publishes. It rejects anything else with a 400, so a
+# window none of these covers goes as a custom start/end pair instead.
+KLAVIYO_TIMEFRAME_KEYS = frozenset(
+    {
+        "today",
+        "yesterday",
+        "this_week",
+        "last_week",
+        "this_month",
+        "last_month",
+        "this_year",
+        "last_year",
+        "last_7_days",
+        "last_30_days",
+        "last_90_days",
+        "last_365_days",
+        "last_3_months",
+        "last_12_months",
+    }
+)
+
+
 @frozen
 class KlaviyoValuesReportConfig:
     """A Klaviyo reporting query: POST a statistics request, get one row back per grouping.
@@ -36,8 +58,12 @@ class KlaviyoValuesReportConfig:
 
     report_type: str  # JSON:API resource type the request body declares
     statistics: list[str]  # statistics to request; rate statistics come back as fractions [0, 1]
-    timeframe_key: str  # Klaviyo's predefined timeframe key, capped at one year by the API
     group_by: list[str]  # grouping attributes; empty means the report groups by its own default
+    # The window the report covers. Set exactly one of these two. `timeframe_key` is one of
+    # Klaviyo's predefined keys, sent as {"key": ...}. `timeframe_days` is a rolling window length
+    # the request sends as a custom {"start": ..., "end": ...} pair, for a window no key matches.
+    timeframe_key: Optional[str] = None
+    timeframe_days: Optional[int] = None
     # Set for a series report, which buckets the window by this interval and returns each grouping's
     # statistics as arrays aligned to a top-level date_times list. The source expands them into one
     # row per bucket tagged with `date_time`. Left None for a values report, which returns one scalar
@@ -46,6 +72,14 @@ class KlaviyoValuesReportConfig:
     # Campaign and flow reports require a conversion metric on every request; form and segment
     # reports do not accept one, so their requests must omit it and skip the /metrics lookup.
     requires_conversion_metric: bool = True
+
+    def __post_init__(self) -> None:
+        # Klaviyo requires a timeframe and accepts only one form of it, so a config that sets both
+        # or neither 400s every request the endpoint makes.
+        if (self.timeframe_key is None) == (self.timeframe_days is None):
+            raise ValueError(f"{self.report_type}: set exactly one of timeframe_key or timeframe_days")
+        if self.timeframe_key is not None and self.timeframe_key not in KLAVIYO_TIMEFRAME_KEYS:
+            raise ValueError(f"{self.report_type}: {self.timeframe_key} is not a Klaviyo timeframe key")
 
 
 @dataclass
@@ -120,9 +154,11 @@ VALUES_REPORT_STATISTICS = [
 # The widest window Klaviyo's reporting API allows is one year.
 VALUES_REPORT_TIMEFRAME_KEY = "last_365_days"
 
-# Klaviyo caps weekly-interval series reports at exactly 52 weeks. last_365_days (365 days) exceeds
-# that by one day (52 * 7 = 364), so series reports need their own shorter timeframe key.
-SERIES_REPORT_TIMEFRAME_KEY = "last_52_weeks"
+# Klaviyo caps a weekly-interval series report at 52 weeks (364 days), and publishes no timeframe
+# key that long: its keys step from three months straight to last_365_days, one day over the cap.
+# Series reports therefore send a custom start/end window instead. The window opens at midnight 363
+# days back, so it stays under the cap at every hour of the day and still covers today.
+SERIES_REPORT_TIMEFRAME_DAYS = 363
 
 # Series reports bucket the window by an interval. Klaviyo caps an hourly interval at 7 days and a
 # daily one at 60, so a weekly interval gives the fullest view within the 52-week series limit
@@ -525,7 +561,7 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         values_report=KlaviyoValuesReportConfig(
             report_type="flow-series-report",
             statistics=VALUES_REPORT_STATISTICS,
-            timeframe_key=SERIES_REPORT_TIMEFRAME_KEY,
+            timeframe_days=SERIES_REPORT_TIMEFRAME_DAYS,
             group_by=["flow_id", "flow_message_id", "send_channel"],
             interval=SERIES_REPORT_INTERVAL,
         ),
@@ -582,7 +618,7 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         values_report=KlaviyoValuesReportConfig(
             report_type="form-series-report",
             statistics=FORM_REPORT_STATISTICS,
-            timeframe_key=SERIES_REPORT_TIMEFRAME_KEY,
+            timeframe_days=SERIES_REPORT_TIMEFRAME_DAYS,
             group_by=["form_id"],
             interval=SERIES_REPORT_INTERVAL,
             requires_conversion_metric=False,
@@ -603,7 +639,7 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         values_report=KlaviyoValuesReportConfig(
             report_type="segment-series-report",
             statistics=SEGMENT_REPORT_STATISTICS,
-            timeframe_key=SERIES_REPORT_TIMEFRAME_KEY,
+            timeframe_days=SERIES_REPORT_TIMEFRAME_DAYS,
             group_by=[],
             interval=SERIES_REPORT_INTERVAL,
             requires_conversion_metric=False,
