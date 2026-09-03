@@ -201,7 +201,14 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         # from the persistent "Topology Description:" server-selection failures above. Match the
         # fixed "connection pool paused" phrase pymongo always uses for this state, not the
         # surrounding host/timeout values.
-        return {"The resolution lifetime expired", "connection pool paused"}
+        #
+        # pymongo raises NotPrimaryError when an in-flight read is killed because the server node
+        # is shutting down or stepping down (OperationFailure codeName 'InterruptedAtShutdown',
+        # code 11600) — a routine replica-set failover such as a rolling restart or managed-cluster
+        # maintenance. The driver reconnects to the newly-elected primary, so Temporal retrying the
+        # whole activity is self-recovering. Match the stable errmsg phrase, not the volatile
+        # topologyVersion/clusterTime blob pymongo appends.
+        return {"The resolution lifetime expired", "connection pool paused", "interrupted at shutdown"}
 
     def get_schemas(
         self,
