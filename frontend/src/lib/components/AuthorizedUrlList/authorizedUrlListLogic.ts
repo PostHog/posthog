@@ -637,6 +637,12 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             } else {
                 await teamLogic.asyncActions.updateCurrentTeam({ app_urls: values.authorizedUrls })
             }
+            // A rejected PATCH still resolves this action, because kea-loaders dispatches the failure
+            // and then resolves instead of rethrowing. The failure listener has already rolled the
+            // list back, so only launch and complete the setup task once the URL is really saved.
+            if (!values.savedAuthorizedUrls.includes(url)) {
+                return
+            }
             if (launch) {
                 actions.launchAtUrl(url)
             }

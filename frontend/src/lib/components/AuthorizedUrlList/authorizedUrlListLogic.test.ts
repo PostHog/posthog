@@ -110,10 +110,7 @@ describe('the authorized urls list logic', () => {
     })
 
     describe('a rejected save', () => {
-        // Regression coverage: the reducers add the URL before the team PATCH answers. A caller that
-        // is not allowed to change `app_urls` gets a 403, and the list must not keep the URL — the
-        // heatmaps banner reads it to decide whether the URL is authorized.
-        it('drops the added URL when the team rejects it', async () => {
+        beforeEach(() => {
             useMocks({
                 patch: {
                     '/api/environments/:team_id': [
@@ -122,12 +119,33 @@ describe('the authorized urls list logic', () => {
                     ],
                 },
             })
+        })
 
+        // Regression coverage: the reducers add the URL before the team PATCH answers. A caller that
+        // is not allowed to change `app_urls` gets a 403, and the list must not keep the URL — the
+        // heatmaps banner reads it to decide whether the URL is authorized.
+        it('drops the added URL when the team rejects it', async () => {
             await expectLogic(logic, () => {
                 logic.actions.addUrl('https://rejected.example.com')
             }).toFinishAllListeners()
 
             expect(logic.values.authorizedUrls).not.toContain('https://rejected.example.com')
+        })
+
+        // Regression coverage: kea-loaders resolves the `updateCurrentTeam` action after a 403, so the
+        // `addUrl` listener runs on past the await. The setup task must stay open, because the URL was
+        // never saved.
+        it('does not complete the setup task when the team rejects it', async () => {
+            const markTaskAsCompleted = jest.fn()
+            jest.spyOn(globalSetupLogic, 'findMounted').mockReturnValue({
+                actions: { markTaskAsCompleted },
+            } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.addUrl('https://rejected.example.com')
+            }).toFinishAllListeners()
+
+            expect(markTaskAsCompleted).not.toHaveBeenCalled()
         })
     })
 
