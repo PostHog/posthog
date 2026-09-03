@@ -28,8 +28,8 @@ _ENVIRONMENT = OpenApiParameter(
     # environment.
     explode=True,
     description="Deploy environment(s) to scope to, repeatable (from the response's `environments` list). Omit "
-    "to scope to the busiest environment GitHub marks production, falling back to the busiest persistent "
-    "(non-transient) environment when none are marked production.",
+    "to scope to every environment GitHub marks production (every production-named one when none is marked), "
+    "falling back to the busiest persistent (non-transient) environment.",
 )
 
 _GRANULARITY = OpenApiParameter(

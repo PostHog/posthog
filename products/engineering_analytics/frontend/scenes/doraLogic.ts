@@ -176,8 +176,8 @@ export const doraLogic = kea<doraLogicType>([
                 loadDoraFailure: () => true,
             },
         ],
-        // Empty means the backend's default scope: the busiest production-marked environment,
-        // falling back to the busiest persistent one. Reset on a source/repo scope change: an
+        // Empty means the backend's default scope: every production environment, falling back
+        // to the busiest persistent one. Reset on a source/repo scope change: an
         // environment or team from the old repo may not exist on the new one, and would
         // otherwise be sent as a silently-empty exact filter.
         environments: [
