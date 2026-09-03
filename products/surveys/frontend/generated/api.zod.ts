@@ -714,7 +714,7 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                                 values: zod
                                                     .array(zod.string())
                                                     .describe(
-                                                        'Values to compare the event property against. The filter matches if any of them matches.'
+                                                        "Values to compare the event property against. Positive operators like 'exact' match when the property matches one of these values. Negative operators like 'is_not' match only when the property matches none of them."
                                                     ),
                                                 operator: zod
                                                     .enum([
@@ -1609,7 +1609,7 @@ export const SurveysUpdateBody = /* @__PURE__ */ zod.object({
                                                 values: zod
                                                     .array(zod.string())
                                                     .describe(
-                                                        'Values to compare the event property against. The filter matches if any of them matches.'
+                                                        "Values to compare the event property against. Positive operators like 'exact' match when the property matches one of these values. Negative operators like 'is_not' match only when the property matches none of them."
                                                     ),
                                                 operator: zod
                                                     .enum([
@@ -2506,7 +2506,7 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 values: zod
                                                     .array(zod.string())
                                                     .describe(
-                                                        'Values to compare the event property against. The filter matches if any of them matches.'
+                                                        "Values to compare the event property against. Positive operators like 'exact' match when the property matches one of these values. Negative operators like 'is_not' match only when the property matches none of them."
                                                     ),
                                                 operator: zod
                                                     .enum([
