@@ -5048,11 +5048,6 @@
                 "label_replay_vision_observation",
                 "analyze_replay_vision_impact",
                 "suggest_replay_vision_tags",
-                "read_replay_vision_actions",
-                "update_replay_vision_action",
-                "delete_replay_vision_action",
-                "run_replay_vision_action",
-                "create_replay_vision_action",
                 "upsert_account",
                 "upsert_account_notebook",
                 "open_account"
@@ -17273,6 +17268,45 @@
             ],
             "type": "string"
         },
+        "CustomBotDefinition": {
+            "additionalProperties": false,
+            "description": "A bot a project defines itself, on top of PostHog's built-in bot list.",
+            "properties": {
+                "category": {
+                    "description": "Reported by `$virt_traffic_category`. Defaults to `custom`.",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "key": {
+                    "$ref": "#/definitions/CustomBotField",
+                    "description": "The event property this rule reads."
+                },
+                "matcher": {
+                    "$ref": "#/definitions/CustomBotMatcher"
+                },
+                "name": {
+                    "description": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.",
+                    "type": "string"
+                },
+                "pattern": {
+                    "description": "Matched against the property named by `key`.",
+                    "type": "string"
+                }
+            },
+            "required": ["name", "key", "pattern", "matcher", "id"],
+            "type": "object"
+        },
+        "CustomBotField": {
+            "description": "The event properties a project's own bot rule can match on.",
+            "enum": ["$raw_user_agent", "$ip", "$lib", "$host", "$pathname", "$current_url"],
+            "type": "string"
+        },
+        "CustomBotMatcher": {
+            "enum": ["contains", "regex", "cidr"],
+            "type": "string"
+        },
         "CustomChannelCondition": {
             "additionalProperties": false,
             "properties": {
@@ -27357,7 +27391,11 @@
                 "Anvil",
                 "Coolify",
                 "SocialPilot",
-                "RoktAds"
+                "RoktAds",
+                "Strato",
+                "Medusa",
+                "Membrain",
+                "RecallAI"
             ],
             "type": "string"
         },
@@ -29738,6 +29776,12 @@
                 },
                 "convertToProjectTimezone": {
                     "type": "boolean"
+                },
+                "customBotDefinitions": {
+                    "items": {
+                        "$ref": "#/definitions/CustomBotDefinition"
+                    },
+                    "type": "array"
                 },
                 "customChannelTypeRules": {
                     "items": {
@@ -40187,6 +40231,7 @@
                 "pipeline_destinations",
                 "pipeline_transformations",
                 "platform_and_support",
+                "posthog_ai_onboarding",
                 "product_analytics",
                 "product_tours",
                 "pulse",

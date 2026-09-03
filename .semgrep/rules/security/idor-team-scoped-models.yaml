@@ -207,6 +207,7 @@ rules:
                               |TeamMCPGatewayConfig
                               |TeamSessionSummariesConfig
                               |TeamWorkflowsConfig
+                              |UserCustomerAnalyticsConfig
                               |FieldNote
                               |FileSystem
                               |FileSystemFolderInstructions
@@ -253,6 +254,7 @@ rules:
                               |LLMTraceSummary
                               |ManagedWarehouseBackfillPartition
                               |ManagedWarehouseSourceJob
+                              |ManagedWarehouseViewTranslationResult
                               |MarketingAnalyticsGoalMapping
                               |Meeting
                               |MeetingParticipant
@@ -354,6 +356,7 @@ rules:
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
+                              |UserTasksConfig
                               |TaskThreadMessage
                               |TaskThreadMessageMention
                               |Channel
@@ -378,8 +381,6 @@ rules:
                               |UserInterview
                               |UserInterviewTopic
                               |UserRepoPreference
-                              |VisionAction
-                              |VisionActionRun
                               |VisionAlertConfiguration
                               |VisionAlertMatch
                               |WarehouseColumnAnnotation
@@ -594,6 +595,7 @@ rules:
                         |TeamMCPGatewayConfig
                         |TeamSessionSummariesConfig
                         |TeamWorkflowsConfig
+                        |UserCustomerAnalyticsConfig
                         |FieldNote
                         |FileSystem
                         |FileSystemFolderInstructions
@@ -635,6 +637,7 @@ rules:
                         |LLMTraceSummary
                         |ManagedWarehouseBackfillPartition
                         |ManagedWarehouseSourceJob
+                        |ManagedWarehouseViewTranslationResult
                         |MarketingAnalyticsGoalMapping
                         |Meeting
                         |MeetingParticipant
@@ -734,6 +737,7 @@ rules:
                         |TaskRun
                         |TaskWorkflowDispatch
                         |TaskSession
+                        |UserTasksConfig
                         |TaskThreadMessage
                         |TaskThreadMessageMention
                         |Channel
@@ -758,8 +762,6 @@ rules:
                         |UserInterview
                         |UserInterviewTopic
                         |UserRepoPreference
-                        |VisionAction
-                        |VisionActionRun
                         |VisionAlertConfiguration
                         |VisionAlertMatch
                         |WarehouseColumnAnnotation
@@ -866,6 +868,7 @@ rules:
                               |IdentityProviderConfig
                               |LegalDocument
                               |ManagedWarehouseSourceLifecycle
+                              |ManagedWarehouseViewTranslationJob
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
@@ -941,6 +944,7 @@ rules:
                         |IdentityProviderConfig
                         |LegalDocument
                         |ManagedWarehouseSourceLifecycle
+                        |ManagedWarehouseViewTranslationJob
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain

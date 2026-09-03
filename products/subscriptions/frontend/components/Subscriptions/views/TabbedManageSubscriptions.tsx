@@ -2,7 +2,9 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 import type { ReactNode } from 'react'
 
-import { MailHog } from 'lib/components/hedgehogs'
+import * as mailboxPng from '@posthog/brand/hoggies/png/mailbox'
+
+import { pngHoggie } from 'lib/brand/hoggies'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -18,6 +20,8 @@ import { isSubscriptionEnabled } from '../../../scenes/components/SubscriptionsT
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import { SubscriptionsLogicProps } from '../utils'
 import { AIPromptReportsLink, SubscriptionEmptyState, SubscriptionListItem } from './SubscriptionOverviewComponents'
+
+const HedgehogMailbox = pngHoggie(mailboxPng)
 
 const PAGE_SIZE = 10
 export type SubscriptionTabKey = 'resource' | 'insights'
@@ -152,7 +156,7 @@ export function TabbedManageSubscriptions({
             } yet. Add one to send an up-to-date snapshot to Slack or email on a schedule.`,
             emptyState: (
                 <SubscriptionEmptyState
-                    illustration={<MailHog className="object-contain shrink-0 w-24 h-20" />}
+                    illustration={<HedgehogMailbox className="object-contain shrink-0 w-24 h-20" />}
                     title={`${isInsightContext ? 'Insight' : 'Dashboard'} subscriptions`}
                     description={`Send an up-to-date snapshot of this ${
                         isInsightContext ? 'insight' : 'dashboard'

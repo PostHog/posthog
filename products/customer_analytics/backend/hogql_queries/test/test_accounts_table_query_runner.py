@@ -49,6 +49,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
+from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_CSP_FLAG
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.hogql_queries.accounts_table_query_runner import (
     ACCOUNTS_TABLE_MAX_COLUMNS,
@@ -77,6 +78,7 @@ class TestAccountsTableQueryRunner(BaseTest):
 
     def test_returns_requested_postgres_cells_with_typed_defaults(self) -> None:
         empty_account = create_account(team_id=self.team.id, name="Empty")
+        cleared_account = create_account(team_id=self.team.id, name="Cleared", external_id="cleared")
         account = create_account(
             team_id=self.team.id,
             name="Acme",
@@ -131,6 +133,19 @@ class TestAccountsTableQueryRunner(BaseTest):
         now = timezone.now()
         CustomPropertyValue.objects.unscoped().filter(id=old_value.id).update(created_at=now - timedelta(days=5))
         CustomPropertyValue.objects.unscoped().filter(id=current_value.id).update(created_at=now - timedelta(days=1))
+        set_result = api.set_external_account_custom_properties(
+            self.team.id, "cleared", properties={str(numeric_definition.id): 15}
+        )
+        clear_result = api.set_external_account_custom_properties(
+            self.team.id, "cleared", properties={str(numeric_definition.id): None}
+        )
+        assert set_result.error is None
+        assert clear_result.error is None
+        assert (
+            CustomPropertyValue.objects.for_team(self.team.id)
+            .filter(account_id=cleared_account.id, definition_id=numeric_definition.id, is_deleted=True, value_num=15)
+            .exists()
+        )
 
         response = self._run(
             AccountsTableQuery(
@@ -169,6 +184,10 @@ class TestAccountsTableQueryRunner(BaseTest):
             str(text_definition.id): "enterprise",
         }
         assert [point.value for point in full_row.customPropertyHistory[str(numeric_definition.id)]] == [10.0, 20.0]
+
+        cleared_row = rows[str(cleared_account.id)]
+        assert cleared_row.customProperties == {str(numeric_definition.id): None, str(text_definition.id): None}
+        assert cleared_row.customPropertyHistory == {str(numeric_definition.id): []}
 
         empty_row = rows[str(empty_account.id)]
         assert empty_row.accountFields == {"stripe_customer_id": None, "churned_at": None, "ignored_at": None}
@@ -447,6 +466,91 @@ class TestAccountsTableQueryRunner(BaseTest):
 
         assert [row.id for row in response.results] == [str(active_account.id)]
         assert str(untagged_account.id) not in {row.id for row in response.results}
+
+    @patch(
+        "products.customer_analytics.backend.logic.account_member_search.posthog_feature_flag_enabled",
+        return_value=True,
+    )
+    def test_searches_staff_account_members_by_exact_email(self, _mock_feature_enabled) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        account = create_account(
+            team_id=self.team.id,
+            name="Member account",
+            external_id=str(self.organization.id),
+        )
+        definition = AccountRelationshipDefinition.objects.unscoped().create(team=self.team, name="CSM")
+        AccountRelationship.objects.unscoped().create(
+            team=self.team,
+            account=account,
+            definition=definition,
+            user=self.user,
+        )
+
+        response = self._run(
+            AccountsTableQuery(
+                columns=[],
+                filters=[
+                    AccountsTableSearchFilter(query=self.user.email.upper()),
+                    AccountsTableAssignedFilter(),
+                ],
+            )
+        )
+
+        assert [row.id for row in response.results] == [str(account.id)]
+        _mock_feature_enabled.assert_called_once_with(
+            CUSTOMER_ANALYTICS_CSP_FLAG,
+            str(self.user.distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.id,
+        )
+
+    @parameterized.expand(
+        [
+            ("name", "acme", False),
+            ("domain", "acme.example", False),
+            ("partial email", "member@acme", False),
+            ("complete email", "member@acme.example", True),
+        ]
+    )
+    def test_only_complete_email_search_requires_fresh_calculation(
+        self, _name: str, query: str, expected: bool
+    ) -> None:
+        runner = AccountsTableQueryRunner(
+            query=AccountsTableQuery(columns=[], filters=[AccountsTableSearchFilter(query=query)]),
+            team=self.team,
+            user=self.user,
+        )
+
+        assert runner.requires_fresh_calculation() is expected
+
+    def test_complete_email_search_cache_is_partitioned_by_principal(self) -> None:
+        query = AccountsTableQuery(
+            columns=[],
+            filters=[AccountsTableSearchFilter(query="member@acme.example")],
+        )
+        self.user.is_staff = False
+        viewer_runner = AccountsTableQueryRunner(query=query, team=self.team, user=self.user)
+        viewer_cache_key = viewer_runner.get_cache_key()
+
+        self.user.is_staff = True
+        staff_runner = AccountsTableQueryRunner(query=query, team=self.team, user=self.user)
+        staff_cache_key = staff_runner.get_cache_key()
+
+        assert viewer_cache_key != staff_cache_key
+        assert staff_runner.get_cache_payload()["account_member_search_principal"] == {
+            "user_id": self.user.id,
+            "is_staff": True,
+        }
+
+    @patch("products.customer_analytics.backend.logic.account_member_search.list_account_external_ids_by_member_email")
+    def test_non_email_search_skips_account_member_lookup(self, mock_member_lookup) -> None:
+        account = create_account(team_id=self.team.id, name="Acme")
+
+        response = self._run(AccountsTableQuery(columns=[], filters=[AccountsTableSearchFilter(query="acme")]))
+
+        assert [row.id for row in response.results] == [str(account.id)]
+        mock_member_lookup.assert_not_called()
 
     def test_filters_by_relationship_definition_and_user(self) -> None:
         csm_account = create_account(team_id=self.team.id, name="CSM")
@@ -813,6 +917,14 @@ class TestAccountsTableQueryRunner(BaseTest):
                 AccountsTableQuery(
                     columns=[],
                     filters=[AccountsTableSearchFilter(query="a" * (ACCOUNTS_TABLE_MAX_STRING_LENGTH + 1))],
+                )
+            )
+
+        with self.assertRaises(ValidationError):
+            self._run(
+                AccountsTableQuery(
+                    columns=[],
+                    filters=[AccountsTableSearchFilter(query="first"), AccountsTableSearchFilter(query="second")],
                 )
             )
 

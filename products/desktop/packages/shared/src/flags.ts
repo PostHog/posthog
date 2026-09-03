@@ -20,6 +20,8 @@ export const PROJECT_BLUEBIRD_FLAG = "project-bluebird";
 export const CHANNELS_LAYOUT_FLAG = "code-spaces-layout";
 // Gates the Loops feature: the sidebar Loops space and the per-channel Loops tab.
 export const LOOPS_FLAG = "loops";
+/** Desktop Loops read and write workflows (`hog_flows`) instead of the loops API. */
+export const LOOPS_HOG_FLOWS_FLAG = "loops-hog-flows";
 export const DESKTOP_HOME_FLAG = "desktop-home-flag";
 export const SAVED_SEARCHES_RAIL_FLAG = "posthog-desktop-saved-searches-rail";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";
@@ -47,11 +49,9 @@ export const LOCAL_MCP_IMPORT_FLAG = "posthog-code-local-mcp-import";
  * Owned by the backend rollout in posthog/posthog — same flag key there.
  */
 export const MCP_GATEWAY_FLAG = "mcp-gateway";
-/** Per-task estimated cost readout in the context usage indicator. */
-export const TASK_COST_FLAG = "posthog-code-task-cost";
 /**
  * Shows the task cost as text beside the context ring rather than only inside
- * the popover. Requires TASK_COST_FLAG, which is what fetches the figure.
+ * the popover.
  */
 export const TASK_COST_VISIBLE_FLAG = "posthog-code-task-cost-visible";
 /**

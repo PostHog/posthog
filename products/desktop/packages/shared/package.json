@@ -16,6 +16,10 @@
       "types": "./dist/announcements.d.ts",
       "import": "./dist/announcements.js"
     },
+    "./hoggies": {
+      "types": "./dist/hoggies.d.ts",
+      "import": "./dist/hoggies.js"
+    },
     "./domain-types": {
       "types": "./dist/domain-types.d.ts",
       "import": "./dist/domain-types.js"
@@ -65,6 +69,7 @@
     "clean": "node ../../scripts/rimraf.mjs dist .turbo"
   },
   "dependencies": {
+    "@posthog/brand": "catalog:",
     "zod": "^4.1.12"
   },
   "devDependencies": {

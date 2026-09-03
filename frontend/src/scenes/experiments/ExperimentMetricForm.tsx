@@ -41,7 +41,7 @@ import {
     ExperimentRatioMetricOutlierHandling,
 } from './ExperimentMetricOutlierHandling'
 import { ExperimentMetricThreshold, isThresholdAvailableForMath } from './ExperimentMetricThreshold'
-import { EXPOSURE_DEFAULT_EVENT, isDefaultExposureConfig } from './exposureContract'
+import { EXPOSURE_DEFAULT_EVENT, getActivationConfig, isDefaultExposureConfig } from './exposureContract'
 import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
 import { createFilterForSource, getFilter } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
@@ -281,6 +281,8 @@ export function ExperimentMetricForm({
 
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
+    const activationConfig = getActivationConfig(exposureCriteria)
+
     return (
         <SceneContent>
             <SceneSection title={isSharedMetric ? 'Shared metric type' : 'Metric type'} className="max-w-prose">
@@ -313,6 +315,12 @@ export function ExperimentMetricForm({
                             <>
                                 Counts only after exposure event{' '}
                                 <LemonTag>{getExposureCriteriaLabel(exposureCriteria, resolvedExposureEvent)}</LemonTag>
+                                {activationConfig && (
+                                    <>
+                                        and activation event{' '}
+                                        <LemonTag>{getExposureConfigDisplayName(activationConfig)}</LemonTag>
+                                    </>
+                                )}
                             </>
                         ) : (
                             <>
