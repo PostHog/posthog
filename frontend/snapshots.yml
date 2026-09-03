@@ -8397,9 +8397,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-csp-reporting--light:
         hash: v1.k794b7964.a842c3f0ee5a6731d1051c47f04fd6da35d42f85cc3e0ba40afba80d2ea66b91.uj0d249fCiw0N7_QZI0owaFQ77omJCKRsMDMnmJrX5k
     scenes-app-settings-environment--settings-environment-customization--dark:
-        hash: v1.k794b7964.20a4c0114ee5bc5239d8f7379d3b524fab7792f5cbe4e955af67f2b628c6740a.B2_rKR1OO-ZWVFAXJIorDCuW7DQI7cccnguK9OQ1crQ
+        hash: v1.k794b7964.1a38cfe1271e4a9f6290e392d9a6f4e3cd8847fe2dcdff60bb5bd31f01f6471f.KffiFQt4EKsxI1Rbjs7yMoIbB6QRSkml34IlulQ72Zs
     scenes-app-settings-environment--settings-environment-customization--light:
-        hash: v1.k794b7964.90efacec6b8b33b059eb3574c8379b997f3774b71a6b8b5f044abacceab629d6.dE0G8aMXIav3GKTW7wwf0rXCFnhSzF2YCOLu3nRtvu8
+        hash: v1.k794b7964.35c10ee15e7424fb6966da088d7edb955e71e88e87288b71cfe0be2733d2a51c.pBLStD_u8lE5z1PuMkA3GGkSoFc4YNU1y-Q6-WDsBcg
     scenes-app-settings-environment--settings-environment-danger-zone--dark:
         hash: v1.k794b7964.586910a373b9a9cf63d114f527d0bb8580033d25a81be6f830e07bf244a7c316.-ID92-MgwgAf0sdCeF84tYBSJ1RcHGOvApRVSsJNYeE
     scenes-app-settings-environment--settings-environment-danger-zone--light:
@@ -8524,6 +8524,10 @@ snapshots:
         hash: v1.k794b7964.8defefc8ee81d152212ad970ee03afd0170e149183c700875620b83c94041edb.5f5prfRZbGCHJZ5SXwCfvu5BsuOjCWSch49ouOMP4iU
     scenes-app-settings-project--settings-project-autocapture--light:
         hash: v1.k794b7964.397d4848babe9a8d2fd98b15ffe998d685521cb5135ff4ad1a70951e6062ec71.HMYh2-IfWjQd_PDBPGoPGrX_LVi2OHg7wzBFzJAmslA
+    scenes-app-settings-project--settings-project-customization--dark:
+        hash: v1.k794b7964.1a38cfe1271e4a9f6290e392d9a6f4e3cd8847fe2dcdff60bb5bd31f01f6471f.OVv8zCjGPjX8-NsbhgGEY8SivN_0m3yn6SwTMqF6CN0
+    scenes-app-settings-project--settings-project-customization--light:
+        hash: v1.k794b7964.35c10ee15e7424fb6966da088d7edb955e71e88e87288b71cfe0be2733d2a51c.Lf9oEEP9gWth52aeJ2143IvfkEAylnHS6pEtzIFvmhQ
     scenes-app-settings-project--settings-project-danger-zone--dark:
         hash: v1.k794b7964.d18bc16d7f8d14a2168e67a889a5229659191e35393f829ce1b5eb6c0876a269.nQC3Mf7fvxzoZTD0m9ndbrfXV9nQin3tsW49wkX6Zqk
     scenes-app-settings-project--settings-project-danger-zone--light:

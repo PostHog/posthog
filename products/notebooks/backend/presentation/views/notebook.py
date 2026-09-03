@@ -64,6 +64,13 @@ from products.notebooks.backend.analytics import (
     notebook_node_count,
 )
 from products.notebooks.backend.collab import submit_steps
+from products.notebooks.backend.facade.compute_pricing import (
+    COMPUTE_PRESETS,
+    DEFAULT_COMPUTE_PRESET_KEY,
+    ComputeShape,
+    find_matching_preset,
+    get_compute_rates,
+)
 from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
 from products.notebooks.backend.facade.sql_v2 import acquire_run_slots, release_run_slots
 from products.notebooks.backend.facade.widgets import (
@@ -122,6 +129,7 @@ from products.notebooks.backend.sql_v2_references import (
 from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run, finish_node_run
 from products.notebooks.backend.sql_v2_serializers import (
     MAX_VARIABLES_PER_NOTEBOOK,
+    NotebookComputeOptionsResponseSerializer,
     NotebookKernelConfigResponseSerializer,
     NotebookKernelStatusResponseSerializer,
     NotebookSQLV2InterruptResponseSerializer,
@@ -1315,34 +1323,42 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 runtime.status = status
                 runtime.save(update_fields=["status"])
 
-        return Response(
-            {
-                "backend": backend,
-                "status": status,
-                "last_used_at": runtime.last_used_at.isoformat() if runtime else None,
-                "last_error": runtime.last_error if runtime else None,
-                "runtime_id": str(runtime.id) if runtime else None,
-                "kernel_id": runtime.kernel_id if runtime else None,
-                "kernel_pid": runtime.kernel_pid if runtime else None,
-                "sandbox_id": runtime.sandbox_id if runtime else None,
-                # Journey 7: what a SQL node can currently SELECT from. Gated twice. On the
-                # live-checked status, not runtime.status — the row above is the latest by
-                # last_used_at regardless of state, and a dead kernel's frames are not
-                # SELECT-able. And on query access, because these are column names and types
-                # derived from the user's data: notebook access alone gates liveness (which is
-                # all this endpoint used to return), but not schema. The rest of SQLV2 draws
-                # that line already; this keeps the endpoint's existing surface ungated.
-                "frames": (
-                    (runtime.frames or [])
-                    if runtime and status == KernelRuntime.Status.RUNNING and self._has_query_access()
-                    else []
-                ),
-                "cpu_cores": cpu_cores,
-                "memory_gb": sandbox_config.memory_gb,
-                "disk_size_gb": sandbox_config.disk_size_gb,
-                "idle_timeout_seconds": sandbox_config.ttl_seconds,
-            }
+        # A running sandbox keeps the shape it started with, so price that rather than the
+        # notebook's configuration. They differ between a resize and the restart that applies it.
+        is_live = status in (KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING)
+        priced = self._priced_shape(
+            runtime if is_live else None,
+            ComputeShape(cpu_cores=cpu_cores, memory_gb=sandbox_config.memory_gb),
         )
+        payload = {
+            "backend": backend,
+            "status": status,
+            "last_used_at": runtime.last_used_at.isoformat() if runtime else None,
+            "last_error": runtime.last_error if runtime else None,
+            "runtime_id": str(runtime.id) if runtime else None,
+            "kernel_id": runtime.kernel_id if runtime else None,
+            "kernel_pid": runtime.kernel_pid if runtime else None,
+            "sandbox_id": runtime.sandbox_id if runtime else None,
+            # Journey 7: what a SQL node can currently SELECT from. Gated twice. On the
+            # live-checked status, not runtime.status — the row above is the latest by
+            # last_used_at regardless of state, and a dead kernel's frames are not
+            # SELECT-able. And on query access, because these are column names and types
+            # derived from the user's data: notebook access alone gates liveness (which is
+            # all this endpoint used to return), but not schema. The rest of SQLV2 draws
+            # that line already; this keeps the endpoint's existing surface ungated.
+            "frames": (
+                (runtime.frames or [])
+                if runtime and status == KernelRuntime.Status.RUNNING and self._has_query_access()
+                else []
+            ),
+            "cpu_cores": cpu_cores,
+            "memory_gb": sandbox_config.memory_gb,
+            "disk_size_gb": sandbox_config.disk_size_gb,
+            "idle_timeout_seconds": sandbox_config.ttl_seconds,
+            "hourly_price": get_compute_rates().hourly_price(cpu_cores=priced.cpu_cores, memory_gb=priced.memory_gb),
+            "preset_key": self._preset_key_for(priced.cpu_cores, priced.memory_gb),
+        }
+        return Response(NotebookKernelStatusResponseSerializer(payload).data)
 
     @extend_schema(
         request=NotebookKernelConfigSerializer,
@@ -1358,6 +1374,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer.is_valid(raise_exception=True)
         notebook = self._get_notebook_for_kernel()
         update_fields = []
+        # A sandbox takes its size at provision time, so a live one keeps the old shape until it
+        # restarts. Capture the shape before the write as the fallback baseline for the restart
+        # decision, used when no runtime has recorded the running shape.
+        shape_before = build_notebook_sandbox_config(notebook)
 
         if "cpu_cores" in serializer.validated_data:
             notebook.kernel_cpu_cores = serializer.validated_data["cpu_cores"]
@@ -1372,18 +1392,139 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if notebook.pk:
             notebook.save(update_fields=update_fields)
 
-        return Response(
-            {
-                "cpu_cores": notebook.kernel_cpu_cores,
-                "memory_gb": notebook.kernel_memory_gb,
-                "idle_timeout_seconds": notebook.kernel_idle_timeout_seconds,
-                "restart_required": KernelRuntime.objects.filter(
-                    team_id=self.team_id,
-                    notebook_short_id=notebook.short_id,
-                    status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
-                ).exists(),
-            }
+        # Price the shape the next sandbox will actually get, so a notebook that leaves one knob
+        # unset is still quoted against the default that fills it in.
+        configured = build_notebook_sandbox_config(notebook)
+        # Scoped to the requester, like kernel_status: runtimes are per user, and restarting on a
+        # collaborator's row would provision a paid sandbox for whoever called this while leaving
+        # that collaborator on the old shape.
+        config_user = self._current_user()
+        live_runtime = (
+            KernelRuntime.objects.filter(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user=config_user if isinstance(config_user, User) else None,
+                status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
+            )
+            .order_by("-last_used_at")
+            .first()
         )
+        # A RUNNING row can outlive its sandbox, and restarting on a stale one would turn a
+        # config-only call into new paid compute. Confirm the sandbox before acting on the row.
+        kernel_is_live = live_runtime is not None and self._sandbox_is_running(notebook, config_user, live_runtime)
+        # Compare the desired shape against what the running sandbox was provisioned with, not just
+        # this request's change, so a retry after a failed restart still triggers one. Fall back to
+        # the pre-write config when no runtime has recorded a shape.
+        running = self._priced_shape(
+            live_runtime,
+            ComputeShape(cpu_cores=shape_before.cpu_cores, memory_gb=shape_before.memory_gb),
+        )
+        shape_changed = (
+            abs(running.cpu_cores - configured.cpu_cores) > 1e-6 or abs(running.memory_gb - configured.memory_gb) > 1e-6
+        )
+
+        # Restart on a resize so the quoted price describes the sandbox that is actually running.
+        # Only on a resize: a restart discards every materialized dataframe, which is too much to
+        # spend on an idle-timeout change that a live sandbox cannot pick up anyway.
+        restarted = False
+        if kernel_is_live and shape_changed:
+            try:
+                get_kernel_runtime(notebook, config_user).restart()
+                restarted = True
+            except (SandboxProvisionError, RuntimeError):
+                logger.exception("notebook_kernel_config_restart_failed", notebook_short_id=notebook.short_id)
+                # The configuration stays saved: it is what the next sandbox gets. Status prices
+                # the runtime's own shape while one is alive, so a failed restart no longer makes
+                # the panel quote a sandbox nobody is on.
+
+        # Price the same thing status prices, so the field does not mean the running sandbox on
+        # one endpoint and the configuration on the other. After a restart this is the new
+        # sandbox; after a failed one it is the old sandbox still serving the notebook.
+        priced_runtime = (
+            KernelRuntime.objects.filter(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user=config_user if isinstance(config_user, User) else None,
+                status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
+            )
+            .order_by("-last_used_at")
+            .first()
+        )
+        priced = self._priced_shape(
+            priced_runtime,
+            ComputeShape(cpu_cores=configured.cpu_cores, memory_gb=configured.memory_gb),
+        )
+        config_payload = {
+            "cpu_cores": notebook.kernel_cpu_cores,
+            "memory_gb": notebook.kernel_memory_gb,
+            "idle_timeout_seconds": notebook.kernel_idle_timeout_seconds,
+            "restarted": restarted,
+            "restart_required": kernel_is_live and not restarted,
+            "hourly_price": get_compute_rates().hourly_price(cpu_cores=priced.cpu_cores, memory_gb=priced.memory_gb),
+            "preset_key": self._preset_key_for(priced.cpu_cores, priced.memory_gb),
+        }
+        return Response(NotebookKernelConfigResponseSerializer(config_payload).data)
+
+    def _priced_shape(self, runtime: KernelRuntime | None, fallback: ComputeShape) -> ComputeShape:
+        """The shape hourly_price describes: what a live sandbox runs, else what the next one gets.
+
+        Both kernel endpoints price through this so the field means one thing. A runtime from
+        before the shape was recorded reads as unknown and falls back.
+        """
+        if runtime and runtime.provisioned_cpu_cores is not None and runtime.provisioned_memory_gb is not None:
+            return ComputeShape(cpu_cores=runtime.provisioned_cpu_cores, memory_gb=runtime.provisioned_memory_gb)
+        return fallback
+
+    def _sandbox_is_running(self, notebook: Notebook, user: Any, runtime: KernelRuntime) -> bool:
+        """Whether the runtime row still has a sandbox behind it, the check kernel_status makes."""
+        if not runtime.sandbox_id or runtime.backend not in (
+            KernelRuntime.Backend.MODAL,
+            KernelRuntime.Backend.DOCKER,
+        ):
+            return False
+        try:
+            service = get_kernel_runtime(notebook, user).service
+            sandbox = service._get_sandbox_class(runtime.backend).get_by_id(runtime.sandbox_id)
+            return sandbox.get_status() == SandboxStatus.RUNNING
+        except Exception:
+            return False
+
+    @staticmethod
+    def _preset_key_for(cpu_cores: float | None, memory_gb: float | None) -> str | None:
+        preset = find_matching_preset(cpu_cores=cpu_cores, memory_gb=memory_gb)
+        return preset.key if preset else None
+
+    @extend_schema(
+        responses={200: NotebookComputeOptionsResponseSerializer},
+        description=(
+            "Compute rates, presets, and the sizes the kernel config endpoint accepts. Static per region, "
+            "so a client can fetch it once and price any shape a user picks."
+        ),
+    )
+    @action(methods=["GET"], url_path="kernel/compute_options", detail=False, required_scopes=["notebook:read"])
+    def kernel_compute_options(self, request: Request, **kwargs) -> Response:
+        rates = get_compute_rates()
+        options_payload = {
+            "currency": "USD",
+            "cpu_rate_per_core_hour": rates.cpu_per_core_hour,
+            "memory_rate_per_gb_hour": rates.memory_per_gb_hour,
+            "default_preset_key": DEFAULT_COMPUTE_PRESET_KEY,
+            "presets": [
+                {
+                    "key": preset.key,
+                    "name": preset.name,
+                    "description": preset.description,
+                    "cpu_cores": preset.cpu_cores,
+                    "memory_gb": preset.memory_gb,
+                    "hourly_price": rates.hourly_price(cpu_cores=preset.cpu_cores, memory_gb=preset.memory_gb),
+                }
+                for preset in COMPUTE_PRESETS
+            ],
+            "allowed_cpu_cores": ALLOWED_KERNEL_CPU_CORES,
+            "allowed_memory_gb": ALLOWED_KERNEL_MEMORY_GB,
+            "allowed_idle_timeout_seconds": ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS,
+        }
+        return Response(NotebookComputeOptionsResponseSerializer(options_payload).data)
 
     @action(methods=["POST"], url_path="kernel/execute", detail=True)
     def kernel_execute(self, request: Request, **kwargs):
@@ -1749,7 +1890,38 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             finish_node_run(run, NotebookNodeRun.Status.FAILED, error="Failed to start run.")
             return Response({"detail": "Failed to start run."}, status=503)
 
-        return Response({"run_id": str(run.id)})
+        # Whether this run has to build a sandbox, decided here rather than inferred by a client
+        # from a kernel status poll that can be ten seconds old. That cache could stay silent
+        # through a sandbox that timed out between polls, which is the one case worth disclosing.
+        uses_sandbox = plan.node_type != "hogql"
+        live_runtime = (
+            KernelRuntime.objects.filter(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user=user if isinstance(user, User) else None,
+                status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
+            )
+            .order_by("-last_used_at")
+            .first()
+            if uses_sandbox
+            else None
+        )
+        starts_sandbox = uses_sandbox and not (
+            live_runtime is not None and self._sandbox_is_running(notebook, user, live_runtime)
+        )
+        sandbox_config = build_notebook_sandbox_config(notebook) if starts_sandbox else None
+        run_payload = {
+            "run_id": str(run.id),
+            "starts_sandbox": starts_sandbox,
+            # Only a modal sandbox is charged, so a docker kernel carries no price to disclose.
+            "sandbox_hourly_price": (
+                get_compute_rates().hourly_price(cpu_cores=sandbox_config.cpu_cores, memory_gb=sandbox_config.memory_gb)
+                if sandbox_config is not None
+                and get_kernel_runtime(notebook, user).service._get_backend() == KernelRuntime.Backend.MODAL
+                else None
+            ),
+        }
+        return Response(NotebookSQLV2RunResponseSerializer(run_payload).data)
 
     @extend_schema(
         parameters=[
