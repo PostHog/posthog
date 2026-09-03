@@ -32,6 +32,7 @@ APIScopeObject = Literal[
     "cohort",
     "comment",
     "conversation",
+    "context_layer_internal",
     "customer_analytics",
     "customer_journey",
     "customer_profile_config",
@@ -156,6 +157,9 @@ API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "clickhouse_test_cluster_perf",
+        # Grants Context Wiki writes only to write-enabled sandbox runs. Kept
+        # separate from internal_run because read-only runs carry that marker.
+        "context_layer_internal",
         # Narrows `internal_run`: the run behind this token was started by a person
         # pressing a button, not by one of PostHog's own schedulers. Both markers are
         # minted server-side, so neither can be self-granted; the LLM gateway meters

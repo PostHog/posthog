@@ -1874,7 +1874,7 @@
         "feature": "context_layer",
         "summary": "Resolve a channel context page",
         "title": "Resolve a channel context page",
-        "required_scopes": ["task:read", "internal_run:read"],
+        "required_scopes": ["organization:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1889,7 +1889,7 @@
         "feature": "context_layer",
         "summary": "Read a context wiki page",
         "title": "Read a context wiki page",
-        "required_scopes": ["task:read", "internal_run:read"],
+        "required_scopes": ["organization:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1904,7 +1904,7 @@
         "feature": "context_layer",
         "summary": "Update a context wiki page",
         "title": "Update a context wiki page",
-        "required_scopes": ["task:write", "internal_run:read"],
+        "required_scopes": ["organization:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
@@ -10789,6 +10789,51 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "task-context-wiki-channel-resolve": {
+        "description": "Resolve the current task's channel id to its context wiki page path for an unattended task run.",
+        "category": "Context wiki",
+        "feature": "context_layer",
+        "summary": "Resolve this task's channel context page",
+        "title": "Resolve this task's channel context page",
+        "required_scopes": ["task:read", "internal_run:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "context-layer"
+    },
+    "task-context-wiki-page-retrieve": {
+        "description": "Read a context wiki page and its head_sha for an unattended task run.",
+        "category": "Context wiki",
+        "feature": "context_layer",
+        "summary": "Read this task's context wiki page",
+        "title": "Read this task's context wiki page",
+        "required_scopes": ["task:read", "internal_run:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "context-layer"
+    },
+    "task-context-wiki-page-update": {
+        "description": "Replace the current task channel's context wiki page using base_head concurrency.",
+        "category": "Context wiki",
+        "feature": "context_layer",
+        "summary": "Update this task's context wiki page",
+        "title": "Update this task's context wiki page",
+        "required_scopes": ["task:write", "internal_run:read", "context_layer_internal:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "context-layer"
     },
     "tasks-create": {
         "description": "Create an agent task in the current project — a unit of work an AI agent picks up and actions, such as investigating an inbox report, fixing an error, or opening a pull request. `description` is the prompt handed to the agent, so make it specific and actionable. Pass `repository` in `organization/repo` format for code tasks so the agent knows where to work; omit it for investigation-only tasks. This creates the task record only — it does not start the agent. Returns the created task including its URL; open that URL to start the run. Requires the calling token's organization to have Tasks access enabled.",

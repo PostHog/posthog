@@ -154,6 +154,7 @@ SCOUT_REPORT_SCOPES: list[str] = [
 ]
 
 LOOP_CONTEXT_INTERNAL_SCOPE = "loop_context_internal:write"
+CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 
 
 # A deliberately narrow set of user-facing WRITE scopes granted to the Signals scout
@@ -258,6 +259,8 @@ def resolve_scopes(
             resolved = [*MCP_READ_SCOPES, *internal]
     else:
         resolved = [*scopes, *internal]
+    if include_internal_scopes and "organization:write" in resolved:
+        resolved.append(CONTEXT_LAYER_INTERNAL_SCOPE)
     return list(dict.fromkeys(resolved))
 
 

@@ -49,8 +49,7 @@ tools:
         operation: context_layer_agent_channel_pages_retrieve
         enabled: true
         scopes:
-            - task:read
-            - internal_run:read
+            - organization:read
         annotations:
             readOnly: true
             destructive: false
@@ -64,8 +63,7 @@ tools:
         operation: context_layer_agent_pages_retrieve
         enabled: true
         scopes:
-            - task:read
-            - internal_run:read
+            - organization:read
         annotations:
             readOnly: true
             destructive: false
@@ -79,8 +77,7 @@ tools:
         operation: context_layer_agent_pages_update
         enabled: true
         scopes:
-            - task:write
-            - internal_run:read
+            - organization:write
         annotations:
             readOnly: false
             destructive: true
@@ -89,6 +86,46 @@ tools:
         description: >
             Replace one context wiki page with complete Markdown content. Read it first and pass its head_sha as
             base_head. A concurrent wiki change returns a conflict instead of being overwritten.
+        feature_flag: context-layer
+    task-context-wiki-channel-resolve:
+        operation: context_layer_agent_channel_pages_retrieve
+        enabled: true
+        scopes:
+            - task:read
+            - internal_run:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Resolve this task's channel context page
+        description: Resolve the current task's channel id to its context wiki page path for an unattended task run.
+        feature_flag: context-layer
+    task-context-wiki-page-retrieve:
+        operation: context_layer_agent_pages_retrieve
+        enabled: true
+        scopes:
+            - task:read
+            - internal_run:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read this task's context wiki page
+        description: Read a context wiki page and its head_sha for an unattended task run.
+        feature_flag: context-layer
+    task-context-wiki-page-update:
+        operation: context_layer_agent_pages_update
+        enabled: true
+        scopes:
+            - task:write
+            - internal_run:read
+            - context_layer_internal:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Update this task's context wiki page
+        description: Replace the current task channel's context wiki page using base_head concurrency.
         feature_flag: context-layer
     loop-context-wiki-channel-resolve:
         operation: context_layer_agent_channel_pages_retrieve

@@ -5858,6 +5858,7 @@ export const API_SCOPE_OBJECTS = [
     'cohort',
     'comment',
     'conversation',
+    'context_layer_internal',
     'customer_analytics',
     'customer_journey',
     'customer_profile_config',

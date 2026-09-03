@@ -10,6 +10,7 @@ from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Tea
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
+    CONTEXT_LAYER_INTERNAL_SCOPE,
     INTERNAL_SCOPES,
     MCP_READ_SCOPES,
     MCP_WRITE_SCOPES,
@@ -39,7 +40,12 @@ class TestResolveScopes(SimpleTestCase):
 
     def test_full_preset(self) -> None:
         result = resolve_scopes("full")
-        assert set(result) == set(MCP_READ_SCOPES + MCP_WRITE_SCOPES + INTERNAL_SCOPES)
+        assert set(result) == set(MCP_READ_SCOPES + MCP_WRITE_SCOPES + INTERNAL_SCOPES + [CONTEXT_LAYER_INTERNAL_SCOPE])
+
+    def test_context_layer_write_scope_requires_organization_write(self) -> None:
+        assert CONTEXT_LAYER_INTERNAL_SCOPE not in resolve_scopes("read_only")
+        assert CONTEXT_LAYER_INTERNAL_SCOPE not in resolve_scopes(["task:write"])
+        assert CONTEXT_LAYER_INTERNAL_SCOPE in resolve_scopes(["organization:write"])
 
     def test_signals_scout_preset_adds_scout_internal_write(self) -> None:
         # `signals_scout` = `read_only` content PLUS the scout's own internal write scope
@@ -83,7 +89,13 @@ class TestResolveScopes(SimpleTestCase):
 
     def test_signals_implementation_preset_is_full_plus_the_scratchpad(self) -> None:
         result = resolve_scopes("signals_implementation")
-        assert set(result) == set(MCP_READ_SCOPES + MCP_WRITE_SCOPES + INTERNAL_SCOPES + SCRATCHPAD_INTERNAL_SCOPES)
+        assert set(result) == set(
+            MCP_READ_SCOPES
+            + MCP_WRITE_SCOPES
+            + INTERNAL_SCOPES
+            + SCRATCHPAD_INTERNAL_SCOPES
+            + [CONTEXT_LAYER_INTERNAL_SCOPE]
+        )
 
     def test_scratchpad_write_reaches_scouts_and_the_pipeline_only(self) -> None:
         # Splitting the scope out of `signal_scout_internal` must not cost scouts their

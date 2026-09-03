@@ -1889,7 +1889,7 @@
         "feature": "context_layer",
         "summary": "Resolve a channel context page",
         "title": "Resolve a channel context page",
-        "required_scopes": ["task:read", "internal_run:read"],
+        "required_scopes": ["organization:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1904,7 +1904,7 @@
         "feature": "context_layer",
         "summary": "Read a context wiki page",
         "title": "Read a context wiki page",
-        "required_scopes": ["task:read", "internal_run:read"],
+        "required_scopes": ["organization:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1919,7 +1919,7 @@
         "feature": "context_layer",
         "summary": "Update a context wiki page",
         "title": "Update a context wiki page",
-        "required_scopes": ["task:write", "internal_run:read"],
+        "required_scopes": ["organization:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
@@ -11372,6 +11372,51 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "task-context-wiki-channel-resolve": {
+        "description": "Resolve the current task's channel id to its context wiki page path for an unattended task run.",
+        "category": "Context wiki",
+        "feature": "context_layer",
+        "summary": "Resolve this task's channel context page",
+        "title": "Resolve this task's channel context page",
+        "required_scopes": ["task:read", "internal_run:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "context-layer"
+    },
+    "task-context-wiki-page-retrieve": {
+        "description": "Read a context wiki page and its head_sha for an unattended task run.",
+        "category": "Context wiki",
+        "feature": "context_layer",
+        "summary": "Read this task's context wiki page",
+        "title": "Read this task's context wiki page",
+        "required_scopes": ["task:read", "internal_run:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "context-layer"
+    },
+    "task-context-wiki-page-update": {
+        "description": "Replace the current task channel's context wiki page using base_head concurrency.",
+        "category": "Context wiki",
+        "feature": "context_layer",
+        "summary": "Update this task's context wiki page",
+        "title": "Update this task's context wiki page",
+        "required_scopes": ["task:write", "internal_run:read", "context_layer_internal:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "context-layer"
     },
     "tasks-artifacts-list": {
         "description": "List the current PostHog Desktop task's artifacts and canvases. Use the returned artifact ids to filter tasks-comments-list when the user asks about comments on a specific artifact. The current task is fixed by the host and cannot be selected by the caller.",

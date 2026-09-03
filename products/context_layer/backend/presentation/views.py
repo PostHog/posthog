@@ -11,7 +11,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.oauth_provenance import INTERNAL_RUN_SCOPE, get_oauth_access_token
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.redis import get_client
-from posthog.temporal.oauth import LOOP_CONTEXT_INTERNAL_SCOPE
+from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, LOOP_CONTEXT_INTERNAL_SCOPE
 
 from products.context_layer.backend.facade import api as facade
 from products.context_layer.backend.presentation.serializers import (
@@ -116,7 +116,10 @@ def _assert_run_write_in_scope(organization_id, team_id, request: Request, path:
     # Both sides resolve inside this organization's own wiki index, so a run
     # cannot reach another organization's pages even by naming its channel.
     requested_channel_id = facade.resolve_page_channel(organization_id, path)
-    if configured_channel_id == requested_channel_id:
+    if (
+        configured_channel_id == requested_channel_id
+        and facade.page_frontmatter_channel_id(content) == configured_channel_id
+    ):
         return
     if requested_channel_id is not None:
         raise denied
@@ -479,12 +482,13 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if task_scope is not None:
             access_token = get_oauth_access_token(request)
             token_scopes = set((getattr(access_token, "scope", "") or "").split())
-            provenance_scopes = (
-                (INTERNAL_RUN_SCOPE,) if self.action == "commits" else (LOOP_CONTEXT_INTERNAL_SCOPE, INTERNAL_RUN_SCOPE)
-            )
-            for provenance_scope in provenance_scopes:
-                if provenance_scope in token_scopes:
-                    return [task_scope, provenance_scope]
+            if self.action != "commits" and LOOP_CONTEXT_INTERNAL_SCOPE in token_scopes:
+                return [task_scope, LOOP_CONTEXT_INTERNAL_SCOPE]
+            if INTERNAL_RUN_SCOPE in token_scopes:
+                required = [task_scope, INTERNAL_RUN_SCOPE]
+                if self.action in self.write_actions:
+                    required.append(CONTEXT_LAYER_INTERNAL_SCOPE)
+                return required
         if self.action in self.write_actions:
             return ["organization:write"]
         if self.action in self.read_actions:

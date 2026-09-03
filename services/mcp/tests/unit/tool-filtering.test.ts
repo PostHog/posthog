@@ -446,6 +446,7 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes.py). Tools may require them, but
     // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
     const SERVER_MINT_ONLY_SCOPES = new Set([
+        'context_layer_internal:write',
         'internal_run:read',
         'loop_context_internal:write',
         'signal_scout_internal:read',
@@ -504,6 +505,7 @@ describe('server-minted scope matching', () => {
     // dropping that rule hid `scout-members-list` from every scout's toolset and left reports
     // with nobody to route to. Django authorizes the same tokens with the rule applied.
     it.each([
+        'context_layer_internal',
         'internal_run',
         'loop_context_internal',
         'mcp_builtin_agent',
@@ -719,15 +721,19 @@ describe('Tool Filtering - Scoped Teams', () => {
         const tools = getToolsForFeatures({ scopedTeams: [42], featureFlags: { 'context-layer': true } })
         expect(tools).toContain('dashboard-get')
         expect(tools).toContain('feature-flag-get-all')
-        expect(tools).toContain('context-wiki-channel-resolve')
-        expect(tools).toContain('context-wiki-page-retrieve')
-        expect(tools).toContain('context-wiki-page-update')
+        expect(tools).not.toContain('context-wiki-channel-resolve')
+        expect(tools).not.toContain('context-wiki-page-retrieve')
+        expect(tools).not.toContain('context-wiki-page-update')
+        expect(tools).toContain('task-context-wiki-channel-resolve')
+        expect(tools).toContain('task-context-wiki-page-retrieve')
+        expect(tools).toContain('task-context-wiki-page-update')
     })
 
     it('keeps org-scope tools visible when scopedTeams is empty (unscoped token)', () => {
-        const tools = getToolsForFeatures({ scopedTeams: [] })
+        const tools = getToolsForFeatures({ scopedTeams: [], featureFlags: { 'context-layer': true } })
         expect(tools).toContain('roles-list')
         expect(tools).toContain('organization-get')
+        expect(tools).toContain('context-wiki-page-update')
     })
 
     it('keeps org-scope tools visible when scopedTeams is undefined', () => {
@@ -961,9 +967,14 @@ describe('Tool Filtering - Feature Flags', () => {
         }
     })
 
-    it('keeps ordinary task context wiki tools separate from loop tools', () => {
+    it('keeps human, task, and loop context wiki tools on separate scopes', () => {
         const definitions = getToolDefinitions()
-        expect(definitions['context-wiki-page-update']!.required_scopes).toEqual(['task:write', 'internal_run:read'])
+        expect(definitions['context-wiki-page-update']!.required_scopes).toEqual(['organization:write'])
+        expect(definitions['task-context-wiki-page-update']!.required_scopes).toEqual([
+            'task:write',
+            'internal_run:read',
+            'context_layer_internal:write',
+        ])
         expect(definitions['loop-context-wiki-page-update']!.required_scopes).toEqual([
             'task:write',
             'loop_context_internal:write',
@@ -973,6 +984,22 @@ describe('Tool Filtering - Feature Flags', () => {
             'loop_context_internal:write',
         ])
         expect(definitions['loop-channel-instructions-update']!.feature_flag).toBeUndefined()
+    })
+
+    it('shows task context writes only to write-enabled task credentials', async () => {
+        const options = { featureFlags: { 'context-layer': true } }
+        const readOnlyTools = await getToolsFromContext(
+            createMockContext(['task:read', 'task:write', 'internal_run:read']),
+            options
+        )
+        const writeTools = await getToolsFromContext(
+            createMockContext(['task:read', 'task:write', 'internal_run:read', 'context_layer_internal:write']),
+            options
+        )
+
+        expect(readOnlyTools.map((tool) => tool.name)).toContain('task-context-wiki-page-retrieve')
+        expect(readOnlyTools.map((tool) => tool.name)).not.toContain('task-context-wiki-page-update')
+        expect(writeTools.map((tool) => tool.name)).toContain('task-context-wiki-page-update')
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries
