@@ -121,6 +121,12 @@ return false
 
 
 @frozen
+class SlidingWindowScripts:
+    reserve: Script
+    release: Script
+
+
+@frozen
 class RedisWindowReservation:
     item_key: str
     generation: str
@@ -291,8 +297,7 @@ class LimitsBackend:
         self, item: RateLimitItemPerSecond, key: str, n: int, reserve: int
     ) -> RedisWindowReservation | None:
         item_key = item.key_for(key)
-        reserve_window, _ = self._scripts()
-        generation = reserve_window(
+        generation = self._scripts().reserve(
             keys=self._redis_window_keys(item_key),
             args=[item.amount - reserve, item.get_expiry(), n, uuid.uuid4().hex],
         )
@@ -301,7 +306,7 @@ class LimitsBackend:
         return RedisWindowReservation(item_key=item_key, generation=bytes(generation).decode())
 
     def _release_redis_windows(self, reservations: tuple[RedisWindowReservation, ...], amount: int) -> bool:
-        _, release = self._scripts()
+        release = self._scripts().release
         released = True
         for reservation in reservations:
             if not release(keys=self._redis_window_keys(reservation.item_key), args=[reservation.generation, amount]):
@@ -318,10 +323,10 @@ class LimitsBackend:
     def _redis_storage(self) -> RedisStorage:
         return cast(RedisStorage, self._redis_limiter().storage)
 
-    def _scripts(self) -> tuple[Script, Script]:
+    def _scripts(self) -> SlidingWindowScripts:
         self._redis_limiter()
         assert self._reserve_script is not None and self._release_script is not None
-        return self._reserve_script, self._release_script
+        return SlidingWindowScripts(reserve=self._reserve_script, release=self._release_script)
 
     def _redis_limiter(self) -> SlidingWindowCounterRateLimiter:
         if self._redis is None:
