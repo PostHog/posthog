@@ -109,7 +109,39 @@ class TestOrganizationAPI(APIBaseTest):
         else:
             mock_group_identify.assert_not_called()
 
+    def test_cannot_create_organization_with_default_role(self):
+        role = Role.objects.create(name="Existing organization role", organization=self.organization)
+
+        with self.is_cloud(True):
+            response = self.client.post("/api/organizations/", {"name": "New org", "default_role_id": str(role.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Organization.objects.count(), 1)
+
     # Updating organizations
+
+    def test_update_organization_default_role(self):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        role = Role.objects.create(name="Default role", organization=self.organization)
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}", {"default_role_id": str(role.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.default_role, role)
+
+    def test_cannot_update_organization_with_role_from_another_organization(self):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        other_organization = Organization.objects.create(name="Other organization")
+        role = Role.objects.create(name="Other organization role", organization=other_organization)
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}", {"default_role_id": str(role.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.organization.refresh_from_db()
+        self.assertIsNone(self.organization.default_role)
 
     def test_update_organization_if_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
