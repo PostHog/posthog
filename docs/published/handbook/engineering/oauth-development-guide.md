@@ -371,7 +371,7 @@ curl -X POST http://localhost:8010/oauth/introspect/ \
 - **Client Authentication (HTTP Basic or Credentials)**: No scope required
 - **Bearer Token Authentication**: Requires `introspection` scope
 
-This means you can introspect any token using your application's client credentials, regardless of what scopes the token being introspected has. However, if you want to use an access token to introspect other tokens, that access token must have been granted the `introspection` scope.
+You only see tokens that belong to your own application, whichever method you use. The `introspection` scope lets an access token introspect other tokens from the same application. A token can always introspect itself, with or without the scope.
 
 ### Response Format
 
