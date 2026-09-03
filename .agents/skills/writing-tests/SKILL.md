@@ -2,7 +2,7 @@
 name: writing-tests
 description: >
   Gates whether a new test should exist and forces it to be efficient, protecting CI from low-value test bloat.
-  Use before adding or substantially changing any pytest, Jest, or Playwright test — whenever an agent or engineer is about to write tests for a new feature, bugfix, or PR.
+  Use before any change to what a pytest, Jest, or Playwright test asserts or sets up, down to one fixture or one assertion added to an existing block.
   Front-loads the value bar (every test must catch a realistic regression no existing test already catches; extend the nearest existing test before writing a new standalone one; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; pick the cheapest test level; Django TestCase over TransactionTestCase; no sleeps, no real network; no time bombs from absolute dates left to age against the real clock).
   Includes a "don't write it" decision tree. For fixing an existing flaky test use `/fixing-flaky-tests`; after this gate says a Playwright test is warranted, use `/playwright-test` for mechanics.
 ---
@@ -11,6 +11,7 @@ description: >
 
 The rationale and the same rules in human-facing form live in the handbook: [Backend coding conventions › Testing](https://posthog.com/handbook/engineering/conventions/backend-coding#testing) (`docs/published/handbook/engineering/conventions/backend-coding.md`).
 This skill is the operational gate — run it before writing tests. It carries the decision procedure plus [a catalog of the bug shapes we actually ship](references/mistakes-we-make.md).
+The gate covers added coverage, not new test functions. One fixture and one assertion added to an existing block goes through the same two questions, because that is the shape this skill asks you to prefer.
 
 ## The gate: two questions
 
