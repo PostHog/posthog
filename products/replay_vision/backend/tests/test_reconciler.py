@@ -269,6 +269,7 @@ async def _run_reconcile(mocks: _ReconcileMocks, patched: bool = True):
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.logger", fake_logger),
         patch("temporalio.workflow.patched", return_value=patched),
+        patch("temporalio.workflow.deprecate_patch"),
     ):
         return await ReconcileScannerSchedulesWorkflow().run(ReconcileScannerSchedulesInputs())
 
