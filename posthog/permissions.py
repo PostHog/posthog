@@ -1075,6 +1075,7 @@ def posthog_feature_flag_value(
     *,
     organization_id: str | uuid.UUID,
     team_id: int | None = None,
+    only_evaluate_locally: bool = False,
 ) -> bool | None:
     """Server-side check of a PostHog-internal gating flag with org/project group context.
 
@@ -1099,7 +1100,7 @@ def posthog_feature_flag_value(
         distinct_id,
         groups=groups,
         group_properties=group_properties,
-        only_evaluate_locally=False,
+        only_evaluate_locally=only_evaluate_locally,
         send_feature_flag_events=False,
     )
 
@@ -1110,6 +1111,7 @@ def posthog_feature_flag_enabled(
     *,
     organization_id: str | uuid.UUID,
     team_id: int | None = None,
+    only_evaluate_locally: bool = False,
 ) -> bool:
     return bool(
         posthog_feature_flag_value(
@@ -1117,6 +1119,7 @@ def posthog_feature_flag_enabled(
             distinct_id,
             organization_id=organization_id,
             team_id=team_id,
+            only_evaluate_locally=only_evaluate_locally,
         )
     )
 

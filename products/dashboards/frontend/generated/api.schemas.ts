@@ -1164,6 +1164,18 @@ export interface CopyDashboardTileRequestApi {
     tileId: number
 }
 
+/**
+ * * `text` - text
+ * * `image` - image
+ */
+export type CreateTextTileRequestTypeEnumApi =
+    (typeof CreateTextTileRequestTypeEnumApi)[keyof typeof CreateTextTileRequestTypeEnumApi]
+
+export const CreateTextTileRequestTypeEnumApi = {
+    Text: 'text',
+    Image: 'image',
+} as const
+
 export interface TileLayoutBoxApi {
     /** Column position in the dashboard grid (0-indexed). */
     x?: number
@@ -1183,8 +1195,13 @@ export interface TileLayoutsApi {
 }
 
 export interface CreateTextTileRequestApi {
+    /** Tile type. Use image for a body with exactly one Markdown image. Defaults to text.
+     *
+     * * `text` - text
+     * * `image` - image */
+    type?: CreateTextTileRequestTypeEnumApi
     /**
-     * Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.
+     * Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. Image tiles require exactly one Markdown image. Max 4000 characters.
      * @minLength 1
      * @maxLength 4000
      */

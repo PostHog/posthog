@@ -290,6 +290,11 @@ jobs:
               continue-on-error: true
             - uses: ./.depot/actions/paths-filter
               id: filter
+              # No `!= 'schedule'` arm, unlike canonical: this shadow has no `schedule`
+              # trigger (depot-exempt, see the header), so there is no cron run whose
+              # filter could narrow to a single commit. Canonical's reason for the extra
+              # arm is "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md.
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   list-files: 'escape'
@@ -2334,9 +2339,6 @@ jobs:
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
-                          --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
-                          --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures" \
-                          --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures" \
                           -r fEsxX \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
@@ -2345,9 +2347,6 @@ jobs:
                       # safety net. The per-test timeout also terminates the whole process, so it adds
                       # no protection beyond the job timeout.
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/signals/backend/emission -m "not async_migrations" \
-                          --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
-                          --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures" \
-                          --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures" \
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 \
                           --pytest-durations=100 \

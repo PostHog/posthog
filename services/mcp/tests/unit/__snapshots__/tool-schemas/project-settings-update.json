@@ -4164,6 +4164,14 @@
             ],
             "description": "Enables displaying surveys via posthog-js on allowed origins."
         },
+        "tags": {
+            "description": "Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "type": "array"
+        },
         "test_account_filters": {
             "description": "Filter groups that identify internal/test traffic to be excluded from insights."
         },

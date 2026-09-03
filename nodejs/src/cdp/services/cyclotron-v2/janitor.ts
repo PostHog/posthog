@@ -3,6 +3,7 @@ import { Pool } from 'pg'
 import { Counter, Gauge } from 'prom-client'
 
 import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
@@ -61,6 +62,12 @@ const janitorWrapperDroppedCounter = new Counter({
 const janitorRunCounter = new Counter({
     name: 'cdp_cyclotron_v2_janitor_runs',
     help: 'Number of janitor cleanup runs completed',
+})
+
+// The name is load-bearing: dashboards and alerts query it, so it must not follow the code around.
+const conversionWatchersSweptCounter = new Counter({
+    name: 'cdp_conversion_watchers_swept',
+    help: 'Expired conversion watcher rows deleted. These are runs that reached the end of their attribution window without converting.',
 })
 
 const queueDepthGauge = new Gauge({
@@ -152,6 +159,13 @@ export class CyclotronV2Janitor {
     }
 
     async runOnce(): Promise<CyclotronV2CleanupResult> {
+        // Sweep first, before the cyclotron-cleanup stages below. Each of those issues an unguarded
+        // pool.query, so a failure specific to cyclotron_jobs (a statement timeout or lock pressure on
+        // that hot table) rejects out of runOnce and would skip the sweep for as long as it lasts. The
+        // sweep touches a different table and swallows its own errors, so running it up front keeps
+        // expired watchers draining even while cyclotron cleanup is failing.
+        await this.sweepExpiredConversionWatchers()
+
         const deletedCounts = await this.cleanupTerminalJobs()
         const deleted = Object.values(deletedCounts).reduce((a, b) => a + b, 0)
 
@@ -469,6 +483,40 @@ export class CyclotronV2Janitor {
         }
 
         return count
+    }
+
+    /**
+     * Deletes conversion watchers whose attribution window has closed.
+     *
+     * Nothing else removes them: a watcher that converts is deleted by the matcher's claim, and one
+     * that never converts would otherwise live forever. This runs here rather than in the matcher
+     * because every matcher pod would run its own copy, all deleting from the same table.
+     *
+     * A failure is reported to error tracking and swallowed: an expired watcher has already stopped
+     * matching via the `expires_at` predicate, so a missed sweep costs space and never a conversion,
+     * and it must not stop the janitor finishing its cyclotron work. The report matters because the
+     * catch hides the failure from the run otherwise — a persistent one grows the table unbounded.
+     */
+    async sweepExpiredConversionWatchers(): Promise<number> {
+        try {
+            const result = await this.pool.query(
+                `DELETE FROM conversion_watchers
+                 WHERE id IN (
+                     SELECT id FROM conversion_watchers WHERE expires_at <= NOW() LIMIT $1
+                 )`,
+                [this.cleanupBatchSize]
+            )
+            const deleted = result.rowCount ?? 0
+            if (deleted > 0) {
+                conversionWatchersSweptCounter.inc(deleted)
+                logger.info('CyclotronV2Janitor swept expired conversion watchers', { count: deleted })
+            }
+            return deleted
+        } catch (err) {
+            logger.error('CyclotronV2Janitor conversion watcher sweep failed', { error: String(err) })
+            captureException(err)
+            return 0
+        }
     }
 
     async measureQueueDepths(): Promise<Map<string, number>> {

@@ -61,14 +61,14 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             default_value="$pageview",
         )
 
-        # Mock sync_saved_query_workflow to avoid Temporal connection
-        self.sync_workflow_patcher = mock.patch(
-            "products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"
+        self.v2_dag_ids_patcher = mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            side_effect=lambda candidate_dag_ids=None: set(candidate_dag_ids or []),
         )
-        self.sync_workflow_patcher.start()
+        self.v2_dag_ids_patcher.start()
 
     def tearDown(self):
-        self.sync_workflow_patcher.stop()
+        self.v2_dag_ids_patcher.stop()
         super().tearDown()
 
     def _materialize_endpoint(self, endpoint, table_name: str | None = None):
