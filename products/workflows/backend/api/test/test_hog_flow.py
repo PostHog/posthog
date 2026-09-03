@@ -1075,6 +1075,8 @@ class TestHogFlowAPI(APIBaseTest):
             ("duration string", {"window": "7d"}, 201),
             ("hours", {"window": "12h"}, 201),
             ("over the ceiling", {"window": "400d"}, 400),
+            ("zero", {"window": "0d"}, 400),
+            ("zero seconds", {"window": "0s"}, 400),
             ("not a duration", {"window": "7 days"}, 400),
             ("legacy minutes", {"window_minutes": 60}, 201),
             # 604800 is seven days in seconds, in a field that takes minutes. Rejecting it turns a

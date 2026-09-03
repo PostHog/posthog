@@ -1992,7 +1992,12 @@ class HogFlowConversionSerializer(serializers.Serializer):
     def validate_window(self, value: str | None) -> str | None:
         if value is None:
             return value
-        if _duration_minutes(value) > MAX_CONVERSION_WINDOW_MINUTES:
+        minutes = _duration_minutes(value)
+        # A zero window measures nothing. The worker cannot honor it either, so it would fall back to
+        # the default and give the workflow a 90-day window nobody asked for.
+        if minutes <= 0:
+            raise serializers.ValidationError("The conversion window must be longer than zero.")
+        if minutes > MAX_CONVERSION_WINDOW_MINUTES:
             raise serializers.ValidationError("The conversion window cannot be longer than 365d.")
         return value
 
@@ -2021,7 +2026,7 @@ class HogFlowConversionSerializer(serializers.Serializer):
             )
         return value
 
-    def validate(self, data):
+    def validate(self, data: dict) -> dict:
         if data.get("window") is not None and data.get("window_minutes") is not None:
             raise serializers.ValidationError("Set either 'window' or the deprecated 'window_minutes', not both.")
         return data
