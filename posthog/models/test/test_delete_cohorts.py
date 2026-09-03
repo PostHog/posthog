@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import pytest
 from unittest.mock import patch
 
@@ -7,6 +9,8 @@ from parameterized import parameterized
 
 from posthog.models import AsyncDeletion, DeletionType, Organization, Team
 from posthog.models.async_deletion.delete_cohorts import CohortDeleteTarget, _collapse, sweep_cohort_deletions
+
+NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 class TestCollapseCohortDeletions(TestCase):
@@ -111,11 +115,57 @@ class TestCollapseCohortDeletions(TestCase):
 
         # The job chains the person sweep on this returning, and the two must not mutate at the
         # same time. Recording the drain as a failed pass would let the person sweep start anyway.
+        # The first count clears the capacity check so a mutation is enqueued; it then never drains.
         with (
             patch("posthog.models.async_deletion.delete_cohorts.sync_execute", return_value=[]),
-            patch("posthog.models.async_deletion.delete_cohorts._unfinished_mutations", return_value=3),
+            patch("posthog.models.async_deletion.delete_cohorts._server_now", return_value=NOW),
+            patch("posthog.models.async_deletion.delete_cohorts._lowest_versions", return_value={(self.team.pk, 5): 0}),
+            patch(
+                "posthog.models.async_deletion.delete_cohorts._mutation_counts",
+                side_effect=[(0, 0), *[(1, 1)] * 40],
+            ),
             patch("posthog.models.async_deletion.delete_cohorts.time.sleep"),
-            patch("posthog.models.async_deletion.delete_cohorts.time.monotonic", side_effect=[0.0, 0.0, 9_999.0]),
+            patch("posthog.models.async_deletion.delete_cohorts.time.monotonic", side_effect=range(0, 100_000, 500)),
         ):
             with pytest.raises(TimeoutError, match="unfinished mutation"):
                 sweep_cohort_deletions()
+
+    def test_a_capacity_timeout_is_a_failed_pass_because_nothing_was_enqueued(self):
+        self._queue(DeletionType.Cohort_full, "7_1")
+
+        # Another mutation holding the table means this sweep started nothing, so there is no
+        # overlap to prevent and the run continues to the person sweep.
+        with (
+            patch("posthog.models.async_deletion.delete_cohorts.sync_execute", return_value=[]),
+            patch("posthog.models.async_deletion.delete_cohorts._server_now", return_value=NOW),
+            patch("posthog.models.async_deletion.delete_cohorts._lowest_versions", return_value={(self.team.pk, 7): 0}),
+            # Mirrors the real filter: mutations older than this run are invisible to the drain.
+            patch(
+                "posthog.models.async_deletion.delete_cohorts._mutation_counts",
+                side_effect=lambda since=None: (0, 0) if since else (9, 9),
+            ),
+            patch("posthog.models.async_deletion.delete_cohorts.time.sleep"),
+            patch("posthog.models.async_deletion.delete_cohorts.time.monotonic", side_effect=range(0, 100_000, 500)),
+        ):
+            assert sweep_cohort_deletions() == ["run:Cohort_full"]
+
+    def test_the_drain_waits_for_enqueued_mutations_to_become_visible(self):
+        self._queue(DeletionType.Cohort_full, "6_1")
+
+        # A mutation entry replicates through Keeper, so right after the ALTER the queried host can
+        # report nothing unfinished simply because it does not know about it yet. Treating that gap
+        # as a finished drain releases the person sweep on top of a running mutation.
+        counts = [(0, 0), (0, 0), (1, 1), (1, 0)]
+        with (
+            patch("posthog.models.async_deletion.delete_cohorts.sync_execute", return_value=[]),
+            patch("posthog.models.async_deletion.delete_cohorts._server_now", return_value=NOW),
+            patch("posthog.models.async_deletion.delete_cohorts._lowest_versions", return_value={(self.team.pk, 6): 0}),
+            patch(
+                "posthog.models.async_deletion.delete_cohorts._mutation_counts", side_effect=counts
+            ) as mutation_counts,
+            patch("posthog.models.async_deletion.delete_cohorts.time.sleep"),
+            patch("posthog.models.async_deletion.delete_cohorts.time.monotonic", side_effect=range(100)),
+        ):
+            assert sweep_cohort_deletions() == []
+
+        assert mutation_counts.call_count == len(counts)

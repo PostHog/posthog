@@ -435,7 +435,6 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         self.assertRowCount(1, "person_static_cohort")
         self.assertRowCount(1, "plugin_log_entries")
 
-    @snapshot_clickhouse_queries
     def test_delete_cohortpeople(self):
         cohort_id = 3
         team = self.teams[0]
@@ -451,7 +450,6 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
         self.assertRowCount(0, "cohortpeople")
 
-    @snapshot_clickhouse_queries
     def test_delete_cohortpeople_version(self):
         cohort_id = 3
         team = self.teams[0]

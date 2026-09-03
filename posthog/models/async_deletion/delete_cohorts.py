@@ -17,6 +17,7 @@ mutation count follow the number of distinct cohorts, which the queue cannot inf
 """
 
 import time
+from datetime import datetime
 from typing import Any
 
 from django.conf import settings
@@ -167,30 +168,60 @@ def _collapse(deletion_type: DeletionType, limit: int = 0) -> list[CohortDeleteT
     return targets[:limit] if limit else targets
 
 
-def _unfinished_mutations() -> int:
-    [[count]] = sync_execute(
-        """
-        SELECT count()
+def _server_now() -> datetime:
+    [[now]] = sync_execute("SELECT now()")
+    return now
+
+
+def _mutation_counts(since: datetime | None = None) -> tuple[int, int]:
+    """(seen, unfinished) mutations on `cohortpeople`, counting only ones created at or after `since`."""
+    window = "AND create_time >= %(since)s" if since else ""
+    # nosemgrep: clickhouse-fstring-param-audit - window is a literal chosen here, not caller input
+    [[seen, unfinished]] = sync_execute(
+        f"""
+        SELECT count(), countIf(NOT is_done)
         FROM system.mutations
-        WHERE database = %(database)s AND table = 'cohortpeople' AND NOT is_done AND NOT is_killed
+        WHERE database = %(database)s AND table = 'cohortpeople' AND NOT is_killed {window}
         """,
-        {"database": settings.CLICKHOUSE_DATABASE},
+        {"database": settings.CLICKHOUSE_DATABASE, "since": since},
     )
-    return count
+    return seen, unfinished
 
 
-def _wait_for_mutations(below: int, timeout: float = COHORT_MUTATION_CAPACITY_TIMEOUT_SECONDS) -> None:
-    """Block until `cohortpeople` is carrying fewer than `below` unfinished mutations.
+def _wait_for_capacity(timeout: float = COHORT_MUTATION_CAPACITY_TIMEOUT_SECONDS) -> None:
+    """Block until `cohortpeople` is carrying fewer than `COHORT_MUTATION_CAPACITY` mutations.
 
     Bounded on purpose. A mutation this sweep did not enqueue can hold the table for as long as it
     likes, and the ClickHouse client is configured with no practical socket timeout, so an unbounded
     wait here is indistinguishable from a hang.
     """
     deadline = time.monotonic() + timeout
-    while (unfinished := _unfinished_mutations()) >= below:
+    while (unfinished := _mutation_counts()[1]) >= COHORT_MUTATION_CAPACITY:
         if time.monotonic() > deadline:
             raise TimeoutError(f"cohortpeople still has {unfinished} unfinished mutation(s) after {timeout:.0f}s")
-        logger.info("Waiting on cohortpeople mutations", unfinished=unfinished, below=below)
+        logger.info("Waiting for cohortpeople mutation capacity", unfinished=unfinished)
+        time.sleep(COHORT_MUTATION_POLL_SECONDS)
+
+
+def _wait_for_drain(issued: int, since: datetime, timeout: float = COHORT_MUTATION_CAPACITY_TIMEOUT_SECONDS) -> None:
+    """Block until every mutation this sweep enqueued is visible and finished.
+
+    Waiting on "nothing unfinished" alone is not enough. A mutation entry replicates through
+    Keeper, so for a moment after the ALTER returns the queried host does not know it exists, and a
+    drain that only counts unfinished work reads that gap as success and lets the person sweep
+    start on top of a running mutation.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        seen, unfinished = _mutation_counts(since)
+        if seen >= issued and not unfinished:
+            return
+        if time.monotonic() > deadline:
+            raise TimeoutError(
+                f"cohortpeople has {unfinished} unfinished mutation(s) and {seen} of {issued} visible"
+                f" after {timeout:.0f}s"
+            )
+        logger.info("Waiting for cohortpeople mutations to drain", seen=seen, issued=issued, unfinished=unfinished)
         time.sleep(COHORT_MUTATION_POLL_SECONDS)
 
 
@@ -204,7 +235,7 @@ def _delete(targets: list[CohortDeleteTarget]) -> int:
     """
     issued = 0
     for chunk in chunked(targets, COHORT_DELETION_CHUNK_SIZE):
-        _wait_for_mutations(below=COHORT_MUTATION_CAPACITY)
+        _wait_for_capacity()
         conditions, params = _conditions(list(chunk))
         # nosemgrep: clickhouse-fstring-param-audit - conditions come from CohortDeleteTarget.condition
         sync_execute(
@@ -294,6 +325,8 @@ def sweep_cohort_deletions(max_cohorts: int = 0) -> list[str]:
     not stop the pass that removes rows.
     """
     failed = []
+    issued = 0
+    started_at = _server_now()
 
     for deletion_type in (DeletionType.Cohort_full, DeletionType.Cohort_stale):
         targets = _collapse(deletion_type, limit=max_cohorts)
@@ -316,6 +349,7 @@ def sweep_cohort_deletions(max_cohorts: int = 0) -> list[str]:
         try:
             logger.warning("Sweeping cohortpeople", deletion_type=deletion_type.name, cohorts=len(targets))
             mutations = _delete(targets)
+            issued += mutations
             logger.info("Issued cohort delete mutations", deletion_type=deletion_type.name, mutations=mutations)
         except Exception:
             logger.exception("Failed to run cohort deletions", deletion_type=deletion_type.name)
@@ -325,5 +359,5 @@ def sweep_cohort_deletions(max_cohorts: int = 0) -> list[str]:
     # Raised, never recorded as a failed pass. The caller chains the person sweep on this returning,
     # and the two must not mutate at the same time, so an undrained table has to stop the run rather
     # than hand back a result that reads as "finished with a warning".
-    _wait_for_mutations(below=1)
+    _wait_for_drain(issued, started_at)
     return failed
