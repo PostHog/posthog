@@ -75,8 +75,9 @@ from products.replay_vision.backend.search import (
 )
 from products.replay_vision.backend.search_suggestions import (
     MAX_SUGGESTED_QUERIES,
-    SuggestionError,
-    suggest_search_queries,
+    scanners_feeding_scope,
+    stamp_search_viewed,
+    suggestions_for_scope,
 )
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
@@ -1190,7 +1191,7 @@ class SearchSuggestionsResponseSerializer(serializers.Serializer):
     queries = serializers.ListField(
         child=serializers.CharField(),
         help_text=f"Up to {MAX_SUGGESTED_QUERIES} example searches naming themes in recent observations. Empty "
-        "when the scope has too few observations or AI data processing is off.",
+        "until a scheduled refresh has run for a scanner someone viewed.",
     )
 
 
@@ -1324,18 +1325,13 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         throttle_classes=[ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle],
     )
     def search_suggestions(self, request: Request, **kwargs: Any) -> Response:
-        """Example searches drawn from recent observations, for the Search tab's empty state."""
+        """Example searches drawn from recent observations, for the Search tab's empty state. Reads what the
+        scheduled refresher stored and records the view, which is what makes a scanner eligible to refresh."""
         params = SearchSuggestionsQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         scanner_ids = self._searchable_scanner_ids(params.validated_data.get("scanner_id"))
-        queries: list[str] = []
-        # An empty list is a valid answer here: the tab falls back to fixed examples, and an empty state
-        # must not raise errors about consent or a slow model.
-        if scanner_ids and is_ai_data_processing_approved(self.team.id):
-            try:
-                queries = suggest_search_queries(self.team, cast(User, request.user), scanner_ids)
-            except SuggestionError:
-                logger.warning("replay_vision.search_suggestions.failed", team_id=self.team_id, exc_info=True)
+        stamp_search_viewed(self.team_id, scanners_feeding_scope(self.team_id, scanner_ids))
+        queries = suggestions_for_scope(self.team_id, scanner_ids)
         return Response(SearchSuggestionsResponseSerializer({"queries": queries}).data)
 
     def _search_response(self, results: list[ObservationSearchResult], truncated: bool = False) -> Response:

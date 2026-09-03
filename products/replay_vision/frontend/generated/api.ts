@@ -484,7 +484,8 @@ export const getVisionObservationsSearchSuggestionsRetrieveUrl = (
 }
 
 /**
- * Example searches drawn from recent observations, for the Search tab's empty state.
+ * Example searches drawn from recent observations, for the Search tab's empty state. Reads what the
+ * scheduled refresher stored and records the view, which is what makes a scanner eligible to refresh.
  */
 export const visionObservationsSearchSuggestionsRetrieve = async (
     projectId: string,

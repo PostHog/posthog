@@ -1,16 +1,19 @@
 """Search suggestions grounded in what the scanners actually observed.
 
 The Search tab's empty state offers a few phrases to try. Fixed phrases per scanner type say nothing about the
-team's product, so instead a small model call reads a sample of recent observations and names the themes a
-person would search for. The result is cached per search scope, so page views serve the cache and the model
-only runs again once the cache expires.
+team's product, so a small model call reads a sample of a scanner's recent observations and names the themes a
+person would search for. The phrases live on the scanner row. A scheduled workflow refreshes them, and only for
+scanners someone looked at recently that also produced new observations, so cost tracks use rather than fleet
+size. The endpoint only reads the stored phrases and records the view.
 """
 
 import uuid
-import hashlib
+import datetime as dt
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db.models import Count, F, Q, QuerySet
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -18,10 +21,8 @@ from google.genai.types import GenerateContentConfig
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
-from posthog.models.team import Team
-from posthog.models.user import User
-
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.observation_formatting import read_output
 
 from ee.hogai.utils.untrusted import neutralize_markup
@@ -32,12 +33,20 @@ logger = structlog.get_logger(__name__)
 _SUGGESTION_MODEL = "gemini-3.5-flash-lite"
 _MODEL_CALL_TIMEOUT_MS = 30_000
 MAX_SUGGESTED_QUERIES = 4
-# Fewer observations than this and the themes would be the observations themselves, so fall back to the
-# fixed examples instead of spending a model call.
-MIN_OBSERVATIONS_FOR_SUGGESTIONS = 5
+# Fewer new observations than this and the themes would be the observations themselves, so the scanner
+# keeps its current phrases (or the fixed examples) instead of spending a model call.
+MIN_NEW_OBSERVATIONS_FOR_REFRESH = 5
 _MAX_SAMPLES = 40
 _SAMPLE_CHARS = 280
-_CACHE_TTL_S = 6 * 3600
+# A scanner nobody opened the Search tab for in this long stops refreshing, however active it is.
+VIEWED_WITHIN = dt.timedelta(days=14)
+# Refresh no more often than this even for a busy, watched scanner.
+REFRESH_INTERVAL = dt.timedelta(hours=6)
+# The view stamp is one Postgres write per scanner per this window, whatever the page traffic.
+_VIEW_STAMP_THROTTLE = dt.timedelta(hours=1)
+# Cross-scanner search merges phrases from this many of the team's most recently active scanners.
+CROSS_SCANNER_SOURCES = 10
+_PER_SCANNER_IN_MERGE = 2
 
 
 class SuggestionError(Exception):
@@ -64,6 +73,98 @@ would describe what they are looking for (e.g. "coupon rejected at checkout", "g
 - Output strictly matches the provided JSON schema."""
 
 
+# ---- reading ----
+
+
+def suggestions_for_scope(team_id: int, scanner_ids: list[str]) -> list[str]:
+    """Stored phrases for one scanner, or a merge across the most recently active scanners in the scope."""
+    if not scanner_ids:
+        return []
+    rows = ReplayScanner.objects.filter(team_id=team_id, id__in=scanner_ids).exclude(search_suggestions=[])
+    if len(scanner_ids) == 1:
+        stored = rows.values_list("search_suggestions", flat=True).first()
+        return list(stored or [])[:MAX_SUGGESTED_QUERIES]
+    merged: list[str] = []
+    seen: set[str] = set()
+    for stored in rows.order_by(F("last_swept_at").desc(nulls_last=True)).values_list("search_suggestions", flat=True)[
+        :CROSS_SCANNER_SOURCES
+    ]:
+        for query in list(stored or [])[:_PER_SCANNER_IN_MERGE]:
+            if query not in seen:
+                seen.add(query)
+                merged.append(query)
+    return merged[:MAX_SUGGESTED_QUERIES]
+
+
+def scanners_feeding_scope(team_id: int, scanner_ids: list[str]) -> list[str]:
+    """The scanners whose phrases a view of this scope shows, so a view stamps only those."""
+    if len(scanner_ids) <= 1:
+        return scanner_ids
+    rows = (
+        ReplayScanner.objects.filter(team_id=team_id, id__in=scanner_ids)
+        .order_by(F("last_swept_at").desc(nulls_last=True))
+        .values_list("id", flat=True)[:CROSS_SCANNER_SOURCES]
+    )
+    return [str(scanner_id) for scanner_id in rows]
+
+
+def stamp_search_viewed(team_id: int, scanner_ids: list[str]) -> None:
+    """Record that someone looked at these scanners' suggestions, at most once per throttle window each."""
+    now = timezone.now()
+    due = [
+        scanner_id
+        for scanner_id in scanner_ids
+        if cache.add(
+            f"replay_vision:search_viewed:{team_id}:{scanner_id}", 1, timeout=int(_VIEW_STAMP_THROTTLE.total_seconds())
+        )
+    ]
+    if due:
+        ReplayScanner.objects.filter(team_id=team_id, id__in=due).update(search_last_viewed_at=now)
+
+
+# ---- refreshing ----
+
+
+def stale_suggestion_candidates(limit: int) -> QuerySet[ReplayScanner]:
+    """Scanners worth a model call: viewed recently, AI processing on, past the refresh interval, and holding
+    enough new observations since their watermark. Most recently viewed first."""
+    now = timezone.now()
+    new_observation = Q(observations__status=ObservationStatus.SUCCEEDED) & (
+        Q(search_suggestions_watermark__isnull=True) | Q(observations__created_at__gt=F("search_suggestions_watermark"))
+    )
+    return (
+        ReplayScanner.objects.filter(
+            search_last_viewed_at__gte=now - VIEWED_WITHIN,
+            team__organization__is_ai_data_processing_approved=True,
+        )
+        .filter(
+            Q(search_suggestions_generated_at__isnull=True)
+            | Q(search_suggestions_generated_at__lt=now - REFRESH_INTERVAL)
+        )
+        .annotate(new_observations=Count("observations", filter=new_observation))
+        .filter(new_observations__gte=MIN_NEW_OBSERVATIONS_FOR_REFRESH)
+        .order_by("-search_last_viewed_at")[:limit]
+    )
+
+
+def refresh_scanner_suggestions(scanner: ReplayScanner) -> list[str]:
+    """Generate and store phrases for one scanner from its most recent observations. Raises `SuggestionError`
+    when the model gave nothing usable; the stored phrases then stay as they were."""
+    samples, watermark = _recent_observation_samples(scanner)
+    if len(samples) < MIN_NEW_OBSERVATIONS_FOR_REFRESH:
+        return list(scanner.search_suggestions or [])
+    parsed = _generate(
+        user_content=_build_user_content(samples), team_id=scanner.team_id, distinct_id=f"scanner:{scanner.id}"
+    )
+    queries = _finalize(parsed)
+    ReplayScanner.objects.filter(pk=scanner.pk).update(
+        search_suggestions=queries,
+        search_suggestions_watermark=watermark,
+        search_suggestions_generated_at=timezone.now(),
+    )
+    return queries
+
+
 def _observation_text(obs: ReplayObservation) -> str:
     output = read_output(obs)
     if output is None:
@@ -72,15 +173,14 @@ def _observation_text(obs: ReplayObservation) -> str:
     return " ".join(str(text).split())[:_SAMPLE_CHARS]
 
 
-def _recent_observation_samples(team_id: int, scanner_ids: list[str]) -> list[str]:
-    rows = (
-        ReplayObservation.objects.filter(
-            team_id=team_id, scanner_id__in=scanner_ids, status=ObservationStatus.SUCCEEDED
-        )
+def _recent_observation_samples(scanner: ReplayScanner) -> tuple[list[str], dt.datetime | None]:
+    rows = list(
+        ReplayObservation.objects.filter(scanner_id=scanner.id, status=ObservationStatus.SUCCEEDED)
         .order_by("-created_at")
-        .only("scanner_result")[:_MAX_SAMPLES]
+        .only("scanner_result", "created_at")[:_MAX_SAMPLES]
     )
-    return [text for obs in rows if (text := _observation_text(obs))]
+    samples = [text for obs in rows if (text := _observation_text(obs))]
+    return samples, rows[0].created_at if rows else None
 
 
 def _build_user_content(samples: list[str]) -> str:
@@ -137,28 +237,3 @@ def _finalize(parsed: _LlmQueries) -> list[str]:
             seen.add(query)
             queries.append(query)
     return queries[:MAX_SUGGESTED_QUERIES]
-
-
-def _cache_key(team_id: int, scanner_ids: list[str]) -> str:
-    scope = hashlib.sha256(",".join(sorted(scanner_ids)).encode("utf-8")).hexdigest()[:16]
-    return f"replay_vision:search_suggestions:{team_id}:{scope}"
-
-
-def suggest_search_queries(team: Team, user: User, scanner_ids: list[str]) -> list[str]:
-    """Search phrases for the given scanner scope, served from cache after the first call. Empty when the
-    scope holds too few observations or the model gave nothing usable."""
-    if not scanner_ids:
-        return []
-    key = _cache_key(team.id, scanner_ids)
-    cached = cache.get(key)
-    if cached is not None:
-        return cached
-    samples = _recent_observation_samples(team.id, scanner_ids)
-    if len(samples) < MIN_OBSERVATIONS_FOR_SUGGESTIONS:
-        return []
-    parsed = _generate(
-        user_content=_build_user_content(samples), team_id=team.id, distinct_id=user.distinct_id or str(user.pk)
-    )
-    queries = _finalize(parsed)
-    cache.set(key, queries, timeout=_CACHE_TTL_S)
-    return queries
