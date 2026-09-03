@@ -723,6 +723,13 @@ class TaskUserBasicInfo:
 
 
 @dataclass(frozen=True)
+class ChannelRecentTaskAuthorDTO:
+    channel_id: UUID
+    user: TaskUserBasicInfo
+    last_activity_at: datetime
+
+
+@dataclass(frozen=True)
 class SandboxEnvironmentDTO:
     """A sandbox execution environment."""
 
