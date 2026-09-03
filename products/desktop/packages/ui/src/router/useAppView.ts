@@ -1,4 +1,5 @@
 import type { EditorContent } from "@posthog/core/message-editor/content";
+import type { AgentActionAttribution } from "@posthog/shared";
 import {
   type TaskInputReportAssociation,
   useTaskInputPrefillStore,
@@ -39,6 +40,8 @@ export interface AppView {
   initialMode?: string;
   folderRunEnvironment?: "local" | "cloud";
   reportAssociation?: TaskInputReportAssociation;
+  agentActionAttribution?: AgentActionAttribution;
+  agentActionRequestId?: string;
 }
 
 type Match = { fullPath: string; params: Record<string, string | undefined> };
@@ -160,6 +163,8 @@ export function useAppView(): AppView {
         initialMode: prefill.initialMode,
         folderRunEnvironment: prefill.folderRunEnvironment,
         reportAssociation: prefill.reportAssociation,
+        agentActionAttribution: prefill.agentAction?.attribution,
+        agentActionRequestId: prefill.agentAction?.requestId,
         taskInputRequestId: prefill.requestId,
       };
     }

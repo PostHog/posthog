@@ -1,4 +1,5 @@
 import type { EditorContent } from "@posthog/core/message-editor/content";
+import type { AgentActionAttribution } from "@posthog/shared";
 import { create } from "zustand";
 
 export interface TaskInputReportAssociation {
@@ -29,6 +30,10 @@ interface TaskInputPrefill {
   initialMode?: string;
   folderRunEnvironment?: "local" | "cloud";
   reportAssociation?: TaskInputReportAssociation;
+  agentAction?: {
+    requestId: string;
+    attribution: AgentActionAttribution;
+  };
 }
 
 interface PrefillStoreState {
@@ -42,6 +47,7 @@ interface PrefillStoreState {
    * that landed in between is left alone.
    */
   consumePrompt: (requestId: string) => void;
+  consumeAgentAction: (requestId: string) => void;
 }
 
 // Holds transient state used to prefill the TaskInput screen when navigation
@@ -70,6 +76,14 @@ export const useTaskInputPrefillStore = create<PrefillStoreState>((set) => ({
               recoveredFromKey: undefined,
               requestId: undefined,
             },
+          }
+        : s,
+    ),
+  consumeAgentAction: (requestId) =>
+    set((s) =>
+      s.prefill.agentAction?.requestId === requestId
+        ? {
+            prefill: { ...s.prefill, agentAction: undefined },
           }
         : s,
     ),

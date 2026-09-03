@@ -216,6 +216,8 @@ Main-process events use `trackAppEvent(eventName, properties)` from `apps/code/s
 
 Both clients set `team: "posthog-code"` as a super-property.
 
+Agent action events use `action_id`, `source_task_id`, `tool_call_id`, `action_index`, and `action_kind`. Compose submissions add `resulting_task_id` to `Task created` and set `created_from` to `agent-action`.
+
 ### Event Names
 
 - Format: `Object verbed`.

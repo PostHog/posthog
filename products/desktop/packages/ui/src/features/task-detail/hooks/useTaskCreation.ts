@@ -14,6 +14,7 @@ import type { HostTrpcClient } from "@posthog/host-router/client";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import {
   type Adapter,
+  type AgentActionAttribution,
   type AgentRuntime,
   ANALYTICS_EVENTS,
   type ModelAccess,
@@ -99,6 +100,8 @@ interface UseTaskCreationOptions {
   sandboxEnvironmentId?: string;
   customImageId?: string;
   signalReportId?: string;
+  agentActionAttribution?: AgentActionAttribution;
+  agentActionRequestId?: string;
   channelContext?: string;
   channelContextPath?: string;
   submissionBlocked?: boolean;
@@ -140,6 +143,8 @@ async function trackTaskCreated(
   input: TaskCreationInput,
   selectedDirectory: string,
   hostClient: HostTrpcClient,
+  resultingTaskId: string,
+  attribution?: AgentActionAttribution,
   codexModelAccess?: ModelAccess,
   claudeModelAccess?: ModelAccess,
 ): Promise<void> {
@@ -164,7 +169,7 @@ async function trackTaskCreated(
 
     track(ANALYTICS_EVENTS.TASK_CREATED, {
       auto_run: !!input.executionMode,
-      created_from: "command-menu",
+      created_from: attribution ? "agent-action" : "command-menu",
       repository_provider: input.repository ? "github" : "none",
       workspace_mode: workspaceMode,
       has_branch: !!input.branch,
@@ -184,6 +189,10 @@ async function trackTaskCreated(
       adapter: input.adapter,
       codex_model_access: codexModelAccess,
       claude_model_access: claudeModelAccess,
+      resulting_task_id: resultingTaskId,
+      source_task_id: attribution?.source_task_id,
+      agent_action_id: attribution?.action_id,
+      agent_action_tool_call_id: attribution?.tool_call_id,
     });
   } catch (error) {
     log.warn("Failed to track Task created event", { error });
@@ -212,6 +221,8 @@ export function useTaskCreation({
   sandboxEnvironmentId,
   customImageId,
   signalReportId,
+  agentActionAttribution,
+  agentActionRequestId,
   channelContext,
   channelContextPath,
   submissionBlocked = false,
@@ -291,6 +302,8 @@ export function useTaskCreation({
       const plainPromptText = contentToPlainText(content).trim();
       const serializedContent = contentToXml(content).trim();
       const filePaths = extractFilePaths(content);
+      const submittedAgentActionAttribution = agentActionAttribution;
+      const submittedAgentActionRequestId = agentActionRequestId;
 
       // Held for the whole submit, pre-flight awaits included, so a second
       // Enter lands after `canSubmitBase` has already gone false.
@@ -568,10 +581,17 @@ export function useTaskCreation({
             if (allowNoRepo && channelId) {
               useTaskRepositoryDraftStore.getState().clearDraft(channelId);
             }
+            if (submittedAgentActionRequestId) {
+              useTaskInputPrefillStore
+                .getState()
+                .consumeAgentAction(submittedAgentActionRequestId);
+            }
             void trackTaskCreated(
               input,
               selectedDirectory,
               hostClient,
+              result.data.task.id,
+              submittedAgentActionAttribution,
               input.codexModelAccess,
               input.claudeModelAccess,
             );
@@ -689,6 +709,8 @@ export function useTaskCreation({
       sandboxEnvironmentId,
       customImageId,
       signalReportId,
+      agentActionAttribution,
+      agentActionRequestId,
       additionalDirectories,
       channelContext,
       channelContextPath,

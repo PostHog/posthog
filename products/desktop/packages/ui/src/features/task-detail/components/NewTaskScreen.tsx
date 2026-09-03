@@ -30,6 +30,8 @@ export function NewTaskScreen() {
       initialModel={view.initialModel}
       initialMode={view.initialMode}
       reportAssociation={view.reportAssociation}
+      agentActionAttribution={view.agentActionAttribution}
+      agentActionRequestId={view.agentActionRequestId}
       suggestions={channelsWorld ? CHANNEL_TASK_SUGGESTIONS : undefined}
     />
   );

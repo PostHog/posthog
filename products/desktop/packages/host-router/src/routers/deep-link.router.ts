@@ -76,7 +76,11 @@ export const deepLinkRouter = router({
     .mutation(({ ctx, input }) => {
       const deepLinks = ctx.container.get<IDeepLinkRegistry>(DEEP_LINK_SERVICE);
       return deepLinks.handleUrl(
-        buildActionUrl(input.action, deepLinks.getProtocol()),
+        buildActionUrl(
+          input.action,
+          deepLinks.getProtocol(),
+          input.attribution,
+        ),
       );
     }),
 

@@ -92,6 +92,23 @@ describe("openTaskInput channel scoping", () => {
     expect(prefill.initialPrompt).toBeUndefined();
     expect(prefill.requestId).not.toBe(stale);
   });
+
+  it("ties agent action attribution to the prefill request", () => {
+    const attribution = {
+      action_id: "task-1:tool-1:0",
+      source_task_id: "task-1",
+      tool_call_id: "tool-1",
+      action_index: 0,
+    };
+
+    openTaskInput({ agentActionAttribution: attribution });
+
+    const { prefill } = useTaskInputPrefillStore.getState();
+    expect(prefill.agentAction).toEqual({
+      requestId: prefill.requestId,
+      attribution,
+    });
+  });
 });
 
 describe("taskInputPrefillStore.consumePrompt", () => {

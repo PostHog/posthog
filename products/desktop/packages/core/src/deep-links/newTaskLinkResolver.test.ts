@@ -32,6 +32,12 @@ describe("NewTaskLinkResolver", () => {
       repo: "acme/web",
       model: "sonnet",
       mode: "plan",
+      agentActionAttribution: {
+        action_id: "action-1",
+        source_task_id: "source-task",
+        tool_call_id: "tool-call",
+        action_index: 0,
+      },
     };
 
     const result = await resolver.resolve(payload);
@@ -43,6 +49,12 @@ describe("NewTaskLinkResolver", () => {
       initialCloudRepository: "acme/web",
       initialModel: "sonnet",
       initialMode: "plan",
+      agentActionAttribution: {
+        action_id: "action-1",
+        source_task_id: "source-task",
+        tool_call_id: "tool-call",
+        action_index: 0,
+      },
     });
     expect(result.analytics.event).toBe(ANALYTICS_EVENTS.DEEP_LINK_NEW_TASK);
     if (result.analytics.event !== ANALYTICS_EVENTS.DEEP_LINK_NEW_TASK) return;

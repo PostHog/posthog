@@ -1,6 +1,6 @@
 import type { EditorContent } from "@posthog/core/message-editor/content";
 import { resolveService, resolveServiceOptional } from "@posthog/di/container";
-import { ANALYTICS_EVENTS } from "@posthog/shared";
+import { type AgentActionAttribution, ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { navigateBrowserTab } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
@@ -114,6 +114,7 @@ export interface TaskInputNavigationOptions {
    */
   folderRunEnvironment?: "local" | "cloud";
   reportAssociation?: { reportId: string; title: string };
+  agentActionAttribution?: AgentActionAttribution;
   /** Ignore whichever space is scoped and file the task nowhere. */
   unscoped?: boolean;
   /**
@@ -148,7 +149,11 @@ export function openTaskInput(
     !!options.initialCloudRepository ||
     !!options.initialModel ||
     !!options.initialMode ||
+    !!options.agentActionAttribution ||
     !!options.reportAssociation;
+  const requestId = hasTransientState
+    ? (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`)
+    : undefined;
 
   useTaskInputPrefillStore.setState({
     prefill: {
@@ -162,9 +167,11 @@ export function openTaskInput(
       initialMode: options.initialMode,
       folderRunEnvironment: options.folderRunEnvironment,
       reportAssociation: options.reportAssociation,
-      requestId: hasTransientState
-        ? (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`)
-        : undefined,
+      agentAction:
+        options.agentActionAttribution && requestId
+          ? { requestId, attribution: options.agentActionAttribution }
+          : undefined,
+      requestId,
     },
   });
   // In the channels layout every entry point (⌘N, the command menu, the "+")

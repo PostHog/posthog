@@ -18,7 +18,25 @@ export interface PromptHistorySelectedProperties {
 
 type ExecutionType = "cloud" | "local";
 export type RepositoryProvider = "github" | "gitlab" | "local" | "none";
-type TaskCreatedFrom = "cli" | "command-menu" | "sidebar-worktree";
+type TaskCreatedFrom =
+  | "agent-action"
+  | "cli"
+  | "command-menu"
+  | "sidebar-worktree";
+
+export type AgentActionKind =
+  | "compose"
+  | "open_canvas"
+  | "open_inbox"
+  | "open_space";
+
+export interface AgentActionProperties {
+  action_id: string;
+  source_task_id: string;
+  tool_call_id: string;
+  action_index: number;
+  action_kind: AgentActionKind;
+}
 type RepositorySelectSource = "task-creation" | "task-detail";
 type GitActionType =
   | "push"
@@ -104,6 +122,10 @@ export interface TaskCreateProperties {
   adapter?: Adapter;
   codex_model_access?: ModelAccess;
   claude_model_access?: ModelAccess;
+  resulting_task_id?: string;
+  source_task_id?: string;
+  agent_action_id?: string;
+  agent_action_tool_call_id?: string;
 }
 
 export interface TaskViewProperties {
@@ -1519,6 +1541,9 @@ export const ANALYTICS_EVENTS = {
   // Git operations
   GIT_ACTION_EXECUTED: "Git action executed",
   PR_CREATED: "PR created",
+  AGENT_ACTION_SHOWN: "Agent action shown",
+  AGENT_ACTION_CLICKED: "Agent action clicked",
+  AGENT_ACTION_OPEN_FAILED: "Agent action open failed",
   AGENT_FILE_ACTIVITY: "Agent file activity",
   BRANCH_LINKED: "Branch linked",
   BRANCH_UNLINKED: "Branch unlinked",
@@ -1727,6 +1752,9 @@ export type EventPropertyMap = {
   // Git operations
   [ANALYTICS_EVENTS.GIT_ACTION_EXECUTED]: GitActionExecutedProperties;
   [ANALYTICS_EVENTS.PR_CREATED]: PrCreatedProperties;
+  [ANALYTICS_EVENTS.AGENT_ACTION_SHOWN]: AgentActionProperties;
+  [ANALYTICS_EVENTS.AGENT_ACTION_CLICKED]: AgentActionProperties;
+  [ANALYTICS_EVENTS.AGENT_ACTION_OPEN_FAILED]: AgentActionProperties;
   [ANALYTICS_EVENTS.AGENT_FILE_ACTIVITY]: AgentFileActivityProperties;
   [ANALYTICS_EVENTS.BRANCH_LINKED]: BranchLinkedProperties;
   [ANALYTICS_EVENTS.BRANCH_UNLINKED]: BranchUnlinkedProperties;

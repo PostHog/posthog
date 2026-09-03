@@ -8,6 +8,7 @@ import {
   MAIN_WINDOW_SERVICE,
 } from "@posthog/platform/main-window";
 import {
+  agentActionAttributionSchema,
   decodePlanBase64,
   type NewTaskLinkPayload,
   type NewTaskSharedParams,
@@ -65,6 +66,15 @@ export class NewTaskLinkService extends TypedEventEmitter<NewTaskLinkEvents> {
   private handleNew(params: URLSearchParams): boolean {
     const shared = this.extractSharedParams(params);
     const prompt = params.get("prompt") ?? undefined;
+    const actionIndexValue = params.get("agent_action_index");
+    const parsedAttribution = agentActionAttributionSchema.safeParse({
+      action_id: params.get("agent_action_id"),
+      source_task_id: params.get("agent_action_source_task_id"),
+      tool_call_id: params.get("agent_action_tool_call_id"),
+      action_index: actionIndexValue
+        ? Number.parseInt(actionIndexValue, 10)
+        : undefined,
+    });
 
     if (!prompt && !shared.repo) {
       this.log.warn("New task link requires at least prompt or repo");
@@ -74,6 +84,9 @@ export class NewTaskLinkService extends TypedEventEmitter<NewTaskLinkEvents> {
     const payload: NewTaskLinkPayload = {
       action: "new",
       prompt,
+      agentActionAttribution: parsedAttribution.success
+        ? parsedAttribution.data
+        : undefined,
       ...shared,
     };
 
