@@ -221,11 +221,21 @@ class BearerResourceAPIView(ProvisioningAPIView):
 
         team = Team.objects.select_related("organization").filter(id=team_id).first()
         # A team that no longer exists has no access left to re-check.
-        if team is not None and (access_token.user is None or not user_can_access_team(access_token.user, team)):
+        if team is not None:
+            self.assert_team_access(team, access_token, resource_id=resource_id)
+        return team_id, team
+
+    def assert_team_access(self, team: Team, access_token: OAuthAccessToken, *, resource_id: str = "") -> None:
+        """Re-check that the token's user can still reach the team.
+
+        Every bearer endpoint that acts on a team calls this, whether it found the team through
+        the request's resource id or through the token's own scope. The scope alone does not
+        answer the question: it records the access the user had when the token was minted.
+        """
+        if access_token.user is None or not user_can_access_team(access_token.user, team):
             raise ProvisioningError(
                 "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403
             )
-        return team_id, team
 
     def parse_resource_team_id(self, resource_id: str, access_token: OAuthAccessToken) -> int:
         return self._resolve_scoped_team(resource_id, access_token)[0]

@@ -63,14 +63,16 @@ class TestResources(StripeProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("access_control_revoked",),
-            ("org_membership_removed",),
+            ("read_access_control_revoked", "read", "access_control"),
+            ("read_org_membership_removed", "read", "membership"),
+            ("create_access_control_revoked", "create", "access_control"),
+            ("create_org_membership_removed", "create", "membership"),
         ]
     )
-    def test_get_resource_rejected_after_team_access_lost(self, revocation: str):
+    def test_resource_endpoints_rejected_after_team_access_lost(self, _name: str, endpoint: str, revocation: str):
         token = self._get_bearer_token()
 
-        if revocation == "access_control_revoked":
+        if revocation == "access_control":
             self.organization.available_product_features = [
                 {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             ]
@@ -86,7 +88,11 @@ class TestResources(StripeProvisioningTestBase):
         else:
             self.organization_membership.delete()
 
-        res = self._get_signed_with_bearer(f"{RESOURCES_URL}/{self.team.id}", token=token)
+        if endpoint == "read":
+            res = self._get_signed_with_bearer(f"{RESOURCES_URL}/{self.team.id}", token=token)
+        else:
+            res = self._post_signed_with_bearer(RESOURCES_URL, data={}, token=token)
+
         assert res.status_code == 403
 
     def test_unknown_service_rejected(self):

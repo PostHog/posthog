@@ -589,16 +589,25 @@ class StripeResourceAPIView(SignatureCheckedMixin, StripeProvisioningAPIView):
         if team_id not in (access_token.scoped_teams or []):
             raise SpecError("forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403)
 
-        # `scoped_teams` is a snapshot taken when the token was minted, and tokens here last a
-        # year, so it outlives the access it records by a long way. Re-run the check the scope
-        # was built from (see `compute_partner_scoped_teams`), so an org removal or an
-        # access-control change applies to the next request instead of waiting for a refresh.
         # A team that no longer exists has no access left to re-check; `get_team` decides what
         # a missing team means for each endpoint.
         team = Team.objects.select_related("organization").filter(id=team_id).first()
-        if team is not None and (access_token.user is None or not user_can_access_team(access_token.user, team)):
-            raise SpecError("forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403)
+        if team is not None:
+            self.assert_team_access(team, access_token, resource_id=resource_id)
         return team_id
+
+    def assert_team_access(self, team: Team, access_token: OAuthAccessToken, *, resource_id: str = "") -> None:
+        """Re-check that the token's user can still reach the team.
+
+        Every bearer endpoint that acts on a team calls this, whether it found the team through
+        the request's resource id or through the token's own scope. `scoped_teams` is a snapshot
+        taken when the token was minted, and tokens here last a year, so it outlives the access
+        it records by a long way. Re-running the check the scope was built from (see
+        `compute_partner_scoped_teams`) makes an org removal or an access-control change apply
+        to the next request instead of waiting for a refresh.
+        """
+        if access_token.user is None or not user_can_access_team(access_token.user, team):
+            raise SpecError("forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403)
 
     def get_team(self, team_id: int, resource_id: str) -> Team:
         try:
@@ -662,6 +671,9 @@ class ResourcesCreateView(StripeResourceAPIView):
                     "resource_created", "error", partner=app, error_code="team_not_found", team_id=team_id
                 )
                 raise SpecError("team_not_found", "Team not found", resource_id=str(team_id), status=404)
+            # The project_id branch above re-checks access inside resolve_or_create_project_team;
+            # this branch takes the team straight off the token's scope, so it checks here.
+            self.assert_team_access(team, access_token, resource_id=str(team_id))
 
         # TODO: latent bug - this runs on every call, so a repeated create for
         # an existing team overwrites its service_id (not idempotent), and the
