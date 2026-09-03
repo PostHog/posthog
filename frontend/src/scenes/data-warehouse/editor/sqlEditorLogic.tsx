@@ -2426,9 +2426,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                     // reload DAGs so newly created default DAG appears. Imported on demand: the data
                     // modeling logic pulls in the graph library, which nothing else on the SQL editor path needs.
-                    void import('../scene/dataModelingLogic').then(({ dataModelingLogic }) =>
-                        dataModelingLogic.findMounted()?.actions.loadDags()
-                    )
+                    void import('../scene/dataModelingLogic')
+                        .then(({ dataModelingLogic }) => dataModelingLogic.findMounted()?.actions.loadDags())
+                        .catch(() => {
+                            /* best-effort DAG refresh; a stale chunk load isn't worth failing the save for */
+                        })
 
                     if (isPartialSave && savedQuery) {
                         actions.createTab(savedQuery.query?.query ?? queryToSave.query, savedQuery)
