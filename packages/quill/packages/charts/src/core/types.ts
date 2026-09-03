@@ -394,6 +394,8 @@ export interface TooltipConfig {
     totalFormatter?: (value: number) => string
     /** Sort series rows by value descending so the highest value appears at the top. */
     sortedByValue?: boolean
+    /** Extra content rendered below all rows and the total, separated by a divider. */
+    footer?: ReactNode
     /** Bar charts only. `bar` (the default) tooltips only inside a painted bar. `band` tooltips
      *  anywhere in the hovered band, so a one-pixel bar or a zero bucket still reports its value. */
     hitArea?: 'bar' | 'band'

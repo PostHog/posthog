@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { type ChartTheme, type Series } from '@posthog/quill-charts'
+import { type ChartTheme, type Series, type TooltipConfig } from '@posthog/quill-charts'
 
 import { useChartTheme, useChartConfig } from 'lib/charts/hooks'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
@@ -17,6 +17,8 @@ import {
     warnTooManySeries,
 } from './sqlLineGraphAdapter'
 
+const SQL_CHART_INSPECT_TOOLTIP_FOOTER = 'Click to inspect persons'
+
 export interface SqlChartModel<TConfig> {
     series: Series<SqlLineSeriesMeta>[]
     labels: string[]
@@ -24,8 +26,8 @@ export interface SqlChartModel<TConfig> {
     config: TConfig
 }
 
-export function useSqlChartModel<TConfig extends object>(
-    { xData, yData, visualizationType, chartSettings, dashboardId, goalLines }: SqlChartProps,
+export function useSqlChartModel<TConfig extends { tooltip?: TooltipConfig }>(
+    { xData, yData, visualizationType, chartSettings, dashboardId, goalLines, onPointClick }: SqlChartProps,
     buildConfig: (args: BuildBarConfigArgs) => TConfig
 ): SqlChartModel<TConfig> | null {
     const { timezone } = useValues(teamLogic)
@@ -47,21 +49,34 @@ export function useSqlChartModel<TConfig extends object>(
 
     const legendRenderItem = useChartLegendSeriesMenu({ surface: 'sql', seriesCount: series.length })
 
-    const config = useChartConfig(
-        () =>
-            xData
-                ? buildConfig({
-                      xData,
-                      chartSettings,
-                      timezone,
-                      goalLines,
-                      visualizationType,
-                      ySeriesData,
-                      legendRenderItem,
-                  })
-                : undefined,
-        [xData, chartSettings, timezone, goalLines, visualizationType, buildConfig, ySeriesData, legendRenderItem]
-    )
+    const config = useChartConfig(() => {
+        if (!xData) {
+            return undefined
+        }
+        const config = buildConfig({
+            xData,
+            chartSettings,
+            timezone,
+            goalLines,
+            visualizationType,
+            ySeriesData,
+            legendRenderItem,
+        })
+        if (onPointClick) {
+            config.tooltip = { ...config.tooltip, footer: SQL_CHART_INSPECT_TOOLTIP_FOOTER }
+        }
+        return config
+    }, [
+        xData,
+        chartSettings,
+        timezone,
+        goalLines,
+        visualizationType,
+        buildConfig,
+        ySeriesData,
+        legendRenderItem,
+        onPointClick,
+    ])
 
     if (!xData || !ySeriesData || series.length === 0 || !config) {
         return null

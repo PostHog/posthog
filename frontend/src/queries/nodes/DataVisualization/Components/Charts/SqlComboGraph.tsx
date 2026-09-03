@@ -1,6 +1,7 @@
 import clsx from 'clsx'
+import { useCallback } from 'react'
 
-import { TimeSeriesComboChart } from '@posthog/quill-charts'
+import { TimeSeriesComboChart, type PointClickData } from '@posthog/quill-charts'
 
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 
@@ -19,7 +20,15 @@ const handleChartError = makeChartErrorHandler('sql-combo-chart')
  * {@link buildComboChartConfig}.
  */
 export const SqlComboGraph = (props: SqlChartProps): JSX.Element => {
+    const { onPointClick: onPointClickProp } = props
     const model = useSqlChartModel(props, buildComboChartConfig)
+
+    const onPointClick = useCallback(
+        (data: PointClickData<SqlLineSeriesMeta>) => {
+            onPointClickProp?.(data.series.key, data.dataIndex, data.label)
+        },
+        [onPointClickProp]
+    )
 
     return (
         <div
@@ -35,6 +44,7 @@ export const SqlComboGraph = (props: SqlChartProps): JSX.Element => {
                     labels={model.labels}
                     theme={model.theme}
                     config={model.config}
+                    onPointClick={onPointClickProp ? onPointClick : undefined}
                     onError={handleChartError}
                 >
                     {props.showAnnotations && props.insightNumericId && (

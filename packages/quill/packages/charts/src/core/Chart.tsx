@@ -177,6 +177,7 @@ export function Chart<Meta = unknown>({
         totalLabel: tooltipTotalLabel,
         totalFormatter: tooltipTotalFormatter,
         sortedByValue: tooltipSortedByValue,
+        footer: tooltipFooter,
     } = tooltipConfig ?? {}
 
     // No render prop: render DefaultTooltip with config.tooltip's formatters (all undefined → bare default).
@@ -192,6 +193,7 @@ export function Chart<Meta = unknown>({
                     totalLabel={tooltipTotalLabel}
                     totalFormatter={tooltipTotalFormatter}
                     sortedByValue={tooltipSortedByValue}
+                    footer={tooltipFooter}
                 />
             )),
         [
@@ -202,6 +204,7 @@ export function Chart<Meta = unknown>({
             tooltipTotalLabel,
             tooltipTotalFormatter,
             tooltipSortedByValue,
+            tooltipFooter,
         ]
     )
 
