@@ -229,6 +229,7 @@ export interface accessDetailLogicActions {
             | 'clickhouse_test_cluster_perf'
             | 'cohort'
             | 'comment'
+            | 'context_layer_internal'
             | 'conversation'
             | 'customer_analytics'
             | 'customer_journey'
