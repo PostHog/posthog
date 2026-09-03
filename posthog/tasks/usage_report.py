@@ -2726,11 +2726,23 @@ def capture_report(
         )
 
     # Update organization group properties so they can be used for email campaigns
+    # (and, for the AI consent flag, by support tooling that has to know whether a
+    # flow can work before it starts — see the group_identify in the organization
+    # API for the same property).
+    #
+    # Mirrors the gate the flag actually feeds (`_impersonation_ai_processing_block`
+    # in posthog/api/oauth/views.py): only an explicit True counts as approved, so a
+    # null column is published as False rather than as "no answer".
+    ai_data_processing_approved = (
+        Organization.objects.filter(id=organization_id).values_list("is_ai_data_processing_approved", flat=True).first()
+        is True
+    )
     try:
         pha_client.group_identify(
             group_type="organization",
             group_key=organization_id,
             properties={
+                "is_ai_data_processing_approved": ai_data_processing_approved,
                 "member_count": full_report_dict.get("organization_user_count", 0),
                 "project_count": full_report_dict.get("team_count", 0),
                 "dashboard_count": full_report_dict.get("dashboard_count", 0),

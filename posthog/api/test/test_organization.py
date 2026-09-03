@@ -237,6 +237,47 @@ class TestOrganizationAPI(APIBaseTest):
             groups={"instance": ANY, "organization": str(self.organization.id)},
         )
 
+    @patch("posthoganalytics.group_identify")
+    def test_ai_data_processing_consent_updates_organization_group_property(self, mock_group_identify):
+        """Support tooling reads this off the org group to know a consent-gated flow is dead
+        before an engineer starts it, so the value cannot wait for the daily usage report."""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"is_ai_data_processing_approved": False}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_group_identify.assert_called_once_with(
+            group_type="organization",
+            group_key=str(self.organization.id),
+            properties={"is_ai_data_processing_approved": False},
+        )
+
+    @patch("posthoganalytics.group_identify")
+    def test_unrelated_organization_update_does_not_touch_the_group_property(self, mock_group_identify):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"name": "Renamed"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_group_identify.assert_not_called()
+
+    @patch("posthoganalytics.group_identify")
+    def test_rejected_consent_update_publishes_nothing(self, mock_group_identify):
+        """A member cannot change this, and a value that was never saved must never be published."""
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"is_ai_data_processing_approved": True}
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        mock_group_identify.assert_not_called()
+
     def test_cannot_update_members_can_invite_without_feature(self):
         """Test that members_can_invite cannot be updated without ORGANIZATION_INVITE_SETTINGS feature."""
         # Ensure user is admin (passes permission checks)

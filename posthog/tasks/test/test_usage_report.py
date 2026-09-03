@@ -2160,6 +2160,9 @@ class TestCaptureReportGroupProperties(ClickhouseDestroyTablesMixin, TestCase, C
             group_type="organization",
             group_key=str(org.id),
             properties={
+                # Unset on this org, and the gate this feeds treats anything but an
+                # explicit True as not approved — so it publishes as False, not null.
+                "is_ai_data_processing_approved": False,
                 "member_count": 5,
                 "project_count": 2,
                 "dashboard_count": 3,
@@ -2167,6 +2170,20 @@ class TestCaptureReportGroupProperties(ClickhouseDestroyTablesMixin, TestCase, C
                 "survey_count": 2,
             },
         )
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    def test_capture_report_publishes_ai_data_processing_consent(self, mock_client: MagicMock) -> None:
+        from posthog.tasks.usage_report import capture_report
+
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
+
+        org = Organization.objects.create(name="Consenting Org", is_ai_data_processing_approved=True)
+
+        capture_report(organization_id=str(org.id), full_report_dict={})
+
+        properties = mock_posthog.group_identify.call_args.kwargs["properties"]
+        assert properties["is_ai_data_processing_approved"] is True
 
 
 class TestTrimOversizeUsageReportPayload(TestCase):
