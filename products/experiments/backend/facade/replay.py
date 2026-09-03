@@ -2,6 +2,7 @@
 
 from products.experiments.backend.replay_linkage import (
     ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES,
+    IN_SESSION_EVIDENCE_SCAN_MAX_MEMORY_BYTES,
     ExperimentExposureLinkage,
     InSessionExposureSemantics,
     exposed_distinct_ids_select,
@@ -13,6 +14,7 @@ from products.experiments.backend.replay_linkage import (
 
 __all__ = [
     "ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES",
+    "IN_SESSION_EVIDENCE_SCAN_MAX_MEMORY_BYTES",
     "ExperimentExposureLinkage",
     "InSessionExposureSemantics",
     "exposed_distinct_ids_select",

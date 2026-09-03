@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -42,16 +42,13 @@ from products.cohorts.backend.models.cohort import Cohort
 # Importing the facade at module scope also keeps its transitive pydantic.v1 import outside the
 # class's frozen time: freezegun's FakeDate breaks pydantic.v1's metaclass construction, and the
 # runner otherwise defers this import to the first test that resolves a linkage.
-from products.experiments.backend.facade.replay import ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES
-from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    EXPERIMENT_EXPOSURE_EVENT,
-    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-    EXPERIMENT_EXPOSURE_EVENT_FLAG,
+from products.experiments.backend.facade.replay import (
+    ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES,
+    IN_SESSION_EVIDENCE_SCAN_MAX_MEMORY_BYTES,
 )
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.replay_linkage import IN_SESSION_EVIDENCE_SCAN_MAX_MEMORY_BYTES
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 FROZEN_NOW = "2021-08-21T20:00:00Z"
@@ -446,60 +443,39 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             ["session-after-custom"],
         )
 
-    @parameterized.expand(
-        [
-            # The rollout case pins the evidence scan to the per-experiment resolved default: if
-            # the narrowing fell back to the legacy event, exposures arriving as
-            # $experiment_exposure would make every rollout experiment's in-session list empty.
-            ("legacy_default", "$feature_flag_called", False, BASE_TIME),
-            ("rollout_default", EXPERIMENT_EXPOSURE_EVENT, True, EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10)),
-        ]
-    )
-    def test_in_session_narrows_to_sessions_containing_the_exposure_event(
-        self, _name: str, exposure_event: str, flag_enabled: bool, base_time: datetime
-    ) -> None:
-        # Anchored to the case's own clock: the rollout default only applies to experiments
-        # started at or after the $experiment_exposure cutoff, which is past the class freeze.
-        with freeze_time(base_time + timedelta(hours=10)):
-            experiment = self._create_experiment(start_date=base_time - timedelta(days=1))
-            # Marks the exposure event as session-linkable, so the narrowing reads the event itself
-            # rather than the stamped-property fallback.
-            EventProperty.objects.create(team=self.team, event=exposure_event, property="$session_id")
-            create_person(team=self.team, distinct_ids=["exposed-user"])
-            exposure_time = base_time + timedelta(hours=2)
-            self._create_exposure_event(
-                "exposed-user",
-                exposure_time,
-                "test",
-                event=exposure_event,
-                properties={"$session_id": "session-with-exposure"},
-            )
-            flush_persons_and_events()
+    def test_in_session_narrows_to_sessions_containing_the_exposure_event(self) -> None:
+        experiment = self._create_experiment()
+        # Marks the exposure event as session-linkable, so the narrowing reads the event itself
+        # rather than the stamped-property fallback.
+        EventProperty.objects.create(team=self.team, event="$feature_flag_called", property="$session_id")
+        create_person(team=self.team, distinct_ids=["exposed-user"])
+        exposure_time = BASE_TIME + timedelta(hours=2)
+        self._create_exposure_event(
+            "exposed-user",
+            exposure_time,
+            "test",
+            properties={"$session_id": "session-with-exposure"},
+        )
+        flush_persons_and_events()
 
-            self._produce_recording(
-                "exposed-user", "session-with-exposure", exposure_time, exposure_time + timedelta(minutes=10)
-            )
-            self._produce_recording(
-                "exposed-user",
-                "session-without-exposure",
-                exposure_time + timedelta(hours=1),
-                exposure_time + timedelta(hours=1, minutes=10),
-            )
+        self._produce_recording(
+            "exposed-user", "session-with-exposure", exposure_time, exposure_time + timedelta(minutes=10)
+        )
+        self._produce_recording(
+            "exposed-user",
+            "session-without-exposure",
+            exposure_time + timedelta(hours=1),
+            exposure_time + timedelta(hours=1, minutes=10),
+        )
 
-            # Only answer for the exposure-event flag; returning True for every flag would flip
-            # unrelated HogQL query modifiers on and break the query under test.
-            def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-                return flag_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
-
-            with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
-                self._assert_query_matches_session_ids(
-                    {"experiment_exposure": {"experiment_id": experiment.id}},
-                    ["session-with-exposure", "session-without-exposure"],
-                )
-                self._assert_query_matches_session_ids(
-                    {"experiment_exposure": {"experiment_id": experiment.id, "in_session": True}},
-                    ["session-with-exposure"],
-                )
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id}},
+            ["session-with-exposure", "session-without-exposure"],
+        )
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id, "in_session": True}},
+            ["session-with-exposure"],
+        )
 
     def test_in_session_evidence_is_narrowed_to_the_requested_variant(self) -> None:
         experiment = self._create_experiment(exposure_criteria={"multiple_variant_handling": "first_seen"})

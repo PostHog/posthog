@@ -1,13 +1,20 @@
 import dataclasses
 from datetime import UTC, datetime
+from typing import Any
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from posthog.hogql import ast
 
 from posthog.models import EventProperty
 
-from products.experiments.backend.hogql_queries.exposure_query_logic import DEFAULT_EXPOSURE_EVENT
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    DEFAULT_EXPOSURE_EVENT,
+    EXPERIMENT_EXPOSURE_EVENT,
+    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
+    EXPERIMENT_EXPOSURE_EVENT_FLAG,
+)
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.replay_linkage import (
     IN_SESSION_EXPOSURE_ACTIVATION_REASON,
@@ -103,7 +110,7 @@ class TestSessionExposureTombstonedFlag(BaseTest):
 # The seam the recordings query's in_session refusal and the tab's scope control both read, so
 # they can't drift on whether the scope is available or on the fallback caveat.
 class TestResolveInSessionExposureSemantics(BaseTest):
-    def _experiment(self, exposure_criteria: dict | None = None) -> Experiment:
+    def _experiment(self, exposure_criteria: dict | None = None, start_date: datetime | None = None) -> Experiment:
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="checkout-cta",
@@ -123,8 +130,9 @@ class TestResolveInSessionExposureSemantics(BaseTest):
             name="Checkout CTA copy",
             feature_flag=flag,
             created_by=self.user,
-            # Before EXPERIMENT_EXPOSURE_EVENT_CUTOFF, so the default resolves to $feature_flag_called.
-            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            # The default is before EXPERIMENT_EXPOSURE_EVENT_CUTOFF, so the exposure event
+            # resolves to $feature_flag_called.
+            start_date=start_date or datetime(2026, 1, 1, tzinfo=UTC),
             exposure_criteria=exposure_criteria or {},
         )
 
@@ -150,6 +158,26 @@ class TestResolveInSessionExposureSemantics(BaseTest):
 
         assert semantics.unavailable_reason is None
         assert semantics.uses_stamped_fallback is True
+
+    def test_condition_matches_the_rollout_default_event_at_the_cutoff(self) -> None:
+        # The in-session narrowing reads the exposure event off this seam. If the seam kept the
+        # legacy default, exposures arriving as $experiment_exposure would leave every rollout
+        # experiment's in-session list empty.
+        experiment = self._experiment(start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF)
+        EventProperty.objects.get_or_create(
+            team=self.team, project_id=self.team.project_id, event=EXPERIMENT_EXPOSURE_EVENT, property="$session_id"
+        )
+
+        # Only answer for the rollout flag; a blanket True would flip unrelated rollouts on too.
+        def rollout_only(flag_key: str, *args: Any, **kwargs: Any) -> bool:
+            return flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG
+
+        with patch("posthoganalytics.feature_enabled", side_effect=rollout_only):
+            semantics = resolve_in_session_exposure_semantics(self.team, experiment)
+
+        assert semantics.session_exposure is not None
+        assert semantics.uses_stamped_fallback is False
+        assert EXPERIMENT_EXPOSURE_EVENT in _string_constants(semantics.session_exposure.condition(["control"]))
 
     def test_unavailable_for_activation_criteria(self) -> None:
         experiment = self._experiment(
