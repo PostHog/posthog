@@ -4,6 +4,7 @@ from django.contrib.admin.models import CHANGE, LogEntry
 from django.contrib.admin.sites import AdminSite
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.contrib.sessions.backends.db import SessionStore
 from django.http import HttpRequest
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
@@ -25,7 +26,7 @@ class TestHogFlowAdminEmailAudit(TestCase):
         request = RequestFactory().post("/")
         request.user = self.user
         # Admin actions call message_user, which needs a message store on the request.
-        request.session = {}
+        request.session = SessionStore()
         request._messages = FallbackStorage(request)
         return request
 
