@@ -19,6 +19,7 @@ import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
@@ -1719,6 +1720,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         formulaNodes: [
             (s) => [s.querySource],
             (querySource: InsightQueryNode | null): TrendsFormulaNode[] => getFormulaNodes(querySource) || [],
+            // Keep the reference stable when the formula content is unchanged, so an unrelated query
+            // update (date range, breakdown, compare) does not rebuild this array and rerun the
+            // TrendsFormula effect that would clobber an in-progress draft.
+            { resultEqualityCheck: objectsEqual },
         ],
         series: [
             (s) => [s.querySource],
