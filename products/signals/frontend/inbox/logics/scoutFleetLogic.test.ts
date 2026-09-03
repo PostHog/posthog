@@ -867,6 +867,36 @@ describe('scoutFleetLogic', () => {
             expect(logic.values.scoutRunCosts.has('run-unpriced')).toBe(false)
         })
 
+        it('keeps the cost map when a poll re-derives the same numbers, and replaces it when one moves', async () => {
+            // Every roster card subscribes to this map and ScoutRunBoxes keys its tooltip memo on it,
+            // so a fresh map each poll re-renders the whole roster for nothing. Reusing it too
+            // eagerly is the worse failure though: the roster would show a frozen cost forever.
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([makeRun({ run_id: 'run-priced' })])
+            mockSignalsScoutRunsTokenCosts.mockResolvedValue({
+                costs: [{ run_id: 'run-priced', token_cost_usd: 4.03 }],
+                available: true,
+            })
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+            const first = logic.values.scoutRunCosts
+            expect(first.get('run-priced')).toBe(4.03)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+            expect(logic.values.scoutRunCosts).toBe(first)
+
+            mockSignalsScoutRunsTokenCosts.mockResolvedValue({
+                costs: [{ run_id: 'run-priced', token_cost_usd: 5.11 }],
+                available: true,
+            })
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+            expect(logic.values.scoutRunCosts).not.toBe(first)
+            expect(logic.values.scoutRunCosts.get('run-priced')).toBe(5.11)
+        })
+
         it('keeps the batches that answered when a later batch fails', async () => {
             // A materialized fleet is more run ids than one request carries, so the loader sends
             // several. Discarding the whole load over one failed batch blanks every tooltip in the
