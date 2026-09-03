@@ -9,8 +9,83 @@ feature: access_control
 url_prefix: /settings/environment-access-control
 ui_apps: {}
 tools:
+    access-control-defaults-get:
+        operation: organizations_projects_access_control_defaults_retrieve
+        enabled: true
+        scopes:
+            - access_control:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the project's default access.
+        description: >
+            The access everyone in the project gets unless a rule of their own, or a role's rule, says otherwise:
+            the default project level (member or admin) and the default level per tool (none, viewer, editor,
+            manager). Also lists which tools accept rules on single objects, such as one dashboard or one
+            notebook. Start here to understand a project's baseline before checking a member or a role.
+        param_overrides:
+            id:
+                description: |
+                    Project id. If omitted, uses the active project.
+                optional: true
+                fallback: projectId
+    access-control-members-list:
+        operation: organizations_projects_access_control_members_retrieve
+        enabled: true
+        scopes:
+            - access_control:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Resolve every member's access in the project.
+        description: >
+            For every organization member, the access they end up with in the current project: to the project
+            itself and to each tool (dashboards, insights, feature flags, and so on). Each entry gives the
+            member's own stored rule (`access_level`, null when they have none), the level that is enforced
+            (`effective_access_level`), and `inherited_access` explaining where the enforced level comes from
+            when it is not the member's own rule: `source_subject` is `role` for a role's rule, `default` for the
+            project default, and `source` is `org_admin` when the member's organization level bypasses every
+            rule. Pass `member_id` (an `organization_membership_id`, from this tool or org-members-list) to check
+            one member. Rules on single objects and on properties are listed by the member-objects and
+            member-properties tools.
+        param_overrides:
+            id:
+                description: |
+                    Project id. If omitted, uses the active project.
+                optional: true
+                fallback: projectId
+            member_id:
+                description: |
+                    Optional. Narrow the result to one member, by organization membership id.
+    access-control-roles-list:
+        operation: organizations_projects_access_control_roles_retrieve
+        enabled: true
+        scopes:
+            - access_control:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Resolve every role's access in the project.
+        description: >
+            For every role in the organization, the access it grants in the current project: to the project itself
+            and to each tool. Each entry gives the role's own stored rule (`access_level`), the level enforced for
+            the role's members (`effective_access_level`), and `inherited_access` explaining where that level comes
+            from when the role has no rule of its own. Pass `role_id` to check one role. Use roles-list to find role
+            ids and role-members-list to see who is in a role.
+        param_overrides:
+            id:
+                description: |
+                    Project id. If omitted, uses the active project.
+                optional: true
+                fallback: projectId
+            role_id:
+                description: |
+                    Optional. Narrow the result to one role, by role id.
     access-control-default-objects-list:
-        operation: environments_access_control_default_objects_retrieve
+        operation: organizations_projects_access_control_default_objects_retrieve
         enabled: true
         scopes:
             - access_control:read
@@ -22,8 +97,14 @@ tools:
         description: >
             Rules on single objects (a dashboard, an insight, a notebook, a warehouse table) that apply to everyone
             without a rule of their own on that object. Each rule names the object and the level it sets.
+        param_overrides:
+            id:
+                description: |
+                    Project id. If omitted, uses the active project.
+                optional: true
+                fallback: projectId
     access-control-default-properties-list:
-        operation: environments_access_control_default_properties_retrieve
+        operation: organizations_projects_access_control_default_properties_retrieve
         enabled: true
         scopes:
             - access_control:read
@@ -33,26 +114,17 @@ tools:
             idempotent: true
         title: List the project's property default rules.
         description: >
-            Property rules that apply to everyone without a rule of their own on that property: which person and event
-            properties are hidden (`none`), read-only (`read`), or open (`read_write`). Every property is `read_write`
-            unless a rule says otherwise.
-    access-control-defaults-get:
-        operation: environments_access_control_defaults_retrieve
-        enabled: true
-        scopes:
-            - access_control:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get the project's default access.
-        description: >
-            The access everyone in the project gets unless a rule of their own, or a role's rule, says otherwise: the
-            default project level (member or admin) and the default level per tool (none, viewer, editor, manager). Also
-            lists which tools accept rules on single objects, such as one dashboard or one notebook. Start here to
-            understand a project's baseline before checking a member or a role.
+            Property rules that apply to everyone without a rule of their own on that property: which person and
+            event properties are hidden (`none`), read-only (`read`), or open (`read_write`). Every property is
+            `read_write` unless a rule says otherwise.
+        param_overrides:
+            id:
+                description: |
+                    Project id. If omitted, uses the active project.
+                optional: true
+                fallback: projectId
     access-control-member-objects-list:
-        operation: environments_access_control_member_objects_retrieve
+        operation: organizations_projects_access_control_member_objects_retrieve
         enabled: true
         scopes:
             - access_control:read
@@ -66,11 +138,16 @@ tools:
             warehouse tables they are given access to, or blocked from, regardless of their tool-level access. Only the
             member's own rules are returned; rules from their roles come from the role-objects tool.
         param_overrides:
+            id:
+                description: |
+                    Project id. If omitted, uses the active project.
+                optional: true
+                fallback: projectId
             member_id:
                 description: |
                     The organization membership id, as `organization_membership_id` in access-control-members-list.
     access-control-member-properties-list:
-        operation: environments_access_control_member_properties_retrieve
+        operation: organizations_projects_access_control_member_properties_retrieve
         enabled: true
         scopes:
             - access_control:read
@@ -84,6 +161,11 @@ tools:
             can only read (`read`), or can read and write (`read_write`). Only the member's own rules are returned;
             rules from their roles come from the role-properties tool.
         param_overrides:
+            id:
+                description: |
+                    Project id. If omitted, uses the active project.
+                optional: true
+                fallback: projectId
             member_id:
                 description: |
                     The organization membership id, as `organization_membership_id` in access-control-members-list.
@@ -111,7 +193,7 @@ tools:
                 description: |
                     Optional. Narrow the result to one member, by organization membership id.
     access-control-role-objects-list:
-        operation: environments_access_control_role_objects_retrieve
+        operation: organizations_projects_access_control_role_objects_retrieve
         enabled: true
         scopes:
             - access_control:read
@@ -124,11 +206,16 @@ tools:
             The rules configured for one role on single objects: the dashboards, insights, notebooks and warehouse
             tables the role's members are given access to, or blocked from, regardless of their tool-level access.
         param_overrides:
+            id:
+                description: |
+                    Project id. If omitted, uses the active project.
+                optional: true
+                fallback: projectId
             role_id:
                 description: |
                     The role id, as `role_id` in access-control-roles-list or roles-list.
     access-control-role-properties-list:
-        operation: environments_access_control_role_properties_retrieve
+        operation: organizations_projects_access_control_role_properties_retrieve
         enabled: true
         scopes:
             - access_control:read
@@ -141,55 +228,40 @@ tools:
             The property rules configured for one role: which person and event properties the role's members cannot see
             (`none`), can only read (`read`), or can read and write (`read_write`).
         param_overrides:
+            id:
+                description: |
+                    Project id. If omitted, uses the active project.
+                optional: true
+                fallback: projectId
             role_id:
                 description: |
                     The role id, as `role_id` in access-control-roles-list or roles-list.
-    access-control-roles-list:
+    environments-access-control-default-objects-retrieve:
+        operation: environments_access_control_default_objects_retrieve
+        enabled: false
+    environments-access-control-default-properties-retrieve:
+        operation: environments_access_control_default_properties_retrieve
+        enabled: false
+    environments-access-control-defaults-retrieve:
+        operation: environments_access_control_defaults_retrieve
+        enabled: false
+    environments-access-control-member-objects-retrieve:
+        operation: environments_access_control_member_objects_retrieve
+        enabled: false
+    environments-access-control-member-properties-retrieve:
+        operation: environments_access_control_member_properties_retrieve
+        enabled: false
+    environments-access-control-members-retrieve:
+        operation: environments_access_control_members_retrieve
+        enabled: false
+    environments-access-control-role-objects-retrieve:
+        operation: environments_access_control_role_objects_retrieve
+        enabled: false
+    environments-access-control-role-properties-retrieve:
+        operation: environments_access_control_role_properties_retrieve
+        enabled: false
+    environments-access-control-roles-retrieve:
         operation: environments_access_control_roles_retrieve
-        enabled: true
-        scopes:
-            - access_control:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Resolve every role's access in the project.
-        description: >
-            For every role in the organization, the access it grants in the current project: to the project itself and
-            to each tool. Each entry gives the role's own stored rule (`access_level`), the level enforced for the
-            role's members (`effective_access_level`), and `inherited_access` explaining where that level comes from
-            when the role has no rule of its own. Pass `role_id` to check one role. Use roles-list to find role ids and
-            role-members-list to see who is in a role.
-        param_overrides:
-            role_id:
-                description: |
-                    Optional. Narrow the result to one role, by role id.
-    organizations-projects-access-control-default-objects-retrieve:
-        operation: organizations_projects_access_control_default_objects_retrieve
-        enabled: false
-    organizations-projects-access-control-default-properties-retrieve:
-        operation: organizations_projects_access_control_default_properties_retrieve
-        enabled: false
-    organizations-projects-access-control-defaults-retrieve:
-        operation: organizations_projects_access_control_defaults_retrieve
-        enabled: false
-    organizations-projects-access-control-member-objects-retrieve:
-        operation: organizations_projects_access_control_member_objects_retrieve
-        enabled: false
-    organizations-projects-access-control-member-properties-retrieve:
-        operation: organizations_projects_access_control_member_properties_retrieve
-        enabled: false
-    organizations-projects-access-control-members-retrieve:
-        operation: organizations_projects_access_control_members_retrieve
-        enabled: false
-    organizations-projects-access-control-role-objects-retrieve:
-        operation: organizations_projects_access_control_role_objects_retrieve
-        enabled: false
-    organizations-projects-access-control-role-properties-retrieve:
-        operation: organizations_projects_access_control_role_properties_retrieve
-        enabled: false
-    organizations-projects-access-control-roles-retrieve:
-        operation: organizations_projects_access_control_roles_retrieve
         enabled: false
     property-access-controls-create:
         operation: property_access_controls_create
