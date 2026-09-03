@@ -49,6 +49,7 @@ from posthog.temporal.alerts.schedule import (
     create_run_investigation_safety_net_schedule,
     create_schedule_due_alert_checks_schedule,
 )
+from posthog.temporal.billing_usage_rollup.schedule import create_billing_usage_rollup_schedule
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.experiments.schedule import (
@@ -892,6 +893,7 @@ schedules = [
     create_error_tracking_recommendations_refresh_schedule,
     create_enforce_max_replay_retention_schedule,
     create_sync_events_retention_schedule,
+    create_billing_usage_rollup_schedule,
     create_replay_count_metrics_schedule,
     create_weekly_digest_schedule,
     create_intent_clustering_coordinator_schedule,
