@@ -132,7 +132,6 @@ def list_issue_threads(team_id: int, issue_id: UUID | str) -> list[contracts.Err
             channel_name=thread.destination.config.get("channel_name"),
             external_url=_alerts.slack_thread_url(thread.external_ref),
             root_headline=thread.root_headline,
-            delivered_count=len(thread.delivered_notification_ids or []),
             last_error=thread.destination.last_error,
             consecutive_failures=thread.destination.consecutive_failures,
             created_at=thread.created_at,

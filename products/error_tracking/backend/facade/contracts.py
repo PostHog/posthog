@@ -329,7 +329,6 @@ class ErrorTrackingAlertThread:
     # Link to the conversation in the provider, when the root message was posted.
     external_url: str | None
     root_headline: str
-    delivered_count: int
     last_error: str
     consecutive_failures: int
     created_at: datetime
