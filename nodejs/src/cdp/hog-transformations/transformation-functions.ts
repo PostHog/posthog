@@ -117,6 +117,50 @@ export const parseUserAgent = (
     }
 }
 
+// Internal properties used in event processing are left nested.
+const FLATTEN_PROPERTY_DENYLIST = [
+    '$elements',
+    '$elements_chain',
+    '$groups',
+    '$active_feature_flags',
+    '$heatmap_data',
+    '$web_vitals_data',
+]
+
+// Flattening runs as a host function rather than in hog, because the hog VM re-costs a local on
+// every read, which makes an in-language recursive flatten quadratic in the property count and can
+// exhaust the transformation time budget. This accumulates in place, so it is linear.
+function flattenPropertiesInternal(
+    props: Record<string, any>,
+    sep: string,
+    nestedChain: string[]
+): Record<string, any> {
+    const newProps: Record<string, any> = {}
+    for (const [key, value] of Object.entries(props)) {
+        if (FLATTEN_PROPERTY_DENYLIST.includes(key)) {
+            // Leave internal properties nested.
+        } else if (key === '$set' || key === '$set_once' || key === '$group_set') {
+            newProps[key] = { ...(props[key] as object), ...flattenPropertiesInternal(props[key], sep, []) }
+        } else if (
+            Array.isArray(value) ||
+            (value !== null && typeof value === 'object' && Object.keys(value).length > 0)
+        ) {
+            Object.assign(newProps, flattenPropertiesInternal(props[key], sep, [...nestedChain, key]))
+        } else if (nestedChain.length > 0) {
+            newProps[nestedChain.join(sep) + sep + key] = value
+        }
+    }
+    return nestedChain.length > 0 ? newProps : { ...props, ...newProps }
+}
+
+export const flattenProperties = (properties: unknown, separator?: unknown): unknown => {
+    if (properties === null || typeof properties !== 'object' || Array.isArray(properties)) {
+        return properties
+    }
+    const sep = typeof separator === 'string' && separator.length > 0 ? separator : '__'
+    return flattenPropertiesInternal(properties as Record<string, any>, sep, [])
+}
+
 export const getTransformationFunctions = (geoipLookup: GeoIp) => {
     return {
         geoipLookup: (val: unknown): any => {
@@ -126,6 +170,7 @@ export const getTransformationFunctions = (geoipLookup: GeoIp) => {
         isKnownBotUserAgent,
         isKnownBotIp,
         parseUserAgent,
+        flattenProperties,
         postHogCapture: () => {
             throw new Error('posthogCapture is not supported in transformations')
         },
