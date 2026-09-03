@@ -18,7 +18,11 @@ from products.notebooks.backend.sql_v2_state import (
     extract_cells,
     validate_cell_count,
 )
-from products.notebooks.backend.sql_v2_variables import NotebookVariable, substitute_hogql_variables
+from products.notebooks.backend.sql_v2_variables import (
+    NotebookVariable,
+    substitute_duckdb_variables,
+    substitute_hogql_variables,
+)
 
 
 def markdown_content(markdown: str) -> dict[str, Any]:
@@ -217,6 +221,26 @@ class TestNotebookCellState(APIBaseTest):
         notebook.variables = []
         notebook.save()
         assert build_notebook_cell_state(self.team.id, notebook)[0].status == "stale"
+
+    def test_sql_cell_on_duckdb_is_done_until_its_code_or_an_input_changes(self) -> None:
+        notebook = self._notebook(
+            '<PythonV2 nodeId="p" code="df = 1" returnVariable="df" />\n\n'
+            '<SQLV2 nodeId="s" code="select * from df where c = {country}" returnVariable="" />'
+        )
+        notebook.variables = [{"name": "country", "type": "string", "value": "US"}]
+        notebook.save()
+        self._run(notebook, "p", "df = 1", NotebookNodeRun.Status.DONE, node_type="python")
+        # A SQL cell reading a local frame runs on the sandbox's DuckDB, which stores `$name`
+        # parameters rather than bound values.
+        duckdb_code = substitute_duckdb_variables(
+            "select * from df where c = {country}", [NotebookVariable(name="country", value="US")]
+        )[0]
+        self._run(notebook, "s", duckdb_code, NotebookNodeRun.Status.DONE, node_type="duckdb")
+        assert build_notebook_cell_state(self.team.id, notebook)[1].status == "done"
+
+        # The frame it read was rebuilt after its run.
+        self._run(notebook, "p", "df = 1", NotebookNodeRun.Status.DONE, node_type="python")
+        assert build_notebook_cell_state(self.team.id, notebook)[1].status == "stale"
 
     def test_sql_cell_referencing_never_run_upstream_is_stale(self) -> None:
         notebook = self._notebook(

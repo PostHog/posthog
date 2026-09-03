@@ -2,13 +2,13 @@
 needs to drive cells — which cells exist, what each depends on, and which are stale.
 
 Staleness is derived, not stored: a cell is stale when re-running it now would execute
-different code than its last completed run. For SQL cells that comparison uses the
-variable-bound, CTE-resolved code (notebook variables and upstream definitions inline into
-the stored run code, so a changed value or an upstream edit changes the resolution; a
-relative date variable resolves against the clock, so a cell reading one reads stale once
-time has moved on); for Python cells it falls back to raw-code drift plus
-upstream run recency (python runs materialize inputs by run, but the run row does not
-record which input runs were used).
+different code than its last completed run. For a SQL cell that last ran on ClickHouse the
+comparison uses the variable-bound, CTE-resolved code (notebook variables and upstream
+definitions inline into the stored run code, so a changed value or an upstream edit changes
+the resolution; a relative date variable resolves against the clock, so a cell reading one
+reads stale once time has moved on). A SQL cell that last ran on the sandbox's DuckDB, and
+a Python cell, fall back to code drift plus upstream run recency: both materialize inputs by
+run, and neither run row records which input runs or variable values it used.
 """
 
 import re
@@ -25,6 +25,7 @@ from products.notebooks.backend.sql_v2_references import _TableReferenceCollecto
 from products.notebooks.backend.sql_v2_variables import (
     NotebookVariable,
     build_notebook_variables,
+    substitute_duckdb_variables,
     substitute_hogql_variables,
 )
 from products.notebooks.backend.util import (
@@ -146,7 +147,7 @@ def _is_stale(
     latest_done_by_node: dict[str, NotebookNodeRun],
     variables: list[NotebookVariable],
 ) -> bool:
-    if cell.cell_type == "sql":
+    if cell.cell_type == "sql" and latest_run.node_type != NotebookNodeRun.NodeType.DUCKDB:
         refs: dict[str, str | None] = {}
         for upstream_id in cell.depends_on:
             upstream = cells_by_node[upstream_id]
@@ -165,7 +166,16 @@ def _is_stale(
             # the last result no longer reflects the document, which is exactly what
             # stale means.
             return True
-    if cell.code.strip() != latest_run.code.strip():
+    if cell.cell_type == "sql":
+        # A DuckDB run stores the code with `{name}` rewritten to `$name` parameters and the
+        # local frames left as table names, so that rewrite is the comparable form.
+        try:
+            code = substitute_duckdb_variables(cell.code, variables)[0]
+        except Exception:
+            return True
+    else:
+        code = cell.code
+    if code.strip() != latest_run.code.strip():
         return True
     for upstream_id in cell.depends_on:
         upstream_run = latest_done_by_node.get(upstream_id)
