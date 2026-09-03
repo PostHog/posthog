@@ -24,6 +24,14 @@ class ComputeRates:
 
 
 @frozen
+class ComputeShape:
+    """The cpu and memory a sandbox runs on, which is all the rates need to price it."""
+
+    cpu_cores: float
+    memory_gb: float
+
+
+@frozen
 class ComputePreset:
     key: str
     name: str
