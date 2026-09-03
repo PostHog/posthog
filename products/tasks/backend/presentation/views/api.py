@@ -3238,6 +3238,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         format_sse_event = self._format_sse_event
         origin_product = stream_info.origin_product
         presence_gated = run_stream_presence_gated(stream_info.state)
+        run_is_terminal = stream_info.is_terminal
+        run_state_event = stream_info.state_event
 
         async def async_stream() -> AsyncGenerator[bytes]:
             redis_stream = TaskRunRedisStream(stream_key, use_dedicated_stream)
@@ -3260,6 +3262,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
                 waited_for_stream = False
                 while not await redis_stream.exists():
+                    if run_is_terminal:
+                        outcome = "drained"
+                        yield format_sse_event(run_state_event)
+                        yield format_sse_event({"status": "complete"}, event_name=TASK_RUN_STREAM_COMPLETE_EVENT_NAME)
+                        return
                     waited_for_stream = True
                     if presence_gated:
                         break

@@ -812,6 +812,17 @@ describe('sse-handler', () => {
             expect(body).toContain('Stream not available')
         })
 
+        it('ends immediately with stream-end when the token marks the run terminal', async () => {
+            const runId = uniqueRunId()
+            const streamKey = makeStreamKey(runId)
+            // Do NOT add any entries — the terminal run's stream already expired.
+
+            const body = await collect(streamTaskRunEvents(streamKey, redis as unknown as Redis, { isTerminal: true }))
+
+            expect(body).toContain(`event: ${SSE_EVENT_STREAM_END}`)
+            expect(body).not.toContain(`event: ${SSE_EVENT_ERROR}`)
+        })
+
         it('emits keepalive events while waiting for the stream to appear', async () => {
             vi.useFakeTimers()
 

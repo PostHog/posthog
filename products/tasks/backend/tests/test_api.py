@@ -9100,6 +9100,23 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         self.assertEqual(data_events[-1]["data"]["notification"]["params"]["message"], "late hello")
         self.assertEqual(events[-1]["event"], "stream-end")
 
+    def test_stream_terminal_run_with_missing_stream_ends_immediately(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        with (
+            patch.object(TaskRunRedisStream, "exists", new=AsyncMock(return_value=False)),
+            patch("products.tasks.backend.presentation.views.api.TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS", 0.2),
+        ):
+            response = self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"})
+            events = self._collect_sse_events(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([event["event"] for event in events], [None, "stream-end"])
+        self.assertEqual(events[0]["data"]["type"], "task_run_state")
+        self.assertEqual(events[0]["data"]["status"], TaskRun.Status.COMPLETED)
+        self.assertEqual(events[1]["data"], {"status": "complete"})
+
     @override_settings(TASK_RUN_STREAM_PRESENCE_GATED_ORIGINS=["user_created"])
     def test_stream_presence_gated_run_reads_missing_stream_instead_of_erroring(self):
         task = self.create_task()

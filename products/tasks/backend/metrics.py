@@ -20,9 +20,10 @@ DevStackImageBakeOutcome = Literal["succeeded", "bake_failed", "failed", "dispat
 #   completed         — stream reached its completion sentinel
 #   stream_error      — Redis/stream error sentinel ended the connection
 #   unavailable       — stream key never appeared within the wait timeout
+#   drained           — terminal run whose stream key already expired; ended immediately
 #   client_disconnect — client went away (GeneratorExit) before completion
 #   rotated           — per-connection cap reached; clean EOF, client resumes
-StreamConnectionOutcome = Literal["completed", "stream_error", "unavailable", "client_disconnect", "rotated"]
+StreamConnectionOutcome = Literal["completed", "stream_error", "unavailable", "drained", "client_disconnect", "rotated"]
 StreamWriteSkippedPath = Literal["ingest", "mirror", "relay"]
 _ALLOWED_MODES = {"background", "interactive"}
 _ALLOWED_RUN_SOURCES = {"manual", "signal_report"}

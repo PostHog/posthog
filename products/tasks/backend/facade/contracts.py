@@ -614,13 +614,18 @@ class TaskRunCreateResult:
 class TaskRunStreamInfoDTO:
     """The minimal run facts the SSE stream view needs without holding a model.
 
-    ``id`` keys the Redis stream, ``state`` decides dedicated-stream routing, and
-    ``origin_product`` is the bounded metric label resolved off the parent task.
+    ``id`` keys the Redis stream, ``state`` decides dedicated-stream routing,
+    ``origin_product`` is the bounded metric label resolved off the parent task, and
+    ``is_terminal`` lets the view end immediately when the stream key is already gone.
+    ``state_event`` is the run's current ``task_run_state`` frame, emitted before that
+    immediate end so a client that never received any state still settles the run.
     """
 
     id: UUID
     state: dict
     origin_product: str
+    is_terminal: bool
+    state_event: dict
 
 
 @dataclass(frozen=True)

@@ -2412,6 +2412,8 @@ def get_task_run_stream_info(
         id=run.id,
         state=run.state or {},
         origin_product=origin_product_label(run),
+        is_terminal=run.is_terminal,
+        state_event=run.build_stream_state_event(),
     )
 
 

@@ -107,12 +107,14 @@ export async function* streamTaskRunEvents(
         lastEventId?: string | null
         startLatest?: boolean
         presenceGated?: boolean
+        isTerminal?: boolean
     }
 ): AsyncGenerator<Buffer, void, unknown> {
     const originProduct = opts.originProduct ?? 'unknown'
     const lastEventId = opts.lastEventId ?? null
     const startLatest = opts.startLatest ?? false
     const presenceGated = opts.presenceGated ?? false
+    const isTerminal = opts.isTerminal ?? false
 
     const redisStream = new TaskRunRedisStream(streamKey, redis)
     const connectionStartedAt = Date.now()
@@ -152,6 +154,11 @@ export async function* streamTaskRunEvents(
         let lastKeepaliveAt = waitStartedAt
         let waitedForStream = false
         while (!(await redisStream.exists())) {
+            if (isTerminal) {
+                outcome = 'drained'
+                yield formatSseEvent(SSE_PAYLOAD_STREAM_END, { eventName: SSE_EVENT_STREAM_END })
+                return
+            }
             if (!waitedForStream) {
                 waitedForStream = true
                 logger.debug('stream:waiting', { streamKey })
