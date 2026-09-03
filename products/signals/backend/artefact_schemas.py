@@ -543,6 +543,37 @@ class RelatedTo(BaseModel):
         return v
 
 
+class ImplementationDecision(BaseModel):
+    """Content schema for an `implementation_decision` artefact: whether the latest look at a report
+    changed the fix enough to replace the pull request the report already has.
+
+    Written once per re-research pass by the research agent, and by a scout that rewrites a report it
+    owns. One shape for both producers, so auto-start reads the decision the same way regardless of
+    who made it. System-generated: read-only through the generic artefact API, since a fabricated
+    decision would close someone's open PR.
+    """
+
+    supersede: bool = Field(
+        description=(
+            "True only when what you found changes what the fix should be — a different root cause, "
+            "a different file or layer, a materially wider or narrower scope. More evidence for the "
+            "same fix is not a reason to set this, because the open pull request already implements "
+            "that fix. Setting it true closes the report's current pull request and opens a new one, "
+            "so a false positive throws away review someone may already have done."
+        )
+    )
+    reason: str = Field(
+        description="One or two sentences naming what changed and why the existing pull request no longer fits."
+    )
+
+    @field_validator("reason")
+    @classmethod
+    def reason_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
 class CodeReviewCounts(BaseModel):
     """One review turn's valid findings by effective priority (threshold-independent)."""
 
@@ -593,6 +624,7 @@ StatusArtefactContent = (
     | RepoSelectionResult
     | SuggestedReviewers
     | ChannelAssignment
+    | ImplementationDecision
 )
 LogArtefactContent = (
     CodeReference | Commit | TaskRunArtefact | NoteArtefact | TitleChange | SummaryChange | CodeReview | RelatedTo
@@ -619,6 +651,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "summary_change": SummaryChange,
     "code_review": CodeReview,
     "related_to": RelatedTo,
+    "implementation_decision": ImplementationDecision,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
@@ -633,8 +666,11 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # be created or edited directly.
 # `code_review` is likewise system-generated — the ReviewHog workflow is its only writer; accepting
 # it through the API would let a caller fabricate review receipts for reviews that never ran.
+# `implementation_decision` is system-generated too: the research pipeline and the scout report tools
+# are its only writers, and it is what closes a report's open pull request and opens a replacement,
+# so a caller must not be able to write one directly.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
-    {"video_segment", "title_change", "summary_change", "code_review"}
+    {"video_segment", "title_change", "summary_change", "code_review", "implementation_decision"}
 )
 
 
