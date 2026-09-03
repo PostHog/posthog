@@ -2919,6 +2919,8 @@ export interface CustomerTaskApi {
     readonly updated_at: string
     /** Whether the current user can edit this task. */
     readonly can_edit: boolean
+    /** Whether the current user can restore this task. */
+    readonly can_restore: boolean
 }
 
 export interface CustomerTaskPageApi {
