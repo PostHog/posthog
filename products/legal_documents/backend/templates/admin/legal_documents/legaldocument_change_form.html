@@ -5,6 +5,10 @@
      state, so it is a POST form, and it borrows those styles to match. */
   .object-tools form { display: inline; }
   .object-tools form button {
+    /* Match the anchor box exactly: buttons default to border-box and a normal
+       line-height, which makes the pill shorter than its neighbors. */
+    box-sizing: content-box;
+    line-height: 20px;
     padding: 3px 12px;
     border: none;
     border-radius: 15px;
