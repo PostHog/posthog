@@ -1686,6 +1686,13 @@ describe('exec tool', () => {
                     )
                 })
 
+                it('says nothing was ignored when the schema rejected the keys instead', () => {
+                    // This tool's schema is strict, so `hash` was refused rather than dropped.
+                    expect(formatFor('change-requests-approve-execute', { hash: 'x', confirmation: 'confirm' })).toBe(
+                        'Invalid input for "change-requests-approve-execute": missing required parameter: confirmation_hash; unexpected property: hash'
+                    )
+                })
+
                 it('caps how many keys it names so the analytics message stays bounded', () => {
                     const input = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`junk_${i}`, i]))
                     const message = formatFor('vision-scanners-get', input)

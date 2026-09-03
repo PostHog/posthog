@@ -443,6 +443,9 @@ export function formatInputValidationError(
     input?: unknown,
     schema?: ZodObjectAny
 ): string {
+    // A strict schema rejects unknown keys instead of dropping them, and the
+    // `unrecognized_keys` branch below already names them.
+    const keysWereRejected = error.issues.some((issue) => issue.code === 'unrecognized_keys')
     const parts = error.issues.map((issue) => {
         const path = issue.path.map(String).join('.')
         if (issue.code === 'invalid_type') {
@@ -450,7 +453,7 @@ export function formatInputValidationError(
                 if (looksLikeUnwrappedPayload(issue.path, input, schema)) {
                     return `missing required parameter: ${path}; the fields you sent belong inside it, so resend them as {"${path}": {...}}`
                 }
-                const dropped = undeclaredKeys(input, schema)
+                const dropped = keysWereRejected ? [] : undeclaredKeys(input, schema)
                 if (dropped.length) {
                     const named = dropped
                         .slice(0, MAX_DROPPED_KEYS_NAMED)
