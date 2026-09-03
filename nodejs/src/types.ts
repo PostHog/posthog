@@ -868,6 +868,10 @@ export interface EventHeaders {
     token?: string
     distinct_id?: string
     session_id?: string
+    /**
+     * Epoch milliseconds in a decimal string, already clock-skew corrected by capture.
+     * Parse it as a number. `Date.parse` returns NaN for this format.
+     */
     timestamp?: string
     event?: string
     uuid?: string
