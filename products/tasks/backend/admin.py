@@ -1,4 +1,5 @@
 import logging
+from contextlib import nullcontext
 from typing import cast
 
 from django import forms
@@ -265,11 +266,8 @@ class _TasksConfigAdminForm(forms.ModelForm):
         # UserTasksConfig is fail-closed and raises without a team context. Admin requests have
         # none, so scope model validation to the team picked in the form.
         team = self.cleaned_data.get("team")
-        if team is None:
-            super()._post_clean()
-            return
-        with team_scope(team.id):
-            super()._post_clean()
+        with team_scope(team.id) if team is not None else nullcontext():
+            super()._post_clean()  # type: ignore[misc]  # django-stubs does not declare _post_clean
 
 
 @admin.register(TeamTasksConfig)
