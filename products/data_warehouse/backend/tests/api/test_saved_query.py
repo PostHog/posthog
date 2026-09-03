@@ -1313,6 +1313,34 @@ class TestSavedQuery(APIBaseTest):
         child_ancestors_level_10.sort()
         self.assertEqual(child_ancestors_level_10, sorted([saved_query_parent_id, "events", "persons"]))
 
+    @parameterized.expand(
+        [
+            ("ancestors", 0),
+            ("ancestors", -1),
+            ("ancestors", "all"),
+            ("descendants", 0),
+            ("descendants", -1),
+            ("descendants", "all"),
+        ]
+    )
+    def test_lineage_refuses_a_level_it_cannot_walk(self, action, level):
+        created = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view_level",
+                "query": {"kind": "HogQLQuery", "query": "select event as event from events"},
+            },
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{created.json()['id']}/{action}",
+            {"level": level},
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["attr"], "level", response.content)
+
     def test_descendants(self):
         query = """\
           select

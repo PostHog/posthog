@@ -1883,11 +1883,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         By default, we return every ancestor. The `level` parameter bounds how many hops back
         to walk, so 1 gives the immediate parents.
         """
-        up_to_level = request.data.get("level", None)
         saved_query = self.get_object()
-        ancestors = _related_saved_queries(
-            saved_query, upstream=True, max_depth=None if up_to_level is None else int(up_to_level)
-        )
+        ancestors = _related_saved_queries(saved_query, upstream=True, max_depth=_parse_level(request))
         return response.Response({"ancestors": ancestors})
 
     @action(methods=["POST"], detail=True)
@@ -1897,11 +1894,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         By default, we return every descendant. The `level` parameter bounds how many hops
         forward to walk, so 1 gives the immediate children.
         """
-        up_to_level = request.data.get("level", None)
         saved_query = self.get_object()
-        descendants = _related_saved_queries(
-            saved_query, upstream=False, max_depth=None if up_to_level is None else int(up_to_level)
-        )
+        descendants = _related_saved_queries(saved_query, upstream=False, max_depth=_parse_level(request))
         return response.Response({"descendants": descendants})
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
@@ -2005,6 +1999,24 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         run_history = [{"status": job["status"], "timestamp": job["last_run_at"]} for job in jobs]
 
         return response.Response({"run_history": run_history})
+
+
+def _parse_level(request: request.Request) -> int | None:
+    """Read the `level` bound off a lineage request.
+
+    No level means walk the whole cone. Zero or less would build the whole graph and then
+    return nothing from it, so it is refused rather than served as an empty answer.
+    """
+    raw = request.data.get("level", None)
+    if raw is None:
+        return None
+    try:
+        level = int(raw)
+    except (TypeError, ValueError):
+        raise serializers.ValidationError({"level": "Must be a whole number of 1 or more."})
+    if level < 1:
+        raise serializers.ValidationError({"level": "Must be a whole number of 1 or more."})
+    return level
 
 
 def _related_saved_queries(saved_query: DataWarehouseSavedQuery, *, upstream: bool, max_depth: int | None) -> set[str]:
