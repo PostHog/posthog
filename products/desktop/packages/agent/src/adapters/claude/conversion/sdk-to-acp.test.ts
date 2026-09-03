@@ -109,6 +109,7 @@ function assistantMessage(
   apiId: string,
   content: Array<Record<string, unknown>>,
   parentToolUseId: string | null = null,
+  isApiErrorMessage?: boolean,
 ): SDKAssistantMessage {
   return {
     type: "assistant",
@@ -120,6 +121,7 @@ function assistantMessage(
       role: "assistant",
       content,
     },
+    isApiErrorMessage,
   } as unknown as SDKAssistantMessage;
 }
 
@@ -160,6 +162,34 @@ describe("assembled assistant text fallback", () => {
     );
     expect(chunkTexts(updates, "agent_message_chunk")).toEqual(["full answer"]);
   });
+
+  it.each([
+    { isApiErrorMessage: true, expected: [] },
+    {
+      isApiErrorMessage: false,
+      expected: ["API Error: Content block is not a thinking block"],
+    },
+  ])(
+    "filters SDK API error messages when marked $isApiErrorMessage",
+    async ({ isApiErrorMessage, expected }) => {
+      const { context, updates } = createHandlerContext();
+      await handleUserAssistantMessage(
+        assistantMessage(
+          "msg_1",
+          [
+            {
+              type: "text",
+              text: "API Error: Content block is not a thinking block",
+            },
+          ],
+          null,
+          isApiErrorMessage,
+        ),
+        context,
+      );
+      expect(chunkTexts(updates, "agent_message_chunk")).toEqual(expected);
+    },
+  );
 
   it("drops assembled text that already streamed live", async () => {
     const { context, updates } = createHandlerContext();
