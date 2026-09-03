@@ -1671,7 +1671,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         if self._is_ai_column(prop.source):
             return None
 
-        values = self._extract_lower_in_values(node.right)
+        values = self._extract_string_constants(node.right)
         if not values:
             return None
 
@@ -1691,22 +1691,8 @@ class ClickHousePropertyResolver(CloningVisitor):
 
     @staticmethod
     def _extract_string_constants(node: ast.Expr) -> list[str] | None:
-        """A list of string values from an IN right-hand side (single constant or tuple/array of constants)."""
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            return [node.value]
-        if isinstance(node, (ast.Tuple, ast.Array)):
-            values: list[str] = []
-            for value in node.exprs:
-                if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                    values.append(value.value)
-                else:
-                    return None
-            return values or None
-        return None
-
-    @staticmethod
-    def _extract_lower_in_values(node: ast.Expr) -> list[str] | None:
-        """Like _extract_string_constants but also accepts a constant list (from a `{placeholder}`)."""
+        """A list of string values from an IN right-hand side: a constant, a constant list (from a `{placeholder}` or a
+        query builder), or a tuple/array of constants."""
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             return [node.value]
         if isinstance(node, ast.Constant) and isinstance(node.value, (list, tuple)):
