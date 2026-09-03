@@ -39,6 +39,11 @@ then dies in the rendered canvas. Declare:
 - `capabilities.posthog.captureEvents` — every event name it passes to `ph.capture`.
 - `capabilities.posthog.inlineQueries: true` — when it calls `ph.query` at all.
 - `capabilities.posthog.agentRequests: true` — when it calls `ph.agent.request`.
+- `capabilities.connectors` — one `{ "provider", "tools" }` entry per third-party provider the
+  canvas reads through `ph.connectors.call`, listing every tool it calls on that provider. A
+  provider is a native id (`github`) or `mcp:<server host>` (`mcp:mcp.calendly.com`). Unknown
+  providers, unregistered native tools, and private MCP hosts fail validation; every declared
+  tool must be read-only.
 - `capabilities.network.origins` — each exact HTTPS origin used by `fetch`, `XMLHttpRequest`, or an
   external stylesheet, image, font, media file, or frame. Remote scripts remain blocked.
   Do not include paths, credentials, queries, fragments, or wildcards. The host must be public:

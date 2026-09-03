@@ -155,6 +155,12 @@ That field is the only valid link to a canvas — never construct one yourself; 
   `canvases-actions-retrieve` tool and follow each verb's `usage` (payload/result shape,
   behavior, and the confirmation copy it warrants) before wiring it.
 
+- **`ph.connectors.call(provider, tool, args)`** — read live third-party data (GitHub, or any
+  MCP store server) with the VIEWER's own connection at view time. Never call GitHub, Calendly,
+  or another service yourself and paste the result into the source: that snapshot is stale on
+  publish and shows every viewer the author's data. Declare each provider and tool in
+  `capabilities.connectors`; discover them with the `canvas-connectors-retrieve` tool. See
+  `querying-canvas-data` for the result and not-connected handling.
 - **`ph.agent.request(prompt)`** — ask the canvas's authoring agent for a change, with the viewer's
   approval. Declare `agentRequests: true` in `capabilities.posthog`. Call it only from a direct
   click or form submission — the host shows the exact prompt and asks the viewer to accept before

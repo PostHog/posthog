@@ -1,5 +1,6 @@
 import type {
   CanvasCaptureInput,
+  CanvasConnectorCallInput,
   CanvasDataQueryInput,
   CanvasLoadInsightInput,
 } from "@posthog/core/canvas/freeformSchemas";
@@ -60,6 +61,10 @@ function cachedRead<T>(
     gcTime: Math.max(refreshSeconds ?? 5 * 60, 10 * 60) * 1_000,
   });
 }
+
+// Connector results describe live external state (open pull requests, today's
+// meetings), so they go stale faster than a saved insight.
+const CONNECTOR_DEFAULT_REFRESH_SECONDS = 60;
 
 function refreshSeconds(value: unknown): number | undefined {
   if (value === undefined) return undefined;
@@ -201,6 +206,33 @@ export async function handleFreeformDataRequest(
         verb: input.verb,
         payload: input.payload ?? {},
       });
+    }
+    case "connectorCall": {
+      const input = payload as CanvasConnectorCallInput;
+      if (!input?.provider || typeof input.provider !== "string") {
+        throw new Error(
+          "ph.connectors.call(provider, tool) requires a provider",
+        );
+      }
+      if (!input?.tool || typeof input.tool !== "string") {
+        throw new Error("ph.connectors.call(provider, tool) requires a tool");
+      }
+      // Keyed by canvas as well as content: the capability check that admitted
+      // the call is per canvas, so a result must not leak into a canvas that
+      // did not declare the tool.
+      const args = {
+        id: requireDashboardId(),
+        provider: input.provider,
+        tool: input.tool,
+        arguments: input.arguments ?? {},
+      };
+      return cachedRead(
+        queryClient,
+        "connectorCall",
+        args,
+        () => hostClient().dashboards.callConnector.mutate(args),
+        refreshSeconds(input.refresh) ?? CONNECTOR_DEFAULT_REFRESH_SECONDS,
+      );
     }
     case "run":
       // Named, server-stored insights land in Phase 3 (the live published tier).

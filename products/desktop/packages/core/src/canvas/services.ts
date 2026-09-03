@@ -7,6 +7,7 @@ import type { ChannelTaskRecord } from "./channelTaskSchemas";
 import type {
   CanvasActionDefinition,
   CanvasActionResult,
+  CanvasConnectorCallResult,
   CanvasDraft,
   CanvasSource,
   CanvasStateEntry,
@@ -103,6 +104,13 @@ export interface IDashboardsService {
     verb: string;
     payload: Record<string, unknown>;
   }): Promise<CanvasActionResult>;
+  // Call one declared connector tool with the viewer's own connection.
+  callConnector(input: {
+    id: string;
+    provider: string;
+    tool: string;
+    arguments: Record<string, unknown>;
+  }): Promise<CanvasConnectorCallResult>;
   // Read the canvas's source project (the head, or a historical version).
   getSource(input: { id: string; versionId?: string }): Promise<CanvasSource>;
   // The canvas's source-version history, newest first (metadata only).

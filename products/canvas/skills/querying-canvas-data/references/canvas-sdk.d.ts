@@ -5,8 +5,8 @@
 // products/canvas/packages/canvas_builder/canvas-sdk.mjs.
 //
 // A published canvas is held to `project.capabilities` at runtime: every insight
-// short id, capture event name, state scope, and action verb must be declared,
-// and ad-hoc `ph.query` needs `inlineQueries: true`.
+// short id, capture event name, state scope, action verb, and connector tool must
+// be declared, and ad-hoc `ph.query` needs `inlineQueries: true`.
 
 /**
  * One trends-style series. `ph.loadInsight` and a typed query node return these
@@ -94,6 +94,49 @@ export interface CanvasActions {
     invoke(verb: string, payload?: Record<string, unknown>): Promise<unknown>
 }
 
+export type CanvasConnectorCallStatus =
+    | 'ok'
+    | 'not_connected'
+    | 'needs_reauth'
+    | 'blocked'
+    | 'tool_missing'
+    | 'write_blocked'
+    | 'upstream_error'
+
+export interface CanvasConnectorCallResult {
+    status: CanvasConnectorCallStatus
+    /** The tool output when status is "ok"; MCP tools return { content, structured_content, is_error }. */
+    result: Record<string, unknown> | null
+    /** Human-readable explanation for a non-ok status. */
+    detail: string
+    /** True when the result exceeded the size cap and was cut to a preview. */
+    truncated: boolean
+    /** Settings path where the viewer connects the provider, when that would help. */
+    connect_path: string | null
+}
+
+export interface CanvasConnectorCallOptions {
+    /** Cache lifetime in whole seconds, 30–86400. Defaults to 60. */
+    refresh?: number
+}
+
+export interface CanvasConnectors {
+    /**
+     * Read live third-party data with the viewer's own connection. `provider` is
+     * "github" or "mcp:<server host>"; declare every provider and tool in
+     * `capabilities.connectors`. Never rejects for a missing connection: check
+     * `status` and offer `connect(provider)`.
+     */
+    call(
+        provider: string,
+        tool: string,
+        args?: Record<string, unknown>,
+        options?: CanvasConnectorCallOptions
+    ): Promise<CanvasConnectorCallResult>
+    /** Open the settings page where the viewer connects the provider. Call from a click. */
+    connect(provider: string): void
+}
+
 export interface CanvasAgentRequestResult {
     requestOutcome: 'signaled' | 'new_run' | 'already_queued' | 'reported'
     taskId: string
@@ -142,6 +185,7 @@ export interface CanvasSdk {
     state: CanvasState
     actions: CanvasActions
     agent: CanvasAgent
+    connectors: CanvasConnectors
     /**
      * Frozen per-placement config parsed at boot. Published/component runtime
      * only; undefined in the edit-mode preview.

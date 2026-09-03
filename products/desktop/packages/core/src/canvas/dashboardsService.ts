@@ -8,6 +8,7 @@ import {
 import type {
   CanvasActionDefinition,
   CanvasActionResult,
+  CanvasConnectorCallResult,
   CanvasDraft,
   CanvasSource,
   CanvasSourceProject,
@@ -468,6 +469,43 @@ export class DashboardsService {
       );
     }
     return { verb: body.verb ?? input.verb, result: body.result ?? {} };
+  }
+
+  // Call one declared connector tool as the viewer.
+  async callConnector(input: {
+    id: string;
+    provider: string;
+    tool: string;
+    arguments: Record<string, unknown>;
+  }): Promise<CanvasConnectorCallResult> {
+    const res = await this.api.fetch(
+      `canvases/${encodeURIComponent(input.id)}/connectors/call/`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: input.provider,
+          tool: input.tool,
+          arguments: input.arguments,
+        }),
+      },
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      detail?: string;
+    } & Partial<CanvasConnectorCallResult>;
+    if (!res.ok) {
+      throw new ProjectApiError(
+        body.detail ?? `Failed to call canvas connector (${res.status})`,
+        res.status,
+      );
+    }
+    return {
+      status: body.status ?? "upstream_error",
+      result: body.result ?? null,
+      detail: body.detail ?? "",
+      truncated: body.truncated ?? false,
+      connect_path: body.connect_path ?? null,
+    };
   }
 
   rename(input: { id: string; name: string }): Promise<DashboardRecord> {

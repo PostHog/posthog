@@ -63,6 +63,19 @@ export function assertCanvasCapability(
         throw new Error("Agent requests are not allowed by this canvas");
       }
       return;
+    case "connectorCall": {
+      const { provider, tool } =
+        (payload as { provider?: string; tool?: string }) ?? {};
+      const declared = (capabilities.connectors ?? []).find(
+        (entry) => entry.provider === provider,
+      );
+      if (!provider || !tool || !declared?.tools.includes(tool)) {
+        throw new Error(
+          `Connector tool "${provider ?? ""}/${tool ?? ""}" is not allowed by this canvas`,
+        );
+      }
+      return;
+    }
     default:
       throw new Error(`Method "${method}" is not allowed by this canvas`);
   }
