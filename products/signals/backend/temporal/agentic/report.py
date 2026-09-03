@@ -71,7 +71,7 @@ class RunAgenticReportInput:
     repo_selection_as_of: datetime | None = None
 
 
-@dataclass
+@frozen
 class RunAgenticReportOutput:
     title: str
     summary: str
