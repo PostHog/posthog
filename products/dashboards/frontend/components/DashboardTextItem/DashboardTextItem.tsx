@@ -66,11 +66,13 @@ function DashboardTextItemInternal(
                 </LemonButton>
             )}
 
-            <DashboardWidgetPlacementMenus
-                placementDestinations={copyToDestinations}
-                onMoveToDashboard={onMoveToDashboard}
-                onCopyToDashboard={onCopyToDashboard}
-            />
+            {!isSeparator && (
+                <DashboardWidgetPlacementMenus
+                    placementDestinations={copyToDestinations}
+                    onMoveToDashboard={onMoveToDashboard}
+                    onCopyToDashboard={onCopyToDashboard}
+                />
+            )}
 
             <LemonButton onClick={onDuplicate} fullWidth data-attr={`duplicate-${tileType}-from-dashboard`}>
                 Duplicate
