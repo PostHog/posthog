@@ -17,11 +17,12 @@ mutation count follow the number of distinct cohorts, which the queue cannot inf
 """
 
 import time
+from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
 from django.conf import settings
-from django.db.models import BigIntegerField, Func, Max, Q, QuerySet, TextField, Value
+from django.db.models import BigIntegerField, Func, Max, QuerySet, TextField, Value
 from django.db.models.functions import Cast
 from django.utils import timezone
 
@@ -55,19 +56,18 @@ COHORT_DELETION_UNPARSEABLE_KEY_COUNTER = Counter(
 # `(team_id, cohort_id)` range, so this bounds predicate size, not the rows a mutation reads.
 COHORT_DELETION_CHUNK_SIZE = 500
 
-# How many targets one `delete_verified_at` UPDATE covers. Targets carry very different row
-# counts, so this is deliberately far smaller than the mutation chunk: it bounds how many rows a
-# single transaction rewrites, not how much SQL it takes to say so.
-COHORT_VERIFY_UPDATE_CHUNK_SIZE = 50
+# How many queued rows one page of the marking pass holds. Bounds both the rows a single
+# transaction rewrites and the memory the page occupies.
+COHORT_MARK_PAGE_SIZE = 50_000
 
 # Unfinished mutations on `cohortpeople` the sweep will tolerate before it stops enqueueing more.
 # Mutations are enqueued asynchronously, so without this every target chunk lands at once and they
 # all compete for the same background pool.
 COHORT_MUTATION_CAPACITY = 2
 COHORT_MUTATION_POLL_SECONDS = 30.0
-# A mutation the sweep did not enqueue can hold the table indefinitely, so waiting for capacity
-# needs its own bound; the pass fails rather than blocking the run forever.
-COHORT_MUTATION_CAPACITY_TIMEOUT_SECONDS = 3600.0
+# A mutation the sweep did not enqueue can hold the table indefinitely, so waiting for it needs its
+# own bound; the sweep fails rather than blocking the run forever.
+COHORT_MUTATION_TIMEOUT_SECONDS = 3600.0
 
 
 # nosemgrep: python.django.security.audit.extends-custom-expression.extends-custom-expression
@@ -88,14 +88,34 @@ class KeyPart(Func):
 
 
 @frozen
+class CohortKey:
+    """The cohort a queued deletion names."""
+
+    team_id: int
+    cohort_id: int
+
+
+@frozen
+class MutationCounts:
+    """How many `cohortpeople` mutations are in view, and how many of those are unfinished."""
+
+    seen: int
+    unfinished: int
+
+
+@frozen
 class CohortDeleteTarget:
-    """One `(team_id, cohort_id)` unit of work, collapsed from every deletion queued against it."""
+    """One cohort's unit of work, collapsed from every deletion queued against it."""
 
     team_id: int
     cohort_id: int
     # The exclusive version bound, or None to remove every version. `Cohort_full` deletes the whole
     # cohort; `Cohort_stale` only removes what a later recalculation superseded.
     below_version: int | None
+
+    @property
+    def key(self) -> CohortKey:
+        return CohortKey(team_id=self.team_id, cohort_id=self.cohort_id)
 
     @property
     def condition(self) -> tuple[str, dict[str, Any]]:
@@ -118,6 +138,18 @@ def _conditions(targets: list[CohortDeleteTarget]) -> tuple[list[str], dict[str,
     return clauses, params
 
 
+def _cohort_id(key: str) -> int | None:
+    """The cohort id a queued deletion's key names, or None when it names nothing.
+
+    Keys are written as `<cohort_id>_<version>` and, for a team that is not the cohort's own,
+    `<cohort_id>_<version>_<team_id>` (see `posthog/api/cohort.py`). `version` is also the literal
+    string "None" for a cohort that was never calculated, so the cohort id is the only part that is
+    always a number.
+    """
+    head = key.split("_", 1)[0]
+    return int(head) if head.isdigit() else None
+
+
 def _queued(deletion_type: DeletionType) -> QuerySet[AsyncDeletion]:
     return AsyncDeletion.objects.filter(delete_verified_at__isnull=True, deletion_type=deletion_type)
 
@@ -125,47 +157,42 @@ def _queued(deletion_type: DeletionType) -> QuerySet[AsyncDeletion]:
 def _collapse(deletion_type: DeletionType, limit: int = 0) -> list[CohortDeleteTarget]:
     """Reduce the queued deletions of one type to one target per cohort.
 
-    The aggregation runs in the database, so what comes back is bounded by the number of distinct
-    cohorts rather than by the queue depth.
-
-    Keys are written as `<cohort_id>_<version>` and, for a team that is not the cohort's own,
-    `<cohort_id>_<version>_<team_id>` (see `posthog/api/cohort.py`). `version` is also the literal
-    string "None" for a cohort that was never calculated. So the cohort id is the only part that is
-    always a number, and a key that does not start with one names nothing this sweep can act on.
+    The aggregation, the ordering and the cap all run in the database, so what comes back is bounded
+    by `limit`, or by the number of distinct cohorts, rather than by the queue depth. A key that
+    names no cohort is filtered out here and counted by the marking pass.
     """
-    queued = _queued(deletion_type)
-    parseable = queued.filter(key__regex=r"^\d+_")
-    if skipped := queued.exclude(key__regex=r"^\d+_").count():
-        # Not fatal: a key the producer never wrote cannot match cohort rows either, so skipping it
-        # loses no deletion. Counted because it means the key format has drifted.
-        COHORT_DELETION_UNPARSEABLE_KEY_COUNTER.labels(deletion_type=deletion_type.name).inc(skipped)
-        logger.warning("Skipping cohort deletions with unparseable keys", count=skipped, deletion_type=deletion_type)
-
+    parseable = _queued(deletion_type).filter(key__regex=r"^\d+_")
     cohort_id = Cast(KeyPart("key", Value(r"^(\d+)_")), BigIntegerField())
 
-    targets: list[CohortDeleteTarget]
     if deletion_type == DeletionType.Cohort_full:
         # Every version goes, so there is nothing to collapse beyond the cohort itself.
-        cohorts = parseable.annotate(cohort_id=cohort_id).values_list("team_id", "cohort_id").distinct().order_by()
-        targets = [CohortDeleteTarget(team_id=t, cohort_id=c, below_version=None) for t, c in cohorts]
-    else:
-        # Only versioned keys can bound a stale sweep; one without a numeric version names no bound.
-        bounded = (
-            parseable.filter(key__regex=r"^\d+_\d+")
-            .annotate(
-                cohort_id=cohort_id,
-                version=Cast(KeyPart("key", Value(r"^\d+_(\d+)")), BigIntegerField()),
-            )
-            .values("team_id", "cohort_id")
-            .annotate(below_version=Max("version"))
-            .order_by()
-            .values_list("team_id", "cohort_id", "below_version")
+        cohorts = (
+            parseable.annotate(cohort_id=cohort_id)
+            .values_list("team_id", "cohort_id")
+            .distinct()
+            .order_by("team_id", "cohort_id")
         )
-        targets = [CohortDeleteTarget(team_id=t, cohort_id=c, below_version=v) for t, c, v in bounded]
+        return [
+            CohortDeleteTarget(team_id=t, cohort_id=c, below_version=None)
+            for t, c in (cohorts[:limit] if limit else cohorts)
+        ]
 
-    targets.sort(key=lambda target: (target.team_id, target.cohort_id))
-    # A cap leaves the rest queued, so the next run picks them up.
-    return targets[:limit] if limit else targets
+    # Only versioned keys can bound a stale sweep; one without a numeric version names no bound.
+    bounded = (
+        parseable.filter(key__regex=r"^\d+_\d+")
+        .annotate(
+            cohort_id=cohort_id,
+            version=Cast(KeyPart("key", Value(r"^\d+_(\d+)")), BigIntegerField()),
+        )
+        .values("team_id", "cohort_id")
+        .annotate(below_version=Max("version"))
+        .order_by("team_id", "cohort_id")
+        .values_list("team_id", "cohort_id", "below_version")
+    )
+    return [
+        CohortDeleteTarget(team_id=t, cohort_id=c, below_version=v)
+        for t, c, v in (bounded[:limit] if limit else bounded)
+    ]
 
 
 def _server_now() -> datetime:
@@ -173,8 +200,8 @@ def _server_now() -> datetime:
     return now
 
 
-def _mutation_counts(since: datetime | None = None) -> tuple[int, int]:
-    """(seen, unfinished) mutations on `cohortpeople`, counting only ones created at or after `since`."""
+def _mutation_counts(since: datetime | None = None) -> MutationCounts:
+    """Mutations on `cohortpeople`, counting only ones created at or after `since`."""
     window = "AND create_time >= %(since)s" if since else ""
     # nosemgrep: clickhouse-fstring-param-audit - window is a literal chosen here, not caller input
     [[seen, unfinished]] = sync_execute(
@@ -185,10 +212,10 @@ def _mutation_counts(since: datetime | None = None) -> tuple[int, int]:
         """,
         {"database": settings.CLICKHOUSE_DATABASE, "since": since},
     )
-    return seen, unfinished
+    return MutationCounts(seen=seen, unfinished=unfinished)
 
 
-def _wait_for_capacity(timeout: float = COHORT_MUTATION_CAPACITY_TIMEOUT_SECONDS) -> None:
+def _wait_for_capacity(timeout: float = COHORT_MUTATION_TIMEOUT_SECONDS) -> None:
     """Block until `cohortpeople` is carrying fewer than `COHORT_MUTATION_CAPACITY` mutations.
 
     Bounded on purpose. A mutation this sweep did not enqueue can hold the table for as long as it
@@ -196,14 +223,14 @@ def _wait_for_capacity(timeout: float = COHORT_MUTATION_CAPACITY_TIMEOUT_SECONDS
     wait here is indistinguishable from a hang.
     """
     deadline = time.monotonic() + timeout
-    while (unfinished := _mutation_counts()[1]) >= COHORT_MUTATION_CAPACITY:
+    while (unfinished := _mutation_counts().unfinished) >= COHORT_MUTATION_CAPACITY:
         if time.monotonic() > deadline:
             raise TimeoutError(f"cohortpeople still has {unfinished} unfinished mutation(s) after {timeout:.0f}s")
         logger.info("Waiting for cohortpeople mutation capacity", unfinished=unfinished)
         time.sleep(COHORT_MUTATION_POLL_SECONDS)
 
 
-def _wait_for_drain(issued: int, since: datetime, timeout: float = COHORT_MUTATION_CAPACITY_TIMEOUT_SECONDS) -> None:
+def _wait_for_drain(issued: int, since: datetime, timeout: float = COHORT_MUTATION_TIMEOUT_SECONDS) -> None:
     """Block until every mutation this sweep enqueued is visible and finished.
 
     Waiting on "nothing unfinished" alone is not enough. A mutation entry replicates through
@@ -213,15 +240,20 @@ def _wait_for_drain(issued: int, since: datetime, timeout: float = COHORT_MUTATI
     """
     deadline = time.monotonic() + timeout
     while True:
-        seen, unfinished = _mutation_counts(since)
-        if seen >= issued and not unfinished:
+        counts = _mutation_counts(since)
+        if counts.seen >= issued and not counts.unfinished:
             return
         if time.monotonic() > deadline:
             raise TimeoutError(
-                f"cohortpeople has {unfinished} unfinished mutation(s) and {seen} of {issued} visible"
-                f" after {timeout:.0f}s"
+                f"cohortpeople has {counts.unfinished} unfinished mutation(s)"
+                f" and {counts.seen} of {issued} visible after {timeout:.0f}s"
             )
-        logger.info("Waiting for cohortpeople mutations to drain", seen=seen, issued=issued, unfinished=unfinished)
+        logger.info(
+            "Waiting for cohortpeople mutations to drain",
+            seen=counts.seen,
+            issued=issued,
+            unfinished=counts.unfinished,
+        )
         time.sleep(COHORT_MUTATION_POLL_SECONDS)
 
 
@@ -250,20 +282,16 @@ def _delete(targets: list[CohortDeleteTarget]) -> int:
     return issued
 
 
-def _lowest_versions(targets: list[CohortDeleteTarget]) -> dict[tuple[int, int], int]:
-    """The lowest version still present in `cohortpeople` for each target that has any rows.
+def _cleared(targets: list[CohortDeleteTarget]) -> set[CohortKey]:
+    """The targets whose rows are already gone from `cohortpeople`.
 
-    This is what decides verification exactly. A queued deletion bounded at version V has rows left
-    if and only if some row sits below V, which is true if and only if the cohort's lowest surviving
-    version is below V. A cohort missing from the result has no rows at all, so every deletion
-    queued against it is done whatever its bound.
+    A deletion bounded at version V still has rows if and only if some row sits below V, which is
+    true if and only if the cohort's lowest surviving version is below V. A cohort with no rows at
+    all never appears in the lookup, so it clears whatever its bound.
     """
-    lowest: dict[tuple[int, int], int] = {}
+    lowest: dict[CohortKey, int] = {}
     for chunk in chunked(targets, COHORT_DELETION_CHUNK_SIZE):
-        pairs = list(chunk)
-        conditions, params = _conditions(
-            [CohortDeleteTarget(team_id=t.team_id, cohort_id=t.cohort_id, below_version=None) for t in pairs]
-        )
+        conditions, params = _conditions([replace(target, below_version=None) for target in chunk])
         # nosemgrep: clickhouse-fstring-param-audit - conditions come from CohortDeleteTarget.condition
         rows = sync_execute(
             f"""
@@ -276,39 +304,61 @@ def _lowest_versions(targets: list[CohortDeleteTarget]) -> dict[tuple[int, int],
             settings={},
         )
         for team_id, cohort_id, min_version in rows:
-            lowest[(team_id, cohort_id)] = min_version
-    return lowest
+            lowest[CohortKey(team_id=team_id, cohort_id=cohort_id)] = min_version
+
+    return {
+        target.key
+        for target in targets
+        if (surviving := lowest.get(target.key)) is None
+        or (target.below_version is not None and surviving >= target.below_version)
+    }
 
 
-def _mark_verified(
-    deletion_type: DeletionType, targets: list[CohortDeleteTarget]
-) -> tuple[int, set[CohortDeleteTarget]]:
-    """Tick off the queued deletions whose rows are gone. Returns the row count and the targets cleared.
+def _mark_verified(deletion_type: DeletionType, cleared: set[CohortKey]) -> int:
+    """Tick off every queued deletion naming a cleared cohort. Returns how many rows were marked.
 
-    Filtering by `deletion_type` and a `<cohort_id>_` key prefix rides the unique index on
-    (deletion_type, key), so a cohort's rows are found without scanning the queue.
+    Paged on the primary key rather than filtered on the cohort id. The cohort id lives inside
+    `key`, and no index covers a prefix match on it under this database's collation, so a predicate
+    shaped that way plans as a sequential scan and pays for the whole queue once per statement.
+    Walking the primary key reads the queue once in total, and each update addresses rows by id.
     """
-    lowest = _lowest_versions(targets)
+    if not cleared:
+        return 0
+
     now = timezone.now()
     marked = 0
-    cleared_targets: set[CohortDeleteTarget] = set()
+    unparseable = 0
+    after = 0
+    while True:
+        page = list(
+            _queued(deletion_type)
+            .filter(pk__gt=after)
+            .order_by("pk")
+            .values_list("id", "team_id", "key")[:COHORT_MARK_PAGE_SIZE]
+        )
+        if not page:
+            break
+        after = page[-1][0]
 
-    for chunk in chunked(targets, COHORT_VERIFY_UPDATE_CHUNK_SIZE):
-        predicate = Q(pk__in=[])
-        batch: list[CohortDeleteTarget] = []
-        for target in chunk:
-            surviving = lowest.get((target.team_id, target.cohort_id))
-            if surviving is not None and (target.below_version is None or surviving < target.below_version):
-                # Rows this target still has to remove; nothing queued against it is done.
-                continue
-            predicate |= Q(team_id=target.team_id, key__startswith=f"{target.cohort_id}_")
-            batch.append(target)
-        if not batch:
-            continue
-        marked += _queued(deletion_type).filter(predicate).update(delete_verified_at=now)
-        cleared_targets.update(batch)
+        ids = []
+        for row_id, team_id, key in page:
+            cohort_id = _cohort_id(key)
+            if cohort_id is None:
+                unparseable += 1
+            elif CohortKey(team_id=team_id, cohort_id=cohort_id) in cleared:
+                ids.append(row_id)
+        if ids:
+            marked += AsyncDeletion.objects.filter(pk__in=ids).update(delete_verified_at=now)
+        if len(page) < COHORT_MARK_PAGE_SIZE:
+            break
 
-    return marked, cleared_targets
+    if unparseable:
+        # Not fatal: a key the producer never wrote cannot match cohort rows either, so skipping it
+        # loses no deletion. Counted because it means the key format has drifted.
+        COHORT_DELETION_UNPARSEABLE_KEY_COUNTER.labels(deletion_type=deletion_type.name).inc(unparseable)
+        logger.warning("Skipped cohort deletions with unparseable keys", count=unparseable, deletion_type=deletion_type)
+
+    return marked
 
 
 def sweep_cohort_deletions(max_cohorts: int = 0) -> list[str]:
@@ -335,10 +385,11 @@ def sweep_cohort_deletions(max_cohorts: int = 0) -> list[str]:
             continue
 
         try:
-            marked, cleared = _mark_verified(deletion_type, targets)
+            cleared = _cleared(targets)
+            marked = _mark_verified(deletion_type, cleared)
             logger.info("Marked cohort deletions verified", deletion_type=deletion_type.name, marked=marked)
             # Already gone, so sweeping them again would issue a mutation that removes nothing.
-            targets = [target for target in targets if target not in cleared]
+            targets = [target for target in targets if target.key not in cleared]
         except Exception:
             logger.exception("Failed to mark cohort deletions done", deletion_type=deletion_type.name)
             COHORT_DELETION_MARK_FAILURE_COUNTER.inc()

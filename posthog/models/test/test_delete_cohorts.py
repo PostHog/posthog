@@ -8,9 +8,20 @@ from django.test import TestCase
 from parameterized import parameterized
 
 from posthog.models import AsyncDeletion, DeletionType, Organization, Team
-from posthog.models.async_deletion.delete_cohorts import CohortDeleteTarget, _collapse, sweep_cohort_deletions
+from posthog.models.async_deletion.delete_cohorts import (
+    CohortDeleteTarget,
+    CohortKey,
+    MutationCounts,
+    _collapse,
+    _mark_verified,
+    sweep_cohort_deletions,
+)
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+def counts_of(seen: int, unfinished: int) -> MutationCounts:
+    return MutationCounts(seen=seen, unfinished=unfinished)
 
 
 class TestCollapseCohortDeletions(TestCase):
@@ -119,10 +130,10 @@ class TestCollapseCohortDeletions(TestCase):
         with (
             patch("posthog.models.async_deletion.delete_cohorts.sync_execute", return_value=[]),
             patch("posthog.models.async_deletion.delete_cohorts._server_now", return_value=NOW),
-            patch("posthog.models.async_deletion.delete_cohorts._lowest_versions", return_value={(self.team.pk, 5): 0}),
+            patch("posthog.models.async_deletion.delete_cohorts._cleared", return_value=set()),
             patch(
                 "posthog.models.async_deletion.delete_cohorts._mutation_counts",
-                side_effect=[(0, 0), *[(1, 1)] * 40],
+                side_effect=[counts_of(0, 0), *[counts_of(1, 1)] * 40],
             ),
             patch("posthog.models.async_deletion.delete_cohorts.time.sleep"),
             patch("posthog.models.async_deletion.delete_cohorts.time.monotonic", side_effect=range(0, 100_000, 500)),
@@ -138,11 +149,11 @@ class TestCollapseCohortDeletions(TestCase):
         with (
             patch("posthog.models.async_deletion.delete_cohorts.sync_execute", return_value=[]),
             patch("posthog.models.async_deletion.delete_cohorts._server_now", return_value=NOW),
-            patch("posthog.models.async_deletion.delete_cohorts._lowest_versions", return_value={(self.team.pk, 7): 0}),
+            patch("posthog.models.async_deletion.delete_cohorts._cleared", return_value=set()),
             # Mirrors the real filter: mutations older than this run are invisible to the drain.
             patch(
                 "posthog.models.async_deletion.delete_cohorts._mutation_counts",
-                side_effect=lambda since=None: (0, 0) if since else (9, 9),
+                side_effect=lambda since=None: counts_of(0, 0) if since else counts_of(9, 9),
             ),
             patch("posthog.models.async_deletion.delete_cohorts.time.sleep"),
             patch("posthog.models.async_deletion.delete_cohorts.time.monotonic", side_effect=range(0, 100_000, 500)),
@@ -155,11 +166,11 @@ class TestCollapseCohortDeletions(TestCase):
         # A mutation entry replicates through Keeper, so right after the ALTER the queried host can
         # report nothing unfinished simply because it does not know about it yet. Treating that gap
         # as a finished drain releases the person sweep on top of a running mutation.
-        counts = [(0, 0), (0, 0), (1, 1), (1, 0)]
+        counts = [counts_of(0, 0), counts_of(0, 0), counts_of(1, 1), counts_of(1, 0)]
         with (
             patch("posthog.models.async_deletion.delete_cohorts.sync_execute", return_value=[]),
             patch("posthog.models.async_deletion.delete_cohorts._server_now", return_value=NOW),
-            patch("posthog.models.async_deletion.delete_cohorts._lowest_versions", return_value={(self.team.pk, 6): 0}),
+            patch("posthog.models.async_deletion.delete_cohorts._cleared", return_value=set()),
             patch(
                 "posthog.models.async_deletion.delete_cohorts._mutation_counts", side_effect=counts
             ) as mutation_counts,
@@ -169,3 +180,16 @@ class TestCollapseCohortDeletions(TestCase):
             assert sweep_cohort_deletions() == []
 
         assert mutation_counts.call_count == len(counts)
+
+    def test_marking_pages_over_every_queued_row(self):
+        # The marking pass walks the primary key in pages. An off-by-one on the page boundary would
+        # skip rows silently, leaving them queued forever with their ClickHouse rows already gone.
+        self._queue(DeletionType.Cohort_full, *[f"20_{v}" for v in range(7)])
+        self._queue(DeletionType.Cohort_full, "21_0")
+        cleared = {CohortKey(team_id=self.team.pk, cohort_id=20)}
+
+        with patch("posthog.models.async_deletion.delete_cohorts.COHORT_MARK_PAGE_SIZE", 2):
+            assert _mark_verified(DeletionType.Cohort_full, cleared) == 7
+
+        assert AsyncDeletion.objects.filter(delete_verified_at__isnull=True).count() == 1
+        assert AsyncDeletion.objects.get(delete_verified_at__isnull=True).key == "21_0"
