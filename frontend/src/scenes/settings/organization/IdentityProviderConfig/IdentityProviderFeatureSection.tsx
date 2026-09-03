@@ -132,7 +132,7 @@ export function IdentityProviderFeatureSection({ configScope }: { configScope: C
                         <LemonButton
                             type="tertiary"
                             to={urls.identityProviderConfig(configScope, 'new')}
-                            tooltip="You probably don't need multiple configurations. Only create a new configuration if you use multiple IdP's or apps within your IdP for SSO."
+                            tooltip="You probably don't need multiple configurations. Only create a new configuration if you use multiple IdPs or apps within your IdP for SSO."
                             data-attr={`new-${configScope}-identity-provider-from-settings`}
                         >
                             Add a new {feature.name} configuration
