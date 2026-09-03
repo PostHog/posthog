@@ -187,7 +187,7 @@ impl Apply<'_> {
         };
 
         let now_ms = Utc::now().timestamp_millis();
-        // Read the registers before the placeholders land, so a row this apply is about to place
+        // Read the registers before the pre-writes land, so a row this apply is about to place
         // cannot be mistaken for one an earlier apply already told downstream about.
         let folded = folded_leaves(&effective, person, &update, &prior);
         let diff = diff_single_leaf_registers(
@@ -202,7 +202,7 @@ impl Apply<'_> {
         .await
         .map_err(SeedHold::store("register read"))?;
 
-        self.commit_stage1(&record_key, &update, &diff.placeholders)
+        self.commit_stage1(&record_key, &update, &diff.stage1_writes)
             .await?;
         count_stage1_transitions(filters, update.transitions());
         // A lagging register is its own reason to emit: the redelivery of a failed produce merges
@@ -309,20 +309,20 @@ impl Apply<'_> {
         Ok(prior)
     }
 
-    /// One batch, so a placeholder register is never stranded without the record that justifies
-    /// it. The placeholders are the only registers written here: a real bit waits for its produce
-    /// to ack, while `false` says "downstream was never told" and needs no ack.
+    /// One batch, so a register the diff pre-writes is never stranded without the record that
+    /// justifies it. Those are the only registers written here: a real bit waits for its produce
+    /// to ack, while the pre-write records what downstream held before it and needs no ack.
     async fn commit_stage1(
         &self,
         key: &PersonRecordKey,
         update: &RecordUpdate,
-        placeholders: &[(Stage2Key, Stage2State)],
+        stage1_writes: &[(Stage2Key, Stage2State)],
     ) -> Result<(), SeedHold> {
         let mut staged = StagedBatch::default();
         if let RecordUpdate::Changed { record, .. } = update {
             staged.put::<PersonRecords>(key, &record.encode());
         }
-        for (key, state) in placeholders {
+        for (key, state) in stage1_writes {
             staged.put_stage2(key, &state.encode());
         }
         if staged.is_empty() {
@@ -362,7 +362,7 @@ impl Apply<'_> {
             .map_err(SeedHold::store("stage 2 recompute"))?,
         );
 
-        let mut changes = recompute.changes.clone();
+        let mut changes = std::mem::take(&mut recompute.changes);
         tag_seed(&mut changes, self.seed.run_id());
         self.produce(changes).await?;
 
@@ -511,10 +511,11 @@ fn record_update(
 
 /// The person leaves this apply leaves behind, with the membership the stored record implies.
 ///
-/// A person with no stored record has none. Nothing was durably evaluated, so there is no register
-/// to diff and no placeholder worth writing. That is the dominant scan shape, a non-matching
-/// dormant person, which stays at one point read and no write. Anything downstream holds for such a
-/// person came from a record that has since gone, which is the orphan sweep's class, not this one's.
+/// A person with no stored record has none: nothing was durably evaluated, so there is no register
+/// to diff. That is the dominant scan shape, a non-matching dormant person, which stays at one
+/// point read and no write. A person with a record folds every evaluated hash, matched or not,
+/// because a register left at `true` by a produce that never acked is only found by diffing the
+/// hashes the record does not match.
 fn folded_leaves(
     effective: &EffectiveHashes,
     person: Uuid,
@@ -524,7 +525,9 @@ fn folded_leaves(
     let matched = match (update, prior) {
         (RecordUpdate::Changed { record, .. }, _) => Some(&record.matched),
         (RecordUpdate::Unchanged, PriorRecord::Present(record)) => Some(&record.matched),
-        // An unreadable row reads as no matches, the way the composition reads it.
+        // An unreadable row survives only under a seed that matched nothing, so the seed is the one
+        // readable evaluation and it says no matches, which is also how the composition reads the
+        // row.
         (RecordUpdate::Unchanged, PriorRecord::Corrupt) => None,
         (RecordUpdate::Unchanged, PriorRecord::Absent) => return Vec::new(),
     };
@@ -846,6 +849,16 @@ mod tests {
                 .unwrap();
         }
 
+        /// A new tenure over the same store, catalog, and sinks: fresh offset trackers, the way a
+        /// restart or rebalance re-assigns the partition at `Offset::Stored` and replays whatever a
+        /// hold pinned.
+        fn restart(&mut self) {
+            self.deps.seed_tracker = Arc::new(OffsetTracker::new());
+            self.deps.merge_tracker = Arc::new(OffsetTracker::new());
+            self.deps.transfer_tracker = Arc::new(OffsetTracker::new());
+            self.deps.cascade_tracker = Arc::new(OffsetTracker::new());
+        }
+
         /// The register row a live evaluation would have left beside `put_record`'s record.
         fn put_register(&self, partition_id: u16, person: Uuid, cohort_id: u64, in_cohort: bool) {
             let key = Stage2Key {
@@ -1003,9 +1016,9 @@ mod tests {
         assert!(!shell.stage2(partition_id, person, 1).unwrap().in_cohort);
     }
 
-    /// The same retraction with its produce failing: the placeholder has to record that downstream
-    /// still holds the entry, or the redelivery merges to `Unchanged`, mints nothing, and the
-    /// `Left` is lost for good.
+    /// The same retraction with its produce failing: the stage-1 pre-write has to record that
+    /// downstream still holds the entry, or the redelivery merges to `Unchanged`, mints nothing,
+    /// and the `Left` is lost for good.
     #[tokio::test]
     async fn a_failed_retraction_over_an_absent_register_is_re_emitted_on_redelivery() {
         let (person, partition_id) = dormant_person();
@@ -1031,9 +1044,10 @@ mod tests {
         assert!(shell.sink.changes().is_empty());
         assert!(
             shell.stage2(partition_id, person, 1).unwrap().in_cohort,
-            "the placeholder records the entry downstream still holds",
+            "the pre-write records the entry downstream still holds",
         );
 
+        shell.restart();
         shell.run(partition_id, &seed, 0).await;
 
         let changes = shell.sink.changes();
@@ -1041,6 +1055,66 @@ mod tests {
         assert_eq!(changes[0].cohort_id, 1);
         assert_eq!(changes[0].status, MembershipStatus::Left);
         assert!(!shell.stage2(partition_id, person, 1).unwrap().in_cohort);
+    }
+
+    /// A retraction over an absent register pre-writes `true` and then fails its produce, so
+    /// downstream was told nothing while the register claims it holds the entry. A newer seed that
+    /// re-matches before the redelivery mints `Entered` over a register already reading `true`;
+    /// the minted transition wins, or downstream would never hear of a membership the store holds.
+    #[tokio::test]
+    async fn a_re_entry_over_a_stranded_true_pre_write_is_emitted() {
+        let (person, partition_id) = dormant_person();
+        let mut shell = Shell::with_sinks(
+            mixed_cohorts(),
+            CaptureSink::failing_first(1),
+            CaptureSeedTileSink::new(),
+        );
+        let stale = PersonRecord {
+            last_seen_ms: 1_000,
+            stamp: Stamp::new(1_000, 0),
+            props_fingerprint: PropsFingerprint::of("{}"),
+            catalog_fingerprint: shell.filters.catalog_fingerprint,
+            matched: MatchedSet::from_iter([hash(PERSON_HASH).as_bytes()]),
+            applied_offsets: AppliedOffsets::default(),
+            redirect_dedup: Default::default(),
+        };
+        shell.put_record(partition_id, person, &stale);
+        assert!(shell.stage2(partition_id, person, 1).is_none());
+
+        let retract = seed_for(person, &[PERSON_HASH], &[], 1_000 + MARGIN_MS + 1);
+        shell.run(partition_id, &retract, 0).await;
+        assert!(
+            shell.sink.changes().is_empty(),
+            "nothing reached downstream"
+        );
+        assert!(
+            shell.stage2(partition_id, person, 1).unwrap().in_cohort,
+            "the pre-write claims downstream still holds the entry",
+        );
+
+        let rematch = seed_for(
+            person,
+            &[PERSON_HASH],
+            &[PERSON_HASH],
+            1_000 + 2 * MARGIN_MS + 2,
+        );
+        shell.run(partition_id, &rematch, 1).await;
+
+        let changes = shell.sink.changes();
+        assert_eq!(
+            changes
+                .iter()
+                .map(|change| (change.cohort_id, change.status))
+                .collect::<Vec<_>>(),
+            vec![(1, MembershipStatus::Entered)],
+            "downstream is told about the membership the store holds",
+        );
+        assert!(shell.stage2(partition_id, person, 1).unwrap().in_cohort);
+        assert_eq!(
+            shell.committable(partition_id),
+            None,
+            "the held retraction still pins the floor"
+        );
     }
 
     #[tokio::test]
@@ -1362,9 +1436,10 @@ mod tests {
                 .stage2(partition_id, person, 1)
                 .map(|state| state.in_cohort),
             Some(false),
-            "the single-leaf register holds its placeholder: downstream was never told",
+            "the single-leaf register holds its pre-write: downstream was never told",
         );
 
+        shell.restart();
         shell.run(partition_id, &seed, 3).await;
         let changes = shell.sink.changes();
         assert_eq!(
@@ -1385,7 +1460,11 @@ mod tests {
                 && change.status == MembershipStatus::Entered));
         assert!(shell.stage2(partition_id, person, 1).unwrap().in_cohort);
         assert!(shell.stage2(partition_id, person, 2).unwrap().in_cohort);
-        assert_eq!(shell.committable(partition_id), Some(3));
+        assert_eq!(
+            shell.committable(partition_id),
+            Some(4),
+            "a fresh tenure commits past the redelivered offset"
+        );
     }
 
     /// The held replay can arrive after a live event has already re-derived the same matched set.

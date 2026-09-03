@@ -9,19 +9,23 @@ use serde::{Deserialize, Serialize};
 /// # What the bit means, per writer
 ///
 /// A row exists once the `(cohort, person)` pair is evaluated, so the reconcile scan can enumerate
-/// it, and an explicit `false` is written rather than the row deleted.
+/// it, and an explicit `false` is written rather than the row deleted. The seed paths are the one
+/// exception: they write no row for a non-member downstream was never told about.
 ///
 /// The two seed paths ([`handle_seed`](crate::workers::seed_path) and the person-seed apply) hold a
 /// stricter meaning: the bit is **what downstream was last told**. They commit it only after the
-/// membership produce acks, and derive their changes by diffing the leaf's truth against it, so a
-/// produce that fails after stage 1 commits is re-derived on redelivery instead of lost. A row
-/// they have not written yet cannot prove downstream was never told, so a transition minted in the
-/// same apply is emitted regardless.
+/// membership produce acks, and before every emission they record the value it retires, so a
+/// produce that fails after stage 1 commits leaves the row disagreeing with the truth and the
+/// redelivery re-emits. A row that agrees with the truth never vetoes a transition minted in the
+/// same apply: it can be that pre-write, or the row an apply left behind when it acked and then
+/// held before its post-ack commit.
 ///
 /// Every other writer (the live event path, the sweep, the merge apply, reconcile) writes the bit
 /// as **stage-1 truth**, at stage-1 time. Their emissions are transition-derived, so their register
-/// value carries no claim about what downstream received. Read the bit accordingly, and see
-/// `handle_sweep` for why the sweep must not adopt the seed paths' diff.
+/// value carries no claim about what downstream received. A seed apply that reads such a row
+/// trusts it, which is wrong only for a live transition whose own produce failed: the live path's
+/// accepted residual. Read the bit accordingly, and see `handle_sweep` for why the sweep must not
+/// adopt the seed paths' diff.
 ///
 /// `last_evaluated_at_ms` is write-only for now (nothing reads it). Writers use the timestamp of the
 /// operation that evaluated membership: event time for live/merge work, the sweep cutoff for

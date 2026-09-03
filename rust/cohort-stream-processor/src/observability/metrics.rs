@@ -517,10 +517,11 @@ pub const PERSON_SEED_REKEY_HOP_CAPPED_TOTAL: &str = "cohort_person_seeds_rekey_
 pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
     "cohort_person_seeds_rekey_produce_failure_total";
 /// Single-leaf membership changes a seed apply derived from the persisted register with no stage-1
-/// transition behind them, labelled by `kind` (`entered`|`left`) (counter). Each one is a lag
-/// between what the store holds and what downstream was last told: a redelivery repairing a failed
-/// produce, or a register gap that predates the apply. **Expect a burst after a roll, then a rate
-/// near zero; a sustained rate means produces keep failing.**
+/// transition behind them, labelled by `kind` (`entered`|`left`) and `cause` (counter). `gap`: the
+/// row was absent or unreadable, a register that predates the apply, such as a cohort added over
+/// existing leaf state; expect these in bulk through the first full run after a roll. `lag`: the
+/// row disagreed with the truth, a redelivery repairing a produce that failed. **A sustained `lag`
+/// rate means produces keep failing; `gap` is benign.**
 pub const SEED_REGISTER_REPAIRS_TOTAL: &str = "cohort_seed_register_repairs_total";
 /// The seed commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
 /// **Alert on a sustained non-zero level.**
