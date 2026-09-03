@@ -2531,19 +2531,24 @@ class TestScoutRunTokenCosts(BaseTest):
 
     @parameterized.expand(
         [
-            ("in_progress", "in_progress", run_costs.LIVE_RUN_COST_CACHE_TIMEOUT_SECONDS),
-            ("completed", "completed", run_costs.SETTLED_RUN_COST_CACHE_TIMEOUT_SECONDS),
+            ("in_progress", "in_progress", Decimal("1"), run_costs.LIVE_RUN_COST_CACHE_TIMEOUT_SECONDS),
+            ("completed", "completed", Decimal("1"), run_costs.SETTLED_RUN_COST_CACHE_TIMEOUT_SECONDS),
+            ("completed but unpriced", "completed", None, run_costs.LIVE_RUN_COST_CACHE_TIMEOUT_SECONDS),
         ]
     )
-    def test_a_live_runs_total_is_cached_only_briefly(
-        self, _name: str, task_run_status: str, expected_timeout: int
+    def test_only_a_known_total_on_a_settled_run_is_cached_for_long(
+        self, _name: str, task_run_status: str, cost: Decimal | None, expected_timeout: int
     ) -> None:
         # A run still generating keeps spending, so caching its partial total for as long as a
-        # finished run's would leave the roster showing a number that stopped moving.
+        # finished run's would leave the roster showing a number that stopped moving. A settled run
+        # with nothing attributed is the other unfinished answer: its generations may still be
+        # crossing capture, or its model may not be priced yet, and both resolve within the hour.
         run = self._run(task_run_status=task_run_status)
         with (
             patch.object(
-                run_costs, "get_local_task_run_token_costs", return_value={str(run.task_run_id): Decimal("1")}
+                run_costs,
+                "get_local_task_run_token_costs",
+                return_value={str(run.task_run_id): cost} if cost is not None else {},
             ),
             patch.object(run_costs.cache, "set") as cache_set,
         ):

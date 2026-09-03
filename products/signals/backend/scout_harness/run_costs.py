@@ -26,6 +26,9 @@ from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get
 # A settled run's spend is final, so it outlives the roster's 60s poll — otherwise every poll
 # re-sums runs whose answer cannot change. A live run keeps generating, so it is cached only long
 # enough to absorb a burst of polls, and its number stays a lower bound until the run finishes.
+# An unknown cost takes the short timeout whatever the run's status. "Nothing attributed" is not a
+# final answer: the run's generations may still be crossing capture, or its model may not be in the
+# price map yet. Both resolve on their own, so pinning the gap for an hour hides a readable cost.
 SETTLED_RUN_COST_CACHE_TIMEOUT_SECONDS = 60 * 60
 LIVE_RUN_COST_CACHE_TIMEOUT_SECONDS = 60
 # Generations are stamped while the run works, so the read window opens at the earliest run in the
@@ -131,6 +134,8 @@ def _query_pending_costs(*, team_id: int, pending: list[_RunToPrice]) -> dict[st
         cache.set(
             _cache_key(team_id=team_id, task_run_id=run.task_run_id),
             str(cost) if cost is not None else "",
-            timeout=LIVE_RUN_COST_CACHE_TIMEOUT_SECONDS if run.live else SETTLED_RUN_COST_CACHE_TIMEOUT_SECONDS,
+            timeout=SETTLED_RUN_COST_CACHE_TIMEOUT_SECONDS
+            if cost is not None and not run.live
+            else LIVE_RUN_COST_CACHE_TIMEOUT_SECONDS,
         )
     return costs
