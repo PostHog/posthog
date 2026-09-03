@@ -1830,14 +1830,12 @@ export class AgentServer {
           this.posthogAPI
             .getTaskRun(payload.task_id, payload.run_id)
             .catch((err) => {
-              this.logger.debug(
-                "Failed to fetch task run for session context",
-                {
-                  taskId: payload.task_id,
-                  runId: payload.run_id,
-                  error: err,
-                },
-              );
+              // Without the run the stage is unknown, so routing falls back to the env product.
+              this.logger.warn("Failed to fetch task run for session context", {
+                taskId: payload.task_id,
+                runId: payload.run_id,
+                error: err,
+              });
               return null;
             }),
           this.fetchTaskForSessionContext(payload.task_id),
@@ -4706,7 +4704,8 @@ ${commonInstructions}
     // Go-gateway runs authenticate with the per-run scoped token minted by the
     // worker (pinned product + on-behalf-of team, per-run spend cap), not the
     // run's per-team OAuth token, whose team has no gateway wallet. A routed
-    // product with no token therefore stays on the Python gateway.
+    // product with no token therefore stays on the Python gateway. The worker's env values
+    // win, because the token is pinned to the product they name.
     const gatewayToken = process.env.AI_GATEWAY_TOKEN?.trim() || undefined;
     let target = resolveGatewayTarget({
       product,
@@ -4724,7 +4723,12 @@ ${commonInstructions}
         env: { ...process.env, AI_GATEWAY_URL: undefined },
       });
     }
-    const { baseUrl: gatewayUrl, isAiGateway, aiProduct } = target;
+    const {
+      baseUrl: gatewayUrl,
+      isAiGateway,
+      aiProduct,
+      aiStage: resolvedStage,
+    } = target;
     const llmBearer = isAiGateway && gatewayToken ? gatewayToken : apiKey;
     const openaiBaseUrl = gatewayUrl.endsWith("/v1")
       ? gatewayUrl
@@ -4738,7 +4742,7 @@ ${commonInstructions}
       task_origin_product: originProduct,
       task_internal: isInternal,
       signal_report_id: signalReportId,
-      ai_stage: aiStage,
+      ai_stage: resolvedStage,
       task_id: taskId,
       task_run_id: taskRunId,
       task_user_id: taskUserId,
