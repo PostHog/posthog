@@ -29,6 +29,13 @@ from products.growth.backend.models import OrganizationEnrichment, OrganizationE
 
 ORGANIZATION_GROUP_TYPE = "organization"
 
+# Harmonic status-poll record + org-group keys. Published in org_icp_fit_current; the names
+# are the contract, not just an implementation detail, so they're spelled out as constants
+# rather than inlined.
+HARMONIC_STATUS_KEY = "harmonic_enrichment_status"
+HARMONIC_STATUS_AT_KEY = "harmonic_enrichment_status_at"
+HARMONIC_URN_KEY = "harmonic_enrichment_urn"
+
 # Every fit key tied to one evaluation's numeric outcome. An evaluation that doesn't
 # produce one of these strips it, so the record never carries a value the current
 # evaluation didn't produce (e.g. components surviving a later disqualification).
@@ -61,6 +68,27 @@ def merge_into_record(
             merged.pop(key, None)
         record.data = merged
         record.save(update_fields=["data", "updated_at"])
+
+
+def write_harmonic_enrichment_status(
+    organization_id: str, *, status: str, observed_at: str, urn: str, pha_client: Client
+) -> Optional[str]:
+    """Stamp one Harmonic status-poll result onto the record and the org group.
+
+    Reads the record's stored status inside the same locked write that merges the new one and
+    returns it, so a caller can tell a transition from a retried batch re-stamping the same status.
+    """
+    values = {HARMONIC_STATUS_KEY: status, HARMONIC_STATUS_AT_KEY: observed_at, HARMONIC_URN_KEY: urn}
+    previous_status: Optional[str] = None
+
+    def _merge(current: dict[str, Any]) -> dict[str, Any]:
+        nonlocal previous_status
+        previous_status = current.get(HARMONIC_STATUS_KEY)
+        return values
+
+    merge_into_record(organization_id, _merge)
+    pha_client.group_identify(ORGANIZATION_GROUP_TYPE, organization_id, properties=values)
+    return previous_status
 
 
 def _fit_record_writes(fit: IcpFitResult) -> tuple[dict[str, Any], list[str]]:

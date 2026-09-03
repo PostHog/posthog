@@ -51,7 +51,7 @@ class EnrichmentProvider(abc.ABC):
 
         No-op by default; a provider without async enrichment tracking has nothing to poll.
         """
-        return None
+        return (await self.enrichment_statuses_for([urn])).get(urn)
 
     async def enrichment_statuses_for(self, urns: list[str]) -> dict[str, str]:
         """Batch-poll the provider for the status of several previously archived tracking URNs.
@@ -90,13 +90,6 @@ class HarmonicEnrichmentProvider(EnrichmentProvider):
             if fields is not None and company is not None:
                 fields = await self._with_parent_company(client, company, fields)
         return ProviderLookup(fields=fields, raw_payload=company, enrichment_urn=lookup.enrichment_urn)
-
-    async def enrichment_status_for(self, urn: str) -> Optional[str]:
-        async with AsyncHarmonicClient() as client:
-            statuses = await client.get_enrichment_status([urn])
-        entry = statuses.get(urn)
-        status = entry.get("status") if isinstance(entry, dict) else None
-        return status if isinstance(status, str) else None
 
     async def enrichment_statuses_for(self, urns: list[str]) -> dict[str, str]:
         if not urns:

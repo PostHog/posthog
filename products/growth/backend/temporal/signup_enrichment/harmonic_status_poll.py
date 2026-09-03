@@ -4,19 +4,13 @@ Harmonic exposes exactly one signal for a stub it is still working on: an `enric
 the lookup and a batchable `GET /enrichment_status` that returns QUEUED, IN_PROGRESS, COMPLETE,
 FAILED or NOT_FOUND per URN, with no webhook. This workflow polls every org's most recently
 archived open URN once a day, 50 URNs per Harmonic call, and stamps the result on
-`OrganizationEnrichment.data` so the re-enrichment sweep (a later change) and RevOps
-(`org_icp_fit_current`) can read provider progress without polling anything themselves.
-
-See ~/dev/.claude/docs/enrichment/harmonic-urn-design-2026-08-26.md section 4.A (design) and
-enrichment-architecture-current-2026-09-02.md S2 (the existing single-URN poll this reuses).
-
-Runs as a Temporal Schedule (registered on deploy by signup_enrichment/schedule.py), about an
-hour ahead of the re-enrichment sweep so the sweep's future status-aware selection reads a
-same-day stamp. Selection re-checks the kill switch and region on every run, same as the sweep.
+`OrganizationEnrichment.data` so the re-enrichment sweep and RevOps (`org_icp_fit_current`) can
+read provider progress without polling anything themselves.
 """
 
 import typing
 import datetime as dt
+import itertools
 import dataclasses
 
 from temporalio import activity, workflow
@@ -29,7 +23,12 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 from posthog.utils import get_instance_region
 
-from products.growth.backend.enrichment.writer import ORGANIZATION_GROUP_TYPE
+from products.growth.backend.enrichment.writer import (
+    HARMONIC_STATUS_AT_KEY,
+    HARMONIC_STATUS_KEY,
+    HARMONIC_URN_KEY,
+    write_harmonic_enrichment_status,
+)
 from products.growth.backend.temporal.signup_enrichment.workflow import MAX_ENRICH_ATTEMPTS
 
 LOGGER = get_logger(__name__)
@@ -37,33 +36,26 @@ LOGGER = get_logger(__name__)
 STATUS_CHANGED_EVENT = "harmonic_enrichment_status_changed"
 STATUS_POLL_RUN_EVENT = "harmonic_enrichment_status_poll_completed"
 
-# Record + org-group keys. Published in org_icp_fit_current (see
-# org-icp-fit-current-view-2026-08-27.md); the names are the contract, not just an implementation
-# detail, so they're spelled out as constants rather than inlined.
-HARMONIC_STATUS_KEY = "harmonic_enrichment_status"
-HARMONIC_STATUS_AT_KEY = "harmonic_enrichment_status_at"
-HARMONIC_URN_KEY = "harmonic_enrichment_urn"
-
-# Harmonic's own vocabulary, per console.harmonic.ai's enrich reference (cited in the design
-# doc): QUEUED and IN_PROGRESS mean "check back later"; COMPLETE, FAILED and NOT_FOUND are
-# terminal. STALLED is Growth's own derived state, never returned by Harmonic itself.
+# STALLED is derived here; Harmonic never returns it.
 NON_TERMINAL_STATUSES = ("QUEUED", "IN_PROGRESS")
 TERMINAL_STATUSES = ("COMPLETE", "FAILED", "NOT_FOUND")
 STALLED_STATUS = "STALLED"
 
 # Harmonic's own guidance is "a few hours", so a URN still pending after 14 days is stamped
-# STALLED so consumers can tell late from never. Polling continues until the 30-day age-out
-# below: the Aug 26 measurement saw stubs gain data at days 19 to 26.
+# STALLED so consumers can tell late from never. Stubs have completed after day 14, so polling
+# continues to the 30-day cutoff below.
 STALL_AGE_HOURS = 14 * 24
 
 # Beyond this, the org's open URN is dropped from selection entirely and its stamp is left as
 # whatever it last observed — a re-lookup issues a fresh URN, which restarts the window.
 MAX_URN_AGE_DAYS = 30
 
-# Matches AsyncHarmonicClient's own internal batch size (ee/billing/salesforce_enrichment/
-# harmonic_client.py:_ENRICHMENT_STATUS_BATCH_SIZE) so one activity call is exactly one Harmonic
-# HTTP request, keeping batch-level retry/failure isolation meaningful.
+# Harmonic caps URNs per /enrichment_status call.
 POLL_BATCH_SIZE = 50
+
+# A hard ceiling well under Temporal's per-payload limit, so a growing backlog degrades to a
+# smaller nightly slice instead of one day failing outright.
+MAX_CANDIDATES_PER_RUN = 5000
 
 SELECT_ACTIVITY_TIMEOUT = dt.timedelta(minutes=5)
 # One Harmonic HTTP call (10s client-side timeout) plus up to 50 row-locked record writes and a
@@ -78,8 +70,8 @@ class HarmonicStatusPollInputs:
 
 @activity.defn
 @close_db_connections
-async def select_status_poll_candidates_activity(inputs: HarmonicStatusPollInputs) -> list[dict[str, typing.Any]]:
-    """Orgs due a status poll: an open URN under 30 days old, with no terminal stamp.
+async def select_status_poll_candidates_activity(inputs: HarmonicStatusPollInputs) -> dict[str, typing.Any]:
+    """Orgs due a status poll: an open URN under 30 days old, with no terminal stamp for it.
 
     Read-only, so guards live here rather than the schedule: a config flip takes effect on the
     next run without touching Temporal state, same as the sweep's selection.
@@ -94,12 +86,12 @@ async def select_status_poll_candidates_activity(inputs: HarmonicStatusPollInput
 
     if not await sync_to_async(get_instance_setting)("GROWTH_SIGNUP_ENRICHMENT_ENABLED"):
         logger.info("harmonic_status_poll_skipped_kill_switch")
-        return []
+        return {"candidates": [], "eligible": 0}
     if get_instance_region() not in ("US", "EU"):
         logger.info("harmonic_status_poll_skipped_region")
-        return []
+        return {"candidates": [], "eligible": 0}
 
-    def _select() -> list[dict[str, typing.Any]]:
+    def _select() -> tuple[list[dict[str, typing.Any]], int]:
         now = dt.datetime.now(dt.UTC)
         urn_cutoff = now - dt.timedelta(days=MAX_URN_AGE_DAYS)
 
@@ -109,9 +101,10 @@ async def select_status_poll_candidates_activity(inputs: HarmonicStatusPollInput
         # too, rather than after, is equivalent: an org's latest qualifying row is its true latest
         # non-null-URN fetch only when that fetch itself is within the window — if it isn't, every
         # earlier one is even older, and the org has nothing left to select.
-        # nosemgrep: orm-field-injection -- "enrichmentUrn" is a fixed field name, not user input
         latest_open_urn_fetches = (
-            OrganizationEnrichmentFetch.objects.filter(payload__enrichmentUrn__isnull=False, fetched_at__gte=urn_cutoff)
+            OrganizationEnrichmentFetch.objects.filter(
+                provider="harmonic", payload__enrichmentUrn__isnull=False, fetched_at__gte=urn_cutoff
+            )
             .exclude(payload__enrichmentUrn=None)
             .order_by("organization_id", "-fetched_at", "-id")
             .distinct("organization_id")
@@ -125,37 +118,45 @@ async def select_status_poll_candidates_activity(inputs: HarmonicStatusPollInput
                 open_urns[str(row.organization_id)] = (urn, row.fetched_at)
 
         if not open_urns:
-            return []
+            return [], 0
 
-        stored_statuses = {
-            str(record.organization_id): record.data.get(HARMONIC_STATUS_KEY)
+        stored = {
+            str(record.organization_id): record.data
             for record in OrganizationEnrichment.objects.filter(organization_id__in=open_urns.keys()).only(
                 "organization_id", "data"
             )
         }
 
-        candidates = []
+        eligible = []
         for organization_id, (urn, fetched_at) in open_urns.items():
-            status = stored_statuses.get(organization_id)
-            if status in TERMINAL_STATUSES:
+            data = stored.get(organization_id, {})
+            stored_status = data.get(HARMONIC_STATUS_KEY)
+            same_urn = data.get(HARMONIC_URN_KEY) == urn
+            if stored_status in TERMINAL_STATUSES and same_urn:
                 continue
-            candidates.append(
+            eligible.append(
                 {
                     "organization_id": organization_id,
                     "enrichment_urn": urn,
                     "urn_fetched_at": fetched_at.isoformat(),
-                    "previous_status": status,
+                    "previous_status": stored_status if same_urn else None,
+                    "_never_polled": stored_status is None,
+                    "_status_at": data.get(HARMONIC_STATUS_AT_KEY) or "",
                 }
             )
-        return candidates
 
-    candidates = await sync_to_async(_select)()
-    logger.info("harmonic_status_poll_selected", count=len(candidates))
-    return candidates
+        # Never-polled orgs go first so a backlog doesn't starve first contact; the rest is
+        # oldest-checked-first so the cap doesn't repeatedly re-poll the same recently-checked orgs.
+        eligible.sort(key=lambda candidate: (not candidate["_never_polled"], candidate["_status_at"]))
+        candidates = [
+            {key: value for key, value in candidate.items() if not key.startswith("_")}
+            for candidate in eligible[:MAX_CANDIDATES_PER_RUN]
+        ]
+        return candidates, len(eligible)
 
-
-def _chunk(candidates: list[dict[str, typing.Any]], size: int) -> list[list[dict[str, typing.Any]]]:
-    return [candidates[i : i + size] for i in range(0, len(candidates), size)]
+    candidates, eligible_count = await sync_to_async(_select)()
+    logger.info("harmonic_status_poll_selected", count=len(candidates), eligible=eligible_count)
+    return {"candidates": candidates, "eligible": eligible_count}
 
 
 @activity.defn
@@ -172,20 +173,21 @@ async def poll_status_batch_activity(candidates: list[dict[str, typing.Any]]) ->
     from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
 
     from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvider  # noqa: PLC0415
-    from products.growth.backend.enrichment.writer import merge_into_record  # noqa: PLC0415
 
     logger = LOGGER.bind()
 
+    empty_result = {"polled": 0, "unobserved": 0, "changed": 0, "stalled": 0}
+
     if not await sync_to_async(get_instance_setting)("GROWTH_SIGNUP_ENRICHMENT_ENABLED"):
         logger.info("harmonic_status_poll_skipped_kill_switch")
-        return {"polled": 0, "changed": 0, "stalled": 0}
+        return dict(empty_result)
 
     pha_client = get_regional_ph_client()
     if pha_client is None:
         logger.error("harmonic_status_poll_no_regional_client")
-        return {"polled": 0, "changed": 0, "stalled": 0}
+        return dict(empty_result)
 
-    changed = stalled = 0
+    polled = unobserved = changed = stalled = 0
     try:
         urns = [candidate["enrichment_urn"] for candidate in candidates]
         try:
@@ -197,18 +199,15 @@ async def poll_status_batch_activity(candidates: list[dict[str, typing.Any]]) ->
         now = dt.datetime.now(dt.UTC)
         observed_at = now.isoformat()
 
-        def _write(organization_id: str, urn: str, status: str) -> None:
-            values = {HARMONIC_STATUS_KEY: status, HARMONIC_STATUS_AT_KEY: observed_at, HARMONIC_URN_KEY: urn}
-            merge_into_record(organization_id, values)
-            pha_client.group_identify(ORGANIZATION_GROUP_TYPE, organization_id, properties=values)
-
         for candidate in candidates:
             organization_id = candidate["organization_id"]
             urn = candidate["enrichment_urn"]
             raw_status = statuses.get(urn)
             if raw_status is None:
                 # No entry back for this URN: leave the existing stamp alone rather than guess.
+                unobserved += 1
                 continue
+            polled += 1
 
             urn_fetched_at = dt.datetime.fromisoformat(candidate["urn_fetched_at"])
             hours_since_urn_issued = round((now - urn_fetched_at).total_seconds() / 3600)
@@ -218,12 +217,13 @@ async def poll_status_batch_activity(candidates: list[dict[str, typing.Any]]) ->
                 else raw_status
             )
 
-            await sync_to_async(_write)(organization_id, urn, effective_status)
+            previous_status = await sync_to_async(write_harmonic_enrichment_status)(
+                organization_id, status=effective_status, observed_at=observed_at, urn=urn, pha_client=pha_client
+            )
 
             if effective_status == STALLED_STATUS:
                 stalled += 1
 
-            previous_status = candidate["previous_status"]
             if effective_status != previous_status:
                 changed += 1
                 pha_client.capture(
@@ -240,14 +240,18 @@ async def poll_status_batch_activity(candidates: list[dict[str, typing.Any]]) ->
     finally:
         pha_client.shutdown()
 
-    logger.info("harmonic_status_poll_batch_completed", polled=len(candidates), changed=changed, stalled=stalled)
-    return {"polled": len(candidates), "changed": changed, "stalled": stalled}
+    logger.info(
+        "harmonic_status_poll_batch_completed", polled=polled, unobserved=unobserved, changed=changed, stalled=stalled
+    )
+    return {"polled": polled, "unobserved": unobserved, "changed": changed, "stalled": stalled}
 
 
 @dataclasses.dataclass(frozen=True)
 class HarmonicStatusPollRunSummary:
+    eligible: int
     selected: int
     polled: int
+    unobserved: int
     changed: int
     stalled: int
     errors: int
@@ -284,35 +288,41 @@ class HarmonicEnrichmentStatusPollWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: HarmonicStatusPollInputs) -> dict[str, typing.Any]:
-        candidates = await workflow.execute_activity(
+        selection = await workflow.execute_activity(
             select_status_poll_candidates_activity,
             inputs,
             start_to_close_timeout=SELECT_ACTIVITY_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
+        candidates = selection["candidates"]
 
-        polled = changed = stalled = errors = 0
-        for batch in _chunk(candidates, POLL_BATCH_SIZE):
+        polled = unobserved = changed = stalled = errors = 0
+        for batch in itertools.batched(candidates, POLL_BATCH_SIZE, strict=False):
             try:
                 result = await workflow.execute_activity(
                     poll_status_batch_activity,
-                    batch,
+                    list(batch),
                     start_to_close_timeout=POLL_BATCH_ACTIVITY_TIMEOUT,
                     retry_policy=RetryPolicy(
                         maximum_attempts=MAX_ENRICH_ATTEMPTS, initial_interval=dt.timedelta(seconds=5)
                     ),
                 )
                 polled += result["polled"]
+                unobserved += result["unobserved"]
                 changed += result["changed"]
                 stalled += result["stalled"]
             except Exception:
-                # A batch's own retries are exhausted; capture_exception already ran inside the
-                # activity. Count every org in it as unobserved and move on to the next batch —
-                # one bad batch must not sink the whole run.
+                # A batch's own retries are exhausted; one failed batch must not sink the whole run.
                 errors += len(batch)
 
         summary = HarmonicStatusPollRunSummary(
-            selected=len(candidates), polled=polled, changed=changed, stalled=stalled, errors=errors
+            eligible=selection["eligible"],
+            selected=len(candidates),
+            polled=polled,
+            unobserved=unobserved,
+            changed=changed,
+            stalled=stalled,
+            errors=errors,
         )
         await workflow.execute_activity(
             report_status_poll_run_activity,

@@ -53,8 +53,7 @@ async def create_icp_reenrichment_sweep_schedule(client: Client) -> None:
 
 HARMONIC_STATUS_POLL_SCHEDULE_ID = "harmonic-enrichment-status-poll-daily"
 
-# 06:40 UTC daily: an hour ahead of the sweep (CRON above), so the sweep's future status-aware
-# selection reads a same-day stamp instead of yesterday's.
+# An hour ahead of the sweep so a same-day stamp is available to it.
 HARMONIC_STATUS_POLL_CRON = "40 6 * * *"
 
 
