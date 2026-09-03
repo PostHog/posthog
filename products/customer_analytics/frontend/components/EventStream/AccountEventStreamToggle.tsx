@@ -3,10 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { eventStreamLogic } from './eventStreamLogic'
 
@@ -15,19 +12,17 @@ import { eventStreamLogic } from './eventStreamLogic'
 export function AccountEventStreamToggle({
     accountId,
     externalId,
+    canEditAccount,
 }: {
     accountId: string
     externalId: string
+    canEditAccount: boolean
 }): JSX.Element {
     const { eventStream, eventStreamLoading, membershipUpdatingIds, isAccountInStream } = useValues(eventStreamLogic)
     const { setAccountMembership } = useActions(eventStreamLogic)
 
     const included = isAccountInStream(accountId)
     const updating = membershipUpdatingIds.includes(accountId)
-    const accountEditorRestrictionReason = getAccessControlDisabledReason(
-        AccessControlResourceType.CustomerAnalytics,
-        AccessControlLevel.Editor
-    )
 
     return (
         <div className="flex flex-col gap-2 items-start">
@@ -47,12 +42,13 @@ export function AccountEventStreamToggle({
                 checked={included}
                 onChange={(checked) => setAccountMembership(accountId, checked)}
                 disabledReason={
-                    accountEditorRestrictionReason ??
-                    (!eventStream && !eventStreamLoading
-                        ? 'Set up your event stream in settings first'
-                        : eventStreamLoading || updating
-                          ? 'Updating…'
-                          : undefined)
+                    !canEditAccount
+                        ? 'You cannot edit this account'
+                        : !eventStream && !eventStreamLoading
+                          ? 'Set up your event stream in settings first'
+                          : eventStreamLoading || updating
+                            ? 'Updating…'
+                            : undefined
                 }
                 label="Include in my event stream"
                 size="small"

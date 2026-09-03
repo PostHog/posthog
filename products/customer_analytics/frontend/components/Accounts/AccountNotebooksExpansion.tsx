@@ -28,13 +28,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { fullName } from 'lib/utils/strings'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -109,13 +106,13 @@ function ActiveRelationships({ accountId }: { accountId: string }): JSX.Element 
     )
 }
 
-function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
+function UsefulLinks({ accountId, canEditAccount }: { accountId: string; canEditAccount: boolean }): JSX.Element {
     const { links, accountLoading } = useValues(accountLinksLogic({ accountId }))
     return (
         <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1 mb-1">
                 <h4 className="secondary uppercase text-secondary mb-0">Useful links</h4>
-                <EditAccountLinksButton accountId={accountId} />
+                <EditAccountLinksButton accountId={accountId} canEditAccount={canEditAccount} />
             </div>
             {accountLoading ? (
                 <>
@@ -170,9 +167,11 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
 export function AccountNotebooksExpansion({
     accountId,
     externalId,
+    canEditAccount,
 }: {
     accountId: string
     externalId: string
+    canEditAccount: boolean
 }): JSX.Element {
     const logic = accountNotebooksLogic({ accountId })
     const { notebooks, notebooksResponseLoading, createdNoteLoading, searchTerm, sorting, pagination } =
@@ -193,10 +192,7 @@ export function AccountNotebooksExpansion({
     const { activeTabFor } = useValues(accountsExpansionLogic)
     const { setActiveTab } = useActions(accountsExpansionLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
-    const accountEditorRestrictionReason = getAccessControlDisabledReason(
-        AccessControlResourceType.CustomerAnalytics,
-        AccessControlLevel.Editor
-    )
+    const accountEditorRestrictionReason = canEditAccount ? undefined : 'You cannot edit this account'
     const activeTab = activeTabFor(accountId)
 
     const columns: LemonTableColumns<AccountNotebookApi> = [
@@ -267,7 +263,7 @@ export function AccountNotebooksExpansion({
         >
             <div className="flex gap-4">
                 <div className="w-fit shrink-0 flex flex-col gap-4">
-                    <UsefulLinks accountId={accountId} />
+                    <UsefulLinks accountId={accountId} canEditAccount={canEditAccount} />
                     <ActiveRelationships accountId={accountId} />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -330,12 +326,22 @@ export function AccountNotebooksExpansion({
                             {
                                 key: 'relationships',
                                 label: 'Relationships',
-                                content: <AccountRelationshipsExpansion accountId={accountId} />,
+                                content: (
+                                    <AccountRelationshipsExpansion
+                                        accountId={accountId}
+                                        canEditAccount={canEditAccount}
+                                    />
+                                ),
                             },
                             !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS] && {
                                 key: 'feature_requests' as const,
                                 label: 'Feature requests',
-                                content: <AccountFeatureRequestsExpansion accountId={accountId} />,
+                                content: (
+                                    <AccountFeatureRequestsExpansion
+                                        accountId={accountId}
+                                        canEditAccount={canEditAccount}
+                                    />
+                                ),
                             },
                             {
                                 key: 'usage',
@@ -367,18 +373,31 @@ export function AccountNotebooksExpansion({
                             {
                                 key: 'conversations',
                                 label: 'Conversations',
-                                content: <AccountConversationsExpansion accountId={accountId} />,
+                                content: (
+                                    <AccountConversationsExpansion
+                                        accountId={accountId}
+                                        canEditAccount={canEditAccount}
+                                    />
+                                ),
                             },
                             // Flag-gated here (not just inside the component) so the tab label hides too.
                             !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && {
                                 key: 'meetings' as const,
                                 label: 'Meetings',
-                                content: <AccountMeetingsExpansion accountId={accountId} />,
+                                content: (
+                                    <AccountMeetingsExpansion accountId={accountId} canEditAccount={canEditAccount} />
+                                ),
                             },
                             !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && {
                                 key: 'event_stream' as const,
                                 label: 'Event stream',
-                                content: <AccountEventStreamToggle accountId={accountId} externalId={externalId} />,
+                                content: (
+                                    <AccountEventStreamToggle
+                                        accountId={accountId}
+                                        externalId={externalId}
+                                        canEditAccount={canEditAccount}
+                                    />
+                                ),
                             },
                         ]}
                     />

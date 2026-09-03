@@ -37,31 +37,53 @@ def check_can_add_insight_to_shared_dashboard(
     query: Any,
     user_access_control: UserAccessControl | None = None,
 ) -> None:
-    """Raise if binding an insight with this query to the dashboard would expose, through the
-    dashboard's public link, a query the editor can't run themselves. No-op when the dashboard
-    isn't shared, the org lacks the access control entitlement, or the editor is an org admin."""
-    if not isinstance(query, dict):
-        return
-    if not dashboard.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+    """Raise when the shared viewer cannot run the query, or an RBAC publisher cannot run it."""
+    if not isinstance(query, dict) or not is_publicly_shared(dashboard):
         return
     uac = user_access_control or UserAccessControl(user=user, team=dashboard.team)
-    if not is_publicly_shared(dashboard):
-        return
-    blocked = set(blocked_access_for_shared_viewer(dashboard.team, [query]))
-    if not uac.is_organization_admin:
-        blocked.update(blocked_access_for_user(user, dashboard.team, [query]))
+    check_publisher_access = (
+        dashboard.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+        and not uac.is_organization_admin
+    )
+    blocked = blocked_access_for_public_queries(
+        user,
+        dashboard.team,
+        [query],
+        check_publisher_access=check_publisher_access,
+    )
     if blocked:
         blocked_list = ", ".join(f"`{name}`" for name in sorted(blocked))
         raise serializers.ValidationError(
-            f"Can't add this insight: you don't have access to {blocked_list}, and this dashboard is publicly shared."
+            f"Can't add this insight because not everyone who can open the publicly shared dashboard can access "
+            f"{blocked_list}."
         )
 
 
-def blocked_access_for_publisher(user: User, team: Team, config: SharingConfiguration) -> list[str]:
-    """Return protected resources the publisher or shared viewer cannot read."""
-    queries = _queries_exposed_by(config)
-    blocked = set(blocked_access_for_user(user, team, queries))
-    blocked.update(blocked_access_for_shared_viewer(team, queries))
+def blocked_access_for_publisher(
+    user: User,
+    team: Team,
+    config: SharingConfiguration,
+    *,
+    check_publisher_access: bool = True,
+) -> list[str]:
+    return blocked_access_for_public_queries(
+        user,
+        team,
+        _queries_exposed_by(config),
+        check_publisher_access=check_publisher_access,
+    )
+
+
+def blocked_access_for_public_queries(
+    user: User,
+    team: Team,
+    queries: list[dict[str, Any]],
+    *,
+    check_publisher_access: bool = True,
+) -> list[str]:
+    blocked = set(blocked_access_for_shared_viewer(team, queries))
+    if check_publisher_access:
+        blocked.update(blocked_access_for_user(user, team, queries))
     return sorted(blocked)
 
 
@@ -152,7 +174,12 @@ def is_publicly_shared(artifact: "Dashboard | Notebook | Insight") -> bool:
     ).exists()
 
 
-def blocked_access_in_notebook_edit(user: User, notebook: Any, new_content: dict[str, Any] | None) -> list[str]:
+def blocked_access_in_notebook_edit(
+    user: User,
+    notebook: Any,
+    new_content: dict[str, Any] | None,
+    user_access_control: UserAccessControl | None = None,
+) -> list[str]:
     """Only queries the edit adds or changes are checked,
     so untouched content (and anything mid-typing that doesn't resolve) never gates."""
     old_content = notebook.content or {}
@@ -172,6 +199,14 @@ def blocked_access_in_notebook_edit(user: User, notebook: Any, new_content: dict
             ).values_list("query", flat=True)
             if isinstance(q, dict)
         )
-    blocked = set(blocked_access_for_user(user, notebook.team, changed_queries))
-    blocked.update(blocked_access_for_shared_viewer(notebook.team, changed_queries))
-    return sorted(blocked)
+    uac = user_access_control or UserAccessControl(user=user, team=notebook.team)
+    check_publisher_access = (
+        notebook.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+        and not uac.is_organization_admin
+    )
+    return blocked_access_for_public_queries(
+        user,
+        notebook.team,
+        changed_queries,
+        check_publisher_access=check_publisher_access,
+    )

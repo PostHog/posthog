@@ -426,6 +426,7 @@ export function isAccountsTableRow(value: unknown): value is AccountsTableRow {
     return (
         typeof row.id === 'string' &&
         typeof row.name === 'string' &&
+        typeof row.canEdit === 'boolean' &&
         !!row.accountFields &&
         !!row.relationships &&
         !!row.customProperties &&

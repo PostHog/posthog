@@ -21,7 +21,13 @@ import type { FeatureRequestApi } from '../../generated/api.schemas'
 import { getFeatureRequestDetailUrl } from '../FeatureRequests/featureRequestNavigation'
 import { ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE, accountFeatureRequestsLogic } from './accountFeatureRequestsLogic'
 
-export function AccountFeatureRequestsExpansion({ accountId }: { accountId: string }): JSX.Element {
+export function AccountFeatureRequestsExpansion({
+    accountId,
+    canEditAccount,
+}: {
+    accountId: string
+    canEditAccount: boolean
+}): JSX.Element {
     const logic = accountFeatureRequestsLogic({ accountId })
     const {
         accountRequests,
@@ -48,10 +54,11 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
         linkSelectedRequest,
     } = useActions(logic)
 
-    const editorDisabledReason = getAccessControlDisabledReason(
+    const resourceEditorRestrictionReason = getAccessControlDisabledReason(
         AccessControlResourceType.CustomerAnalytics,
         AccessControlLevel.Editor
     )
+    const editorDisabledReason = canEditAccount ? resourceEditorRestrictionReason : 'You cannot edit this account'
 
     const origin = urls.customerAnalyticsAccount(accountId, 'feature_requests')
     const columns: LemonTableColumns<FeatureRequestApi> = [
@@ -86,7 +93,7 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
                         origin,
                         searchParams: { evidence_account: accountId },
                     })}
-                    disabledReason={editorDisabledReason}
+                    disabledReason={request.can_update ? editorDisabledReason : 'You cannot edit this feature request'}
                 >
                     Add evidence
                 </LemonButton>

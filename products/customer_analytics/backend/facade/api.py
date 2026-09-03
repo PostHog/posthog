@@ -3179,6 +3179,7 @@ def query_accounts_table(
             id=account.id,
             name=account.name,
             external_id=account.external_id,
+            can_edit=user_access_control.check_access_level_for_object(account, required_level="editor"),
             logo_domain=_resolve_account_logo_domain(account),
             account_fields=_account_table_field_values(account, selection.account_fields),
             tags=tags_by_account[account.id] if selection.include_tags else None,
@@ -3241,14 +3242,8 @@ def list_accounts_for_view(
     return [_to_account_view(a) for a in page], total_count
 
 
-def get_account_for_view(
-    *, team_id: int, account_id: str, user_access_control: "UserAccessControl", required_level: str | None
-) -> contracts.AccountView:
-    """Fetch one team-scoped account with tags + notebooks, enforcing object-level access.
-    Raises ``Account.DoesNotExist`` (→ 404) / ``ResourceForbiddenError`` (→ 403)."""
-    account = _get_account_for_detail(team_id, account_id)
-    _enforce_object_access(account, user_access_control, required_level)
-    return _to_account_view(account)
+def get_account_for_view(*, team_id: int, account_id: str) -> contracts.AccountView:
+    return _to_account_view(_get_account_for_detail(team_id, account_id))
 
 
 class _Unset(Enum):

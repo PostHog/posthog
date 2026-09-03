@@ -61,6 +61,8 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
+        if isinstance(self.user, User):
+            payload["account_edit_principal"] = self.user.id
         if self._has_complete_email_search():
             user = self.user
             payload["account_member_search_principal"] = {
@@ -307,6 +309,7 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                     id=str(row.id),
                     name=row.name,
                     externalId=row.external_id,
+                    canEdit=row.can_edit,
                     logoDomain=row.logo_domain,
                     accountFields={field.value: value for field, value in row.account_fields.items()},
                     tags=row.tags,

@@ -15,9 +15,6 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { AccountRelationshipApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -25,7 +22,13 @@ import { accountRelationshipsLogic } from './accountRelationshipsLogic'
 
 const PAGE_SIZE = 10
 
-export function AccountRelationshipsExpansion({ accountId }: { accountId: string }): JSX.Element {
+export function AccountRelationshipsExpansion({
+    accountId,
+    canEditAccount,
+}: {
+    accountId: string
+    canEditAccount: boolean
+}): JSX.Element {
     const {
         relationships,
         relationshipsLoading,
@@ -52,10 +55,7 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const accountEditorRestrictionReason = getAccessControlDisabledReason(
-        AccessControlResourceType.CustomerAnalytics,
-        AccessControlLevel.Editor
-    )
+    const accountEditorRestrictionReason = canEditAccount ? undefined : 'You cannot edit this account'
     const assigningWouldReplace =
         !!assignDefinition?.is_single_holder &&
         relationships?.some(

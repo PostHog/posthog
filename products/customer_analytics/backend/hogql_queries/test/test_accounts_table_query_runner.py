@@ -41,11 +41,14 @@ from posthog.schema import (
     AccountsTableUnassignedFilter,
 )
 
+from posthog.constants import AvailableFeature
 from posthog.models import Tag, Team, User
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_CSP_FLAG
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.hogql_queries.accounts_table_query_runner import (
@@ -154,6 +157,7 @@ class TestAccountsTableQueryRunner(BaseTest):
 
         rows = {row.id: row for row in response.results}
         full_row = rows[str(account.id)]
+        assert full_row.canEdit is True
         assert full_row.accountFields == {
             "stripe_customer_id": "cus_123",
             "churned_at": "2026-01-01T10:00:00+00:00",
@@ -169,6 +173,7 @@ class TestAccountsTableQueryRunner(BaseTest):
         assert [point.value for point in full_row.customPropertyHistory[str(numeric_definition.id)]] == [10.0, 20.0]
 
         empty_row = rows[str(empty_account.id)]
+        assert empty_row.canEdit is True
         assert empty_row.accountFields == {"stripe_customer_id": None, "churned_at": None, "ignored_at": None}
         assert empty_row.tags == []
         assert empty_row.noteCount == 0
@@ -178,6 +183,42 @@ class TestAccountsTableQueryRunner(BaseTest):
             str(text_definition.id): None,
         }
         assert empty_row.customPropertyHistory == {str(numeric_definition.id): []}
+
+    def test_returns_effective_edit_capability_per_account(self) -> None:
+        editable_account = create_account(team_id=self.team.id, name="Editable")
+        read_only_account = create_account(team_id=self.team.id, name="Read only")
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save(update_fields=["level"])
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_analytics",
+            access_level="none",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(editable_account.id),
+            access_level="editor",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(read_only_account.id),
+            access_level="viewer",
+            organization_member=membership,
+        )
+
+        response = self._run(AccountsTableQuery(columns=[], filters=[]))
+
+        assert {row.name: row.canEdit for row in response.results} == {"Editable": True, "Read only": False}
 
     @parameterized.expand(
         [
@@ -316,7 +357,7 @@ class TestAccountsTableQueryRunner(BaseTest):
                 value_num=index,
             )
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(8):
             page = api.query_accounts_table(
                 team_id=self.team.id,
                 user_access_control=UserAccessControl(user=self.user, team=self.team),
@@ -502,6 +543,16 @@ class TestAccountsTableQueryRunner(BaseTest):
         )
 
         assert runner.requires_fresh_calculation() is expected
+
+    def test_account_edit_capability_cache_is_partitioned_by_principal(self) -> None:
+        query = AccountsTableQuery(columns=[], filters=[])
+        other_user = User.objects.create_and_join(self.organization, "account-editor@example.com", None)
+
+        current_user_runner = AccountsTableQueryRunner(query=query, team=self.team, user=self.user)
+        other_user_runner = AccountsTableQueryRunner(query=query, team=self.team, user=other_user)
+
+        assert current_user_runner.get_cache_key() != other_user_runner.get_cache_key()
+        assert current_user_runner.get_cache_payload()["account_edit_principal"] == self.user.id
 
     def test_complete_email_search_cache_is_partitioned_by_principal(self) -> None:
         query = AccountsTableQuery(
@@ -1137,6 +1188,35 @@ class TestAccountsTableQueryAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_accounts_table_query_endpoint_allows_session_user_without_account_access(self) -> None:
+        account = create_account(team_id=self.team.id, name="Acme")
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save(update_fields=["level"])
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_analytics",
+            access_level="none",
+            organization_member=membership,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/accounts_table_query/",
+            {
+                "query": AccountsTableQuery(columns=[], filters=[]).model_dump(),
+                "refresh": "force_blocking",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [(row["id"], row["canEdit"]) for row in response.json()["results"]] == [(str(account.id), False)]
 
     def test_accounts_table_query_endpoint_requires_account_scope_and_dispatches(self) -> None:
         account = create_account(team_id=self.team.id, name="Acme")

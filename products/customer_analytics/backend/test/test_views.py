@@ -1588,26 +1588,51 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         response = self.client.delete(f"{self.accounts_url}{self.account.id}/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_customer_analytics_none_allows_account_list(self):
+    def test_customer_analytics_none_allows_account_reads(self):
         self._set_access_level(self.no_access_user, resource="customer_analytics", access_level="none")
         self.client.force_login(self.no_access_user)
 
-        response = self.client.get(self.accounts_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        list_response = self.client.get(self.accounts_url)
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
 
-    # -- Account notebook writes retain access control --
+        detail_response = self.client.get(f"{self.accounts_url}{self.account.id}/")
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
 
-    def test_account_notebook_reads_ignore_account_access_but_writes_do_not(self):
+    # -- Nested account writes retain effective account access --
+
+    @parameterized.expand([("notebook",), ("custom_property",), ("relationship",)])
+    def test_account_specific_editor_can_create_nested_resource(self, nested_resource: str) -> None:
+        self._set_access_level(self.editor_user, resource="customer_analytics", access_level="none")
+        membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
         AccessControl.objects.create(
             team=self.team,
             resource="account",
             resource_id=str(self.account.id),
-            access_level="none",
-            organization_member=OrganizationMembership.objects.get(
-                user=self.viewer_user, organization=self.organization
-            ),
+            access_level="editor",
+            organization_member=membership,
         )
-        self._set_access_level(self.viewer_user, resource="account", access_level="viewer")
+        self.client.force_login(self.editor_user)
+
+        if nested_resource == "notebook":
+            url = f"{self.accounts_url}{self.account.id}/notebooks/"
+            payload = {"title": "Account note"}
+        elif nested_resource == "custom_property":
+            definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+            url = f"{self.accounts_url}{self.account.id}/custom_property_values/"
+            payload = {"definition": str(definition.id), "value": "enterprise"}
+        else:
+            definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+                team_id=self.team.id, name="CSM"
+            )
+            url = f"{self.accounts_url}{self.account.id}/relationships/"
+            payload = {"definition": str(definition.id), "user": self.editor_user.id}
+
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+    def test_account_notebook_reads_ignore_account_access_but_writes_do_not(self):
+        self._set_access_level(self.viewer_user, resource="customer_analytics", access_level="none")
         self.client.force_login(self.viewer_user)
 
         url = f"{self.accounts_url}{self.account.id}/notebooks/"
@@ -1616,7 +1641,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
 
         create_response = self.client.post(url, {"title": "x"}, format="json")
-        self.assertEqual(create_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(create_response.status_code, status.HTTP_403_FORBIDDEN)
 
 
 class TestCustomPropertyDefinitionViewSet(APIBaseTest):
@@ -2671,12 +2696,19 @@ class TestAccountNotesViewSet(APIBaseTest):
         ]
         self.organization.save()
         viewer = User.objects.create_and_join(self.organization, "notes-viewer@posthog.com", None)
+        membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_analytics",
+            access_level="none",
+            organization_member=membership,
+        )
         AccessControl.objects.create(
             team=self.team,
             resource="account",
             resource_id=str(hidden_account.id),
             access_level="none",
-            organization_member=OrganizationMembership.objects.get(user=viewer, organization=self.organization),
+            organization_member=membership,
         )
         self.client.force_login(viewer)
 

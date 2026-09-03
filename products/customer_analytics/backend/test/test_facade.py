@@ -500,8 +500,6 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
             facade.get_account_for_view(
                 team_id=self.team.id,
                 account_id="00000000-0000-0000-0000-000000000000",
-                user_access_control=self._uac(),
-                required_level="viewer",
             )
 
     @parameterized.expand([("name", "acme"), ("email domain", "someone@acme.example")])

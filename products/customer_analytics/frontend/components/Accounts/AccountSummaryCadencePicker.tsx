@@ -2,10 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
 import { SlackSummaryCadenceEnumApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { accountSummariesLogic } from './accountSummariesLogic'
@@ -17,22 +13,23 @@ const CADENCE_OPTIONS: { value: SlackSummaryCadenceEnumApi | null; label: string
     { value: SlackSummaryCadenceEnumApi.Monthly, label: 'Monthly' },
 ]
 
-export function AccountSummaryCadencePicker({ accountId }: { accountId: string }): JSX.Element {
+export function AccountSummaryCadencePicker({
+    accountId,
+    canEditAccount,
+}: {
+    accountId: string
+    canEditAccount: boolean
+}): JSX.Element {
     const logic = accountSummariesLogic({ accountId })
     const { summariesResult, cadenceSaving } = useValues(logic)
     const { setCadence } = useActions(logic)
-    const accountEditorRestrictionReason = getAccessControlDisabledReason(
-        AccessControlResourceType.CustomerAnalytics,
-        AccessControlLevel.Editor
-    )
-
     return (
         <LemonSelect<SlackSummaryCadenceEnumApi | null>
             size="small"
             value={summariesResult.cadence}
             options={CADENCE_OPTIONS}
             onChange={setCadence}
-            disabledReason={accountEditorRestrictionReason ?? (cadenceSaving ? 'Saving…' : undefined)}
+            disabledReason={!canEditAccount ? 'You cannot edit this account' : cadenceSaving ? 'Saving…' : undefined}
             data-attr="account-summary-cadence-picker"
         />
     )

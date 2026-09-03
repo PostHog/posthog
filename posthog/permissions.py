@@ -928,13 +928,16 @@ class AccessControlPermission(ScopeBasePermission):
     def _get_user_access_control(self, request, view) -> UserAccessControl:
         return view.user_access_control
 
+    def _is_unrestricted_read(self, request: Request, view: APIView) -> bool:
+        return (request.method in SAFE_METHODS and getattr(view, "access_control_unrestricted_read", False)) or getattr(
+            view, "action", None
+        ) in getattr(view, "access_control_unrestricted_read_actions", ())
+
     def _get_required_access_level(self, request, view) -> Optional[AccessControlLevel]:
         resource = self._get_scope_object(request, view)
         required_scopes = self._get_required_scopes(request, view)
 
-        if resource == "INTERNAL" or (
-            request.method in SAFE_METHODS and getattr(view, "access_control_unrestricted_read", False)
-        ):
+        if resource == "INTERNAL" or self._is_unrestricted_read(request, view):
             return None
 
         ordered_access_levels_list = ordered_access_levels(resource)
@@ -965,7 +968,7 @@ class AccessControlPermission(ScopeBasePermission):
         # within that resource type and object-level RBAC restrictions don't apply.
         if is_service_auth(request):
             return True
-        if request.method in SAFE_METHODS and getattr(view, "access_control_unrestricted_read", False):
+        if self._is_unrestricted_read(request, view):
             return True
 
         # NOTE: If the object is a Team then we shortcircuit here and create a UAC
@@ -1006,7 +1009,7 @@ class AccessControlPermission(ScopeBasePermission):
                 if request.user.current_team_id is None:
                     raise AuthenticationFailed("This endpoint requires a current project to be set on your account.")
 
-        if request.method in SAFE_METHODS and getattr(view, "access_control_unrestricted_read", False):
+        if self._is_unrestricted_read(request, view):
             return True
 
         uac = self._get_user_access_control(request, view)
@@ -1045,9 +1048,9 @@ class AccessControlPermission(ScopeBasePermission):
         elif getattr(view, "requires_resource_level_access", False):
             self.message = f"You do not have {required_level} access to this resource."
             return False
-        elif view.action == "create":
-            # If the user has no access to the resource level, but is trying to create a new object, we should block it
-            # Specific object access isn't relevant here as we are trying to create a new object
+        elif view.action == "create" and not getattr(view, "access_control_allow_specific_create", False):
+            # A top-level create has no existing object to authorize. Nested views can opt in only
+            # when their create path checks the parent object's effective access before writing.
             self.message = f"You do not have {required_level} access to this resource."
             return False
 

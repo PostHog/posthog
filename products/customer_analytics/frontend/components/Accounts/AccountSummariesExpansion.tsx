@@ -126,7 +126,13 @@ function SummaryCard({
     )
 }
 
-export function AccountSummariesExpansion({ accountId }: { accountId: string }): JSX.Element {
+export function AccountSummariesExpansion({
+    accountId,
+    canEditAccount,
+}: {
+    accountId: string
+    canEditAccount: boolean
+}): JSX.Element {
     const { summariesResult, summariesResultLoading, page, expandedSummaryIds, generatingFirstSummary } = useValues(
         accountSummariesLogic({ accountId })
     )
@@ -168,7 +174,7 @@ export function AccountSummariesExpansion({ accountId }: { accountId: string }):
                     detail={`${backfillDescription(cadence)} This usually takes a minute.`}
                 >
                     <Spinner className="text-xl" />
-                    <AccountSummaryCadencePicker accountId={accountId} />
+                    <AccountSummaryCadencePicker accountId={accountId} canEditAccount={canEditAccount} />
                 </SummariesEmptyState>
             )
         }
@@ -181,7 +187,7 @@ export function AccountSummariesExpansion({ accountId }: { accountId: string }):
                         : "Get periodic AI summaries of this account's Slack channel, citing the original messages. Pick a cadence to turn them on."
                 }
             >
-                <AccountSummaryCadencePicker accountId={accountId} />
+                <AccountSummaryCadencePicker accountId={accountId} canEditAccount={canEditAccount} />
             </SummariesEmptyState>
         )
     }
@@ -199,7 +205,7 @@ export function AccountSummariesExpansion({ accountId }: { accountId: string }):
                 </div>
                 <div className="flex items-center gap-2">
                     <span className="text-muted text-sm">Cadence</span>
-                    <AccountSummaryCadencePicker accountId={accountId} />
+                    <AccountSummaryCadencePicker accountId={accountId} canEditAccount={canEditAccount} />
                 </div>
             </div>
             {summaries.map((summary) => (

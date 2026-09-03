@@ -337,6 +337,7 @@ describe('accountsTableQuery', () => {
         const row = {
             id: 'account-id',
             name: 'Acme',
+            canEdit: true,
             externalId: 'acme-1',
             accountFields: { name: 'Acme' },
             tags: ['enterprise'],

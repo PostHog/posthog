@@ -52,7 +52,7 @@ from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared
+from posthog.api.sharing_publish_gate import blocked_access_for_public_queries, is_publicly_shared
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
 from posthog.auth import (
@@ -915,24 +915,24 @@ class InsightSerializer(InsightBasicSerializer):
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
 
-        # Shared links execute without access checks, so an edit that adds a table
-        # the editor can't run must not reach a publicly shared surface.
-        # Unshared insights save without any access query.
+        # Public insights must remain runnable by shared viewers. RBAC organizations also
+        # prevent editors from publishing queries outside their own access.
         new_query = validated_data.get("query")
-        if (
-            isinstance(new_query, dict)
-            and new_query != instance.query
-            and instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
-            # org admins have full access, so skip the gate for a faster save
-            and not (self.user_access_control and self.user_access_control.is_organization_admin)
-            and is_publicly_shared(instance)
-        ):
-            blocked = blocked_access_for_user(self.context["request"].user, instance.team, [new_query])
+        if isinstance(new_query, dict) and new_query != instance.query and is_publicly_shared(instance):
+            check_publisher_access = instance.team.organization.is_feature_available(
+                AvailableFeature.ACCESS_CONTROL
+            ) and not (self.user_access_control and self.user_access_control.is_organization_admin)
+            blocked = blocked_access_for_public_queries(
+                self.context["request"].user,
+                instance.team,
+                [new_query],
+                check_publisher_access=check_publisher_access,
+            )
             if blocked:
                 blocked_list = ", ".join(f"`{name}`" for name in blocked)
                 raise serializers.ValidationError(
-                    f"Can't save this query: you don't have access to {blocked_list}, "
-                    "and this insight is publicly shared."
+                    f"Can't save this query because not everyone who can open the publicly shared content can access "
+                    f"{blocked_list}."
                 )
 
         if validated_data.get("deleted", False):

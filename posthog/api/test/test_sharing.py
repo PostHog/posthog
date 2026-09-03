@@ -2134,6 +2134,23 @@ class TestSharingPublishGate(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["enabled"] is True
 
+    @parameterized.expand([("organization_admin",), ("without_access_control",)])
+    def test_shared_viewer_incompatible_query_cannot_be_enabled(self, publisher_context: str) -> None:
+        if publisher_context == "organization_admin":
+            membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+            membership.level = OrganizationMembership.Level.ADMIN
+            membership.save(update_fields=["level"])
+        else:
+            self.organization.available_product_features = []
+            self.organization.save(update_fields=["available_product_features"])
+        self.insight.query = {"kind": "AccountsQuery", "select": ["feature_requests.count"]}
+        self.insight.save(update_fields=["query"])
+
+        response = self._enable_sharing("insight")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "system.feature_request_account_links" in str(response.json())
+
     def test_system_table_denial_blocks_publishing(self):
         AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
         self.insight.query = {
@@ -2342,6 +2359,41 @@ class TestSaveTimeAccessBlock(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
 
+    @parameterized.expand([("organization_admin",), ("without_access_control",)])
+    def test_shared_viewer_incompatible_query_cannot_replace_public_insight_query(self, publisher_context: str) -> None:
+        if publisher_context == "organization_admin":
+            membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+            membership.level = OrganizationMembership.Level.ADMIN
+            membership.save(update_fields=["level"])
+        else:
+            self.organization.available_product_features = []
+            self.organization.save(update_fields=["available_product_features"])
+        SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/",
+            {"query": {"kind": "AccountsQuery", "select": ["feature_requests.count"]}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "system.feature_request_account_links" in str(response.json())
+
+    def test_shared_viewer_incompatible_query_cannot_be_added_to_public_dashboard_without_access_control(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save(update_fields=["available_product_features"])
+        self.insight.query = {"kind": "AccountsQuery", "select": ["feature_requests.count"]}
+        self.insight.save(update_fields=["query"])
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/", {"dashboards": [dashboard.id]}
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "system.feature_request_account_links" in str(response.json())
+        assert not DashboardTile.objects.filter(dashboard=dashboard, insight=self.insight).exists()
+
     def test_adding_insight_to_shared_dashboard_blocked(self):
         self._deny_editor()
         self.insight.query = self._DENIED_QUERY
@@ -2379,6 +2431,68 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/",
             {"content": content, "version": notebook.version},
         )
+
+    @parameterized.expand(
+        [
+            ("update_without_access_control", "update", "without_access_control"),
+            ("collab_as_organization_admin", "collab", "organization_admin"),
+            ("markdown_as_organization_admin", "markdown", "organization_admin"),
+        ]
+    )
+    def test_shared_viewer_incompatible_query_cannot_be_saved_to_public_notebook(
+        self, _case: str, save_path: str, publisher_context: str
+    ) -> None:
+        if publisher_context == "organization_admin":
+            membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+            membership.level = OrganizationMembership.Level.ADMIN
+            membership.save(update_fields=["level"])
+        else:
+            self.organization.available_product_features = []
+            self.organization.save(update_fields=["available_product_features"])
+        notebook = self._shared_notebook({"type": "doc", "content": []})
+        denied_query = {"kind": "AccountsQuery", "select": ["feature_requests.count"]}
+        query_node = {
+            "type": "ph-query",
+            "attrs": {"nodeId": "n1", "query": denied_query},
+        }
+        new_content = {"type": "doc", "content": [query_node]}
+
+        if save_path == "update":
+            response = self._patch_notebook_content(notebook, new_content)
+        elif save_path == "collab":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/collab/save/",
+                data={"client_id": "c1", "version": notebook.version, "steps": [], "content": new_content},
+                format="json",
+            )
+        else:
+            markdown_content = {
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "ph-markdown-notebook",
+                        "attrs": {
+                            "nodeId": "markdown-notebook-v2",
+                            "markdown": '<Query nodeId="q1" query={' + json.dumps(denied_query) + "} />",
+                        },
+                    }
+                ],
+            }
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/collab/markdown_save/",
+                data={
+                    "client_id": "c1",
+                    "version": notebook.version,
+                    "content": markdown_content,
+                    "text_content": "",
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "system.feature_request_account_links" in str(response.json())
+        notebook.refresh_from_db()
+        assert notebook.content == {"type": "doc", "content": []}
 
     @parameterized.expand(
         [

@@ -27,7 +27,6 @@ import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { percentage } from 'lib/utils/numbers'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { urls } from 'scenes/urls'
@@ -37,7 +36,6 @@ import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/data
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~/queries/types'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type {
     AccountRelationshipDefinitionApi,
@@ -746,10 +744,6 @@ function useContextColumns(): Record<string, QueryContextColumn> {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const accountEditorRestrictionReason = getAccessControlDisabledReason(
-        AccessControlResourceType.CustomerAnalytics,
-        AccessControlLevel.Editor
-    )
     return useMemo(() => {
         const columns: Record<string, QueryContextColumn> = {}
         for (const key of visibleColumnNames) {
@@ -763,7 +757,9 @@ function useContextColumns(): Record<string, QueryContextColumn> {
                     renderTitle: () => <SortableColumnHeader column={key} label="Tags" />,
                     width: columnWidths[key] ?? COLUMN_WIDTHS.tag_names,
                     ...resizeHandlers,
-                    render: ({ record }) => <TagsCell record={record} isEditable={!accountEditorRestrictionReason} />,
+                    render: ({ record }) => (
+                        <TagsCell record={record} isEditable={isAccountsTableRow(record) && record.canEdit} />
+                    ),
                 }
                 continue
             }
@@ -780,7 +776,9 @@ function useContextColumns(): Record<string, QueryContextColumn> {
                             column={key}
                             definition={definition}
                             display={display}
-                            isEditable={isCustomPropertyEditable(definition) && !accountEditorRestrictionReason}
+                            isEditable={
+                                isCustomPropertyEditable(definition) && isAccountsTableRow(record) && record.canEdit
+                            }
                         />
                     ),
                 }
@@ -797,7 +795,7 @@ function useContextColumns(): Record<string, QueryContextColumn> {
                             record={record}
                             column={key}
                             definition={relationshipDefinition}
-                            canEdit={!accountEditorRestrictionReason}
+                            canEdit={isAccountsTableRow(record) && record.canEdit}
                             canUnassign={!relationshipUnassignRestrictionReason}
                         />
                     ),
@@ -823,7 +821,6 @@ function useContextColumns(): Record<string, QueryContextColumn> {
         setColumnWidth,
         reportColumnResize,
         relationshipUnassignRestrictionReason,
-        accountEditorRestrictionReason,
     ])
 }
 
@@ -857,8 +854,12 @@ function useExpandable(): QueryContext<DataTableNode>['expandable'] {
             },
             expandedRowRender: ({ result }) => {
                 const cell = getNameCell(result)
-                return cell ? (
-                    <AccountNotebooksExpansion accountId={cell.id} externalId={cell.external_id ?? ''} />
+                return cell && isAccountsTableRow(result) ? (
+                    <AccountNotebooksExpansion
+                        accountId={cell.id}
+                        externalId={cell.external_id ?? ''}
+                        canEditAccount={result.canEdit}
+                    />
                 ) : null
             },
         }

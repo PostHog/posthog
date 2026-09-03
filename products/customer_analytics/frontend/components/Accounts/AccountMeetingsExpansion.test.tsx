@@ -5,7 +5,6 @@ import { Provider } from 'kea'
 import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel } from '~/types'
 
 import { accountsMeetingsList, accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi, MeetingApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -60,7 +59,7 @@ describe('AccountMeetingsExpansion', () => {
     it('opens a matched meeting in Gong', async () => {
         render(
             <Provider>
-                <AccountMeetingsExpansion accountId="account-1" />
+                <AccountMeetingsExpansion accountId="account-1" canEditAccount />
             </Provider>
         )
 
@@ -73,30 +72,13 @@ describe('AccountMeetingsExpansion', () => {
         expect(posthog.capture).toHaveBeenCalledWith(AccountsEvents.GongCallOpened)
     })
 
-    it.each([AccessControlLevel.None, AccessControlLevel.Viewer])(
-        'disables meeting matching with customer analytics access %s',
-        async (accessLevel) => {
-            const appContext = window.POSTHOG_APP_CONTEXT
-            if (!appContext) {
-                throw new Error('PostHog app context is required for this test.')
-            }
-            window.POSTHOG_APP_CONTEXT = {
-                ...appContext,
-                resource_access_control: {
-                    ...appContext.resource_access_control,
-                    customer_analytics: accessLevel,
-                },
-            }
-            render(
-                <Provider>
-                    <AccountMeetingsExpansion accountId="account-1" />
-                </Provider>
-            )
+    it('disables meeting matching when the account is not editable', async () => {
+        render(
+            <Provider>
+                <AccountMeetingsExpansion accountId="account-1" canEditAccount={false} />
+            </Provider>
+        )
 
-            expect((await screen.findByText('Edit matching')).closest('button')).toHaveAttribute(
-                'aria-disabled',
-                'true'
-            )
-        }
-    )
+        expect((await screen.findByText('Edit matching')).closest('button')).toHaveAttribute('aria-disabled', 'true')
+    })
 })

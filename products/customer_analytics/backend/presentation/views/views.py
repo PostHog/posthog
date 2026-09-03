@@ -1628,13 +1628,9 @@ class AccountViewSet(
             account = api.get_account_for_view(
                 team_id=self.team_id,
                 account_id=self.kwargs["pk"],
-                user_access_control=self.user_access_control,
-                required_level=_object_required_level(request, write=False),
             )
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        except api.ResourceForbiddenError:
-            raise PermissionDenied()
         return Response(AccountSerializer(instance=account).data)
 
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: SupportTicketSerializer(many=True)})
@@ -1956,6 +1952,8 @@ class AccountNotebookViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "account"
+    access_control_unrestricted_read = True
+    access_control_allow_specific_create = True
     serializer_class = AccountNotebookSerializer
     queryset = None
     lookup_field = "short_id"
@@ -2096,6 +2094,7 @@ class AccountNotesViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "account"
+    access_control_unrestricted_read = True
     serializer_class = AccountNoteSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
 
@@ -2165,6 +2164,7 @@ class AccountNotesViewSet(
 class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     scope_object = "account"
     access_control_unrestricted_read = True
+    access_control_allow_specific_create = True
     serializer_class = CustomPropertyValueSerializer
     pagination_class = None
 
@@ -2236,6 +2236,7 @@ class AccountRelationshipDeletePermission(BasePermission):
 class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     scope_object = "account"
     access_control_unrestricted_read = True
+    access_control_allow_specific_create = True
     account_destructive_actions = frozenset({"end"})
     serializer_class = AccountRelationshipSerializer
     permission_classes = [_AccountDestructiveActionPermission, AccountRelationshipDeletePermission]

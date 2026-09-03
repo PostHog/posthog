@@ -3307,6 +3307,7 @@ class AccountsTableRow(BaseModel):
         ...,
         description=("Requested direct Account fields, keyed by their typed field reference."),
     )
+    canEdit: bool = Field(..., description="Whether the current user can edit this account.")
     customProperties: dict[str, str | float | bool | None] = Field(
         ...,
         description="Current values keyed by requested custom property definition ID.",

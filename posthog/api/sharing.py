@@ -548,22 +548,24 @@ class SharingConfigurationViewSet(
             # Special case where we need to save the instance for recordings so that the actual record gets created
             recording.save()
 
-        # Publishing is the access decision for shared links (queries on the public page execute
-        # without warehouse access control), so gate the enable transition: the publisher must have
-        # access to everything the artifact queries, or sharing becomes an escalation channel.
-        if (
-            request.data.get("enabled")
-            and not instance.enabled
-            and self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
-            # org admins have full access, so skip the gate for a faster enable
-            and not self.user_access_control.is_organization_admin
-        ):
-            blocked_names = blocked_access_for_publisher(cast(User, request.user), self.team, instance)
+        # Public queries bypass the publisher's access context. Reject queries the shared viewer
+        # cannot run, and reject publisher-only access escalation when the organization uses RBAC.
+        if request.data.get("enabled") and not instance.enabled:
+            check_publisher_access = (
+                self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+                and not self.user_access_control.is_organization_admin
+            )
+            blocked_names = blocked_access_for_publisher(
+                cast(User, request.user),
+                self.team,
+                instance,
+                check_publisher_access=check_publisher_access,
+            )
             if blocked_names:
                 blocked = ", ".join(f"`{name}`" for name in blocked_names)
                 raise ValidationError(
-                    f"Can't enable sharing: you don't have access to {blocked}, "
-                    "which the shared queries use. Ask an admin for access, or remove those queries first."
+                    f"Can't enable sharing because not everyone who can open the public link can access {blocked}. "
+                    "Remove those queries and try again."
                 )
 
         serializer = self.get_serializer(instance, data=request.data, partial=True)

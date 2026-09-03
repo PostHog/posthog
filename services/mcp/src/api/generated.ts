@@ -1359,6 +1359,8 @@ export namespace Schemas {
     export interface AccountsTableRow {
       /** Requested direct Account fields, keyed by their typed field reference. */
       accountFields: AccountsTableRowAccountFields;
+      /** Whether the current user can edit this account. */
+      canEdit: boolean;
       /** Current values keyed by requested custom property definition ID. */
       customProperties: AccountsTableRowCustomProperties;
       /** Numeric write history keyed by requested custom property definition ID. */

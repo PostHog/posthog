@@ -440,7 +440,13 @@ function conversationPreview(conversation: AccountConversation): string {
         .trim()
 }
 
-export function AccountConversationsExpansion({ accountId }: { accountId: string }): JSX.Element {
+export function AccountConversationsExpansion({
+    accountId,
+    canEditAccount,
+}: {
+    accountId: string
+    canEditAccount: boolean
+}): JSX.Element {
     const logic = accountConversationsLogic({ accountId })
     const emailLogic = accountEmailThreadsLogic({ accountId })
     const {
@@ -476,7 +482,7 @@ export function AccountConversationsExpansion({ accountId }: { accountId: string
             <SourceFilter sources={sources} onChange={setSources} />
             <div className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap">
                 <span className="text-sm text-muted">Slack summary cadence</span>
-                <AccountSummaryCadencePicker accountId={accountId} />
+                <AccountSummaryCadencePicker accountId={accountId} canEditAccount={canEditAccount} />
             </div>
         </div>
     )

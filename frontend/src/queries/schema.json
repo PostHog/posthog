@@ -799,6 +799,10 @@
                     "description": "Requested direct Account fields, keyed by their typed field reference.",
                     "type": "object"
                 },
+                "canEdit": {
+                    "description": "Whether the current user can edit this account.",
+                    "type": "boolean"
+                },
                 "customProperties": {
                     "additionalProperties": {
                         "$ref": "#/definitions/AccountsTableCustomPropertyValue"
@@ -851,7 +855,15 @@
                     "type": "array"
                 }
             },
-            "required": ["id", "name", "accountFields", "relationships", "customProperties", "customPropertyHistory"],
+            "required": [
+                "id",
+                "name",
+                "canEdit",
+                "accountFields",
+                "relationships",
+                "customProperties",
+                "customPropertyHistory"
+            ],
             "type": "object"
         },
         "AccountsTableSearchFilter": {

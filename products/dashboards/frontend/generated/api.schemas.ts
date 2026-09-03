@@ -5517,6 +5517,8 @@ export type AccountsTableRowApiRelationships = { [key: string]: number[] }
 export interface AccountsTableRowApi {
     /** Requested direct Account fields, keyed by their typed field reference. */
     accountFields: AccountsTableRowApiAccountFields
+    /** Whether the current user can edit this account. */
+    canEdit: boolean
     /** Current values keyed by requested custom property definition ID. */
     customProperties: AccountsTableRowApiCustomProperties
     /** Numeric write history keyed by requested custom property definition ID. */

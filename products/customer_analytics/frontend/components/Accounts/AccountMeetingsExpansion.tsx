@@ -16,10 +16,7 @@ import {
 
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import gongIcon from 'public/services/gong.png'
 
@@ -160,14 +157,16 @@ const STATUS_TAG_TYPE = {
     cancelled: 'danger',
 } as const
 
-export function AccountMeetingsExpansion({ accountId }: { accountId: string }): JSX.Element {
+export function AccountMeetingsExpansion({
+    accountId,
+    canEditAccount,
+}: {
+    accountId: string
+    canEditAccount: boolean
+}): JSX.Element {
     const logic = accountMeetingsLogic({ accountId })
     const { canEditMeetingMatching, meetingsResult, meetingsResultLoading, searchTerm, page, matchingEditorOpen } =
         useValues(logic)
-    const accountEditorRestrictionReason = getAccessControlDisabledReason(
-        AccessControlResourceType.CustomerAnalytics,
-        AccessControlLevel.Editor
-    )
     const { setSearchTerm, setPage, openMatchingEditor } = useActions(logic)
 
     if (meetingsResult === NOT_LOADED) {
@@ -284,8 +283,11 @@ export function AccountMeetingsExpansion({ accountId }: { accountId: string }): 
                     icon={<IconPencil />}
                     active={matchingEditorOpen}
                     disabledReason={
-                        accountEditorRestrictionReason ??
-                        (canEditMeetingMatching ? undefined : 'Only project admins can edit meeting matching.')
+                        !canEditAccount
+                            ? 'You cannot edit this account'
+                            : canEditMeetingMatching
+                              ? undefined
+                              : 'Only project admins can edit meeting matching.'
                     }
                     data-attr="edit-meeting-matching"
                     onClick={openMatchingEditor}

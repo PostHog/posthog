@@ -54,6 +54,7 @@ class AccountsTableQueryViewSet(
 ):
     scope_object = "account"
     scope_object_read_actions = ["create"]
+    access_control_unrestricted_read_actions = ["create"]
     serializer_class = _FallbackSerializer
 
     get_throttles = QueryViewSet.get_throttles

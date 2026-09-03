@@ -71,6 +71,7 @@ function buildAccountsTableQueryResponse(rows: AccountRow[]): Record<string, unk
         results: rows.map(([account, tags, noteCount, csm, accountExecutive, accountOwner]) => ({
             id: account.id,
             name: account.name,
+            canEdit: true,
             externalId: account.external_id,
             logoDomain: account.logo_domain,
             accountFields: { name: account.name },

@@ -3135,6 +3135,8 @@ export interface AccountsTableCustomPropertyHistoryPoint {
 export interface AccountsTableRow {
     id: string
     name: string
+    /** Whether the current user can edit this account. */
+    canEdit: boolean
     externalId?: string | null
     /** Bare hostname the row's logo is rendered from. Null when no source resolved one. */
     logoDomain?: string | null

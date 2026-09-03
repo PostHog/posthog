@@ -3,22 +3,19 @@ import { useActions, useValues } from 'kea'
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
 import { ACCOUNT_LINK_FIELDS, accountLinksLogic } from './accountLinksLogic'
 
-export function EditAccountLinksButton({ accountId }: { accountId: string }): JSX.Element {
+export function EditAccountLinksButton({
+    accountId,
+    canEditAccount,
+}: {
+    accountId: string
+    canEditAccount: boolean
+}): JSX.Element {
     const logic = accountLinksLogic({ accountId })
     const { editorOpen, formValues, savingLinks } = useValues(logic)
     const { openEditor, closeEditor, setFieldValue, saveLinks } = useActions(logic)
-    const accountEditorRestrictionReason = getAccessControlDisabledReason(
-        AccessControlResourceType.CustomerAnalytics,
-        AccessControlLevel.Editor
-    )
-
-    if (accountEditorRestrictionReason) {
+    if (!canEditAccount) {
         return (
             <LemonButton
                 size="xsmall"
@@ -26,7 +23,7 @@ export function EditAccountLinksButton({ accountId }: { accountId: string }): JS
                 icon={<IconPencil />}
                 tooltip="Edit links"
                 data-attr="edit-account-links"
-                disabledReason={accountEditorRestrictionReason}
+                disabledReason="You cannot edit this account"
             />
         )
     }
