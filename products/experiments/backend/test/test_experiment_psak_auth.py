@@ -4,13 +4,14 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 from posthog.test.api_keys import create_project_secret_api_key
 
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
-def _create_experiment(team, name: str, flag_key: str) -> Experiment:
+def _create_experiment(team: Team, name: str, flag_key: str) -> Experiment:
     flag = FeatureFlag.objects.create(
         team=team,
         key=flag_key,
@@ -28,7 +29,7 @@ def _create_experiment(team, name: str, flag_key: str) -> Experiment:
 
 
 class TestExperimentPSAKAuth(APIBaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.experiment = _create_experiment(self.team, "First experiment", "psak-flag-1")
         self.other_experiment = _create_experiment(self.team, "Second experiment", "psak-flag-2")
@@ -36,10 +37,10 @@ class TestExperimentPSAKAuth(APIBaseTest):
         # Log out the test client so only the PSAK header authenticates requests
         self.client.logout()
 
-    def _auth_headers(self, token: str) -> dict:
+    def _auth_headers(self, token: str) -> dict[str, str]:
         return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
 
-    def test_psak_can_list_experiments(self):
+    def test_psak_can_list_experiments(self) -> None:
         response = self.client.get(
             f"/api/projects/{self.team.id}/experiments/",
             **self._auth_headers(self.token),
@@ -55,7 +56,7 @@ class TestExperimentPSAKAuth(APIBaseTest):
         # Per-user access levels are meaningless for a service credential
         self.assertIsNone(data["results"][0]["user_access_level"])
 
-    def test_psak_can_retrieve_experiment(self):
+    def test_psak_can_retrieve_experiment(self) -> None:
         response = self.client.get(
             f"/api/projects/{self.team.id}/experiments/{self.experiment.id}/",
             **self._auth_headers(self.token),
@@ -78,7 +79,9 @@ class TestExperimentPSAKAuth(APIBaseTest):
             ("stats", "get", "stats/", None),
         ]
     )
-    def test_psak_blocked_on_non_allowlisted_actions(self, _name, method, path_suffix, body):
+    def test_psak_blocked_on_non_allowlisted_actions(
+        self, _name: str, method: str, path_suffix: str, body: dict | None
+    ) -> None:
         _, wide_token = create_project_secret_api_key(
             self.team, label="wide", scopes=["experiment:read", "experiment:write", "activity_log:read"]
         )
@@ -93,7 +96,7 @@ class TestExperimentPSAKAuth(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
 
-    def test_psak_without_experiment_scope_forbidden(self):
+    def test_psak_without_experiment_scope_forbidden(self) -> None:
         _, token = create_project_secret_api_key(self.team, label="wrong-scope", scopes=["feature_flag:read"])
 
         response = self.client.get(
@@ -103,7 +106,7 @@ class TestExperimentPSAKAuth(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
 
-    def test_psak_from_another_team_forbidden(self):
+    def test_psak_from_another_team_forbidden(self) -> None:
         other_team = self.create_team_with_organization(organization=self.organization)
         _, other_token = create_project_secret_api_key(other_team, label="other-team", scopes=["experiment:read"])
 
@@ -120,7 +123,7 @@ class TestExperimentPSAKAuth(APIBaseTest):
             ("write_rejected", ["experiment:write"], status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_key_creation_allowlist(self, _name, scopes, expected_status):
+    def test_key_creation_allowlist(self, _name: str, scopes: list[str], expected_status: int) -> None:
         self.client.force_login(self.user)
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
