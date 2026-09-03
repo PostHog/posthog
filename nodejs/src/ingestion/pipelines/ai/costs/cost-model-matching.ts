@@ -88,21 +88,21 @@ const applyServiceTierPricing = (result: CostModelResult, properties: Properties
             ? (modelParameters as Record<string, unknown>)['service_tier']
             : undefined)
 
-    if (serviceTier !== 'flex' || !provider || resolveProviderAliases(String(provider).toLowerCase()) !== 'openai') {
-        return result
-    }
-
-    // Halving every rate also halves the per-search web tool fee, which OpenAI does not
-    // discount on flex; accepted, the error is half a cent per search.
-    const cost: ModelCost = { ...result.cost.cost }
-    for (const field of Object.keys(cost) as (keyof ModelCost)[]) {
-        const rate = cost[field]
-        if (typeof rate === 'number') {
-            cost[field] = rate / 2
+    if (serviceTier === 'flex' && provider && resolveProviderAliases(String(provider).toLowerCase()) === 'openai') {
+        // Halving every rate also halves the per-search web tool fee, which OpenAI does not
+        // discount on flex; accepted, the error is half a cent per search.
+        const cost: ModelCost = { ...result.cost.cost }
+        for (const field of Object.keys(cost) as (keyof ModelCost)[]) {
+            const rate = cost[field]
+            if (typeof rate === 'number') {
+                cost[field] = rate / 2
+            }
         }
+
+        return { ...result, cost: { ...result.cost, cost } }
     }
 
-    return { ...result, cost: { ...result.cost, cost } }
+    return result
 }
 
 export const findCostFromModel = (model: string, properties: Properties): CostModelResult | undefined => {
