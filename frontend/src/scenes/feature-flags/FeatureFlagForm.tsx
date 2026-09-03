@@ -32,6 +32,7 @@ import {
     IconTrash,
 } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonCheckbox,
     LemonCollapse,
@@ -63,6 +64,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { cohortsModel } from '~/models/cohortsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime, MultivariateFlagVariant } from '~/types'
 
@@ -71,6 +73,7 @@ import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import {
     FeatureFlagLogicProps,
     featureFlagLogic,
+    hasStaticCohortDependency,
     slugifyFeatureFlagKey,
     validateVariantRolloutSum,
 } from './featureFlagLogic'
@@ -191,6 +194,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
+    const { allCohorts } = useValues(cohortsModel)
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const isNewFeatureFlag = id === 'new' || id === undefined
     const implementationRef = useRef<HTMLDivElement>(null)
@@ -540,6 +544,17 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 data-attr="feature-flag-also-create-in-projects"
                                             />
                                         </LemonField.Pure>
+                                        {alsoCreateInProjects.length > 0 &&
+                                            hasStaticCohortDependency(featureFlag, allCohorts.results) && (
+                                                <LemonBanner
+                                                    type="warning"
+                                                    data-attr="feature-flag-also-create-in-projects-static-cohort-warning"
+                                                >
+                                                    This flag targets a static cohort. Projects that don't have a cohort
+                                                    with the same name get an empty copy of it, so that condition
+                                                    matches nobody there until you add people to it.
+                                                </LemonBanner>
+                                            )}
                                     </>
                                 )}
                             </div>
