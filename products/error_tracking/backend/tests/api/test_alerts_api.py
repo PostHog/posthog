@@ -529,7 +529,7 @@ class TestErrorTrackingAlertThreads(APIBaseTest):
         assert thread["alert_name"] == "Production errors"
         assert thread["channel_name"] == "#alerts"
         assert thread["external_url"] == "https://slack.com/archives/C0123/p1725270000123456"
-        assert thread["delivered_count"] == 2
+        assert "delivered_count" not in thread
         assert thread["last_error"] == "Slack error: not_in_channel"
         assert thread["consecutive_failures"] == 2
 
