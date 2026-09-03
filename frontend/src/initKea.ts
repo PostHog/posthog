@@ -53,6 +53,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadInstallRequests', // Polled in the background on Settings → Integrations; the banner just stays hidden
     'loadPrChecks', // Polled in the Inbox report detail; the CI checks section renders its own error state
     'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
+    'loadCiStatuses', // Decorative CI glyphs polled by the Inbox list; a failure just leaves the pill without one
     'loadMonitoringSnapshot', // The managed warehouse Monitoring tab renders its own retry state
     'loadMonitoringSeries', // The managed warehouse Monitoring tab renders its own partial/error state
     'loadInstrumentationChecklist', // AI observability hides its checklist entirely rather than accusing a project on data it could not read
