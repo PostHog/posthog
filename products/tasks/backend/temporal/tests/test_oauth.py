@@ -432,11 +432,14 @@ def test_workflow_run_fails_closed_when_owner_is_not_a_current_org_member(mock_c
     [
         ("full", "read_only"),
         ("read_only", "full"),
+        # A snapshotted scout posture is a dict rather than a preset string. Skipping it would
+        # drop the snapshot leg of the intersection and grant the request in full.
+        ("full", {"preset": "signals_scout", "extra_write_scopes": ["dashboard:write"]}),
     ],
 )
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_workflow_run_scopes_never_exceed_request_or_snapshot(
-    mock_create: MagicMock, requested: PosthogMcpScopes, snapshot: str
+    mock_create: MagicMock, requested: PosthogMcpScopes, snapshot: PosthogMcpScopes
 ) -> None:
     from posthog.models.organization import OrganizationMembership
     from posthog.temporal.oauth import resolve_scopes
@@ -453,10 +456,10 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
     create_oauth_access_token_for_run(task, state, scopes=requested)
 
     granted = set(mock_create.call_args.kwargs["scopes"])
-    read_only = set(resolve_scopes("read_only", include_internal_scopes=True))
     # Whichever side is narrower wins: a teammate rerun requesting full cannot exceed the
     # workflow's snapshot, and a narrow request is never widened to the snapshot.
-    assert granted <= read_only
+    assert granted <= set(resolve_scopes(requested, include_internal_scopes=True))
+    assert granted <= set(resolve_scopes(snapshot, include_internal_scopes=True))
 
 
 @pytest.mark.django_db
