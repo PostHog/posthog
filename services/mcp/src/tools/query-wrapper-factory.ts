@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { compactTraceResults } from '@/lib/trace-compaction'
+import { type TraceDetail, compactTraceResults } from '@/lib/trace-compaction'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
@@ -13,6 +13,29 @@ import {
 // prompts, completions, tool payloads). Their results are bounded before being
 // returned so a single huge trace can't blow the caller's context window.
 const TRACE_QUERY_KINDS = new Set(['TraceQuery', 'TracesQuery'])
+
+const TRACE_DETAIL_FIELD = 'detail'
+const DEFAULT_TRACE_DETAIL: TraceDetail = 'summary'
+const TRACE_DETAIL_DESCRIPTION =
+    'How much of each event to return. "summary" (default) returns trace and event metadata (IDs, timestamps, model, latency, tokens, cost, tools called, errors) with short previews of prompts and outputs. "full" returns complete event properties and is much larger, so ask for it only once you know which trace you need to read.'
+
+/**
+ * Add the `detail` control to the trace wrappers only. The field is a tool-level
+ * control rather than part of the query body, and the backend trace queries
+ * forbid unknown fields, so the handler strips it before POSTing.
+ */
+function withTraceDetail<T extends ZodObjectAny>(schema: T, kind: string): T {
+    if (!TRACE_QUERY_KINDS.has(kind) || !(schema instanceof z.ZodObject)) {
+        return schema
+    }
+    return schema.extend({
+        [TRACE_DETAIL_FIELD]: z
+            .enum(['summary', 'full'])
+            .default(DEFAULT_TRACE_DETAIL)
+            .optional()
+            .describe(TRACE_DETAIL_DESCRIPTION),
+    }) as unknown as T
+}
 
 interface QueryWrapperConfig<T extends ZodObjectAny> {
     name: string
@@ -132,7 +155,8 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
     // Both the advertised tool schema and the handler's re-parse must use the
     // stripped schema — parsing with the original would re-apply the `false`
     // default and make omission indistinguishable from an explicit `false`.
-    const schema = withoutTestAccountFilterDefault(config.schema)
+    const schema = withTraceDetail(withoutTestAccountFilterDefault(config.schema), config.kind)
+    const isTraceQuery = TRACE_QUERY_KINDS.has(config.kind)
     return () => ({
         name: config.name,
         schema,
@@ -143,6 +167,14 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             // POSTing so it doesn't leak into the backend `kind: ...Query` payload.
             const { output_format: callerOutputFormat, ...queryParams } = params as typeof params & {
                 output_format?: 'optimized' | 'json'
+            }
+            // `detail` is a trace-wrapper control, not part of the query body either.
+            // Only the trace wrappers advertise it, so anywhere else a field of that
+            // name belongs to the backend query and stays in `queryParams`.
+            const traceDetailParams = queryParams as { [TRACE_DETAIL_FIELD]?: TraceDetail }
+            const traceDetail = traceDetailParams[TRACE_DETAIL_FIELD] ?? DEFAULT_TRACE_DETAIL
+            if (isTraceQuery) {
+                delete traceDetailParams[TRACE_DETAIL_FIELD]
             }
             const query: Record<string, unknown> = {
                 ...queryParams,
@@ -193,7 +225,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
 
             const data = await context.api.query({ projectId }).runQuery({ query })
             const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && data.formatted_results
-            const results = TRACE_QUERY_KINDS.has(config.kind) ? compactTraceResults(data.results) : data.results
+            const results = isTraceQuery ? compactTraceResults(data.results, traceDetail) : data.results
             // Include `query` in the payload so UI apps (TrendsVisualizer, LifecycleVisualizer)
             // can honor query-level filters like `lifecycleFilter.toggledLifecycles` and
             // `trendsFilter.display`.
