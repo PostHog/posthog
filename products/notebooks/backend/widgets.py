@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
+from functools import partial
 from time import monotonic
 from uuid import UUID
 
@@ -14,12 +15,13 @@ from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.crypto import salted_hmac
 
 import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.models import ProjectSecretAPIKey, Team, User
-from posthog.models.utils import generate_random_token_secret, hash_key_value, mask_key_value
+from posthog.models.utils import SECRET_API_TOKEN_PREFIX, hash_key_value
 
 from products.notebooks.backend.models import (
     MAX_WIDGET_NODE_ID_LENGTH,
@@ -58,6 +60,7 @@ GENERATION_CANCELLATION_TTL_SECONDS = 60 * 15
 MAX_SCHEMA_CONTEXT_BYTES = 64 * 1_024
 MAX_INPUT_CONTRACT_BYTES = 512 * 1_024
 NOTEBOOK_GENERATED_WIDGETS_FLAG = "notebook-generated-widgets"
+_WIDGET_GATEWAY_CREDENTIAL_SALT = "products.notebooks.widget_gateway_credential"
 
 _INPUT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -595,6 +598,7 @@ def _fail_stale_generation_jobs(team_id: int) -> None:
         | Q(heartbeat_at__isnull=True, started_at__lt=cutoff)
         | Q(heartbeat_at__isnull=True, started_at__isnull=True, created_at__lt=cutoff)
     )
+    stale_job_ids = list(stale_jobs.values_list("id", flat=True))
     failed_at = timezone.now()
     stale_jobs.filter(cancel_requested_at__isnull=False).update(
         status=GeneratedWidgetGenerationJob.Status.CANCELED,
@@ -610,6 +614,12 @@ def _fail_stale_generation_jobs(team_id: int) -> None:
         error_detail="Generation stopped unexpectedly. Start it again.",
         finished_at=failed_at,
     )
+    reconciled_job_ids = list(
+        GeneratedWidgetGenerationJob.objects.for_team(team_id)
+        .filter(id__in=stale_job_ids, finished_at=failed_at)
+        .values_list("id", flat=True)
+    )
+    transaction.on_commit(partial(_clear_widget_gateway_credentials, reconciled_job_ids, team_id))
 
 
 def _reconcile_stale_generation_job(job: GeneratedWidgetGenerationJob) -> None:
@@ -643,6 +653,7 @@ def _reconcile_stale_generation_job(job: GeneratedWidgetGenerationJob) -> None:
         .update(**updates)
     )
     if updated:
+        transaction.on_commit(partial(_clear_widget_gateway_credential, job.id, job.team_id))
         for field, value in updates.items():
             setattr(job, field, value)
     else:
@@ -919,7 +930,7 @@ def _job_failure_phase(job: GeneratedWidgetGenerationJob | None) -> str | None:
 
 
 def fail_widget_generation_job(job_id: UUID, team_id: int) -> None:
-    _delete_widget_gateway_key(job_id, team_id)
+    _clear_widget_gateway_credential(job_id, team_id)
     job = GeneratedWidgetGenerationJob.objects.for_team(team_id).only("id", "team_id").filter(id=job_id).first()
     if job is not None:
         _mark_job_failed(
@@ -945,12 +956,28 @@ def heartbeat_widget_generation_job(job_id: UUID, team_id: int) -> None:
     ).update(heartbeat_at=timezone.now())
 
 
-def _widget_gateway_key_id(job_id: UUID) -> str:
-    return f"widget-{job_id.hex}"
+def _widget_gateway_api_key_value(job_id: UUID, team_id: int) -> str:
+    digest = salted_hmac(
+        _WIDGET_GATEWAY_CREDENTIAL_SALT,
+        f"{team_id}:{job_id.hex}",
+        algorithm="sha256",
+    ).hexdigest()
+    return f"{SECRET_API_TOKEN_PREFIX}{digest}"
 
 
-def _delete_widget_gateway_key(job_id: UUID, team_id: int) -> None:
-    ProjectSecretAPIKey.objects.filter(id=_widget_gateway_key_id(job_id), team_id=team_id).delete()
+def _clear_widget_gateway_credential(job_id: UUID, team_id: int) -> None:
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return
+    from posthog.storage.gateway_credential_cache import (  # noqa: PLC0415 — keeps gateway cache setup off notebook startup
+        clear_gateway_credential,
+    )
+
+    clear_gateway_credential(hash_key_value(_widget_gateway_api_key_value(job_id, team_id)))
+
+
+def _clear_widget_gateway_credentials(job_ids: list[UUID], team_id: int) -> None:
+    for job_id in job_ids:
+        _clear_widget_gateway_credential(job_id, team_id)
 
 
 @contextmanager
@@ -972,26 +999,20 @@ def _widget_gateway_api_key(job: GeneratedWidgetGenerationJob) -> Iterator[str |
         project_gateway_credential,
     )
 
-    _delete_widget_gateway_key(job.id, job.team_id)
-    value = generate_random_token_secret()
-    key = ProjectSecretAPIKey.objects.create(
-        id=_widget_gateway_key_id(job.id),
-        team_id=job.team_id,
-        label=f"Notebook widget {job.id.hex[:24]}",
+    value = _widget_gateway_api_key_value(job.id, job.team_id)
+    credential = ProjectSecretAPIKey(
+        team=job.team,
+        label="Notebook widget generation",
         secure_value=hash_key_value(value),
-        mask_value=mask_key_value(value),
         created_by=job.requested_by,
-        scopes=[],
+        scopes=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE],
     )
     try:
-        # The worker owns this short-lived credential's projection and revocation. Enabling the
-        # scope without a save signal prevents a delayed projection from restoring it after delete.
-        key.scopes = [GATEWAY_CREDENTIAL_REQUIRED_SCOPE]
-        ProjectSecretAPIKey.objects.filter(id=key.id, team_id=job.team_id).update(scopes=key.scopes)
-        project_gateway_credential(key)
+        # The unsaved model reuses the gateway policy resolver without exposing this credential through the key API.
+        project_gateway_credential(credential)
         yield value
     finally:
-        _delete_widget_gateway_key(job.id, job.team_id)
+        _clear_widget_gateway_credential(job.id, job.team_id)
 
 
 def run_widget_generation_job(job_id: UUID, team_id: int) -> None:

@@ -5,7 +5,7 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 - Generation runs as a durable background job. The notebook shows its phase, elapsed time, cancellation, and terminal errors. Queued jobs stop immediately when canceled.
 - Failed jobs expose a stable error code and the failed source-generation, security-review, or publishing phase. AI request logs include upstream status and request IDs when available.
 - Source generation and security review send Claude requests through the native Anthropic Messages format in both local and cloud environments.
-- On the Go AI gateway, each job authenticates both model calls with a temporary `llm_gateway:read` project key. The gateway attributes and bills the calls to that project. The worker deletes the key before publishing, on failure, or when Temporal recovers an interrupted job.
+- On the Go AI gateway, each job authenticates both model calls with a temporary Redis-only `llm_gateway:read` project credential. The gateway attributes and bills the calls to that project. The worker clears the credential before publishing, on failure, or when a stale job is reconciled.
 - Successful source, generated titles, prompts, models, dataframe contracts, and security reviews are stored as immutable versions.
 - People can inspect history and source, request source changes, restore an earlier version, improve the current widget, or regenerate it.
 - A new widget uses “Create an interactive visualization of the data in this notebook” when its instruction field is left empty.

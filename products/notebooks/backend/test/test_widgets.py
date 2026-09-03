@@ -19,7 +19,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import ProjectSecretAPIKey, Team
 from posthog.models.organization import OrganizationMembership
-from posthog.models.project_secret_api_key import find_project_secret_api_key
+from posthog.models.utils import hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.notebook_integration import (
@@ -76,6 +76,7 @@ from products.notebooks.backend.widgets import (
     _extend_prompt_history,
     _materialize_effective_prompt,
     _version_input_contract,
+    _widget_gateway_api_key_value,
     cancel_widget_generation,
     fail_widget_generation_capacity_job,
     fail_widget_generation_job,
@@ -1225,6 +1226,47 @@ class TestWidgetData(APIBaseTest):
         assert not NotebookWidgetInstance.objects.for_team(self.team.id).exists()
         assert not GeneratedWidgetGenerationJob.objects.for_team(self.team.id).exists()
 
+    @override_settings(AI_GATEWAY_REDIS_URL="redis://gateway")
+    def test_start_reconciles_stale_job_gateway_credentials(self) -> None:
+        instance = self._mapping()
+        stale_job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=instance.widget,
+            instance=instance,
+            requested_by=self.user,
+            operation=GeneratedWidgetVersion.Operation.INITIAL,
+            prompt="Render a globe",
+            model="claude-sonnet-4-6",
+            input_contract=[],
+            schema_hash="",
+        )
+        GeneratedWidgetGenerationJob.objects.for_team(self.team.id).filter(id=stale_job.id).update(
+            created_at=timezone.now() - JOB_STALE_AFTER - timedelta(seconds=1)
+        )
+
+        with (
+            patch("products.notebooks.backend.widgets._is_ai_usage_limited", return_value=False),
+            patch("products.notebooks.backend.widgets.start_widget_generation_workflow"),
+            patch("posthog.storage.gateway_credential_cache.clear_gateway_credential") as clear_credential,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            start_widget_generation(
+                notebook=self.notebook,
+                node_id=self.NODE_ID,
+                prompt="Render a different globe",
+                user_id=self.user.id,
+                inspection=WidgetInputInspection(resolved_inputs=[]),
+                model="claude-sonnet-4-6",
+                generation_id=uuid4(),
+                operation=GeneratedWidgetVersion.Operation.INITIAL,
+            )
+
+        stale_job.refresh_from_db()
+        assert stale_job.status == GeneratedWidgetGenerationJob.Status.FAILED
+        clear_credential.assert_called_once_with(
+            hash_key_value(_widget_gateway_api_key_value(stale_job.id, self.team.id))
+        )
+
     def test_capacity_exhaustion_records_a_specific_failure(self) -> None:
         widget = GeneratedWidget.objects.for_team(self.team.id).create(
             team_id=self.team.id,
@@ -1524,7 +1566,8 @@ class TestWidgetData(APIBaseTest):
         assert job.error_code == "gateway_billing_not_configured"
         assert "gateway billing is not configured" in (job.error_detail or "")
 
-    def test_generation_failure_recovery_removes_the_job_gateway_key(self) -> None:
+    @override_settings(AI_GATEWAY_REDIS_URL="redis://gateway")
+    def test_generation_failure_recovery_removes_the_job_gateway_credential(self) -> None:
         instance = self._mapping()
         job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
             team_id=self.team.id,
@@ -1537,20 +1580,11 @@ class TestWidgetData(APIBaseTest):
             input_contract=[],
             schema_hash="",
         )
-        key_id = f"widget-{job.id.hex}"
-        ProjectSecretAPIKey.objects.create(
-            id=key_id,
-            team=self.team,
-            label=f"Notebook widget {job.id.hex[:24]}",
-            secure_value=f"sha256${'a' * 64}",
-            mask_value="phs_...test",
-            created_by=self.user,
-            scopes=["llm_gateway:read"],
-        )
 
-        fail_widget_generation_job(job.id, self.team.id)
+        with patch("posthog.storage.gateway_credential_cache.clear_gateway_credential") as clear_credential:
+            fail_widget_generation_job(job.id, self.team.id)
 
-        assert not ProjectSecretAPIKey.objects.filter(id=key_id).exists()
+        clear_credential.assert_called_once_with(hash_key_value(_widget_gateway_api_key_value(job.id, self.team.id)))
         job.refresh_from_db()
         assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
         assert job.error_code == "generation_abandoned"
@@ -1651,17 +1685,14 @@ class TestWidgetData(APIBaseTest):
 
         def generate_source(**kwargs: object) -> GeneratedWidgetSource:
             gateway_api_key = cast(str, kwargs["api_key"])
-            credential = find_project_secret_api_key(gateway_api_key)
-            assert credential is not None
-            assert credential.team_id == self.team.id
-            assert credential.scopes == ["llm_gateway:read"]
+            assert not ProjectSecretAPIKey.objects.filter(team_id=self.team.id).exists()
             gateway_api_keys.append(gateway_api_key)
             return GeneratedWidgetSource(title="Lighter globe", source=source)
 
         def perform_review(**kwargs: object) -> WidgetSecurityReview:
             gateway_api_key = cast(str, kwargs["api_key"])
             assert gateway_api_key == gateway_api_keys[0]
-            assert find_project_secret_api_key(gateway_api_key) is not None
+            assert not ProjectSecretAPIKey.objects.filter(team_id=self.team.id).exists()
             gateway_api_keys.append(gateway_api_key)
             events.append("review")
             return security_review
@@ -1680,7 +1711,7 @@ class TestWidgetData(APIBaseTest):
                 side_effect=perform_review,
             ) as review,
             patch("posthog.storage.gateway_credential_cache.project_gateway_credential") as project_credential,
-            patch("posthog.storage.gateway_credential_signal_handlers._best_effort_clear"),
+            patch("posthog.storage.gateway_credential_cache.clear_gateway_credential") as clear_credential,
             patch("products.canvas.backend.notebook_integration.get_notebook_canvas_source", return_value="source"),
             patch(
                 "products.canvas.backend.notebook_integration.prepare_notebook_canvas_source",
@@ -1712,9 +1743,13 @@ class TestWidgetData(APIBaseTest):
         assert version.security_reviewed_at is not None
         generate.assert_called_once()
         assert gateway_api_keys[0] == gateway_api_keys[1]
-        assert find_project_secret_api_key(gateway_api_keys[0]) is None
+        assert not ProjectSecretAPIKey.objects.filter(team_id=self.team.id).exists()
         project_credential.assert_called_once()
-        assert project_credential.call_args.args[0].team_id == self.team.id
+        projected_credential = project_credential.call_args.args[0]
+        assert projected_credential.team_id == self.team.id
+        assert projected_credential.scopes == ["llm_gateway:read"]
+        assert projected_credential._state.adding
+        clear_credential.assert_called_once_with(hash_key_value(gateway_api_keys[0]))
         review.assert_called_once()
         assert review.call_args.kwargs["team_id"] == self.team.id
         assert review.call_args.kwargs["trace_id"] == f"notebook-widget-security-review-{job.id}"
@@ -1859,10 +1894,11 @@ class TestWidgetData(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("capacity_retry", True, GeneratedWidgetGenerationJob.Status.QUEUED, "generating", False),
-            ("abandoned", False, GeneratedWidgetGenerationJob.Status.FAILED, "failed", True),
+            ("capacity_retry", True, GeneratedWidgetGenerationJob.Status.QUEUED, "generating", False, False),
+            ("abandoned", False, GeneratedWidgetGenerationJob.Status.FAILED, "failed", True, True),
         ]
     )
+    @override_settings(AI_GATEWAY_REDIS_URL="redis://gateway")
     def test_status_reconciles_queued_generation_by_heartbeat(
         self,
         _name: str,
@@ -1870,6 +1906,7 @@ class TestWidgetData(APIBaseTest):
         expected_job_status: str,
         expected_lifecycle: str,
         expected_write: bool,
+        expected_credential_clear: bool,
     ) -> None:
         widget = GeneratedWidget.objects.for_team(self.team.id).create(
             team_id=self.team.id,
@@ -1900,12 +1937,21 @@ class TestWidgetData(APIBaseTest):
             heartbeat_at=timezone.now() if has_recent_heartbeat else None,
         )
 
-        with CaptureQueriesContext(connection) as queries:
+        with (
+            patch("posthog.storage.gateway_credential_cache.clear_gateway_credential") as clear_credential,
+            self.captureOnCommitCallbacks(execute=True),
+            CaptureQueriesContext(connection) as queries,
+        ):
             result = get_widget_status(notebook=self.notebook, node_id=self.NODE_ID)
 
         job.refresh_from_db()
         write_queries = [query["sql"] for query in queries if query["sql"].lstrip().upper().startswith("UPDATE")]
         assert bool(write_queries) is expected_write
+        assert clear_credential.called is expected_credential_clear
+        if expected_credential_clear:
+            clear_credential.assert_called_once_with(
+                hash_key_value(_widget_gateway_api_key_value(job.id, self.team.id))
+            )
         assert job.status == expected_job_status
         assert result.lifecycle_status == expected_lifecycle
         assert result.error_detail == ("Generation stopped unexpectedly. Start it again." if expected_write else None)

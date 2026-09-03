@@ -151,7 +151,7 @@ class WidgetGenerationStepError(Exception):
                 status_code=status_code,
                 request_id=request_id,
             )
-        if status_code == 402:
+        if status_code == 402 and isinstance(error, APIStatusError):
             denial = error.response.headers.get("X-PostHog-Denial", "").partition(":")[0]
             suffix, detail = {
                 "insufficient_credits": (
