@@ -24,6 +24,16 @@ describe("getRelativePath", () => {
     expect(getRelativePath("/repo", "/repo")).toBe("");
   });
 
+  it.each([
+    ["C:/repo/src/App.tsx", "C:\\repo", "src/App.tsx"],
+    ["C:\\repo\\src\\App.tsx", "C:\\repo", "src\\App.tsx"],
+    ["C:\\repo\\src\\App.tsx", "C:\\repo\\", "src\\App.tsx"],
+    ["C:/repo", "C:\\repo", ""],
+    ["C:\\repo-two\\src\\App.tsx", "C:\\repo", "C:\\repo-two\\src\\App.tsx"],
+  ])("relativizes %s against %s on Windows", (absolutePath, repoPath, want) => {
+    expect(getRelativePath(absolutePath, repoPath)).toBe(want);
+  });
+
   it("keeps the path when there is no repo", () => {
     expect(getRelativePath("/repo/src/App.tsx", null)).toBe(
       "/repo/src/App.tsx",
