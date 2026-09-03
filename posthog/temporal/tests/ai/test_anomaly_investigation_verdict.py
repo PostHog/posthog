@@ -22,6 +22,7 @@ from posthog.temporal.ai.anomaly_investigation.workflow import (
 from products.alerts.backend.models.alert import (
     AlertCheck,
     AlertConfiguration,
+    AlertSubscription,
     InvestigationStatus,
     InvestigationVerdict,
 )
@@ -281,3 +282,20 @@ class TestVerdictChangeFollowup(NonAtomicBaseTest):
         breaches = mock_dispatch.call_args.args[2]
         assert breaches[0].startswith("Investigation verdict changed from True positive to")
         assert self.alert_check.targets_notified == {"investigation_verdict_change": True}
+
+    @patch("posthog.tasks.alerts.utils.send_alert_email")
+    def test_follow_up_email_uses_a_campaign_of_its_own(self, mock_send_email) -> None:
+        AlertSubscription.objects.create(user=self.user, alert_configuration=self.alert, created_by=self.user)
+
+        _deliver_investigation_outcome(
+            alert=self.alert,
+            alert_check=self.alert_check,
+            verdict="false_positive",
+            previous_verdict="true_positive",
+            summary="The spike is a bot crawl.",
+            notebook_short_id=None,
+        )
+
+        campaign_key = mock_send_email.call_args.kwargs["campaign_key"]
+        assert campaign_key != f"alert-firing-notification-{self.alert_check.id}"
+        assert str(self.alert_check.id) in campaign_key

@@ -619,7 +619,16 @@ def _dispatch_verdict_change_followup(
     extra_properties = (
         {"investigation_notebook_url": absolute_uri(f"/notebooks/{notebook_short_id}")} if notebook_short_id else None
     )
-    dispatch_alert_notification(alert, check, breaches, extra_properties=extra_properties)
+    # A key of its own: the check id already carries a delivery record per recipient from
+    # the notification sent at fire time, and the email sender drops a second send under the
+    # same campaign. Stable across retries, so at-most-once per recipient still holds.
+    dispatch_alert_notification(
+        alert,
+        check,
+        breaches,
+        extra_properties=extra_properties,
+        idempotency_key=f"{check.id}:investigation-verdict-change",
+    )
     check.targets_notified = {**receipts, _VERDICT_CHANGE_FOLLOWUP_KEY: True}
     check.save(update_fields=["targets_notified"])
     logger.info(
