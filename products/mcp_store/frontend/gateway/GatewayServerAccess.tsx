@@ -177,7 +177,7 @@ export function GatewayAccessSection(): JSX.Element | null {
                                 <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-secondary">
                                     <IconSparkles />
                                 </div>
-                                <div className="flex-1 min-w-0">
+                                <div className="min-w-0">
                                     <div className="font-semibold truncate">{agent.name}</div>
                                     <div className="text-xs text-secondary truncate">
                                         <span className="font-mono">{agent.handle}</span>
@@ -186,42 +186,50 @@ export function GatewayAccessSection(): JSX.Element | null {
                                             : ` · shared ${agent.scope === 'team' ? 'to the team ' : ''}by ${agent.user.first_name || agent.user.email}`}
                                     </div>
                                 </div>
-                                {sharedByYou && (
-                                    <AgentGrantScopeControl
-                                        accountId={agent.service_account_id}
-                                        serverId={server.id}
-                                        scope={agent.scope}
-                                    />
-                                )}
-                                {sharedByYou ? (
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="tertiary"
-                                        status="danger"
-                                        icon={<IconX />}
-                                        loading={agentServerAccessLoadingKeys.has(
-                                            agentServerAccessKey(agent.service_account_id, server.id)
-                                        )}
-                                        onClick={() => setAgentServerAccess(agent.service_account_id, server.id, false)}
-                                    >
-                                        Revoke
-                                    </LemonButton>
-                                ) : (
-                                    <RemoveAllSharesButton
-                                        accountId={agent.service_account_id}
-                                        accountName={agent.name}
-                                        serverId={server.id}
-                                        serverName={server.name}
-                                        shareCount={agentShareCount}
-                                    />
-                                )}
-                                <LemonTag type={agent.status === 'active' ? 'success' : 'muted'} size="small">
+                                <LemonTag
+                                    type={agent.status === 'active' ? 'success' : 'muted'}
+                                    size="small"
+                                    className="shrink-0"
+                                >
                                     {agent.status === 'active'
                                         ? agent.last_active_at
                                             ? `Active ${dayjs(agent.last_active_at).fromNow()}`
                                             : 'Active'
                                         : 'Paused'}
                                 </LemonTag>
+                                <div className="ml-auto flex shrink-0 items-center gap-3">
+                                    {sharedByYou && (
+                                        <AgentGrantScopeControl
+                                            accountId={agent.service_account_id}
+                                            serverId={server.id}
+                                            scope={agent.scope}
+                                        />
+                                    )}
+                                    {sharedByYou ? (
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="tertiary"
+                                            status="danger"
+                                            icon={<IconX />}
+                                            loading={agentServerAccessLoadingKeys.has(
+                                                agentServerAccessKey(agent.service_account_id, server.id)
+                                            )}
+                                            onClick={() =>
+                                                setAgentServerAccess(agent.service_account_id, server.id, false)
+                                            }
+                                        >
+                                            Revoke
+                                        </LemonButton>
+                                    ) : (
+                                        <RemoveAllSharesButton
+                                            accountId={agent.service_account_id}
+                                            accountName={agent.name}
+                                            serverId={server.id}
+                                            serverName={server.name}
+                                            shareCount={agentShareCount}
+                                        />
+                                    )}
+                                </div>
                             </div>
                         )
                     })}

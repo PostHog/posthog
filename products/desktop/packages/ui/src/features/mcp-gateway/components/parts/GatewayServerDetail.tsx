@@ -1029,7 +1029,7 @@ function AccessSection({
                 className="group border-gray-5 border-b px-3 py-2 last:border-b-0"
               >
                 <RobotAvatar />
-                <Flex direction="column" className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-col">
                   <Text truncate className="font-medium text-sm">
                     {agent.name}
                   </Text>
@@ -1039,36 +1039,8 @@ function AccessSection({
                       isYourShare ? "you" : gatewayUserName(agent.user)
                     }`}
                   </Text>
-                </Flex>
-                {isYourShare && (
-                  <AgentScopeToggle
-                    value={agent.scope}
-                    disabled={accessPending}
-                    onChange={(scope) =>
-                      onSetAgentScope(
-                        agent.service_account_id,
-                        agent.name,
-                        scope,
-                      )
-                    }
-                  />
-                )}
-                {/* Revoking removes only the caller's own share, so it is
-                    offered only on rows backed by the caller's connection. */}
-                {isYourShare && (
-                  <Button
-                    variant="ghost"
-                    color="red"
-                    size="1"
-                    className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-                    onClick={() =>
-                      onRevokeAgent(agent.service_account_id, agent.name)
-                    }
-                  >
-                    <X size={11} /> Revoke
-                  </Button>
-                )}
-                <Flex align="center" gap="2" className="shrink-0">
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
                   <span
                     className={`h-[6px] w-[6px] rounded-full ${
                       agent.status === "active" ? "bg-(--green-9)" : "bg-gray-8"
@@ -1083,7 +1055,36 @@ function AccessSection({
                         }`
                       : "Paused"}
                   </Text>
-                </Flex>
+                </div>
+                {/* Revoking removes only the caller's own share, so the scope
+                    toggle and Revoke appear only on rows backed by the caller's
+                    connection. */}
+                {isYourShare && (
+                  <div className="ml-auto flex shrink-0 items-center gap-3">
+                    <AgentScopeToggle
+                      value={agent.scope}
+                      disabled={accessPending}
+                      onChange={(scope) =>
+                        onSetAgentScope(
+                          agent.service_account_id,
+                          agent.name,
+                          scope,
+                        )
+                      }
+                    />
+                    <Button
+                      variant="ghost"
+                      color="red"
+                      size="1"
+                      className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                      onClick={() =>
+                        onRevokeAgent(agent.service_account_id, agent.name)
+                      }
+                    >
+                      <X size={11} /> Revoke
+                    </Button>
+                  </div>
+                )}
               </Flex>
             );
           })}
