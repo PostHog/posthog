@@ -178,7 +178,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert response.json()["channel"] == str(destination.id)
         assert Canvas.objects.unscoped().get(id=canvas_id).channel_id == destination.id
 
-    def test_cannot_file_canvas_to_another_users_personal_channel(self):
+    def test_cannot_file_canvas_to_invisible_personal_channel(self):
         canvas_id = self._create_canvas()
         other_user = self._create_user("canvas-owner@example.com")
         with team_scope(self.team.id):
@@ -196,6 +196,32 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Channel not found in this team."
+        assert Canvas.objects.unscoped().get(id=canvas_id).channel_id == self.channel.id
+
+    def test_task_bound_sandbox_cannot_move_canvas_to_another_space(self):
+        canvas_id = self._create_canvas()
+        bound_task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Bound",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        with team_scope(self.team.id):
+            destination = Channel.objects.create(team=self.team, name="destination", created_by=self.user)
+        client = self._sandbox_client(bound_task.id)
+
+        response = client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
+            {"channel_id": str(destination.id)},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "This sandbox can file canvases only in its task's space."
         assert Canvas.objects.unscoped().get(id=canvas_id).channel_id == self.channel.id
 
     def test_personal_channel_canvases_are_invisible_to_other_users(self):

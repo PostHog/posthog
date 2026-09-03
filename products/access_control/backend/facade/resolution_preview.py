@@ -170,7 +170,7 @@ def _build_subjects(team: Team, user_access_control: UserAccessControl, rows: li
     role_ids_by_user: dict[int, list[str]] = {}
     for rm in RoleMembership.objects.filter(
         role__organization_id=team.organization_id, user_id__in=[membership.user_id for membership in memberships]
-    ):
+    ).valid_for_authorization():
         role_ids_by_user.setdefault(rm.user_id, []).append(str(rm.role_id))
 
     subjects: list[_Subject] = [
