@@ -847,7 +847,7 @@ tools:
     customer-tasks-update:
         operation: customer_tasks_update
         enabled: false
-    customerTasksActivitiesList:
+    customer-tasks-activities-list:
         operation: customerTasksActivitiesList
         enabled: false
     event-streams-add-account:
