@@ -9,6 +9,7 @@ policy guards it.
 
 Each closed bypass below maps to a fix on this branch:
   - direct PATCH enable/disable/update        -> the baseline control the gate exists for
+  - lifecycle enable/disable/archive actions   -> thin state endpoints routed through the same gate
   - experiment launch / pause / resume        -> flag flips routed through FeatureFlagSerializer
   - experiment ship_variant                   -> variant rollout rewrite gated by feature_flag.update
   - web-experiment variant rollout edit        -> update_experiment() variant write, gated by feature_flag.update
@@ -33,11 +34,13 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
 from posthog.constants import AvailableFeature
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes
 
+from products.approvals.backend.actions.feature_flags import DisableFeatureFlagAction
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.approvals.backend.services import ChangeRequestService
@@ -126,6 +129,136 @@ class TestDirectAndCreateBypassMatrix(FeatureFlagBypassMatrixBase):
         flag.refresh_from_db()
         assert flag.active is True
         self._assert_one_pending_zero_applied()
+
+    @parameterized.expand(
+        [
+            ("enable", "feature_flag.enable", False),
+            ("disable", "feature_flag.disable", True),
+            # Archiving an enabled flag disables it in the same write, so the disable policy applies.
+            ("archive", "feature_flag.disable", True),
+        ]
+    )
+    # The class-level _is_approvals_enabled patch wraps the expanded case, so its mock arrives
+    # before the parameterized arguments.
+    def test_lifecycle_action_is_gated(self, _mock_enabled, action, action_key, active):
+        _enable_policy_for(self, action_key)
+        flag = self._flag(active=active)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/{action}/", {}, format="json"
+        )
+
+        assert response.status_code == 409
+        assert response.json().get("code") == "approval_required"
+        flag.refresh_from_db()
+        assert flag.active is active
+        assert flag.archived is False
+        self._assert_one_pending_zero_applied()
+
+    @parameterized.expand([("disable", True), ("archive", True), ("enable", False)])
+    def test_approved_lifecycle_change_preserves_legacy_filter_keys(self, _mock_enabled, action, active):
+        # The direct path is exempt from the serializer's opportunistic legacy-key cleanup, but
+        # the exemption has to survive into the replay. It travels in the intent: inferring it
+        # at apply time would also exempt an approved ordinary update, which should still clean.
+        _enable_policy_for(self, "feature_flag.disable" if active else "feature_flag.enable")
+        legacy = {
+            "groups": [{"properties": [], "rollout_percentage": 30}],
+            "holdout_groups": [{"properties": [], "rollout_percentage": 5}],
+            "super_groups": [{"properties": [], "rollout_percentage": 15}],
+        }
+        flag = FeatureFlag.objects.create(
+            team=self.team, key=f"legacy-{action}", active=active, filters=dict(legacy), created_by=self.user
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/{action}/", {}, format="json"
+        )
+        assert response.status_code == 409
+        cr = ChangeRequest.objects.get(id=response.json()["change_request_id"])
+        assert ChangeRequestService(cr, self.user).approve().status == "applied"
+
+        flag.refresh_from_db()
+        assert flag.filters == legacy
+
+    def test_archive_change_request_shows_the_approver_both_fields(self, _mock_enabled):
+        # Only `active` is gated, so `gated_changes` carries only that. Approving applies
+        # `archived` too, so a display built from the gated subset asked for consent to a
+        # disable and then archived the flag.
+        _enable_policy_for(self, "feature_flag.disable")
+        flag = self._flag(active=True)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/archive/", {}, format="json")
+        assert response.status_code == 409
+
+        cr = ChangeRequest.objects.get(id=response.json()["change_request_id"])
+        after = DisableFeatureFlagAction.get_display_data(cr.intent)["after"]
+        assert after == {"active": False, "archived": True}
+
+    def test_approving_an_archive_applies_both_state_fields(self, _mock_enabled):
+        # Archiving an enabled flag writes `archived` and `active` together, but only `active`
+        # is what the disable policy gates. The change request has to carry both, or approving
+        # it disables the flag and silently drops the archive the caller asked for.
+        _enable_policy_for(self, "feature_flag.disable")
+        flag = self._flag(active=True)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/archive/", {}, format="json")
+        assert response.status_code == 409
+        cr = ChangeRequest.objects.get(id=response.json()["change_request_id"])
+
+        assert ChangeRequestService(cr, self.user).approve().status == "applied"
+
+        flag.refresh_from_db()
+        assert flag.archived is True
+        assert flag.active is False
+
+    @parameterized.expand(
+        [
+            ("unarchive", "feature_flag.enable"),
+            ("unarchive", "feature_flag.disable"),
+            ("archive_disabled", "feature_flag.enable"),
+            ("archive_disabled", "feature_flag.disable"),
+        ]
+    )
+    def test_archived_only_lifecycle_write_is_not_gated(self, _mock_enabled, case, action_key):
+        # An archived-only write changes neither `active` nor `filters`, so every gated action
+        # declines it. These pass through with no change request even under an enable or disable
+        # policy, and a regression that starts gating them would not fail the cases above.
+        _enable_policy_for(self, action_key)
+        action = "unarchive" if case == "unarchive" else "archive"
+        flag = self._flag(active=False, key=f"matrix-{case}")
+        if case == "unarchive":
+            flag.archived = True
+            flag.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/{action}/", {}, format="json"
+        )
+
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.archived is (case != "unarchive")
+        assert flag.active is False
+        assert ChangeRequest.objects.count() == 0
+
+    def test_lifecycle_actions_gate_each_flag_separately(self, _mock_enabled):
+        # The gate keys duplicate detection on resource_id, which it derives from the request
+        # method: it returns None for POST. A lifecycle action that reported itself as POST
+        # stored NULL, so the second flag's request matched the first as a duplicate and was
+        # dropped — the caller got a 409 naming someone else's change request and nothing was
+        # queued for their flag.
+        _enable_policy_for(self, "feature_flag.disable")
+        first = self._flag(active=True, key="matrix-flag-one")
+        second = self._flag(active=True, key="matrix-flag-two")
+
+        for flag in (first, second):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/{flag.id}/disable/", {}, format="json"
+            )
+            assert response.status_code == 409
+            assert response.json().get("code") == "approval_required"
+
+        assert ChangeRequest.objects.filter(state=ChangeRequestState.PENDING).count() == 2
+        assert {cr.resource_id for cr in ChangeRequest.objects.all()} == {str(first.id), str(second.id)}
 
     def test_direct_patch_rollout_change_is_gated(self, _mock_enabled):
         _any_rollout_change_policy(self)

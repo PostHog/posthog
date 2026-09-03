@@ -65,7 +65,7 @@ import {
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
-    FeatureFlagStatusResponse,
+    FeatureFlagStatus,
     FeatureFlagType,
     FilterLogicalOperator,
     InsightModel,
@@ -93,8 +93,12 @@ import {
     featureFlagsCopyFlagsCreate,
     featureFlagsCopyFlagsDependencyRequirementsCreate,
     featureFlagsList,
+    featureFlagsStatusRetrieve,
 } from 'products/feature_flags/frontend/generated/api'
-import type { CopyFlagsDependencyRequirementsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
+import type {
+    CopyFlagsDependencyRequirementsResponseApi,
+    FeatureFlagStatusResponseApi,
+} from 'products/feature_flags/frontend/generated/api.schemas'
 
 import type { CopyFlagsResponseApi } from '../../../../products/feature_flags/frontend/generated/api.schemas'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -868,7 +872,7 @@ export interface featureFlagLogicValues {
         ValidationErrorType
     >
     flagIntent: FlagIntent | null
-    flagStatus: FeatureFlagStatusResponse | null
+    flagStatus: FeatureFlagStatusResponseApi | null
     flagStatusLoading: boolean
     flagType: 'boolean' | 'multivariate' | 'remote_config'
     flagTypeString:
@@ -929,6 +933,7 @@ export interface featureFlagLogicValues {
     selectedTab: FeatureFlagsTab
     showFeatureFlagErrors: boolean
     showImplementation: boolean
+    showStaleFlagBanner: boolean
     sidePanelContext: SidePanelSceneContext | null
     templateExpanded: boolean
     templates: Array<{
@@ -1150,7 +1155,7 @@ export interface featureFlagLogicActions {
         error: string
         errorObject?: any
     }
-    loadFeatureFlagStatus: () => any
+    loadFeatureFlagStatus: (_: void) => void
     loadFeatureFlagStatusFailure: (
         error: string,
         errorObject?: any
@@ -1159,11 +1164,11 @@ export interface featureFlagLogicActions {
         errorObject?: any
     }
     loadFeatureFlagStatusSuccess: (
-        flagStatus: Promise<FeatureFlagStatusResponse> | null,
-        payload?: any
+        flagStatus: FeatureFlagStatusResponseApi | null,
+        payload?: void
     ) => {
-        flagStatus: Promise<FeatureFlagStatusResponse> | null
-        payload?: any
+        flagStatus: FeatureFlagStatusResponseApi | null
+        payload?: void
     }
     loadFeatureFlagSuccess: (
         featureFlag: FeatureFlagType,
@@ -1931,6 +1936,7 @@ export interface featureFlagLogicMeta {
         hasSurveys: (featureFlag: FeatureFlagType) => boolean | null
         hasEncryptedPayloadBeenSaved: (featureFlag: FeatureFlagType, props: any) => boolean | undefined
         hasExperiment: (featureFlag: FeatureFlagType) => boolean | null
+        showStaleFlagBanner: (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null) => boolean
         isDraftExperiment: (experiment: any) => boolean
         properties: (featureFlag: FeatureFlagType) => AnyPropertyFilter[]
         variantErrors: (variants: MultivariateFlagVariant[]) => VariantError[]
@@ -3246,13 +3252,28 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
+        // A server verdict about the saved flag, so it does not follow the working copy. Every
+        // mutation that can change staleness or rollout must dispatch this again, or the stale
+        // banner outlives the change the reader just made.
         flagStatus: [
-            null as FeatureFlagStatusResponse | null,
+            null as FeatureFlagStatusResponseApi | null,
             {
-                loadFeatureFlagStatus: () => {
+                loadFeatureFlagStatus: async (_: void, breakpoint) => {
                     const { currentProjectId } = values
                     if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
-                        return api.featureFlags.getStatus(currentProjectId, props.id)
+                        try {
+                            const status = await featureFlagsStatusRetrieve(String(currentProjectId), props.id)
+                            // A mutation can start a newer status request while this one is open. Discard
+                            // this response if so, or a slow earlier request would overwrite the newer verdict.
+                            breakpoint()
+                            return status
+                        } catch (error) {
+                            // The failure reducer nulls the verdict, so a superseded request that fails
+                            // late would erase the verdict a newer request already wrote. Breakpoint
+                            // first: kea-loaders swallows that and dispatches no failure.
+                            breakpoint()
+                            throw error
+                        }
                     }
                     return null
                 },
@@ -3288,6 +3309,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         projectsWithCurrentFlag: {
             projectFlagActiveUpdated: (state, { teamId, flagId, active }) =>
                 state.map((p) => (p.team_id === teamId && p.flag_id === flagId ? { ...p, active } : p)),
+        },
+        // kea-loaders keeps the prior value when a refetch fails, so a failed status refresh after a
+        // mutation would leave the banner rendering a verdict for a flag that no longer has it. Drop
+        // the verdict when a refetch starts or fails; only a successful load may show the banner.
+        flagStatus: {
+            loadFeatureFlagStatus: () => null,
+            loadFeatureFlagStatusFailure: () => null,
         },
     }),
     listeners(({ actions, values, props, sharedListeners }) => ({
@@ -3561,6 +3589,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Whole flag just persisted — the baseline is now the saved state, so the form reads clean.
             actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlag))
             actions.updateFlag(featureFlag)
+            actions.loadFeatureFlagStatus()
             if (featureFlag.id && isOnFeatureFlagPage(props.id)) {
                 router.actions.replace(urls.featureFlag(featureFlag.id))
             }
@@ -3646,6 +3675,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagActiveUpdate))
                 }
                 actions.updateFlag(featureFlagActiveUpdate)
+                actions.loadFeatureFlagStatus()
             }
         },
         toggleProjectFlagActive: async ({ teamId, flagId, active }) => {
@@ -3677,6 +3707,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
                 actions.updateFlag(syncedFlag)
                 refreshTreeItem('feature_flag', String(flagId))
+                // Disabling changes the staleness verdict, so refetch it as the other mutation
+                // paths do, or the stale banner outlives the toggle made from the Projects tab.
+                actions.loadFeatureFlagStatus()
             }
         },
         refreshFeatureFlagSuccess: ({ featureFlagRefresh }) => {
@@ -3719,6 +3752,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagActiveUpdate))
                 }
                 actions.updateFlag(featureFlagActiveUpdate)
+                actions.loadFeatureFlagStatus()
             }
         },
         updateFeatureFlagArchivedFailure: ({ errorObject }) => {
@@ -3772,6 +3806,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         refreshTreeItem('feature_flag', String(featureFlag.id))
                     }
                     actions.loadFeatureFlag()
+                    // The flag is no longer deleted, so its real verdict may differ from the retained
+                    // DELETED one. Refetch it so the banner reflects the restored flag.
+                    actions.loadFeatureFlagStatus()
                 },
             })
         },
@@ -4418,6 +4455,25 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag],
             (featureFlag: FeatureFlagType) => {
                 return featureFlag?.experiment_set && featureFlag.experiment_set.length > 0
+            },
+        ],
+        // The status endpoint serializes a StrEnum through a CharField, so it answers with the
+        // lowercase value 'stale'. The flag list serializer returns the enum member name 'STALE'
+        // instead. Both are typed as plain strings, so a wrong comparison here fails silently.
+        showStaleFlagBanner: [
+            (s) => [s.featureFlag, s.flagStatus],
+            (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null): boolean => {
+                // The reducer nulls `flagStatus` when a load starts or fails, so only a settled,
+                // successful verdict reaches this comparison.
+                if (flagStatus?.status !== FeatureFlagStatus.STALE) {
+                    return false
+                }
+                return Boolean(
+                    featureFlag.id &&
+                    !featureFlag.deleted &&
+                    !featureFlag.archived &&
+                    !featureFlag.is_remote_configuration
+                )
             },
         ],
         isDraftExperiment: [
