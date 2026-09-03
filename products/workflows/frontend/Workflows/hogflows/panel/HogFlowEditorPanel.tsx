@@ -106,7 +106,9 @@ export function HogFlowEditorPanel({
                     </div>
                 </div>
 
-                {selectedNode && ['build', 'metrics', 'test'].includes(mode) && <HogFlowEditorPanelSelectedStep />}
+                {selectedNode && ['build', 'metrics', 'test', 'logs'].includes(mode) && (
+                    <HogFlowEditorPanelSelectedStep />
+                )}
                 {mode === 'build' && (
                     <>{!selectedNode ? <HogFlowEditorPanelBuild /> : <HogFlowEditorPanelBuildDetail />}</>
                 )}
