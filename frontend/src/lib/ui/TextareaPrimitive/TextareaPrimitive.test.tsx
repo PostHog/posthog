@@ -30,4 +30,21 @@ describe('TextareaPrimitive', () => {
 
         expect(textarea.selectionStart).toBe('a title to select'.length)
     })
+    // The caret rule is layered on top of the caller's own handlers rather than replacing
+    // them: SceneName saves its pending rename on blur, and that must still run.
+    it('still calls the handlers a caller supplies', () => {
+        const onFocus = jest.fn()
+        const onBlur = jest.fn()
+        const onPointerDown = jest.fn()
+        render(<TextareaPrimitive onFocus={onFocus} onBlur={onBlur} onPointerDown={onPointerDown} />)
+        const textarea = screen.getByRole('textbox')
+
+        fireEvent.pointerDown(textarea)
+        fireEvent.focus(textarea)
+        fireEvent.blur(textarea)
+
+        expect(onPointerDown).toHaveBeenCalledTimes(1)
+        expect(onFocus).toHaveBeenCalledTimes(1)
+        expect(onBlur).toHaveBeenCalledTimes(1)
+    })
 })

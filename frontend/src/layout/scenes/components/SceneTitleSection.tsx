@@ -523,6 +523,7 @@ export function SceneName({
                     <div
                         ref={containerRef}
                         className="flex items-center gap-1 w-full"
+                        data-attr="scene-name-edit-row"
                         onMouseDown={(e) => {
                             // A press on the row around the field leaves the gesture unclaimed by the page,
                             // which some browsers read as a window drag instead of a text selection.
