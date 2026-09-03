@@ -14,6 +14,8 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, Team, User
 
+from products.access_control.backend.facade import api as access_control_api
+from products.access_control.backend.facade import contracts as access_control_contracts
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.facade.contracts import (
@@ -69,9 +71,9 @@ def _task_by_id(queryset: QuerySet[CustomerTask], task_id: UUID | str) -> Custom
 def _visible_task_queryset(team_id: int, user_access_control: UserAccessControl) -> QuerySet[CustomerTask]:
     visible_account_ids = _visible_account_queryset(team_id, user_access_control).values("id")
     account_filter = Q(account__isnull=True) | Q(account_id__in=visible_account_ids)
-    if user_access_control.check_access_level_for_resource("customer_task", "viewer"):
-        return _task_queryset(team_id).filter(account_filter)
-    return _task_queryset(team_id).filter(assigned_to_id=user_access_control.user.id).filter(account_filter)
+    return user_access_control.filter_queryset_by_access_level(
+        _task_queryset(team_id), resource="customer_task"
+    ).filter(account_filter)
 
 
 def _account_for_write(team_id: int, account_id: UUID | None, user_access_control: UserAccessControl) -> Account | None:
@@ -107,18 +109,47 @@ def _validate_assignee(
     return assignee
 
 
-def _has_customer_task_edit_authorization(task: CustomerTask, user_access_control: UserAccessControl) -> bool:
-    return task.assigned_to_id == user_access_control.user.id or user_access_control.check_access_level_for_resource(
-        "customer_task", "editor"
-    )
+def _set_customer_task_assignee_access(
+    *,
+    task: CustomerTask,
+    organization_id: UUID,
+    before_assignee: User | None,
+    after_assignee: User | None,
+    actor: User | None,
+) -> None:
+    if before_assignee == after_assignee:
+        return
+
+    for assignee, access_level in ((before_assignee, None), (after_assignee, "editor")):
+        if assignee is None:
+            continue
+        membership_id = (
+            OrganizationMembership.objects.filter(organization_id=organization_id, user_id=assignee.id)
+            .values_list("id", flat=True)
+            .first()
+        )
+        if membership_id is None:
+            if access_level is not None:
+                raise CustomerTaskAssigneeInvalid()
+            continue
+        access_control_api.set_object_access_control(
+            team_id=task.team_id,
+            input=access_control_contracts.SetObjectAccessControlInput(
+                resource="customer_task",
+                resource_id=str(task.id),
+                organization_member_id=membership_id,
+                access_level=access_level,
+                created_by_id=actor.id if actor is not None else None,
+            ),
+        )
 
 
 def can_edit_customer_task(task: CustomerTask, user_access_control: UserAccessControl) -> bool:
-    return task.archived_at is None and _has_customer_task_edit_authorization(task, user_access_control)
+    return task.archived_at is None and user_access_control.check_access_level_for_object(task, "editor")
 
 
 def can_restore_customer_task(task: CustomerTask, user_access_control: UserAccessControl) -> bool:
-    return task.archived_at is not None and _has_customer_task_edit_authorization(task, user_access_control)
+    return task.archived_at is not None and user_access_control.check_access_level_for_object(task, "editor")
 
 
 def _timestamp(value: datetime | None) -> str | None:
@@ -228,6 +259,18 @@ def _apply_ordering(queryset: QuerySet[CustomerTask], ordering: str) -> QuerySet
     return _order_by_annotation(queryset, field, descending)
 
 
+def remove_customer_task_assignee_access_for_account(*, team: Team, account_id: UUID) -> None:
+    tasks = _task_queryset(team.id).filter(account_id=account_id, assigned_to__isnull=False)
+    for task in tasks.iterator():
+        _set_customer_task_assignee_access(
+            task=task,
+            organization_id=team.organization_id,
+            before_assignee=task.assigned_to,
+            after_assignee=None,
+            actor=None,
+        )
+
+
 def list_customer_tasks(
     *,
     team_id: int,
@@ -304,6 +347,13 @@ def create_customer_task(
             completed_at=completed_at,
             completed_by=completed_by,
             created_by=actor,
+        )
+        _set_customer_task_assignee_access(
+            task=task,
+            organization_id=team.organization_id,
+            before_assignee=None,
+            after_assignee=assignee,
+            actor=actor,
         )
         _record_activity(
             task=task,
@@ -396,6 +446,13 @@ def update_customer_task(
         task.completed_at = completed_at
         task.completed_by = completed_by
         task.save()
+        _set_customer_task_assignee_access(
+            task=task,
+            organization_id=team.organization_id,
+            before_assignee=before_assignee,
+            after_assignee=assignee,
+            actor=actor,
+        )
         changes = _changes(
             before_account=before_account,
             after_account=task.account,
@@ -511,6 +568,4 @@ def can_access_customer_task_object(*, task: CustomerTask, user_access_control: 
         and not _visible_account_queryset(task.team_id, user_access_control).filter(id=task.account_id).exists()
     ):
         return False
-    if task.assigned_to_id == user_access_control.user.id:
-        return True
-    return user_access_control.check_access_level_for_resource("customer_task", "editor" if write else "viewer")
+    return user_access_control.check_access_level_for_object(task, "editor" if write else "viewer")

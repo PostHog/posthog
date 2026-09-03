@@ -9,7 +9,7 @@ from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -17,12 +17,7 @@ from rest_framework.views import APIView
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Team, User
-from posthog.permissions import (
-    APIScopePermission,
-    PostHogFeatureFlagPermission,
-    TeamMemberAccessPermission,
-    get_authenticator_scoped_team_ids,
-)
+from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade import api, contracts
@@ -292,20 +287,6 @@ class CustomerTaskCanonicalTeamAccessPermission(BasePermission):
         return membership_level is not None
 
 
-class CustomerTaskPermission(BasePermission):
-    message = "You do not have access to this customer task."
-
-    def has_permission(self, request: Request, view: APIView) -> bool:
-        customer_task_view = cast(CustomerTaskViewSet, view)
-        if (
-            customer_task_view.action == "create"
-            and not customer_task_view.user_access_control.check_access_level_for_resource("customer_task", "editor")
-        ):
-            self.message = "You need editor access to Customer Tasks to create a task."
-            return False
-        return True
-
-
 class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "customer_task"
     serializer_class = CustomerTaskSerializer
@@ -314,11 +295,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     posthog_feature_flag = CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG
     scope_object_read_actions = ["list", "retrieve", "activities"]
     scope_object_write_actions = ["create", "update", "partial_update", "archive", "restore"]
-    permission_classes = [
-        CustomerTaskCanonicalTeamAccessPermission,
-        PostHogFeatureFlagPermission,
-        CustomerTaskPermission,
-    ]
+    permission_classes = [CustomerTaskCanonicalTeamAccessPermission, PostHogFeatureFlagPermission]
 
     @cached_property
     def canonical_team_id(self) -> int:
@@ -339,16 +316,6 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             team=self.canonical_team,
             organization_id=self.organization_id,
         )
-
-    def dangerously_get_permissions(self) -> list[BasePermission]:
-        return [
-            IsAuthenticated(),
-            APIScopePermission(),
-            TeamMemberAccessPermission(),
-            CustomerTaskCanonicalTeamAccessPermission(),
-            PostHogFeatureFlagPermission(),
-            CustomerTaskPermission(),
-        ]
 
     @validated_request(
         query_serializer=CustomerTaskListQuerySerializer,

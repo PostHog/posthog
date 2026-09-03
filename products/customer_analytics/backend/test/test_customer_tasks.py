@@ -292,6 +292,13 @@ class CustomerTaskAPI(APIBaseTest):
         )
         unassigned = self.client.post(self.url, {"name": "Unassigned"}, format="json")
         assigned_id = assigned.json()["id"]
+        assert AccessControl.objects.filter(
+            team=self.team,
+            resource="customer_task",
+            resource_id=assigned_id,
+            organization_member=assignee_membership,
+            access_level="editor",
+        ).exists()
 
         self.client.force_login(assignee)
         listed_tasks = self.client.get(self.url).json()["results"]
@@ -304,14 +311,27 @@ class CustomerTaskAPI(APIBaseTest):
             == status.HTTP_200_OK
         )
 
-        self.client.force_login(self.user)
         reassigned = self.client.patch(
             f"{self.url}{assigned_id}/",
             {"assigned_to_id": other_assignee.id},
             format="json",
         )
         assert reassigned.status_code == status.HTTP_200_OK
-        self.client.force_login(assignee)
+        assert reassigned.json()["can_edit"] is False
+        assert not AccessControl.objects.filter(
+            team=self.team,
+            resource="customer_task",
+            resource_id=assigned_id,
+            organization_member=assignee_membership,
+        ).exists()
+        other_membership = OrganizationMembership.objects.get(user=other_assignee, organization=self.organization)
+        assert AccessControl.objects.filter(
+            team=self.team,
+            resource="customer_task",
+            resource_id=assigned_id,
+            organization_member=other_membership,
+            access_level="editor",
+        ).exists()
         assert self.client.get(f"{self.url}{assigned_id}/").status_code == status.HTTP_404_NOT_FOUND
 
     def test_assignee_cannot_cross_account_visibility(self) -> None:

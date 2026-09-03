@@ -72,6 +72,7 @@ from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.conversations.backend.facade.api import (
     AccountEmailThreadMessage as AccountEmailThreadMessage,
     AccountEmailThreadSummary as AccountEmailThreadSummary,
@@ -192,7 +193,6 @@ _ACCOUNT_PROPERTY_INPUT_KEY = "properties"
 if TYPE_CHECKING:
     from posthog.models.user import User
 
-    from products.access_control.backend.facade.user_access_control import UserAccessControl
     from products.customer_analytics.backend.models import CustomPropertyValue
     from products.workflows.backend.services.account_audience import AccountAudienceFilters
 
@@ -3571,6 +3571,7 @@ def delete_account_for_view(
         # linger in a Slack destination filter.
         streams = _event_streams_containing_account(account)
         team = account.team
+        _customer_tasks_logic.remove_customer_task_assignee_access_for_account(team=team, account_id=account.id)
         account.delete()
         schedule_email_thread_link_recalculation(team_id)
         for stream in streams:
@@ -4723,7 +4724,10 @@ def update_customer_task(
         actor=actor,
         user_access_control=user_access_control,
     )
-    return _to_customer_task_view(task, user_access_control) if task is not None else None
+    if task is None:
+        return None
+    fresh_user_access_control = UserAccessControl(user=user_access_control.user, team=team)
+    return _to_customer_task_view(task, fresh_user_access_control)
 
 
 def archive_customer_task(
