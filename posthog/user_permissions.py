@@ -2,8 +2,6 @@ from functools import cached_property
 from typing import Any, Optional, cast
 from uuid import UUID
 
-from django.db.models import F, Q
-
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.organization_caching import get_cached_organization_memberships
@@ -149,9 +147,7 @@ class UserPermissions:
         from products.access_control.backend.models.role import RoleMembership
 
         result: dict[UUID, set[UUID]] = {}
-        role_memberships = RoleMembership.objects.filter(user=self.user).filter(
-            Q(organization_member__isnull=True) | Q(organization_member__organization_id=F("role__organization_id"))
-        )
+        role_memberships = RoleMembership.objects.filter(user=self.user).valid_for_authorization()
         for organization_id, role_id in role_memberships.values_list("role__organization_id", "role_id"):
             result.setdefault(organization_id, set()).add(role_id)
         return result

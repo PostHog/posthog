@@ -409,9 +409,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                     try:
                         from products.access_control.backend.models.role import RoleMembership
 
-                        user_roles = RoleMembership.objects.filter(
-                            user=self, organization_member__in=[membership.id for membership in org_memberships]
-                        ).values_list("role_id", flat=True)
+                        user_roles = (
+                            RoleMembership.objects.filter(
+                                user=self, organization_member__in=[membership.id for membership in org_memberships]
+                            )
+                            .valid_for_authorization()
+                            .values_list("role_id", flat=True)
+                        )
 
                         role_accessible_team_ids = set(
                             AccessControl.objects.filter(

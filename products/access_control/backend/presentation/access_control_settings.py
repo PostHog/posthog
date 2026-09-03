@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django.core.cache import cache as django_cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Count, Max, Model, Q
+from django.db.models import Count, Max, Model, Prefetch, Q
 from django.db.models.functions import Coalesce
 
 from rest_framework import exceptions
@@ -48,7 +48,7 @@ from products.access_control.backend.facade.user_access_control import (
     ordered_access_levels,
 )
 from products.access_control.backend.models.access_control import AccessControl
-from products.access_control.backend.models.role import Role
+from products.access_control.backend.models.role import Role, RoleMembership
 
 from .access_control import AccessControlSerializer, ResolvedAccessSerializer, upsert_access_control
 
@@ -288,7 +288,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         memberships = (
             OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
             .select_related("user")
-            .prefetch_related("role_memberships")
+            .prefetch_related(Prefetch("role_memberships", queryset=RoleMembership.objects.valid_for_authorization()))
         )
         # An optional member_id narrows the walk to one member, so the detail panel doesn't pay for the whole list
         if request.query_params.get("member_id"):
