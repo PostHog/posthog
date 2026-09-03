@@ -1,14 +1,11 @@
 name: Install turbo
 description: |
-    Puts the lockfile-pinned `turbo` binary on PATH without a pnpm install, for
-    a job that runs `turbo run` but never reads the workspace.
-
-    The version and the tarball digest both come from pnpm-lock.yaml, so this
-    installs exactly what `pnpm install` would and verifies it the same way.
+    Puts the `turbo` binary on PATH without a pnpm install. The version and the
+    tarball digest both come from pnpm-lock.yaml.
 
 inputs:
     lockfile:
-        description: 'pnpm lockfile that pins the turbo version and its tarball digest.'
+        description: 'pnpm lockfile that pins the turbo version and digest.'
         required: false
         default: pnpm-lock.yaml
 
@@ -39,8 +36,7 @@ runs:
                       ;;
               esac
 
-              # The digest sits in the `resolution:` line of the platform package's
-              # block, which ends at the first blank line.
+              # The package block ends at the first blank line, which bounds the sed range.
               digest=$(sed -nE "/^  '@turbo\/${platform}@${version}':\$/,/^\$/{s/.*integrity: (sha512-[A-Za-z0-9+\/=]+).*/\1/p;}" "$LOCKFILE" | head -1)
               if [ -z "$digest" ]; then
                   echo "::error::No integrity digest for @turbo/${platform}@${version} in $LOCKFILE"
