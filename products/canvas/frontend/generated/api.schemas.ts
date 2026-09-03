@@ -297,6 +297,53 @@ export interface CanvasBoardAppendResultApi {
 }
 
 /**
+ * A pointer position on a board, in world units.
+ */
+export interface CanvasBoardCursorApi {
+    /** Horizontal position in board world units. */
+    x: number
+    /** Vertical position in board world units. */
+    y: number
+}
+
+/**
+ * The part of a board one person looks at.
+ */
+export interface CanvasBoardViewportApi {
+    /** Horizontal pan offset in screen pixels. */
+    x: number
+    /** Vertical pan offset in screen pixels. */
+    y: number
+    /**
+     * Zoom factor, where 1 means one world unit per pixel.
+     * @minimum 0.01
+     * @maximum 64
+     */
+    zoom: number
+}
+
+/**
+ * One presence ping: where the caller points, looks, and what they have selected.
+ */
+export interface CanvasBoardPresenceApi {
+    /**
+     * Id of the caller's board tab, so other clients can skip their own pings.
+     * @maxLength 200
+     */
+    client_id: string
+    /** Pointer position in board world units, or null when the pointer left the board. */
+    cursor?: CanvasBoardCursorApi | null
+    /** The caller's pan and zoom, or null to send none. */
+    viewport?: CanvasBoardViewportApi | null
+    /**
+     * Ids of the fragments the caller has selected, at most 50.
+     * @maxItems 50
+     * @items.maxLength 64
+     */
+    selected_ids?: string[]
+}
+
+/**
  * * `freeform` - freeform
  * * `grid` - grid
  * * `component` - component

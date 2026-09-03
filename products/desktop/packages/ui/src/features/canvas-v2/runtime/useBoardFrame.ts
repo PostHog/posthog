@@ -45,7 +45,9 @@ export interface BoardFrameEvents {
   onBackgroundPointer(
     e: Extract<BoardFrameToHostMessage, { type: "background-pointer" }>,
   ): void;
-  onFragmentPointerDown(id: string): void;
+  onFragmentPointerDown(
+    e: Extract<BoardFrameToHostMessage, { type: "fragment-pointer-down" }>,
+  ): void;
 }
 
 export interface UseBoardFrameOptions {
@@ -65,7 +67,7 @@ export interface BoardFrameHandle {
   sendInit: (viewport: CanvasV2Viewport) => void;
   syncSnapshot: (prev: CanvasV2Snapshot | null, next: CanvasV2Snapshot) => void;
   setViewport: (viewport: CanvasV2Viewport) => void;
-  setSelection: (id: string | null) => void;
+  setSelection: (ids: string[]) => void;
 }
 
 // Owns the host side of the board-frame protocol: one message listener for the
@@ -159,8 +161,8 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
   );
 
   const setSelection = useCallback(
-    (id: string | null): void => {
-      post({ channel: CANVAS_V2_CHANNEL, type: "set-selection", id });
+    (ids: string[]): void => {
+      post({ channel: CANVAS_V2_CHANNEL, type: "set-selection", ids });
     },
     [post],
   );
@@ -261,7 +263,7 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
           events.onBackgroundPointer(message);
           break;
         case "fragment-pointer-down":
-          events.onFragmentPointerDown(message.id);
+          events.onFragmentPointerDown(message);
           break;
         case "open-external": {
           const now = Date.now();

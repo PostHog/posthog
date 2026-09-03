@@ -6,10 +6,17 @@ from django.db import transaction
 
 from posthog.models.user import User
 
+from products.canvas.backend import board_stream
 from products.canvas.backend.models import CanvasBoard, CanvasBoardOp
 
 BOARD_OP_TYPES = ["add_fragment", "update_fragment", "remove_fragment", "bring_to_front", "set_state", "restore"]
 MAX_BOARD_OP_BYTES = 256 * 1024
+
+
+def board_actor_name(user: User | None) -> str | None:
+    if user is None:
+        return None
+    return user.first_name or user.email
 
 
 class InvalidBoardOpError(ValueError):
@@ -40,9 +47,13 @@ def append_ops(
     A row whose ``op_id`` the board already holds is returned as-is instead of
     being appended again. ``snapshot`` is stored only when ``base_seq`` matches
     the head before this call, so a stale client cannot overwrite a newer fold.
+
+    Newly recorded ops go to the board's live stream once the transaction
+    commits, so an op never reaches a collaborator before it is durable.
     """
     for entry in ops:
         validate_op(entry["op"])
+    appended: list[CanvasBoardOp] = []
     with transaction.atomic():
         locked = CanvasBoard.objects.for_team(board.team_id).select_for_update().get(pk=board.pk)
         head_before = locked.head_seq
@@ -68,6 +79,7 @@ def append_ops(
             )
             existing[op_id] = row
             locked.head_seq = row.seq
+            appended.append(row)
             results.append(row)
         update_fields = ["head_seq", "updated_at"]
         if snapshot is not None and base_seq == head_before:
@@ -75,8 +87,29 @@ def append_ops(
             locked.snapshot_seq = locked.head_seq
             update_fields += ["snapshot", "snapshot_seq"]
         locked.save(update_fields=update_fields)
+        if appended:
+            team_id = locked.team_id
+            board_key = str(locked.pk)
+            events = [_op_event(row, user) for row in appended]
+            transaction.on_commit(lambda: board_stream.publish_ops(team_id, board_key, events))
     board.head_seq = locked.head_seq
     board.snapshot = locked.snapshot
     board.snapshot_seq = locked.snapshot_seq
     board.updated_at = locked.updated_at
     return results
+
+
+def _op_event(row: CanvasBoardOp, user: User | None) -> dict[str, Any]:
+    """One log entry in the shape ``ops/`` returns, for the board's live stream."""
+    return {
+        "seq": row.seq,
+        "op_id": row.op_id,
+        "actor": {
+            "kind": row.actor_kind,
+            "user_id": row.actor_user_id,
+            "user_name": board_actor_name(user),
+            "task_id": row.actor_task_id,
+        },
+        "created_at": row.created_at.isoformat(),
+        "op": row.op,
+    }

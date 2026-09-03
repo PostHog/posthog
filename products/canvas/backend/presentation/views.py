@@ -5,6 +5,7 @@ from uuid import UUID
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
 from django.db.models import Q, QuerySet
+from django.http import HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 
 import structlog
@@ -19,15 +20,18 @@ from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import sse_streaming_response
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.user import User
+from posthog.renderers import ServerSentEventRenderer
+from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
-from products.canvas.backend import board_log, build_service, error_reports
+from products.canvas.backend import board_log, board_presence, board_stream, build_service, error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, canvas_actions_disabled
 from products.canvas.backend.capabilities import declared_actions, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
@@ -58,6 +62,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasBoardAppendResultSerializer,
     CanvasBoardOpsPageSerializer,
     CanvasBoardOpsQuerySerializer,
+    CanvasBoardPresenceSerializer,
     CanvasBoardSerializer,
     CanvasBoardSummarySerializer,
     CanvasBoardWriteSerializer,
@@ -99,6 +104,8 @@ from products.canvas.backend.presentation.serializers import (
 )
 from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
+
+from ee.hogai.utils.aio import async_to_sync
 
 logger = structlog.get_logger(__name__)
 
@@ -198,6 +205,25 @@ class CanvasActionInvokeThrottle(CanvasStateWriteThrottle):
 
     scope = "canvas_action_invoke"
     rate = "60/min"
+
+
+class CanvasBoardPresenceThrottle(CanvasStateWriteThrottle):
+    """Per viewer per board. A moving pointer sends about ten pings a second, so
+    the ceiling is twice that: enough headroom for a jittery client, low enough
+    that a runaway one cannot flood the board's presence stream. A per-second
+    window also keeps the counter small at this rate."""
+
+    scope = "canvas_board_presence"
+    rate = "20/sec"
+
+
+class CanvasBoardAppendOpsThrottle(CanvasStateWriteThrottle):
+    """Per author per board. Higher than state writes because a drag or a resize
+    writes ops for as long as it lasts, but every request is a real database
+    write, so it stays well under the presence ceiling."""
+
+    scope = "canvas_board_append_ops"
+    rate = "600/min"
 
 
 class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -1901,11 +1927,20 @@ class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = CanvasBoard.objects.unscoped().select_related("created_by")
     serializer_class = CanvasBoardSerializer
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
-    scope_object_read_actions = ["list", "retrieve", "ops"]
-    scope_object_write_actions = ["create", "partial_update", "destroy", "append_ops"]
+    scope_object_read_actions = ["list", "retrieve", "ops", "stream"]
+    scope_object_write_actions = ["create", "partial_update", "destroy", "append_ops", "presence"]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id, deleted=False).order_by("-updated_at")
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        # On top of the defaults, not instead of them: the per-board key must not
+        # let a caller rotate boards past the project-wide limits.
+        if self.action == "presence":
+            return [*super().get_throttles(), CanvasBoardPresenceThrottle()]
+        if self.action == "append_ops":
+            return [*super().get_throttles(), CanvasBoardAppendOpsThrottle()]
+        return super().get_throttles()
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action == "list":
@@ -1986,6 +2021,83 @@ class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except board_log.InvalidBoardOpError as error:
             return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(CanvasBoardAppendResultSerializer(instance={"results": rows, "head_seq": board.head_seq}).data)
+
+    @extend_schema(
+        request=CanvasBoardPresenceSerializer,
+        responses={
+            204: OpenApiResponse(description="The ping was broadcast."),
+            403: OpenApiResponse(description="Presence names a person, so a user-less credential cannot send it."),
+        },
+        operation_id="canvas_boards_presence_create",
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["canvas:write"])
+    def presence(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Broadcast the caller's pointer, viewport, and selection on the board's live stream.
+
+        Ephemeral: pings are never recorded in the board's log. The identity is
+        taken from the caller, never from the body.
+        """
+        payload = CanvasBoardPresenceSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        board = self.get_object()
+        user = self._request_user()
+        if user is None:
+            return Response(
+                {"detail": "Presence names a person; sign in to send it."}, status=status.HTTP_403_FORBIDDEN
+            )
+        data = payload.validated_data
+        board_presence.publish_presence(
+            board.team_id,
+            str(board.id),
+            client_id=data["client_id"],
+            user_id=user.pk,
+            user_name=board_log.board_actor_name(user) or "",
+            cursor=data.get("cursor"),
+            viewport=data.get("viewport"),
+            selected_ids=data["selected_ids"],
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        request=None,
+        responses={(200, "text/event-stream"): OpenApiTypes.STR},
+        operation_id="canvas_boards_stream_retrieve",
+        parameters=[
+            OpenApiParameter(
+                name="Last-Event-ID",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+                required=False,
+                description="Resume after this op. When the stream no longer holds it, "
+                "a reload event names the seq to page ops/ from.",
+            )
+        ],
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        renderer_classes=[ServerSentEventRenderer],
+        required_scopes=["canvas:read"],
+    )
+    def stream(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse | HttpResponse:
+        """Live server-sent events for one board: recorded ops and other people's presence.
+
+        Events are `op` (carries an `id:` line, so Last-Event-ID resumes it),
+        `presence`, `reload`, and `error`.
+        """
+        board = self.get_object()
+        team_id = board.team_id
+        board_id = str(board.id)
+        last_event_id = request.headers.get("Last-Event-ID")
+
+        # On ASGI (Granian in prod) the async generator runs as one cheap task per connection.
+        # On WSGI (tests, fallback) async_to_sync bridges it via a worker thread + queue.
+        return sse_streaming_response(
+            board_stream.stream_board_sse(team_id, board_id, last_event_id=last_event_id)
+            if SERVER_GATEWAY_INTERFACE == "ASGI"
+            else async_to_sync(lambda: board_stream.stream_board_sse(team_id, board_id, last_event_id=last_event_id)),
+            endpoint="canvas_board_stream",
+        )
 
     def _request_user(self) -> User | None:
         user = self.request.user

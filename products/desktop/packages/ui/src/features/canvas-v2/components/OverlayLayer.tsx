@@ -15,7 +15,7 @@ interface OverlayLayerProps {
   fragments: CanvasV2Fragment[];
   viewport: CanvasV2Viewport;
   paneRect: BoardPaneRect;
-  selectedId: string | null;
+  selectedIds: string[];
   highlightedIds: string[];
   fragmentErrors: Record<string, string>;
   lastEdits: Record<string, FragmentLastEdit>;
@@ -39,7 +39,7 @@ export function OverlayLayer({
   fragments,
   viewport,
   paneRect,
-  selectedId,
+  selectedIds,
   highlightedIds,
   fragmentErrors,
   lastEdits,
@@ -51,6 +51,7 @@ export function OverlayLayer({
   onDelete,
 }: OverlayLayerProps): ReactElement {
   const highlighted = new Set(highlightedIds);
+  const selected = new Set(selectedIds);
 
   return (
     <TooltipProvider delay={400}>
@@ -72,7 +73,13 @@ export function OverlayLayer({
               <FragmentOverlay
                 fragment={fragment}
                 rect={rect}
-                selected={fragment.id === selectedId}
+                selected={selected.has(fragment.id)}
+                resizable={
+                  selectedIds.length === 1 && selected.has(fragment.id)
+                }
+                selectionCount={
+                  selected.has(fragment.id) ? selectedIds.length : 1
+                }
                 highlighted={highlighted.has(fragment.id)}
                 error={fragmentErrors[fragment.id]}
                 lastEditedBy={lastEdits[fragment.id]}

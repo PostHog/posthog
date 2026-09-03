@@ -4,11 +4,11 @@ import {
   screenToWorld,
 } from "@posthog/core/canvas-v2/boardGeometry";
 import {
+  type CanvasV2Fragment,
   type CanvasV2Op,
   type CanvasV2Snapshot,
   type CanvasV2Theme,
   type CanvasV2Viewport,
-  findFreeSpot,
   maxZ,
 } from "@posthog/shared";
 import { BOARD_FRAME_TITLE } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
@@ -17,7 +17,7 @@ import type { FragmentLastEdit } from "@posthog/ui/features/canvas-v2/components
 import { OverlayLayer } from "@posthog/ui/features/canvas-v2/components/OverlayLayer";
 import {
   useBoardHighlightedIds,
-  useBoardSelectedId,
+  useBoardSelectedIds,
   useBoardViewStore,
 } from "@posthog/ui/features/canvas-v2/interaction/boardViewStore";
 import { useBoardPointer } from "@posthog/ui/features/canvas-v2/interaction/useBoardPointer";
@@ -34,6 +34,9 @@ import {
   useRef,
   useState,
 } from "react";
+
+/** World units a copy sits away from its source, so both stay readable. */
+const DUPLICATE_OFFSET = 24;
 
 export interface BoardStageProps {
   boardId: string;
@@ -80,16 +83,24 @@ export function BoardStage({
     height: 0,
   });
 
-  const selectedId = useBoardSelectedId();
+  const selectedIds = useBoardSelectedIds();
   const highlightedIds = useBoardHighlightedIds();
-  const setSelectedId = useBoardViewStore((state) => state.setSelectedId);
+  const setSelection = useBoardViewStore((state) => state.setSelection);
+  const toggleSelection = useBoardViewStore((state) => state.toggleSelection);
+  const clearSelection = useBoardViewStore((state) => state.clearSelection);
 
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
   const viewportRef = useRef(viewport);
   viewportRef.current = viewport;
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
   const getSnapshot = useCallback(
     (): CanvasV2Snapshot => snapshotRef.current,
+    [],
+  );
+  const getSelectedIds = useCallback(
+    (): readonly string[] => selectedIdsRef.current,
     [],
   );
 
@@ -99,14 +110,15 @@ export function BoardStage({
     setViewport,
     getSnapshot,
     applyLocal,
-    onSelect: setSelectedId,
+    getSelectedIds,
+    setSelection,
+    toggleSelection,
   });
 
   // A host drag must not let the frame swallow the pointer stream halfway
   // through. A pan is different: the frame relays that stream, so the frame
   // must stay live or the release never arrives.
-  const gestureActive =
-    pointer.gesture.kind === "move" || pointer.gesture.kind === "resize";
+  const gestureActive = pointer.gesture.kind !== "none";
 
   const syncedSnapshot = useRef<CanvasV2Snapshot | null>(null);
   const frameRef = useRef<BoardFrameHandle | null>(null);
@@ -128,13 +140,14 @@ export function BoardStage({
         applyLocal([{ type: "set_state", key, value }]),
       onWheel: pointer.onFrameWheel,
       onBackgroundPointer: pointer.onFrameBackgroundPointer,
-      onFragmentPointerDown: setSelectedId,
+      onFragmentPointerDown: pointer.onFrameFragmentPointerDown,
     },
   });
   frameRef.current = frame;
 
-  const { ready, srcDoc, syncSnapshot, setSelection } = frame;
+  const { ready, srcDoc, syncSnapshot } = frame;
   const setFrameViewport = frame.setViewport;
+  const setFrameSelection = frame.setSelection;
 
   useEffect(() => {
     if (!ready) return;
@@ -147,8 +160,8 @@ export function BoardStage({
   }, [setFrameViewport, viewport]);
 
   useEffect(() => {
-    setSelection(selectedId);
-  }, [setSelection, selectedId]);
+    setFrameSelection(selectedIds);
+  }, [setFrameSelection, selectedIds]);
 
   useEffect(() => {
     const pane = paneRef.current;
@@ -172,46 +185,75 @@ export function BoardStage({
     };
   }, [paneRef]);
 
+  // A menu action on a selected fragment acts on the whole selection.
+  const targetsOf = useCallback((id: string): string[] => {
+    const selected = selectedIdsRef.current;
+    return selected.includes(id) ? [...selected] : [id];
+  }, []);
+
   const bringToFront = useCallback(
     (id: string): void => {
-      applyLocal([{ type: "bring_to_front", id }]);
+      const current = snapshotRef.current;
+      const targets = targetsOf(id)
+        .map((target) => current.fragments.find((f) => f.id === target))
+        .filter((fragment): fragment is CanvasV2Fragment => Boolean(fragment))
+        .sort((a, b) => a.z - b.z);
+      if (targets.length === 0) return;
+      applyLocal(
+        targets.map((fragment) => ({
+          type: "bring_to_front",
+          id: fragment.id,
+        })),
+      );
     },
-    [applyLocal],
+    [applyLocal, targetsOf],
   );
 
   const removeFragment = useCallback(
     (id: string): void => {
-      applyLocal([{ type: "remove_fragment", id }]);
-      setSelectedId(null);
+      applyLocal(
+        targetsOf(id).map((target) => ({
+          type: "remove_fragment",
+          id: target,
+        })),
+      );
+      clearSelection();
     },
-    [applyLocal, setSelectedId],
+    [applyLocal, clearSelection, targetsOf],
   );
 
   const duplicateFragment = useCallback(
     (id: string): void => {
       const current = snapshotRef.current;
-      const source = current.fragments.find((fragment) => fragment.id === id);
-      if (!source) return;
-      const spot = findFreeSpot(current, source.w, source.h, {
-        x: source.x,
-        y: source.y,
-      });
-      const copyId = uniqueFragmentId(current, id);
-      applyLocal([
-        {
+      const taken = new Set(current.fragments.map((fragment) => fragment.id));
+      const ops: CanvasV2Op[] = [];
+      const copyIds: string[] = [];
+      let top = maxZ(current);
+      for (const target of targetsOf(id)) {
+        const source = current.fragments.find(
+          (fragment) => fragment.id === target,
+        );
+        if (!source) continue;
+        const copyId = uniqueFragmentId(taken, target);
+        taken.add(copyId);
+        copyIds.push(copyId);
+        top += 1;
+        ops.push({
           type: "add_fragment",
           fragment: {
             ...source,
             id: copyId,
-            x: spot.x,
-            y: spot.y,
-            z: maxZ(current) + 1,
+            x: source.x + DUPLICATE_OFFSET,
+            y: source.y + DUPLICATE_OFFSET,
+            z: top,
           },
-        },
-      ]);
-      setSelectedId(copyId);
+        });
+      }
+      if (ops.length === 0) return;
+      applyLocal(ops);
+      setSelection(copyIds);
     },
-    [applyLocal, setSelectedId],
+    [applyLocal, setSelection, targetsOf],
   );
 
   const toWorld = useCallback(
@@ -244,7 +286,7 @@ export function BoardStage({
         fragments={ordered}
         viewport={viewport}
         paneRect={paneRect}
-        selectedId={selectedId}
+        selectedIds={selectedIds}
         highlightedIds={highlightedIds}
         fragmentErrors={fragmentErrors}
         lastEdits={lastEdits}
@@ -255,6 +297,17 @@ export function BoardStage({
         onBringToFront={bringToFront}
         onDelete={removeFragment}
       />
+      {pointer.marquee ? (
+        <div
+          className="pointer-events-none absolute z-20 rounded-(--radius-1) border border-(--accent-9) bg-(--accent-a3)"
+          style={{
+            left: pointer.marquee.left,
+            top: pointer.marquee.top,
+            width: pointer.marquee.width,
+            height: pointer.marquee.height,
+          }}
+        />
+      ) : null}
       <DropCaptureLayer
         active={dragActive}
         toWorld={toWorld}
@@ -265,8 +318,7 @@ export function BoardStage({
 }
 
 /** A slug the board does not use yet, so the copy is a new fragment. */
-function uniqueFragmentId(snapshot: CanvasV2Snapshot, id: string): string {
-  const taken = new Set(snapshot.fragments.map((fragment) => fragment.id));
+function uniqueFragmentId(taken: ReadonlySet<string>, id: string): string {
   const base = `${id.replace(/-copy(-\d+)?$/, "").slice(0, 52)}-copy`;
   if (!taken.has(base)) return base;
   for (let index = 2; index < 1000; index++) {

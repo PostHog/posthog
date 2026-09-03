@@ -15705,6 +15705,324 @@ export namespace Schemas {
       component?: CanvasArtifactManifestComponent;
     }
 
+    export type CanvasBoardSnapshotFragmentsItem = { [key: string]: unknown };
+
+    export type CanvasBoardSnapshotState = { [key: string]: unknown };
+
+    /**
+     * Newest folded board the server holds.
+     */
+    export type CanvasBoardSnapshot = {
+      readonly schemaVersion: number;
+      readonly fragments: CanvasBoardSnapshotFragmentsItem[];
+      readonly state: CanvasBoardSnapshotState;
+    };
+
+    /**
+     * * `user` - User
+     * * `agent` - Agent
+     */
+    export type CanvasBoardActorKindEnum = typeof CanvasBoardActorKindEnum[keyof typeof CanvasBoardActorKindEnum];
+
+
+    export const CanvasBoardActorKindEnum = {
+      User: 'user',
+      Agent: 'agent',
+    } as const;
+
+    /**
+     * The person who created a board.
+     */
+    export interface CanvasBoardCreator {
+      /** Always user for a creator.
+       *
+       * * `user` - User
+       * * `agent` - Agent */
+      kind: CanvasBoardActorKindEnum;
+      /**
+         * Id of the user, or null when the account is gone.
+         * @nullable
+         */
+      user_id: number | null;
+      /**
+         * First name of the user, else their email.
+         * @nullable
+         */
+      user_name: string | null;
+    }
+
+    /**
+     * Who recorded an op: the signed-in user, or an agent acting for them.
+     */
+    export interface CanvasBoardActor {
+      /** Always user for a creator.
+       *
+       * * `user` - User
+       * * `agent` - Agent */
+      kind: CanvasBoardActorKindEnum;
+      /**
+         * Id of the user, or null when the account is gone.
+         * @nullable
+         */
+      user_id: number | null;
+      /**
+         * First name of the user, else their email.
+         * @nullable
+         */
+      user_name: string | null;
+      /**
+         * Id of the agent task that made the change, or null.
+         * @nullable
+         */
+      task_id: string | null;
+    }
+
+    export type CanvasBoardLogEntryOpType = typeof CanvasBoardLogEntryOpType[keyof typeof CanvasBoardLogEntryOpType];
+
+
+    export const CanvasBoardLogEntryOpType = {
+      AddFragment: 'add_fragment',
+      UpdateFragment: 'update_fragment',
+      RemoveFragment: 'remove_fragment',
+      BringToFront: 'bring_to_front',
+      SetState: 'set_state',
+      Restore: 'restore',
+    } as const;
+
+    /**
+     * The op itself.
+     */
+    export type CanvasBoardLogEntryOp = {
+      readonly type: CanvasBoardLogEntryOpType;
+      [key: string]: unknown;
+     };
+
+    /**
+     * One recorded op on a board.
+     */
+    export interface CanvasBoardLogEntry {
+      /** Position in the board's log, starting at 1. */
+      readonly seq: number;
+      /** Id the client chose for the op. */
+      readonly op_id: string;
+      /** Who recorded the op. */
+      readonly actor: CanvasBoardActor;
+      /** When the server recorded the op. */
+      readonly created_at: string;
+      /** The op itself. */
+      readonly op: CanvasBoardLogEntryOp;
+    }
+
+    /**
+     * A board with its stored snapshot and the ops recorded after it.
+     */
+    export interface CanvasBoard {
+      /** Id of the board. */
+      readonly id: string;
+      /** Display name of the board. */
+      readonly name: string;
+      /** When the board was created. */
+      readonly created_at: string;
+      /** When the board or its log last changed. */
+      readonly updated_at: string;
+      /** Who created the board, or null. */
+      readonly created_by: CanvasBoardCreator | null;
+      /** Seq of the newest op in the board's log. */
+      readonly head_seq: number;
+      /** Newest folded board the server holds. */
+      readonly snapshot: CanvasBoardSnapshot;
+      /** Seq the snapshot reflects. */
+      readonly snapshot_seq: number;
+      /** Ops with seq greater than snapshot_seq, ascending, at most 2000. Page with ops/ for the rest. */
+      readonly ops_after_snapshot: readonly CanvasBoardLogEntry[];
+    }
+
+    /**
+     * Who the client says is making the change. The user is always the caller.
+     */
+    export interface CanvasBoardActorInput {
+      /** user for a direct edit, agent for a change made by an agent.
+       *
+       * * `user` - User
+       * * `agent` - Agent */
+      kind: CanvasBoardActorKindEnum;
+      /**
+         * Id of the agent task making the change, if any.
+         * @maxLength 64
+         * @nullable
+         */
+      task_id?: string | null;
+    }
+
+    /**
+     * Folded board at base_seq plus these ops, or null to send none.
+     * @nullable
+     */
+    export type CanvasBoardAppendOpsSnapshot = {
+      schemaVersion: number;
+      fragments: { [key: string]: unknown }[];
+      state: { [key: string]: unknown };
+    } | null;
+
+    export type CanvasBoardOpDraftOpType = typeof CanvasBoardOpDraftOpType[keyof typeof CanvasBoardOpDraftOpType];
+
+
+    export const CanvasBoardOpDraftOpType = {
+      AddFragment: 'add_fragment',
+      UpdateFragment: 'update_fragment',
+      RemoveFragment: 'remove_fragment',
+      BringToFront: 'bring_to_front',
+      SetState: 'set_state',
+      Restore: 'restore',
+    } as const;
+
+    /**
+     * The op. Capped at 256 KB serialized.
+     */
+    export type CanvasBoardOpDraftOp = {
+      type: CanvasBoardOpDraftOpType;
+      [key: string]: unknown;
+     };
+
+    /**
+     * One op the client wants recorded.
+     */
+    export interface CanvasBoardOpDraft {
+      /**
+         * Client-chosen id, unique per board. Resending the same id records nothing new.
+         * @maxLength 64
+         */
+      op_id: string;
+      /** The op. Capped at 256 KB serialized. */
+      op: CanvasBoardOpDraftOp;
+    }
+
+    /**
+     * Payload for appending ops to a board's log, with an optional checkpoint snapshot.
+     */
+    export interface CanvasBoardAppendOps {
+      /** Ops to record, in order. May be empty to send only a snapshot. */
+      ops: CanvasBoardOpDraft[];
+      /** Who is making the change. */
+      actor: CanvasBoardActorInput;
+      /**
+         * head_seq the client had folded up to. The snapshot is stored only when it matches.
+         * @minimum 0
+         */
+      base_seq: number;
+      /**
+         * Folded board at base_seq plus these ops, or null to send none.
+         * @nullable
+         */
+      snapshot?: CanvasBoardAppendOpsSnapshot;
+    }
+
+    /**
+     * Where one submitted op landed in the log.
+     */
+    export interface CanvasBoardAppendedOp {
+      /** The op_id the client sent. */
+      op_id: string;
+      /** Seq assigned to the op, or its existing seq when already recorded. */
+      seq: number;
+    }
+
+    /**
+     * Result of appending ops.
+     */
+    export interface CanvasBoardAppendResult {
+      /** One entry per submitted op, in order. */
+      results: CanvasBoardAppendedOp[];
+      /** Seq of the newest op after this append. */
+      head_seq: number;
+    }
+
+    /**
+     * A pointer position on a board, in world units.
+     */
+    export interface CanvasBoardCursor {
+      /** Horizontal position in board world units. */
+      x: number;
+      /** Vertical position in board world units. */
+      y: number;
+    }
+
+    /**
+     * One page of a board's log.
+     */
+    export interface CanvasBoardOpsPage {
+      /** Ops in ascending seq order. */
+      results: CanvasBoardLogEntry[];
+      /** Seq of the newest op in the board's log. */
+      head_seq: number;
+    }
+
+    /**
+     * The part of a board one person looks at.
+     */
+    export interface CanvasBoardViewport {
+      /** Horizontal pan offset in screen pixels. */
+      x: number;
+      /** Vertical pan offset in screen pixels. */
+      y: number;
+      /**
+         * Zoom factor, where 1 means one world unit per pixel.
+         * @minimum 0.01
+         * @maximum 64
+         */
+      zoom: number;
+    }
+
+    /**
+     * One presence ping: where the caller points, looks, and what they have selected.
+     */
+    export interface CanvasBoardPresence {
+      /**
+         * Id of the caller's board tab, so other clients can skip their own pings.
+         * @maxLength 200
+         */
+      client_id: string;
+      /** Pointer position in board world units, or null when the pointer left the board. */
+      cursor?: CanvasBoardCursor | null;
+      /** The caller's pan and zoom, or null to send none. */
+      viewport?: CanvasBoardViewport | null;
+      /**
+         * Ids of the fragments the caller has selected, at most 50.
+         * @maxItems 50
+         * @items.maxLength 64
+         */
+      selected_ids?: string[];
+    }
+
+    /**
+     * A board as listed, without its contents.
+     */
+    export interface CanvasBoardSummary {
+      /** Id of the board. */
+      readonly id: string;
+      /** Display name of the board. */
+      readonly name: string;
+      /** When the board was created. */
+      readonly created_at: string;
+      /** When the board or its log last changed. */
+      readonly updated_at: string;
+      /** Seq of the newest op in the board's log. */
+      readonly head_seq: number;
+      /** Number of fragments in the stored snapshot. */
+      readonly fragment_count: number;
+    }
+
+    /**
+     * Payload for creating or renaming a board.
+     */
+    export interface CanvasBoardWrite {
+      /**
+         * Display name of the board.
+         * @maxLength 120
+         */
+      name: string;
+    }
+
     /**
      * One structured validation/build diagnostic for a canvas source project.
      */
@@ -54663,6 +54981,15 @@ export namespace Schemas {
       results: CIMDVerificationToken[];
     }
 
+    export interface PaginatedCanvasBoardSummaryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CanvasBoardSummary[];
+    }
+
     export interface PaginatedCanvasDraftList {
       count: number;
       /** @nullable */
@@ -61234,6 +61561,17 @@ export namespace Schemas {
          * @maxLength 2048
          */
       cimd_url?: string;
+    }
+
+    /**
+     * Payload for creating or renaming a board.
+     */
+    export interface PatchedCanvasBoardWrite {
+      /**
+         * Display name of the board.
+         * @maxLength 120
+         */
+      name?: string;
     }
 
     /**
@@ -92711,6 +93049,31 @@ export namespace Schemas {
 
     export type BusinessKnowledgeSourcesTextRetrieve200 = {
       text?: string;
+    };
+
+    export type CanvasBoardsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CanvasBoardsOpsRetrieveParams = {
+    /**
+     * Page size, at most 1000. Defaults to 500.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * Return ops with seq greater than this. Defaults to 0.
+     * @minimum 0
+     */
+    since?: number;
     };
 
     export type CanvasesListParams = {

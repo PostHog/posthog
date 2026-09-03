@@ -19,6 +19,7 @@ import type {
     CanvasBoardAppendOpsApi,
     CanvasBoardAppendResultApi,
     CanvasBoardOpsPageApi,
+    CanvasBoardPresenceApi,
     CanvasBoardWriteApi,
     CanvasBoardsListParams,
     CanvasBoardsOpsRetrieveParams,
@@ -219,6 +220,51 @@ export const canvasBoardsOpsAppend = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasBoardAppendOpsApi),
+    })
+}
+
+export const getCanvasBoardsPresenceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvas_boards/${id}/presence/`
+}
+
+/**
+ * Broadcast the caller's pointer, viewport, and selection on the board's live stream.
+ *
+ * Ephemeral: pings are never recorded in the board's log. The identity is
+ * taken from the caller, never from the body.
+ */
+export const canvasBoardsPresenceCreate = async (
+    projectId: string,
+    id: string,
+    canvasBoardPresenceApi: CanvasBoardPresenceApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getCanvasBoardsPresenceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasBoardPresenceApi),
+    })
+}
+
+export const getCanvasBoardsStreamRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvas_boards/${id}/stream/`
+}
+
+/**
+ * Live server-sent events for one board: recorded ops and other people's presence.
+ *
+ * Events are `op` (carries an `id:` line, so Last-Event-ID resumes it),
+ * `presence`, `reload`, and `error`.
+ */
+export const canvasBoardsStreamRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<string> => {
+    return apiMutator<string>(getCanvasBoardsStreamRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

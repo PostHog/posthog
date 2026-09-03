@@ -19,8 +19,11 @@ import {
 import type { CanvasV2Fragment } from "@posthog/shared";
 import {
   BRING_TO_FRONT_ACTION,
+  bringFragmentsToFrontAction,
   DELETE_FRAGMENT_ACTION,
   DUPLICATE_FRAGMENT_ACTION,
+  deleteFragmentsAction,
+  duplicateFragmentsAction,
   EDIT_FRAGMENT_ACTION,
   FRAGMENT_MENU_LABEL,
   lastEditedByLabel,
@@ -38,6 +41,10 @@ interface FragmentOverlayProps {
   /** Pane relative, so the layer can place it with plain CSS offsets. */
   rect: BoardScreenRect;
   selected: boolean;
+  /** Resize handles only fit one fragment, so the layer decides. */
+  resizable: boolean;
+  /** How many fragments a group action from this menu changes. */
+  selectionCount: number;
   highlighted: boolean;
   error?: string;
   lastEditedBy?: FragmentLastEdit;
@@ -65,6 +72,8 @@ export function FragmentOverlay({
   fragment,
   rect,
   selected,
+  resizable,
+  selectionCount,
   highlighted,
   error,
   lastEditedBy,
@@ -82,6 +91,7 @@ export function FragmentOverlay({
       ? "ring-2 ring-(--amber-9)"
       : "";
   const chromeVisible = selected || Boolean(error);
+  const isGroup = selectionCount > 1;
 
   return (
     <div
@@ -133,23 +143,31 @@ export function FragmentOverlay({
             <DotsThreeIcon />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={onEdit}>
-              {EDIT_FRAGMENT_ACTION}
-            </DropdownMenuItem>
+            {isGroup ? null : (
+              <DropdownMenuItem onClick={onEdit}>
+                {EDIT_FRAGMENT_ACTION}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={onDuplicate}>
-              {DUPLICATE_FRAGMENT_ACTION}
+              {isGroup
+                ? duplicateFragmentsAction(selectionCount)
+                : DUPLICATE_FRAGMENT_ACTION}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={onBringToFront}>
-              {BRING_TO_FRONT_ACTION}
+              {isGroup
+                ? bringFragmentsToFrontAction(selectionCount)
+                : BRING_TO_FRONT_ACTION}
             </DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onClick={onDelete}>
-              {DELETE_FRAGMENT_ACTION}
+              {isGroup
+                ? deleteFragmentsAction(selectionCount)
+                : DELETE_FRAGMENT_ACTION}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
 
-      {selected
+      {resizable
         ? RESIZE_HANDLES.map((handle) => (
             <div
               key={handle}

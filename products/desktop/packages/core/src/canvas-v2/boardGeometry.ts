@@ -214,6 +214,26 @@ export function resizeRect(
   return next;
 }
 
+/** The box two opposite corners span, whatever order the corners come in. */
+export function rectFromPoints(a: BoardPoint, b: BoardPoint): BoardRect {
+  return {
+    x: Math.min(a.x, b.x),
+    y: Math.min(a.y, b.y),
+    w: Math.abs(a.x - b.x),
+    h: Math.abs(a.y - b.y),
+  };
+}
+
+/** True when the two boxes touch or overlap. Edge contact counts. */
+export function rectsTouch(rect: BoardRect, box: BoardBox): boolean {
+  return (
+    rect.x <= box.x + box.w &&
+    rect.x + rect.w >= box.x &&
+    rect.y <= box.y + box.h &&
+    rect.y + rect.h >= box.y
+  );
+}
+
 export function snapToGrid(value: number, grid: number = BOARD_GRID): number {
   if (grid <= 0) return value;
   return Math.round(value / grid) * grid;

@@ -11,8 +11,6 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ConversationApi,
     ConversationsListParams,
-    DocsSearchRequestApi,
-    DocsSearchResponseApi,
     McpToolsCreate200,
     MessageApi,
     MessageMinimalApi,
@@ -293,26 +291,5 @@ export const mcpToolsCreate = async (
     return apiMutator<McpToolsCreate200>(getMcpToolsCreateUrl(projectId, toolName), {
         ...options,
         method: 'POST',
-    })
-}
-
-export const getDocsSearchUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/mcp_tools/docs_search/`
-}
-
-/**
- * Run a hybrid (semantic + full-text) RAG search over the PostHog documentation via Inkeep. Returns a markdown body with title, URL, and excerpt for each match for the agent to cite back to the user.
- * @summary Search PostHog documentation
- */
-export const docsSearch = async (
-    projectId: string,
-    docsSearchRequestApi: DocsSearchRequestApi,
-    options?: RequestInit
-): Promise<DocsSearchResponseApi> => {
-    return apiMutator<DocsSearchResponseApi>(getDocsSearchUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(docsSearchRequestApi),
     })
 }

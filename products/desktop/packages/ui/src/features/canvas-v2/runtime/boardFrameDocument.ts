@@ -229,19 +229,30 @@ export function buildBoardFrameDocument(): string {
     const fragmentElementOf = (target) =>
       target instanceof Element ? target.closest(".fragment") : null;
     let relayingPointer = false;
+    const modifiersOf = (e) => ({
+      shiftKey: e.shiftKey === true,
+      metaKey: e.metaKey === true,
+      ctrlKey: e.ctrlKey === true,
+      altKey: e.altKey === true,
+    });
     const pointerPayload = (phase, e) => ({
       type: "background-pointer",
       phase,
       clientX: e.clientX,
       clientY: e.clientY,
       button: e.button,
+      ...modifiersOf(e),
     });
     document.addEventListener(
       "pointerdown",
       (e) => {
         const fragmentEl = fragmentElementOf(e.target);
         if (fragmentEl) {
-          post({ type: "fragment-pointer-down", id: fragmentEl.dataset.id || "" });
+          post({
+            type: "fragment-pointer-down",
+            id: fragmentEl.dataset.id || "",
+            ...modifiersOf(e),
+          });
           return;
         }
         e.preventDefault();
@@ -497,9 +508,10 @@ export function buildBoardFrameDocument(): string {
       }
       for (const fragment of list) upsert(fragment);
     };
-    const setSelection = (id) => {
+    const setSelection = (ids) => {
+      const selected = new Set(Array.isArray(ids) ? ids : []);
       for (const [fragmentId, entry] of fragments) {
-        entry.el.classList.toggle("selected", fragmentId === id);
+        entry.el.classList.toggle("selected", selected.has(fragmentId));
       }
     };
 
@@ -530,7 +542,7 @@ export function buildBoardFrameDocument(): string {
           applyTheme(d.theme);
           break;
         case "set-selection":
-          setSelection(d.id);
+          setSelection(d.ids);
           break;
         case "data-response": {
           const p = pending.get(d.id);

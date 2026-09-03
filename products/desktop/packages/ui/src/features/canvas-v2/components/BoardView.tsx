@@ -38,7 +38,10 @@ import {
   useBoardViewport,
   useBoardViewportStore,
 } from "@posthog/ui/features/canvas-v2/hooks/useBoardViewportStore";
-import { useBoardViewStore } from "@posthog/ui/features/canvas-v2/interaction/boardViewStore";
+import {
+  selectBoardFragment,
+  useBoardViewStore,
+} from "@posthog/ui/features/canvas-v2/interaction/boardViewStore";
 import { libraryEntry } from "@posthog/ui/features/canvas-v2/library/registry";
 import { useBoardSync } from "@posthog/ui/features/canvas-v2/sync/useBoardSync";
 import {
@@ -143,12 +146,12 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
         codeVersion: 1,
       };
       client.applyLocal([{ type: "add_fragment", fragment }]);
-      view.setSelectedId(fragment.id);
+      view.setSelection([fragment.id]);
     },
     [client, view],
   );
 
-  useApplyBoardToolCalls(client, taskId, view.setSelectedId);
+  useApplyBoardToolCalls(client, taskId, selectBoardFragment);
 
   useBoardKeyboard({
     enabled: editingId === null,
@@ -156,9 +159,14 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
     fragments: state.snapshot.fragments,
     viewport,
     setViewport,
-    selectedId: view.selectedId,
-    onDeleteSelected: (id) => applyLocal([{ type: "remove_fragment", id }]),
-    onClearSelection: () => view.setSelectedId(null),
+    selectedIds: view.selectedIds,
+    onDeleteSelected: (ids) => {
+      applyLocal(ids.map((id) => ({ type: "remove_fragment", id })));
+      view.clearSelection();
+    },
+    onClearSelection: () => view.clearSelection(),
+    onSelectAll: () =>
+      view.setSelection(state.snapshot.fragments.map((f) => f.id)),
     onUndo: () => void client?.undoLastOwnOp(),
   });
 

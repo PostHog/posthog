@@ -57,6 +57,21 @@ export const DUPLICATE_FRAGMENT_ACTION = "Duplicate";
 export const BRING_TO_FRONT_ACTION = "Bring to front";
 export const DELETE_FRAGMENT_ACTION = "Delete";
 
+/** "Duplicate 3 fragments". */
+export function duplicateFragmentsAction(count: number): string {
+  return `Duplicate ${fragmentCountLabel(count)}`;
+}
+
+/** "Bring 3 fragments to front". */
+export function bringFragmentsToFrontAction(count: number): string {
+  return `Bring ${fragmentCountLabel(count)} to front`;
+}
+
+/** "Delete 3 fragments". */
+export function deleteFragmentsAction(count: number): string {
+  return `Delete ${fragmentCountLabel(count)}`;
+}
+
 export const EDIT_FRAGMENT_DIALOG_TITLE = "Edit fragment";
 export const EDIT_FRAGMENT_DIALOG_DESCRIPTION =
   "The new code runs for everyone on the board.";

@@ -14,9 +14,10 @@ export interface UseBoardKeyboardOptions {
   fragments: readonly BoardBox[];
   viewport: CanvasV2Viewport;
   setViewport: (viewport: CanvasV2Viewport) => void;
-  selectedId: string | null;
-  onDeleteSelected: (id: string) => void;
+  selectedIds: readonly string[];
+  onDeleteSelected: (ids: string[]) => void;
   onClearSelection: () => void;
+  onSelectAll: () => void;
   onUndo: () => void;
 }
 
@@ -36,6 +37,11 @@ export function useBoardKeyboard(options: UseBoardKeyboardOptions): void {
         current.onUndo();
         return;
       }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        current.onSelectAll();
+        return;
+      }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
 
       const pane = readPaneRect(current.paneRef.current);
@@ -43,9 +49,9 @@ export function useBoardKeyboard(options: UseBoardKeyboardOptions): void {
       switch (event.key) {
         case "Delete":
         case "Backspace":
-          if (!current.selectedId) return;
+          if (current.selectedIds.length === 0) return;
           event.preventDefault();
-          current.onDeleteSelected(current.selectedId);
+          current.onDeleteSelected([...current.selectedIds]);
           return;
         case "Escape":
           current.onClearSelection();

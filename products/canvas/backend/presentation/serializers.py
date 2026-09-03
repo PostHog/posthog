@@ -7,9 +7,9 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.user import User
 
-from products.canvas.backend.board_log import BOARD_OP_TYPES, MAX_BOARD_OP_BYTES
+from products.canvas.backend.board_log import BOARD_OP_TYPES, MAX_BOARD_OP_BYTES, board_actor_name
+from products.canvas.backend.board_presence import PRESENCE_MAX_SELECTED_IDS
 from products.canvas.backend.contract import (
     GRID_COLUMN_CHOICES,
     MAX_COMPONENT_HEIGHT,
@@ -1149,12 +1149,6 @@ class CanvasBoardSnapshotField(serializers.JSONField):
         return value
 
 
-def board_actor_name(user: User | None) -> str | None:
-    if user is None:
-        return None
-    return user.first_name or user.email
-
-
 class CanvasBoardCreatorSerializer(serializers.Serializer):
     """The person who created a board."""
 
@@ -1313,3 +1307,43 @@ class CanvasBoardAppendResultSerializer(serializers.Serializer):
 
     results = CanvasBoardAppendedOpSerializer(many=True, help_text="One entry per submitted op, in order.")
     head_seq = serializers.IntegerField(help_text="Seq of the newest op after this append.")
+
+
+class CanvasBoardCursorSerializer(serializers.Serializer):
+    """A pointer position on a board, in world units."""
+
+    x = serializers.FloatField(help_text="Horizontal position in board world units.")
+    y = serializers.FloatField(help_text="Vertical position in board world units.")
+
+
+class CanvasBoardViewportSerializer(serializers.Serializer):
+    """The part of a board one person looks at."""
+
+    x = serializers.FloatField(help_text="Horizontal pan offset in screen pixels.")
+    y = serializers.FloatField(help_text="Vertical pan offset in screen pixels.")
+    zoom = serializers.FloatField(
+        min_value=0.01, max_value=64, help_text="Zoom factor, where 1 means one world unit per pixel."
+    )
+
+
+class CanvasBoardPresenceSerializer(serializers.Serializer):
+    """One presence ping: where the caller points, looks, and what they have selected."""
+
+    client_id = serializers.CharField(
+        max_length=200, help_text="Id of the caller's board tab, so other clients can skip their own pings."
+    )
+    cursor = CanvasBoardCursorSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Pointer position in board world units, or null when the pointer left the board.",
+    )
+    viewport = CanvasBoardViewportSerializer(
+        required=False, allow_null=True, help_text="The caller's pan and zoom, or null to send none."
+    )
+    selected_ids = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        required=False,
+        default=list,
+        max_length=PRESENCE_MAX_SELECTED_IDS,
+        help_text=f"Ids of the fragments the caller has selected, at most {PRESENCE_MAX_SELECTED_IDS}.",
+    )

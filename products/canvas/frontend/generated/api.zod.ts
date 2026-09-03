@@ -98,6 +98,64 @@ export const CanvasBoardsOpsAppendBody = /* @__PURE__ */ zod
     .describe("Payload for appending ops to a board's log, with an optional checkpoint snapshot.")
 
 /**
+ * Broadcast the caller's pointer, viewport, and selection on the board's live stream.
+ *
+ * Ephemeral: pings are never recorded in the board's log. The identity is
+ * taken from the caller, never from the body.
+ */
+export const canvasBoardsPresenceCreateBodyClientIdMax = 200
+
+export const canvasBoardsPresenceCreateBodyViewportOneZoomMin = 0.01
+export const canvasBoardsPresenceCreateBodyViewportOneZoomMax = 64
+
+export const canvasBoardsPresenceCreateBodySelectedIdsItemMax = 64
+
+export const canvasBoardsPresenceCreateBodySelectedIdsMax = 50
+
+export const CanvasBoardsPresenceCreateBody = /* @__PURE__ */ zod
+    .object({
+        client_id: zod
+            .string()
+            .max(canvasBoardsPresenceCreateBodyClientIdMax)
+            .describe("Id of the caller's board tab, so other clients can skip their own pings."),
+        cursor: zod
+            .union([
+                zod
+                    .object({
+                        x: zod.number().describe('Horizontal position in board world units.'),
+                        y: zod.number().describe('Vertical position in board world units.'),
+                    })
+                    .describe('A pointer position on a board, in world units.'),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Pointer position in board world units, or null when the pointer left the board.'),
+        viewport: zod
+            .union([
+                zod
+                    .object({
+                        x: zod.number().describe('Horizontal pan offset in screen pixels.'),
+                        y: zod.number().describe('Vertical pan offset in screen pixels.'),
+                        zoom: zod
+                            .number()
+                            .min(canvasBoardsPresenceCreateBodyViewportOneZoomMin)
+                            .max(canvasBoardsPresenceCreateBodyViewportOneZoomMax)
+                            .describe('Zoom factor, where 1 means one world unit per pixel.'),
+                    })
+                    .describe('The part of a board one person looks at.'),
+                zod.null(),
+            ])
+            .optional()
+            .describe("The caller's pan and zoom, or null to send none."),
+        selected_ids: zod
+            .array(zod.string().max(canvasBoardsPresenceCreateBodySelectedIdsItemMax))
+            .max(canvasBoardsPresenceCreateBodySelectedIdsMax)
+            .optional()
+            .describe('Ids of the fragments the caller has selected, at most 50.'),
+    })
+    .describe('One presence ping: where the caller points, looks, and what they have selected.')
+
+/**
  * Create a new, empty canvas in a channel; give it source by publishing a project.
  */
 export const canvasesCreateBodyNameMax = 400

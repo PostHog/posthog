@@ -62,7 +62,7 @@ export const hostToBoardFrameMessageSchema = z.discriminatedUnion("type", [
   z.object({
     channel,
     type: z.literal("set-selection"),
-    id: z.string().nullable(),
+    ids: z.array(z.string()),
   }),
   z.object({
     channel,
@@ -117,11 +117,19 @@ export const boardFrameToHostMessageSchema = z.discriminatedUnion("type", [
     clientX: z.number(),
     clientY: z.number(),
     button: z.number(),
+    shiftKey: z.boolean(),
+    metaKey: z.boolean(),
+    ctrlKey: z.boolean(),
+    altKey: z.boolean(),
   }),
   z.object({
     channel,
     type: z.literal("fragment-pointer-down"),
     id: z.string(),
+    shiftKey: z.boolean(),
+    metaKey: z.boolean(),
+    ctrlKey: z.boolean(),
+    altKey: z.boolean(),
   }),
   z.object({
     channel,
