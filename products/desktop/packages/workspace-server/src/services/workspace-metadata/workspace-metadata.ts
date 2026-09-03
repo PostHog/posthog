@@ -6,12 +6,6 @@ import {
 import type { ITaskMetadataRepository } from "../../db/repositories/task-metadata-repository";
 import type { IWorkspaceRepository } from "../../db/repositories/workspace-repository";
 
-function timestampOrZero(value: string | null | undefined): number {
-  if (!value) return 0;
-  const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp) ? 0 : timestamp;
-}
-
 export interface TaskTimestamps {
   pinnedAt: string | null;
   lastViewedAt: string | null;
@@ -52,17 +46,9 @@ export class WorkspaceMetadataService {
     return { isPinned: newPinnedAt !== null, pinnedAt: newPinnedAt };
   }
 
-  markViewed(taskId: string, activityAt?: string): void {
-    const workspace = this.workspaceRepo.findByTaskId(taskId);
-    const metadata = workspace ?? this.taskMetadataRepo.findByTaskId(taskId);
-    const lastViewedAt = new Date(
-      Math.max(
-        Date.now(),
-        timestampOrZero(activityAt),
-        timestampOrZero(metadata?.lastActivityAt),
-      ),
-    ).toISOString();
-    if (workspace) {
+  markViewed(taskId: string): void {
+    const lastViewedAt = new Date().toISOString();
+    if (this.workspaceRepo.findByTaskId(taskId)) {
       this.workspaceRepo.updateLastViewedAt(taskId, lastViewedAt);
       return;
     }

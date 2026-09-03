@@ -100,24 +100,6 @@ describe("WorkspaceMetadataService.markViewed", () => {
     expect(repo.updateLastViewedAt).not.toHaveBeenCalled();
     expect(metadataRepo.findByTaskId("t1")?.lastViewedAt).toBe(NOW_ISO);
   });
-
-  it.each([
-    ["reported", "2027-01-01T00:00:00.000Z", null],
-    ["locally recorded", undefined, "2027-01-01T00:00:00.000Z"],
-  ])(
-    "clamps the view time to %s activity",
-    (_label, activityAt, lastActivityAt) => {
-      const { service, repo } = createService();
-      repo.findByTaskId.mockReturnValue({ taskId: "t1", lastActivityAt });
-
-      service.markViewed("t1", activityAt);
-
-      expect(repo.updateLastViewedAt).toHaveBeenCalledWith(
-        "t1",
-        "2027-01-01T00:00:00.000Z",
-      );
-    },
-  );
 });
 
 describe("WorkspaceMetadataService.markActivity", () => {

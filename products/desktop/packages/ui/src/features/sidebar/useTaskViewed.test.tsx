@@ -44,7 +44,7 @@ describe("useTaskViewed", () => {
     mocks.markViewed.mockResolvedValue(undefined);
   });
 
-  it("clears unread through the task activity timestamp", async () => {
+  it("clears unread immediately when a task is viewed", async () => {
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -54,7 +54,7 @@ describe("useTaskViewed", () => {
     const wrapper = ({ children }: PropsWithChildren) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
-    const activityAt = new Date(Date.now() + 60_000).toISOString();
+    const activityAt = new Date(Date.now() - 60_000).toISOString();
     queryClient.setQueryData<Record<string, RawTaskTimestamp>>(
       TIMESTAMPS_QUERY_KEY,
       {
@@ -67,7 +67,7 @@ describe("useTaskViewed", () => {
     );
     const { result } = renderHook(() => useTaskViewed(), { wrapper });
 
-    act(() => result.current.markAsViewed("task-1", activityAt));
+    act(() => result.current.markAsViewed("task-1"));
 
     await waitFor(() => {
       expect(
@@ -76,7 +76,6 @@ describe("useTaskViewed", () => {
     });
     expect(mocks.markViewed).toHaveBeenCalledWith({
       taskId: "task-1",
-      activityAt,
     });
   });
 });

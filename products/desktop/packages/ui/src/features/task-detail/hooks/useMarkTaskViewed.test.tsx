@@ -12,30 +12,18 @@ import { useMarkTaskViewed } from "./useMarkTaskViewed";
 describe("useMarkTaskViewed", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("marks a rendered task viewed through its activity timestamp", () => {
-    const task = {
-      id: "task-1",
-      created_at: "2026-09-03T09:00:00.000Z",
-      updated_at: "2026-09-03T12:00:00.000Z",
-      last_activity_at: "2026-09-03T10:00:00.000Z",
-    };
+  it("marks each rendered task as viewed once", () => {
+    const { rerender } = renderHook((taskId) => useMarkTaskViewed(taskId), {
+      initialProps: "task-1",
+    });
 
-    const { rerender } = renderHook(
-      ({ lastActivityAt }) =>
-        useMarkTaskViewed({
-          ...task,
-          last_activity_at: lastActivityAt,
-        }),
-      { initialProps: { lastActivityAt: task.last_activity_at } },
-    );
+    expect(markAsViewed).toHaveBeenLastCalledWith("task-1");
 
-    expect(markAsViewed).toHaveBeenLastCalledWith(
-      "task-1",
-      task.last_activity_at,
-    );
+    markAsViewed.mockClear();
+    rerender("task-1");
+    expect(markAsViewed).not.toHaveBeenCalled();
 
-    const nextActivityAt = "2026-09-03T11:00:00.000Z";
-    rerender({ lastActivityAt: nextActivityAt });
-    expect(markAsViewed).toHaveBeenLastCalledWith("task-1", nextActivityAt);
+    rerender("task-2");
+    expect(markAsViewed).toHaveBeenLastCalledWith("task-2");
   });
 });

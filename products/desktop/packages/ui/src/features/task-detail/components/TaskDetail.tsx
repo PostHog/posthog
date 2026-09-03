@@ -54,7 +54,7 @@ export function TaskDetail({
 }: TaskDetailProps) {
   const taskId = initialTask.id;
   const { task } = useTaskData({ taskId, initialTask });
-  useMarkTaskViewed(task);
+  useMarkTaskViewed(taskId);
 
   const effectiveRepoPath = useCwd(taskId);
 
