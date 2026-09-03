@@ -12,7 +12,7 @@ from posthog.test.base import (
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import AsyncDeletion, DeletionType, Team, User
-from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
+from posthog.models.async_deletion.delete_cohorts import sweep_cohort_deletions
 from posthog.models.async_deletion.delete_events import AsyncEventDeletion
 from posthog.models.group.util import create_group
 from posthog.models.person.util import create_person, create_person_distinct_id
@@ -447,7 +447,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             key=str(cohort_id) + "_0",
             created_by=self.user,
         )
-        AsyncCohortDeletion().run()
+        sweep_cohort_deletions()
 
         self.assertRowCount(0, "cohortpeople")
 
@@ -464,9 +464,39 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             key=str(cohort_id) + "_3",
             created_by=self.user,
         )
-        AsyncCohortDeletion().run()
+        sweep_cohort_deletions()
 
         self.assertRowCount(1, "cohortpeople")
+
+    def test_marking_verified_respects_the_versions_that_survive(self):
+        team = self.teams[0]
+        # Rows sit at version 5 for both cohorts.
+        self._insert_cohortpeople_row(team, uuid4(), 11, 5)
+        self._insert_cohortpeople_row(team, uuid4(), 12, 5)
+
+        AsyncDeletion.objects.create(deletion_type=DeletionType.Cohort_stale, team_id=team.pk, key="11_2")
+        AsyncDeletion.objects.create(deletion_type=DeletionType.Cohort_stale, team_id=team.pk, key="12_9")
+
+        sweep_cohort_deletions()
+
+        # Cohort 11 asked for versions below 2 and nothing is below 2, so it is done.
+        assert AsyncDeletion.objects.get(key="11_2").delete_verified_at is not None
+        # Cohort 12 asked for versions below 9 and version 5 is still there, so it is not.
+        # Verifying it here would abandon that row for good, since the tombstone is the only record.
+        assert AsyncDeletion.objects.get(key="12_9").delete_verified_at is None
+
+    def test_a_team_scoped_key_sweeps_instead_of_raising(self):
+        team = self.teams[0]
+        self._insert_cohortpeople_row(team, uuid4(), 13)
+
+        # `posthog/api/cohort.py` appends the team id for a team that is not the cohort's own.
+        # Unpacking that into two parts raised ValueError and took down the whole pass.
+        AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Cohort_full, team_id=team.pk, key=f"13_0_{self.teams[1].pk}"
+        )
+
+        assert sweep_cohort_deletions() == []
+        self.assertRowCount(0, "cohortpeople")
 
     def assertRowCount(self, expected, table="events"):
         result = sync_execute(f"SELECT count() FROM {table}")[0][0]

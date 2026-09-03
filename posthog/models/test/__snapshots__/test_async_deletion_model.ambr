@@ -1,11 +1,103 @@
 # serializer version: 1
 # name: TestAsyncDeletion.test_delete_cohortpeople
   '''
+  
+  SELECT team_id,
+         cohort_id,
+         min(version)
+  FROM cohortpeople
+  WHERE (team_id = 99999
+         AND cohort_id = 99999)
+  GROUP BY team_id,
+           cohort_id
+  '''
+# ---
+# name: TestAsyncDeletion.test_delete_cohortpeople.1
+  '''
+  
+  SELECT count()
+  FROM system.mutations
+  WHERE database = 'posthog_test'
+    AND table = 'cohortpeople'
+    AND NOT is_done
+    AND NOT is_killed
+  '''
+# ---
+# name: TestAsyncDeletion.test_delete_cohortpeople.2
+  '''
+  
+  SELECT count()
+  FROM system.mutations
+  WHERE database = 'posthog_test'
+    AND table = 'cohortpeople'
+    AND NOT is_done
+    AND NOT is_killed
+  '''
+# ---
+# name: TestAsyncDeletion.test_delete_cohortpeople.3
+  '''
+  
+  SELECT count()
+  FROM system.mutations
+  WHERE database = 'posthog_test'
+    AND table = 'cohortpeople'
+    AND NOT is_done
+    AND NOT is_killed
+  '''
+# ---
+# name: TestAsyncDeletion.test_delete_cohortpeople.4
+  '''
   SELECT count()
   FROM cohortpeople
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_cohortpeople_version
+  '''
+  
+  SELECT team_id,
+         cohort_id,
+         min(version)
+  FROM cohortpeople
+  WHERE (team_id = 99999
+         AND cohort_id = 99999)
+  GROUP BY team_id,
+           cohort_id
+  '''
+# ---
+# name: TestAsyncDeletion.test_delete_cohortpeople_version.1
+  '''
+  
+  SELECT count()
+  FROM system.mutations
+  WHERE database = 'posthog_test'
+    AND table = 'cohortpeople'
+    AND NOT is_done
+    AND NOT is_killed
+  '''
+# ---
+# name: TestAsyncDeletion.test_delete_cohortpeople_version.2
+  '''
+  
+  SELECT count()
+  FROM system.mutations
+  WHERE database = 'posthog_test'
+    AND table = 'cohortpeople'
+    AND NOT is_done
+    AND NOT is_killed
+  '''
+# ---
+# name: TestAsyncDeletion.test_delete_cohortpeople_version.3
+  '''
+  
+  SELECT count()
+  FROM system.mutations
+  WHERE database = 'posthog_test'
+    AND table = 'cohortpeople'
+    AND NOT is_done
+    AND NOT is_killed
+  '''
+# ---
+# name: TestAsyncDeletion.test_delete_cohortpeople_version.4
   '''
   SELECT count()
   FROM cohortpeople

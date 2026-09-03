@@ -18,6 +18,7 @@ from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     HostInfo,
     LightweightDeleteMutationRunner,
+    MutationCapacityTimeout,
     MutationNotFound,
     MutationWaiter,
     Query,
@@ -888,3 +889,51 @@ def test_query_repr_keeps_short_query_intact():
     rendered = repr(Query("SELECT 1"))
     assert "truncated" not in rendered
     assert "SELECT 1" in rendered
+
+
+def _client_reporting_unfinished(counts: list[int]) -> Mock:
+    """A client whose system.mutations count walks `counts`, then stays at the last value."""
+    remaining = list(counts)
+    client = Mock(spec=Client)
+    client.execute.side_effect = lambda *args, **kwargs: [[remaining.pop(0) if len(remaining) > 1 else remaining[0]]]
+    return client
+
+
+def test_wait_for_mutation_capacity_returns_once_the_table_is_free() -> None:
+    runner = LightweightDeleteMutationRunner(table="person", predicate="1")
+    client = _client_reporting_unfinished([2, 1, 0])
+
+    with patch("posthog.clickhouse.cluster.time.sleep"):
+        runner.wait_for_mutation_capacity(client, poll_interval=0)
+
+    assert client.execute.call_count == 3
+
+
+def test_wait_for_mutation_capacity_waits_indefinitely_by_default() -> None:
+    # The default has to stay "wait forever": every caller that predates capacity_timeout relies on
+    # it, and a deadline appearing under them would fail runs that today merely wait.
+    runner = LightweightDeleteMutationRunner(table="person", predicate="1")
+    assert runner.capacity_timeout == 0.0
+
+    client = _client_reporting_unfinished([1] * 5 + [0])
+    with (
+        patch("posthog.clickhouse.cluster.time.sleep"),
+        patch("posthog.clickhouse.cluster.time.monotonic", side_effect=range(1_000_000, 1_000_100)),
+    ):
+        runner.wait_for_mutation_capacity(client, poll_interval=0)
+
+    assert client.execute.call_count == 6
+
+
+def test_wait_for_mutation_capacity_gives_up_once_capacity_timeout_passes() -> None:
+    # This wait happens before the mutation exists, so the caller's wait-for-completion deadline
+    # cannot cover it; without this bound a mutation nobody here started blocks the run forever.
+    runner = LightweightDeleteMutationRunner(table="person", predicate="1", capacity_timeout=30.0)
+    client = _client_reporting_unfinished([1])
+
+    with (
+        patch("posthog.clickhouse.cluster.time.sleep"),
+        patch("posthog.clickhouse.cluster.time.monotonic", side_effect=[0.0, 10.0, 31.0]),
+    ):
+        with pytest.raises(MutationCapacityTimeout, match="waiting for capacity"):
+            runner.wait_for_mutation_capacity(client, poll_interval=0)
