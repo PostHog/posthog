@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconArrowLeft, IconCheck, IconExternal, IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonModal, LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
@@ -17,10 +17,11 @@ import { urls } from 'scenes/urls'
 import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { EmailMetricsSummary } from '../Workflows/EmailMetricsSummary'
-import { BroadcastSendRow, BroadcastSendStatus, broadcastSentLogic } from './broadcastSentLogic'
+import { EmailViewerModal } from '../Workflows/EmailViewerModal'
+import type { MessageAsset } from '../Workflows/messageAssetsApi'
+import { broadcastSentLogic } from './broadcastSentLogic'
 import { broadcastsLogic } from './broadcastsLogic'
 import { BroadcastSummaryTab, broadcastWizardLogic } from './broadcastWizardLogic'
-import { renderEmailPreview } from './emailPreview'
 
 const BATCH_JOB_STATUS_TAG: Record<string, LemonTagType> = {
     waiting: 'default',
@@ -29,17 +30,6 @@ const BATCH_JOB_STATUS_TAG: Record<string, LemonTagType> = {
     completed: 'success',
     cancelled: 'muted',
     failed: 'danger',
-}
-
-const SEND_STATUS_TAG: Record<BroadcastSendStatus, { label: string; type: LemonTagType }> = {
-    sent: { label: 'Sent', type: 'default' },
-    delivered: { label: 'Delivered', type: 'success' },
-    opened: { label: 'Opened', type: 'success' },
-    clicked: { label: 'Clicked', type: 'success' },
-    bounced: { label: 'Bounced', type: 'danger' },
-    failed: { label: 'Failed', type: 'danger' },
-    unsubscribed: { label: 'Unsubscribed', type: 'warning' },
-    spam: { label: 'Marked as spam', type: 'danger' },
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
@@ -98,20 +88,31 @@ function ContentTab(): JSX.Element {
     )
 }
 
-function SentTab(): JSX.Element {
-    const { filteredSends, sendsLoading, sendsFailed, statusFilter, selectedSend } = useValues(broadcastSentLogic)
-    const { loadSends, setStatusFilter, selectRecipient } = useActions(broadcastSentLogic)
-    const { email } = useValues(broadcastWizardLogic)
+const SEND_STATUS_TAG: Record<string, LemonTagType> = {
+    sent: 'default',
+    delivered: 'success',
+    opened: 'success',
+    clicked: 'success',
+    bounced: 'danger',
+    failed: 'danger',
+    unsubscribed: 'warning',
+    spam: 'danger',
+}
+
+function SentTab({ workflowId }: { workflowId: string }): JSX.Element {
+    const { filteredSends, sendsLoading, sendsFailed, statusFilter, statuses, selectedSend } =
+        useValues(broadcastSentLogic)
+    const { loadSends, setStatusFilter, selectInvocation } = useActions(broadcastSentLogic)
 
     useEffect(() => {
         loadSends()
     }, [loadSends])
 
-    const columns: LemonTableColumns<BroadcastSendRow> = [
+    const columns: LemonTableColumns<MessageAsset> = [
         {
-            title: 'Last activity',
-            key: 'lastEventAt',
-            render: (_, row) => <TZLabel time={row.lastEventAt} />,
+            title: 'Sent',
+            key: 'sent_at',
+            render: (_, row) => <TZLabel time={row.sent_at} />,
         },
         {
             title: 'Subject',
@@ -125,7 +126,7 @@ function SentTab(): JSX.Element {
                 <LemonButton
                     size="small"
                     type="tertiary"
-                    onClick={() => selectRecipient(row.recipient)}
+                    onClick={() => selectInvocation(row.invocation_id)}
                     data-attr="broadcast-view-recipient-email"
                 >
                     <span className="font-mono text-xs">{row.recipient}</span>
@@ -136,10 +137,11 @@ function SentTab(): JSX.Element {
             title: 'Status',
             key: 'status',
             width: 0,
-            render: (_, row) => {
-                const config = SEND_STATUS_TAG[row.status]
-                return <LemonTag type={config.type}>{config.label}</LemonTag>
-            },
+            render: (_, row) => (
+                <LemonTag type={SEND_STATUS_TAG[row.status] ?? 'default'}>
+                    {capitalizeFirstLetter(row.status || 'unknown')}
+                </LemonTag>
+            ),
         },
     ]
 
@@ -151,59 +153,38 @@ function SentTab(): JSX.Element {
                     size="small"
                     value={statusFilter}
                     onChange={(value) => setStatusFilter(value)}
+                    data-attr="broadcast-sent-status-filter"
                     options={[
                         { value: null, label: 'All statuses' },
-                        ...(Object.keys(SEND_STATUS_TAG) as BroadcastSendStatus[]).map((status) => ({
-                            value: status,
-                            label: SEND_STATUS_TAG[status].label,
-                        })),
+                        ...statuses.map((status) => ({ value: status, label: capitalizeFirstLetter(status) })),
                     ]}
                 />
             </div>
             <LemonTable
                 dataSource={filteredSends}
                 loading={sendsLoading}
-                rowKey="recipient"
+                rowKey="invocation_id"
                 columns={columns}
                 nouns={['recipient', 'recipients']}
                 emptyState={
                     sendsFailed
                         ? "Couldn't load recipients. Refresh the page to try again."
-                        : 'No sends recorded yet. Recipients appear here once the send produces engagement events.'
+                        : 'No sends recorded for this run yet.'
                 }
             />
-            <LemonModal
-                isOpen={!!selectedSend}
-                onClose={() => selectRecipient(null)}
-                title={selectedSend ? `Email sent to ${selectedSend.recipient}` : ''}
-                width={760}
-            >
-                {selectedSend ? (
-                    <div className="flex flex-col gap-3">
-                        <p className="m-0 text-xs text-muted">
-                            The body is not stored per recipient, so this re-renders the broadcast's template against
-                            this person's properties, the same way the worker did at send time.
-                        </p>
-                        <div className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
-                            <span className="text-muted">Subject</span>
-                            <span>{renderEmailPreview(email.subject, recipientPerson(selectedSend))}</span>
-                        </div>
-                        <iframe
-                            srcDoc={renderEmailPreview(email.html, recipientPerson(selectedSend))}
-                            sandbox=""
-                            title="Email as sent to this recipient"
-                            className="h-[26rem] w-full rounded border border-border bg-white"
-                        />
-                    </div>
-                ) : null}
-            </LemonModal>
+            {selectedSend ? (
+                <EmailViewerModal
+                    workflowId={workflowId}
+                    invocationId={selectedSend.invocation_id}
+                    actionId={selectedSend.action_id}
+                    isOpen
+                    onClose={() => selectInvocation(null)}
+                    title={`Email sent to ${selectedSend.recipient}`}
+                    description={selectedSend.subject}
+                />
+            ) : null}
         </div>
     )
-}
-
-// emailPreview renders against a person-shaped object; the Sent row already carries the properties.
-function recipientPerson(send: BroadcastSendRow): { id: string; properties: Record<string, any> } {
-    return { id: send.recipient, properties: send.personProperties }
 }
 
 function RecipientsTab({ batchJobs }: { batchJobs: HogFlowBatchJobApi[] }): JSX.Element {
@@ -388,8 +369,11 @@ export function BroadcastSummary(): JSX.Element {
                             key: 'sent' as const,
                             label: 'Sent',
                             content: (
-                                <BindLogic logic={broadcastSentLogic} props={{ id: broadcastId ?? 'new' }}>
-                                    <SentTab />
+                                <BindLogic
+                                    logic={broadcastSentLogic}
+                                    props={{ id: broadcastId ?? 'new', parentRunId: latestBatchJobId ?? null }}
+                                >
+                                    <SentTab workflowId={broadcastId ?? ''} />
                                 </BindLogic>
                             ),
                         },
