@@ -33,10 +33,10 @@ describe("NewTaskLinkResolver", () => {
       model: "sonnet",
       mode: "plan",
       agentActionAttribution: {
-        actionId: "action-1",
-        sourceTaskId: "source-task",
-        toolCallId: "tool-call",
-        actionIndex: 0,
+        action_id: "action-1",
+        source_task_id: "source-task",
+        tool_call_id: "tool-call",
+        action_index: 0,
       },
     };
 
@@ -50,10 +50,10 @@ describe("NewTaskLinkResolver", () => {
       initialModel: "sonnet",
       initialMode: "plan",
       agentActionAttribution: {
-        actionId: "action-1",
-        sourceTaskId: "source-task",
-        toolCallId: "tool-call",
-        actionIndex: 0,
+        action_id: "action-1",
+        source_task_id: "source-task",
+        tool_call_id: "tool-call",
+        action_index: 0,
       },
     });
     expect(result.analytics.event).toBe(ANALYTICS_EVENTS.DEEP_LINK_NEW_TASK);

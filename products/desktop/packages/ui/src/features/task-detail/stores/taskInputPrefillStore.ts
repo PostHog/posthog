@@ -1,5 +1,5 @@
 import type { EditorContent } from "@posthog/core/message-editor/content";
-import type { AgentActionTaskAttribution } from "@posthog/shared";
+import type { AgentActionAttribution } from "@posthog/shared";
 import { create } from "zustand";
 
 export interface TaskInputReportAssociation {
@@ -30,7 +30,7 @@ interface TaskInputPrefill {
   initialMode?: string;
   folderRunEnvironment?: "local" | "cloud";
   reportAssociation?: TaskInputReportAssociation;
-  agentActionAttribution?: AgentActionTaskAttribution;
+  agentActionAttribution?: AgentActionAttribution;
 }
 
 interface PrefillStoreState {
@@ -44,47 +44,47 @@ interface PrefillStoreState {
    * that landed in between is left alone.
    */
   consumePrompt: (requestId: string) => void;
-  consumeAgentActionAttribution: (actionId: string) => void;
+  takeAgentActionAttribution: () => AgentActionAttribution | undefined;
 }
 
 // Holds transient state used to prefill the TaskInput screen when navigation
 // is triggered with options (e.g. deep links, "discuss in new task" flows).
 // Lives outside the URL because the values are large/structured and don't
 // belong in a hash fragment.
-export const useTaskInputPrefillStore = create<PrefillStoreState>((set) => ({
-  prefill: {},
-  setPrefill: (prefill) => set({ prefill }),
-  clearReportAssociation: () =>
-    set((s) => ({
-      prefill: {
-        ...s.prefill,
-        reportAssociation: undefined,
-        initialCloudRepository: undefined,
-      },
-    })),
-  consumePrompt: (requestId) =>
-    set((s) =>
-      s.prefill.requestId === requestId
-        ? {
-            prefill: {
-              ...s.prefill,
-              initialPrompt: undefined,
-              initialContent: undefined,
-              recoveredFromKey: undefined,
-              requestId: undefined,
-            },
-          }
-        : s,
-    ),
-  consumeAgentActionAttribution: (actionId) =>
-    set((s) =>
-      s.prefill.agentActionAttribution?.actionId === actionId
-        ? {
-            prefill: {
-              ...s.prefill,
-              agentActionAttribution: undefined,
-            },
-          }
-        : s,
-    ),
-}));
+export const useTaskInputPrefillStore = create<PrefillStoreState>(
+  (set, get) => ({
+    prefill: {},
+    setPrefill: (prefill) => set({ prefill }),
+    clearReportAssociation: () =>
+      set((s) => ({
+        prefill: {
+          ...s.prefill,
+          reportAssociation: undefined,
+          initialCloudRepository: undefined,
+        },
+      })),
+    consumePrompt: (requestId) =>
+      set((s) =>
+        s.prefill.requestId === requestId
+          ? {
+              prefill: {
+                ...s.prefill,
+                initialPrompt: undefined,
+                initialContent: undefined,
+                recoveredFromKey: undefined,
+                requestId: undefined,
+              },
+            }
+          : s,
+      ),
+    takeAgentActionAttribution: () => {
+      const attribution = get().prefill.agentActionAttribution;
+      if (attribution) {
+        set((s) => ({
+          prefill: { ...s.prefill, agentActionAttribution: undefined },
+        }));
+      }
+      return attribution;
+    },
+  }),
+);

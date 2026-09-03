@@ -42,6 +42,21 @@ describe("buildActionUrl", () => {
       );
     });
 
+    it("appends trusted attribution for a resulting task", () => {
+      const url = buildActionUrl({ kind: "compose", prompt: "Fix it" }, PROD, {
+        action_id: "task:tool:0",
+        source_task_id: "task",
+        tool_call_id: "tool",
+        action_index: 0,
+      });
+
+      const { params } = parse(url);
+      expect(params.get("agent_action_id")).toBe("task:tool:0");
+      expect(params.get("agent_action_source_task_id")).toBe("task");
+      expect(params.get("agent_action_tool_call_id")).toBe("tool");
+      expect(params.get("agent_action_index")).toBe("0");
+    });
+
     it.each<[string, string]>([
       ["ampersand and query separators", "Ship A & B? #now"],
       ["a plus sign", "Bump limit from 1+1 to 3"],

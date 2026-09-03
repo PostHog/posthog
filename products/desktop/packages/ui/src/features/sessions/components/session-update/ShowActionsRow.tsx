@@ -1,6 +1,7 @@
 import { readShowActions } from "@posthog/core/sessions/showActions";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Button } from "@posthog/quill";
+import type { AgentActionAttribution } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { ToolViewProps } from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
 import { useSessionTaskId } from "@posthog/ui/features/sessions/useSessionTaskId";
@@ -8,6 +9,19 @@ import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
+
+function actionAttribution(
+  sourceTaskId: string,
+  toolCallId: string,
+  actionIndex: number,
+): AgentActionAttribution {
+  return {
+    action_id: `${sourceTaskId}:${toolCallId}:${actionIndex}`,
+    source_task_id: sourceTaskId,
+    tool_call_id: toolCallId,
+    action_index: actionIndex,
+  };
+}
 
 /**
  * The buttons a `show_actions` call offered, drawn where the agent offered them.
@@ -21,20 +35,11 @@ export function ShowActionsRow({ toolCall }: ToolViewProps) {
     () => readShowActions(toolCall.rawInput),
     [toolCall.rawInput],
   );
-  const attributionFor = (index: number) => ({
-    action_id: `${sourceTaskId}:${toolCall.toolCallId}:${index}`,
-    source_task_id: sourceTaskId ?? "unknown",
-    tool_call_id: toolCall.toolCallId,
-    action_index: index,
-  });
   useEffect(() => {
     if (!sourceTaskId) return;
     buttons.forEach(({ action }, actionIndex) => {
       track(ANALYTICS_EVENTS.AGENT_ACTION_SHOWN, {
-        action_id: `${sourceTaskId}:${toolCall.toolCallId}:${actionIndex}`,
-        source_task_id: sourceTaskId,
-        tool_call_id: toolCall.toolCallId,
-        action_index: actionIndex,
+        ...actionAttribution(sourceTaskId, toolCall.toolCallId, actionIndex),
         action_kind: action.kind,
       });
     });
@@ -56,14 +61,18 @@ export function ShowActionsRow({ toolCall }: ToolViewProps) {
     }),
   );
 
-  if (buttons.length === 0) return null;
+  if (!sourceTaskId || buttons.length === 0) return null;
 
   // No surrounding card: the buttons sit in the conversation, which already
   // frames them. A box around them would draw a second frame around nothing.
   return (
     <div className="flex flex-wrap gap-2">
       {buttons.map(({ label, action }, index) => {
-        const attribution = attributionFor(index);
+        const attribution = actionAttribution(
+          sourceTaskId,
+          toolCall.toolCallId,
+          index,
+        );
         return (
           <Button
             key={`${index}-${label}`}
@@ -71,7 +80,6 @@ export function ShowActionsRow({ toolCall }: ToolViewProps) {
             size="sm"
             disabled={openAction.isPending}
             onClick={() => {
-              if (!sourceTaskId) return;
               track(ANALYTICS_EVENTS.AGENT_ACTION_CLICKED, {
                 ...attribution,
                 action_kind: action.kind,

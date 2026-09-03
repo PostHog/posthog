@@ -1,3 +1,4 @@
+import type { AgentActionAttribution } from "./agent-actions";
 import { scoutSkillSlug } from "./scout-naming";
 
 const DEEPLINK_PROTOCOL_PRODUCTION = "posthog-code";
@@ -116,18 +117,11 @@ export interface NewTaskSharedParams {
   model?: string;
 }
 
-export interface AgentActionTaskAttribution {
-  actionId: string;
-  sourceTaskId: string;
-  toolCallId: string;
-  actionIndex: number;
-}
-
 export type NewTaskLinkPayload =
   | ({
       action: "new";
       prompt?: string;
-      agentActionAttribution?: AgentActionTaskAttribution;
+      agentActionAttribution?: AgentActionAttribution;
     } & NewTaskSharedParams)
   | ({ action: "plan"; plan: string } & NewTaskSharedParams)
   | ({

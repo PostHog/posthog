@@ -75,25 +75,13 @@ export const deepLinkRouter = router({
     .input(openAgentActionInput)
     .mutation(({ ctx, input }) => {
       const deepLinks = ctx.container.get<IDeepLinkRegistry>(DEEP_LINK_SERVICE);
-      const url = new URL(
-        buildActionUrl(input.action, deepLinks.getProtocol()),
+      return deepLinks.handleUrl(
+        buildActionUrl(
+          input.action,
+          deepLinks.getProtocol(),
+          input.attribution,
+        ),
       );
-      if (input.action.kind === "compose") {
-        url.searchParams.set("agent_action_id", input.attribution.action_id);
-        url.searchParams.set(
-          "agent_action_source_task_id",
-          input.attribution.source_task_id,
-        );
-        url.searchParams.set(
-          "agent_action_tool_call_id",
-          input.attribution.tool_call_id,
-        );
-        url.searchParams.set(
-          "agent_action_index",
-          String(input.attribution.action_index),
-        );
-      }
-      return deepLinks.handleUrl(url.toString());
     }),
 
   onOpenTask: publicProcedure.subscription(async function* (opts) {

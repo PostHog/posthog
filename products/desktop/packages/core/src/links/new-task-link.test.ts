@@ -185,10 +185,10 @@ describe("NewTaskLinkService", () => {
       expect(listener).toHaveBeenCalledWith(
         expect.objectContaining({
           agentActionAttribution: {
-            actionId: "action-1",
-            sourceTaskId: "source-task",
-            toolCallId: "tool-call",
-            actionIndex: 2,
+            action_id: "action-1",
+            source_task_id: "source-task",
+            tool_call_id: "tool-call",
+            action_index: 2,
           },
         }),
       );
