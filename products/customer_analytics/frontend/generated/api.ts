@@ -57,6 +57,7 @@ import type {
     CustomerTaskApi,
     CustomerTaskCreateApi,
     CustomerTaskPageApi,
+    CustomerTaskUpdateApi,
     CustomerTasksActivitiesListParams,
     CustomerTasksListParams,
     EventStreamApi,
@@ -1629,14 +1630,14 @@ export const getCustomerTasksUpdateUrl = (projectId: string, id: string) => {
 export const customerTasksUpdate = async (
     projectId: string,
     id: string,
-    customerTaskApi?: NonReadonly<CustomerTaskApi>,
+    customerTaskUpdateApi: CustomerTaskUpdateApi,
     options?: RequestInit
 ): Promise<CustomerTaskApi> => {
     return apiMutator<CustomerTaskApi>(getCustomerTasksUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(customerTaskApi),
+        body: JSON.stringify(customerTaskUpdateApi),
     })
 }
 

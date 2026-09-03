@@ -2973,6 +2973,41 @@ export interface CustomerTaskCreateApi {
     status?: CustomerTaskStatusEnumApi
 }
 
+export interface CustomerTaskUpdateApi {
+    /**
+     * UUID of a visible account, or null to remove the account link.
+     * @nullable
+     */
+    account_id?: string | null
+    /**
+     * Replacement task name.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Replacement description, or null to clear it.
+     * @nullable
+     */
+    description?: string | null
+    /**
+     * Replacement assignee ID, or null to unassign.
+     * @nullable
+     */
+    assigned_to_id?: number | null
+    /**
+     * Replacement ISO 8601 deadline, or null to clear it.
+     * @nullable
+     */
+    due_at?: string | null
+    /** Replacement task status.
+     *
+     * * `open` - Open
+     * * `in_progress` - In progress
+     * * `completed` - Completed
+     * * `canceled` - Canceled */
+    status?: CustomerTaskStatusEnumApi
+}
+
 export interface PatchedCustomerTaskUpdateApi {
     /**
      * UUID of a visible account, or null to remove the account link.
@@ -4184,8 +4219,8 @@ export type CustomerTasksListParams = {
      */
     has_due_at?: boolean
     /**
-     * Page size, up to 100.
-     * @minimum 0
+     * Page size, from 1 to 100.
+     * @minimum 1
      * @maximum 100
      */
     limit?: number
@@ -4236,8 +4271,8 @@ export const CustomerTasksListArchiveState = {
 
 export type CustomerTasksActivitiesListParams = {
     /**
-     * Page size, up to 100.
-     * @minimum 0
+     * Page size, from 1 to 100.
+     * @minimum 1
      * @maximum 100
      */
     limit?: number
