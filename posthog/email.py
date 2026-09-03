@@ -118,12 +118,19 @@ class _TransientHTTPError(Exception):
     """A retryable Customer.io failure (provider 5xx). Re-raised into the task's autoretry."""
 
 
-# Retryable HTTP failures: provider 5xx plus network-level timeouts and connection errors (the
-# Customer.io ReadTimeout that drops password resets). A 4xx stays permanent — never retried.
+# Retryable HTTP failures re-raised into the task's autoretry: network-level timeouts and
+# connection errors (the Customer.io ReadTimeout that drops password resets), and a body-read
+# failure after the response headers. requests reads the body inside post() (stream defaults to
+# False), so a connection that drops during that read raises ChunkedEncodingError, and a truncated
+# gzip reply raises ContentDecodingError. Neither inherits from ConnectionError, so both need
+# listing here. Provider 5xx arrives as _TransientHTTPError. A permanent request error (most 4xx)
+# is not listed, so it stays permanent.
 _TRANSIENT_HTTP_ERRORS = (
     _TransientHTTPError,
     requests.exceptions.Timeout,
     requests.exceptions.ConnectionError,
+    requests.exceptions.ChunkedEncodingError,
+    requests.exceptions.ContentDecodingError,
 )
 
 CUSTOMER_IO_TEMPLATE_ID_MAP = {

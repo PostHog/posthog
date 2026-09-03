@@ -284,6 +284,16 @@ class TestEmail(BaseTest):
                 requests.exceptions.ConnectionError("refused"),
                 requests.exceptions.ConnectionError,
             ),
+            (
+                "transient_chunked",
+                requests.exceptions.ChunkedEncodingError("connection broken mid-body"),
+                requests.exceptions.ChunkedEncodingError,
+            ),
+            (
+                "transient_decode",
+                requests.exceptions.ContentDecodingError("truncated gzip"),
+                requests.exceptions.ContentDecodingError,
+            ),
             ("transient_5xx", MagicMock(status_code=502, text="bad gateway"), _TransientHTTPError),
             ("transient_429", MagicMock(status_code=429, text="rate limited"), _TransientHTTPError),
             ("permanent_4xx", MagicMock(status_code=400, text="bad request"), None),
