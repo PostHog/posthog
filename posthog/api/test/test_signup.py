@@ -3356,6 +3356,30 @@ class TestSignupResendInvite(APIBaseTest):
         self.assertEqual(response.json(), {"sent": False})
         mock_send.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("outside_domain", "alice@outside.com", False),
+            ("verified_domain", "alice@acme.com", True),
+        ]
+    )
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_invite.apply_async")
+    def test_resend_invite_applies_domain_enforcement_turned_on_after_the_invite(
+        self, _name, email, expect_reissue, mock_send, _mock_email_available
+    ):
+        OrganizationDomain.objects.create(domain="acme.com", verified_at=timezone.now(), organization=self.organization)
+        self._create_invite(email, days_old=INVITE_DAYS_VALIDITY + 1)
+        self.organization.enforce_verified_domains = True
+        self.organization.save(update_fields=["enforce_verified_domains"])
+
+        response = self.client.post("/api/signup/resend-invite", {"email": email})
+
+        # A blocked address must not gain a row an admin could not create today, behind a link
+        # the accept path rejects.
+        self.assertEqual(response.json(), {"sent": expect_reissue})
+        self.assertEqual(mock_send.called, expect_reissue)
+        self.assertEqual(OrganizationInvite.objects.filter(target_email=email).count(), 2 if expect_reissue else 1)
+
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_invite.apply_async")
     def test_resend_invite_no_op_when_no_active_invite(self, mock_send, _mock_email_available):

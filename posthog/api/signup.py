@@ -419,8 +419,18 @@ def _get_recently_expired_invite_for_email(email: str) -> Optional[OrganizationI
     return lapsed
 
 
-def _reissue_invite(lapsed: OrganizationInvite) -> OrganizationInvite:
-    """Copy a lapsed invite into a fresh row, which gives the invitee a link that still works."""
+def _reissue_invite(lapsed: OrganizationInvite) -> Optional[OrganizationInvite]:
+    """Copy a lapsed invite into a fresh row, which gives the invitee a link that still works.
+
+    Returns None when the organization's current domain policy blocks the address. An admin can
+    turn enforcement on after the original invite, and the admin invite path applies the same
+    check, so a fresh row here would be a row an admin cannot create, behind a link that the
+    accept path rejects.
+    """
+    if lapsed.target_email and OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
+        lapsed.target_email, lapsed.organization
+    ):
+        return None
     return OrganizationInvite.objects.create(
         organization_id=lapsed.organization_id,
         target_email=lapsed.target_email,
