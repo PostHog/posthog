@@ -49,7 +49,8 @@ class FeatureFlagCreationSchema(BaseModel):
     )
     tags: list[str] = Field(
         default_factory=list,
-        description="Tags for organizing and categorizing the flag",
+        description="Tags for organizing and categorizing the flag. Some projects require at least one "
+        "tag on every new flag, and reject a create that carries none.",
     )
     variants: list[MultivariateVariant] | None = Field(
         default=None,

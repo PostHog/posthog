@@ -785,6 +785,40 @@ export namespace Schemas {
       UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
     } as const;
 
+    export type CustomBotField = typeof CustomBotField[keyof typeof CustomBotField];
+
+
+    export const CustomBotField = {
+      RawUserAgent: '$raw_user_agent',
+      Ip: '$ip',
+      Lib: '$lib',
+      Host: '$host',
+      Pathname: '$pathname',
+      CurrentUrl: '$current_url',
+    } as const;
+
+    export type CustomBotMatcher = typeof CustomBotMatcher[keyof typeof CustomBotMatcher];
+
+
+    export const CustomBotMatcher = {
+      Contains: 'contains',
+      Regex: 'regex',
+      Cidr: 'cidr',
+    } as const;
+
+    export interface CustomBotDefinition {
+      /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
+      category?: string | null;
+      id: string;
+      /** The event property this rule reads. */
+      key: CustomBotField;
+      matcher: CustomBotMatcher;
+      /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+      name: string;
+      /** Matched against the property named by `key`. */
+      pattern: string;
+    }
+
     export type FilterLogicalOperator = typeof FilterLogicalOperator[keyof typeof FilterLogicalOperator];
 
 
@@ -949,6 +983,7 @@ export namespace Schemas {
       bounceRateDurationSeconds?: number | null;
       bounceRatePageViewMode?: BounceRatePageViewMode | null;
       convertToProjectTimezone?: boolean | null;
+      customBotDefinitions?: CustomBotDefinition[] | null;
       customChannelTypeRules?: CustomChannelRule[] | null;
       dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[] | null;
       debug?: boolean | null;
@@ -64580,6 +64615,19 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for PATCH /api/users/@me/product_intro_seen.
+     */
+    export interface PatchedProductIntroSeen {
+      /**
+         * Which key in `has_seen_product_intro_for` to set. Any string is accepted: besides the product keys, the map holds keys composed per team and keys for surfaces that are not products.
+         * @maxLength 128
+         */
+      product_key?: string;
+      /** Whether the intro counts as seen. Send false to show it again. */
+      seen?: boolean;
+    }
+
+    /**
      * * `app` - app
      * * `toolbar` - toolbar
      */
@@ -64723,6 +64771,11 @@ export namespace Schemas {
        * * `opt_out` - Opt Out
        * * `opt_in` - Opt In */
       email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
+    }
+
+    export interface TeamFeatureFlagPolicyConfig {
+      /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
+      require_tags?: boolean;
     }
 
     /**
@@ -65533,6 +65586,7 @@ export namespace Schemas {
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
       workflows_config?: TeamWorkflowsConfig;
+      feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       base_currency?: BaseCurrencyEnum;
       /**
          * Enables capturing clicks that had no effect (rage-click detection).
@@ -67690,6 +67744,7 @@ export namespace Schemas {
          * @nullable
          */
       require_evaluation_contexts?: boolean | null;
+      feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       /** @nullable */
       capture_dead_clicks?: boolean | null;
       /**
@@ -69935,6 +69990,7 @@ export namespace Schemas {
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
       workflows_config?: TeamWorkflowsConfig;
+      feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       base_currency?: BaseCurrencyEnum;
       /**
          * Enables capturing clicks that had no effect (rage-click detection).
@@ -74292,7 +74348,7 @@ export namespace Schemas {
          */
       content: string;
       /**
-         * Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left null), not rejected, so the memory write is never lost.
+         * Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that is unparseable, or that isn't a run on this project, is dropped rather than rejected, so the memory write is never lost. Omit it and the lineage still lands: a write from a scout sandbox is attributed to that sandbox's own run.
          * @nullable
          */
       run_id?: string | null;
@@ -85686,6 +85742,7 @@ export namespace Schemas {
          * @nullable
          */
       require_evaluation_contexts?: boolean | null;
+      feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       /** @nullable */
       capture_dead_clicks?: boolean | null;
       /**
@@ -101153,6 +101210,8 @@ export namespace Schemas {
     email?: string;
     is_staff?: boolean;
     };
+
+    export type UsersProductIntroSeenPartialUpdate200 = {[key: string]: boolean};
 
 
 }
