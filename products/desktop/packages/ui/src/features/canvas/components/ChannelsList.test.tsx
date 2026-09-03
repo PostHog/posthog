@@ -568,7 +568,7 @@ describe("ChannelsList", () => {
 
       const row = screen.getByText("Ship the tree").closest("button");
       expect(row).toHaveAttribute("aria-busy", "true");
-      expect(row).toBeDisabled();
+      expect(row).toHaveAttribute("aria-disabled", "true");
       expect(screen.getByText("Archiving")).toHaveClass("sr-only");
 
       if (row) {

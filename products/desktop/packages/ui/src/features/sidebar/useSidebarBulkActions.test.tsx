@@ -300,7 +300,7 @@ describe("useSidebarBulkActions", () => {
 
   describe("archiveSelected", () => {
     it("hides bulk rows while their archive is pending", async () => {
-      let settle = () => undefined;
+      let settle: () => void = () => undefined;
       hoisted.archiveTasksImperative.mockImplementation(
         () =>
           new Promise((resolve) => {
