@@ -105,9 +105,28 @@ const resolveTieredModelCost = (
     return { ...resolved, cost: halved }
 }
 
+/**
+ * The served tier arrives two ways: an explicit $ai_service_tier (gateway emitters), which wins,
+ * and the service_tier the @posthog/ai SDK records inside $ai_model_parameters from the
+ * provider's response.
+ */
+const serviceTierProperty = (properties: Properties): unknown => {
+    const explicit: unknown = properties['$ai_service_tier']
+    if (explicit !== undefined && explicit !== null) {
+        return explicit
+    }
+
+    const modelParameters: unknown = properties['$ai_model_parameters']
+    if (modelParameters && typeof modelParameters === 'object') {
+        return (modelParameters as Record<string, unknown>)['service_tier']
+    }
+
+    return undefined
+}
+
 export const findCostFromModel = (model: string, properties: Properties): CostModelResult | undefined => {
     const providerProperty: unknown = properties['$ai_provider']
-    const serviceTier: unknown = properties['$ai_service_tier']
+    const serviceTier: unknown = serviceTierProperty(properties)
 
     const provider: string | undefined = providerProperty ? String(providerProperty).toLowerCase() : undefined
 
