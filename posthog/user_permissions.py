@@ -147,9 +147,8 @@ class UserPermissions:
         from products.access_control.backend.models.role import RoleMembership
 
         result: dict[UUID, set[UUID]] = {}
-        for organization_id, role_id in RoleMembership.objects.filter(user=self.user).values_list(
-            "role__organization_id", "role_id"
-        ):
+        role_memberships = RoleMembership.objects.filter(user=self.user).valid_for_authorization()
+        for organization_id, role_id in role_memberships.values_list("role__organization_id", "role_id"):
             result.setdefault(organization_id, set()).add(role_id)
         return result
 
