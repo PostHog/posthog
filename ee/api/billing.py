@@ -23,6 +23,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import streaming_response
 from posthog.api.utils import action
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
@@ -1193,7 +1194,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._raise_billing_error(e, organization)
         lines = _rewrite_csv_labels(upstream.iter_content(chunk_size=8192), teams_map)
         accepts_gzip = "gzip" in request.META.get("HTTP_ACCEPT_ENCODING", "").lower()
-        response = StreamingHttpResponse(
+        # Every database read is done by now, and the body does none, so the request's
+        # connection is released before the download starts rather than held for its length.
+        response = streaming_response(
             _stream_chunks(upstream, _gzip_stream(lines) if accepts_gzip else lines),
             content_type=upstream.headers.get("Content-Type", "text/csv"),
         )
