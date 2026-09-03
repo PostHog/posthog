@@ -304,8 +304,24 @@ class TestSyncSavedQueryToDag(BaseTest):
         with self.assertRaises(ResolutionCycleError):
             sync_saved_query_to_dag(query_a)
 
-        # node for query_a should be cleaned up
-        self.assertFalse(Node.objects.filter(saved_query=query_a).exists())
+        # query_a's node pre-existed this call and view_b still depends on it, so the failed
+        # sync must not delete it — doing so would also cascade-delete view_b's edge to it
+        node_a = Node.objects.filter(saved_query=query_a).first()
+        self.assertIsNotNone(node_a)
+        self.assertTrue(Edge.objects.filter(source=node_a).exists())
+
+    def test_sync_failure_deletes_node_it_just_created(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="test_view",
+            team=self.team,
+            query={"query": "select * from nonexistent_table", "kind": "HogQLQuery"},
+        )
+
+        with pytest.raises(QueryError):
+            sync_saved_query_to_dag(saved_query)
+
+        # a node created for this call, with no dependents, is still cleaned up on failure
+        self.assertFalse(Node.objects.filter(saved_query=saved_query).exists())
 
     def test_sync_raises_for_empty_or_null_query(self):
         empty_query, _ = DataWarehouseSavedQuery.objects.get_or_create(
