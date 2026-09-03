@@ -5,17 +5,14 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
-import { DashboardMode } from '~/types'
-
 import { DashboardFilterChangesTooltip } from './DashboardFilterChangesTooltip'
 import { dashboardLogic } from './dashboardLogic'
 
 export function DashboardTemporaryFiltersNotice(): JSX.Element | null {
-    const { dashboardMode, hasIntermittentFilters, hasUrlFilters, cancellingPreview, filterChanges } =
-        useValues(dashboardLogic)
+    const { cancellingPreview, filterChanges, isTemporaryFilterView } = useValues(dashboardLogic)
     const { setDashboardMode } = useActions(dashboardLogic)
 
-    if (dashboardMode === DashboardMode.Edit || !hasUrlFilters || hasIntermittentFilters) {
+    if (!isTemporaryFilterView) {
         return null
     }
 

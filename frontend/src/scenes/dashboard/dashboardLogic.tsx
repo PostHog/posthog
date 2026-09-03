@@ -331,6 +331,7 @@ export interface dashboardLogicValues {
     isRefreshing: (id: string) => boolean
     isRefreshingQueued: (id: string) => boolean
     isSavingTags: boolean
+    isTemporaryFilterView: boolean
     itemsLoading: boolean
     lastDashboardRefresh: Dayjs | null
     layout: Layout | undefined
@@ -1041,6 +1042,11 @@ export interface dashboardLogicMeta {
         canAutoPreview: (insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]) => boolean
         hasIntermittentFilters: (intermittentFilters: DashboardFilter) => boolean
         hasUrlFilters: (urlFilters: DashboardFilter) => boolean
+        isTemporaryFilterView: (
+            hasUrlFilters: boolean,
+            hasIntermittentFilters: boolean,
+            dashboardMode: DashboardMode | null
+        ) => boolean
         showApplyFiltersBanner: (canAutoPreview: boolean, hasIntermittentFilters: boolean) => boolean
         urlFilters: (searchParams: Record<string, any>) => DashboardFilter
         filtersOverrideForLoad: (externalFilters: DashboardFilter, urlFilters: DashboardFilter) => DashboardFilter
@@ -2591,6 +2597,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         // `{"properties":[]}` in the URL. Counting keys reads that as an active override, so the dashboard
         // announces overrides while showing exactly its saved state.
         hasUrlFilters: [(s) => [s.urlFilters], (urlFilters: DashboardFilter) => !isDashboardFilterEmpty(urlFilters)],
+        isTemporaryFilterView: [
+            (s) => [s.hasUrlFilters, s.hasIntermittentFilters, s.dashboardMode],
+            (hasUrlFilters: boolean, hasIntermittentFilters: boolean, dashboardMode: DashboardMode | null): boolean =>
+                hasUrlFilters && !hasIntermittentFilters && dashboardMode !== DashboardMode.Edit,
+        ],
         showApplyFiltersBanner: [
             (s) => [s.canAutoPreview, s.hasIntermittentFilters],
             (canAutoPreview: boolean, hasIntermittentFilters: boolean) => !canAutoPreview && hasIntermittentFilters,

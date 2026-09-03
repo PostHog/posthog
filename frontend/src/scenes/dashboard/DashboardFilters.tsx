@@ -17,8 +17,8 @@ import { DashboardTemporaryFiltersNotice } from './DashboardTemporaryFiltersNoti
 function UnsavedFiltersIndicator(): JSX.Element | null {
     const {
         dashboardMode,
-        hasUrlFilters,
         hasIntermittentFilters,
+        isTemporaryFilterView,
         layoutEditMode,
         canEditDashboard,
         changedFilterCount,
@@ -29,8 +29,6 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
         loadingPreview,
     } = useValues(dashboardLogic)
     const { applyFilters, discardDashboardFilters, saveDashboardFilters } = useActions(dashboardLogic)
-    const isTemporaryFilterView = hasUrlFilters && !hasIntermittentFilters && dashboardMode !== DashboardMode.Edit
-
     if (
         !canEditDashboard ||
         !filtersDirty ||

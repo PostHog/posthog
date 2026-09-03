@@ -4,11 +4,11 @@ Use this reference when a dashboard change affects filter editing, saving, previ
 
 ## Filter states
 
-| State                | Source                                | Who sees it            | Persisted | Required treatment                                |
-| -------------------- | ------------------------------------- | ---------------------- | --------- | ------------------------------------------------- |
-| Saved filters        | `dashboard.persisted_filters`         | Every dashboard viewer | Yes       | Render as the dashboard default.                  |
-| Unsaved filter edits | Local edit state                      | The current editor     | No        | Show a count and allow preview, discard, or save. |
-| Temporary filters    | URL filter parameters on initial load | The current viewer     | No        | Show a temporary-view notice and allow clear.     |
+| State                | Source                        | Who sees it            | Persisted | Required treatment                                |
+| -------------------- | ----------------------------- | ---------------------- | --------- | ------------------------------------------------- |
+| Saved filters        | `dashboard.persisted_filters` | Every dashboard viewer | Yes       | Render as the dashboard default.                  |
+| Unsaved filter edits | Local edit state              | The current editor     | No        | Show a count and allow preview, discard, or save. |
+| Temporary filters    | URL filter state              | The current viewer     | No        | Show a temporary-view notice and allow clear.     |
 
 Do not call normal saved filters temporary. All filters change the displayed data. The temporary state means the current URL selects a different view of the dashboard.
 
@@ -23,7 +23,7 @@ Do not call normal saved filters temporary. All filters change the displayed dat
 ## Layout editing
 
 - Users can enter layout editing while filter edits exist.
-- Layout editing makes filter controls read-only.
+- Filter controls remain editable during layout editing.
 - Save layout saves only layout changes.
 - Save filters saves only filter changes.
 - Cancel layout restores layout changes only. It must preserve unsaved filter edits and their preview state.
