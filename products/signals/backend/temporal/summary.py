@@ -130,9 +130,9 @@ class ReportDecision:
     # which does no research.
     charts: list[dict[str, Any]] | None = None
     # Suggested prompts to store with the title/summary. Always `[]`, because every decision carries
-    # a freshly written title and summary, and the pipeline does not author questions yet: whatever a
+    # a freshly written title and summary, and the pipeline does not author prompts yet: whatever a
     # scout suggested was written against the prose this decision replaces, so leaving it would put
-    # questions about the old report under the new one. Not a constant so the pipeline can author its
+    # prompts about the old report under the new one. Not a constant so the pipeline can author its
     # own set later without moving the write.
     suggested_prompts: list[str] = field(default_factory=list)
     # Local validation prompt to store with the title/summary, or `None` to leave the column alone
@@ -776,7 +776,7 @@ class MarkReportReadyInput:
     # history that predates this field replays cleanly.
     charts: list[dict[str, Any]] | None = None
     # Suggested prompts to write alongside title/summary, same three states and same replay-safe
-    # default. The research pipeline passes `[]`: it doesn't author questions yet, and the ones a
+    # default. The research pipeline passes `[]`: it doesn't author prompts yet, and the ones a
     # scout wrote were written against the summary this transition is replacing.
     suggested_prompts: list[str] | None = None
     # Local validation prompt to write alongside title/summary. `None` leaves the column untouched,

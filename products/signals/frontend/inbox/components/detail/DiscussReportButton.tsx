@@ -10,9 +10,10 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { InboxQuestionSource, captureInboxReportAction, discussQuestionProperties } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { SignalReport } from '../../types'
+import { isActionCapableReport } from '../../utils/kickoffPrompts'
 
 // How much of a suggestion a draft has to keep, at one end or the other, to still count as an edit
-// of it. Long enough that two questions opening on the same few words ("Which teams…", "Why did…")
+// of it. Long enough that two suggestions opening on the same few words ("Which teams…", "Why did…")
 // don't read as one, short enough that a heavy rewrite around a kept phrase still does.
 const RECOGNIZABLE_RUN = 10
 
@@ -38,7 +39,11 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
     // sent as written, edited first, or written from scratch. Null until a row is clicked.
     const [filledFrom, setFilledFrom] = useState<string | null>(null)
 
-    const suggestions = report.suggested_prompts ?? []
+    // Suggestions can be action requests, and the kickoff wrapper only carries actions out on
+    // action-capable reports — on any other report a stored suggestion would invite an action the
+    // run then merely answers, so none are offered.
+    const actionCapable = isActionCapableReport(report)
+    const suggestions = actionCapable ? (report.suggested_prompts ?? []) : []
 
     const questionSource = (trimmed: string): InboxQuestionSource => {
         if (filledFrom === null) {
@@ -100,7 +105,7 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
                 <div className="flex flex-col gap-2 p-2 w-[22rem]">
                     {suggestions.length > 0 && (
                         <div className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold text-tertiary">Suggested questions</span>
+                            <span className="text-xs font-semibold text-tertiary">Suggestions</span>
                             {suggestions.map((suggestion) => (
                                 <LemonButton
                                     key={suggestion}
@@ -126,8 +131,12 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
                         onPressCmdEnter={submit}
                         placeholder={
                             suggestions.length > 0
-                                ? 'Pick a question above, or ask your own'
-                                : 'What would you like to ask about this report?'
+                                ? 'Pick a suggestion above, or write your own'
+                                : // Only invite actions where the kickoff wrapper will actually carry
+                                  // them out — on other reports the agent is pinned to answering.
+                                  actionCapable
+                                  ? 'Ask a question, or tell AI what to do next'
+                                  : 'Ask a question about this report'
                         }
                         maxLength={4000}
                         rows={4}

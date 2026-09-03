@@ -14,7 +14,7 @@ describe("getCachedArchiveTask", () => {
       created_at: "2026-07-23T10:00:00.000Z",
       updated_at: "2026-07-23T11:00:00.000Z",
       latest_run: null,
-    } satisfies Schemas.TaskSummary;
+    } satisfies Schemas.TaskSummaryDTO;
     queryClient.setQueryData(taskKeys.summaries([summary.id]), [summary]);
 
     expect(getCachedArchiveTask(queryClient, summary.id)).toEqual(summary);

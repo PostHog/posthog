@@ -1,5 +1,6 @@
 import json
 from collections.abc import Mapping
+from datetime import datetime
 from typing import cast
 
 from django.db.models import Q
@@ -492,8 +493,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
         child=serializers.CharField(),
         read_only=True,
         help_text=(
-            "Follow-up questions the report's author suggests asking about it, in the order they were "
-            "written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it."
+            "Follow-up prompts the report's author suggests sending about it (questions to ask, or "
+            "next-step actions to request), in the order they were written. The inbox offers them "
+            "above the `Ask AI` box; clicking one fills the box with it."
         ),
     )
     validation_prompt = serializers.CharField(
@@ -738,10 +740,15 @@ class SignalReportSerializer(serializers.ModelSerializer):
         # context nor the billable-moment annotation exists — the refund endpoint re-enforces.
         if period is None:
             return None
+        billable_run_at_map: dict[str, datetime] | None = self.context.get("first_billable_pr_run_at_map")
+        if billable_run_at_map is not None:
+            billable_run_at = billable_run_at_map.get(str(obj.id))
+        else:
+            billable_run_at = getattr(obj, "first_billable_pr_run_at", None)
         return refund_ineligibility_reason(
             has_refund=getattr(obj, "refund", None) is not None,
             billing_exempt=bool(obj.billing_exempt_reason),
-            billable_run_at=getattr(obj, "first_billable_pr_run_at", None),
+            billable_run_at=billable_run_at,
             period=period,
         )
 

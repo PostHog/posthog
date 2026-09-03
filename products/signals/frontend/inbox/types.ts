@@ -76,7 +76,7 @@ export interface SignalReport {
     is_suggested_reviewer: boolean
     /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
     charts?: ReportChartApi[]
-    /** Questions the report's author suggests asking about it, offered above the "Ask AI" box. */
+    /** Prompts the report's author suggests sending about it (questions or next-step actions), offered above the "Ask AI" box. */
     suggested_prompts?: string[]
     /** Prompt to paste into a coding agent on your own machine to recreate the finding and test a fix.
      * Report-only: it may name internal hosts and tools, so it never reaches the implementation PR. */

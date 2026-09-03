@@ -572,18 +572,24 @@ class TileLayoutsSerializer(serializers.Serializer):
 
 
 class CreateTextTileRequestSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=["text", "image"],
+        required=False,
+        default="text",
+        help_text="Tile type. Use image for a body with exactly one Markdown image. Defaults to text.",
+    )
     body = serializers.CharField(
         min_length=1,
         max_length=4000,
         required=True,
         allow_blank=False,
         help_text=(
-            "Markdown body for the text tile. Supports headings, lists, and inline formatting. "
-            "Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters."
+            "Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. "
+            "Image tiles require exactly one Markdown image. Max 4000 characters."
         ),
         error_messages={
-            "min_length": "Text body cannot be empty",
-            "max_length": "Text body cannot exceed 4000 characters",
+            "min_length": "Tile body cannot be empty",
+            "max_length": "Tile body cannot exceed 4000 characters",
         },
     )
     layouts = TileLayoutsSerializer(

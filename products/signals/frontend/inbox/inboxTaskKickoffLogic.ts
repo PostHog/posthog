@@ -24,7 +24,7 @@ import {
     SignalReportTaskRelationship,
 } from './types'
 import { aiConsentDisabledReason } from './utils/aiConsent'
-import { buildCreatePrReportPrompt, buildDiscussReportPrompt } from './utils/kickoffPrompts'
+import { buildCreatePrReportPrompt, buildDiscussReportPrompt, isActionCapableReport } from './utils/kickoffPrompts'
 
 // Cloud-adapted port of desktop `useDiscussReport` / `useCreatePrReport`. These are
 // task-kickoff actions (create a cloud Task linked to the report, then navigate to it) –
@@ -34,9 +34,10 @@ import { buildCreatePrReportPrompt, buildDiscussReportPrompt } from './utils/kic
 // The run endpoint rejects a model without its runtime adapter, so the two are always sent together.
 type ClaudeRuntimeSelection = Pick<ClaudeTaskRunCreateSchemaApi, 'runtime_adapter' | 'model' | 'reasoning_effort'>
 
-// Discuss is a short question-and-answer about a report rather than a long implementation run, so it
-// pins the stronger model instead of taking the server-side default of Sonnet: the answer quality is
-// what the user is here for, and the extra cost is bounded by the length of the conversation.
+// Discuss is a focused exchange about a report (a question to answer, or a suggested next step to
+// carry out) rather than a scheduled implementation run, so it pins the stronger model instead of
+// taking the server-side default of Sonnet: the answer quality is what the user is here for, and
+// the extra cost is bounded by the length of the conversation.
 const DISCUSS_RUNTIME: ClaudeRuntimeSelection = {
     runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
     model: 'claude-opus-5',
@@ -239,11 +240,28 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 actions.discussReportFailure()
                 return
             }
+            // The popover renders from a snapshot that can go stale between load and submit (the
+            // report resolves, fails, or gets suppressed meanwhile), so the action-vs-answer framing
+            // is derived from the report's current server-side state. A failed refetch fails closed:
+            // `null` pins the run to answering.
+            let currentReport: SignalReport | null = null
+            try {
+                currentReport = await api.signalReports.get(report.id)
+            } catch {
+                currentReport = null
+            }
+            // The pane can offer an action suggestion the fresh state no longer supports. The run
+            // still goes out (the reader may still want the answer), but downgrading silently would
+            // misrepresent what the click bought - so say so. Only when the state is confirmed
+            // changed: a failed refetch also answers only, but "report changed" would be a guess.
+            if (currentReport !== null && isActionCapableReport(report) && !isActionCapableReport(currentReport)) {
+                lemonToast.info('This report can no longer take actions, so AI will answer instead.')
+            }
             try {
                 await createReportTask(
                     report,
                     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
-                    buildDiscussReportPrompt(reportUrl, question),
+                    buildDiscussReportPrompt(currentReport, reportUrl, question),
                     'Ask AI about report',
                     DISCUSS_RUNTIME
                 )
