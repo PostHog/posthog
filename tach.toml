@@ -869,6 +869,9 @@ depends_on = [
     "products.notifications",
     "products.posthog_ai",
     "products.signals",
+    # Skills attached to workflow task nodes are read at fire time. The skills
+    # product has no facade, so this matches how review_hog and signals reach LLMSkill.
+    "products.skills",
     "products.slack_app", "products.access_control",
 ]
 layer = "modules"

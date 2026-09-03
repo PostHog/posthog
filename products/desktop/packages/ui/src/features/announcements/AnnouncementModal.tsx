@@ -96,7 +96,10 @@ export function AnnouncementModal({
         showCloseButton={!blocking}
         initialFocus={false}
       >
-        <AnnouncementHero hero={announcement.hero} defaultHedgehog="happy" />
+        <AnnouncementHero
+          hero={announcement.hero}
+          defaultHedgehog="megaphone"
+        />
         <DialogBody>
           <DialogTitle className="font-semibold text-[17px] text-gray-12 tracking-tight">
             {announcement.title}

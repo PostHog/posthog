@@ -78,6 +78,7 @@ class TestAccountsTableQueryRunner(BaseTest):
 
     def test_returns_requested_postgres_cells_with_typed_defaults(self) -> None:
         empty_account = create_account(team_id=self.team.id, name="Empty")
+        cleared_account = create_account(team_id=self.team.id, name="Cleared", external_id="cleared")
         account = create_account(
             team_id=self.team.id,
             name="Acme",
@@ -132,6 +133,19 @@ class TestAccountsTableQueryRunner(BaseTest):
         now = timezone.now()
         CustomPropertyValue.objects.unscoped().filter(id=old_value.id).update(created_at=now - timedelta(days=5))
         CustomPropertyValue.objects.unscoped().filter(id=current_value.id).update(created_at=now - timedelta(days=1))
+        set_result = api.set_external_account_custom_properties(
+            self.team.id, "cleared", properties={str(numeric_definition.id): 15}
+        )
+        clear_result = api.set_external_account_custom_properties(
+            self.team.id, "cleared", properties={str(numeric_definition.id): None}
+        )
+        assert set_result.error is None
+        assert clear_result.error is None
+        assert (
+            CustomPropertyValue.objects.for_team(self.team.id)
+            .filter(account_id=cleared_account.id, definition_id=numeric_definition.id, is_deleted=True, value_num=15)
+            .exists()
+        )
 
         response = self._run(
             AccountsTableQuery(
@@ -170,6 +184,10 @@ class TestAccountsTableQueryRunner(BaseTest):
             str(text_definition.id): "enterprise",
         }
         assert [point.value for point in full_row.customPropertyHistory[str(numeric_definition.id)]] == [10.0, 20.0]
+
+        cleared_row = rows[str(cleared_account.id)]
+        assert cleared_row.customProperties == {str(numeric_definition.id): None, str(text_definition.id): None}
+        assert cleared_row.customPropertyHistory == {str(numeric_definition.id): []}
 
         empty_row = rows[str(empty_account.id)]
         assert empty_row.accountFields == {"stripe_customer_id": None, "churned_at": None, "ignored_at": None}

@@ -12,7 +12,6 @@ function usageWith(
     used: 74_000,
     size: 200_000,
     percentage: 37,
-    cost: null,
     breakdown,
     ...overrides,
   };

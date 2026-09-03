@@ -17,7 +17,10 @@ from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING
 
 from products.managed_warehouse.backend import client
-from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTrinoConnectionUnavailable
+from products.managed_warehouse.backend.facade.contracts import (
+    ManagedWarehouseTrinoConnectionUnavailable,
+    TrinoExpansionMode,
+)
 from products.managed_warehouse.backend.service_credentials import (
     ServiceCredential,
     ServiceCredentialUnavailable,
@@ -29,6 +32,8 @@ if TYPE_CHECKING:
     from trino.dbapi import Connection
 
     from posthog.schema import HogQLQuery
+
+    from posthog.hogql.transforms.trino.manifest import TrinoCatalogManifest
 
     from posthog.models.team.team import Team
     from posthog.models.user import User
@@ -83,6 +88,8 @@ def compile_hogql_to_trino_sql(
     user: User | None = None,
     bypass_warehouse_access_control: bool = False,
     include_hogql: bool = False,
+    expansion_mode: TrinoExpansionMode = TrinoExpansionMode.PURE,
+    catalog_manifest: TrinoCatalogManifest | None = None,
 ) -> TrinoCompiledQuery:
     from products.managed_warehouse.backend.trino_compiler import (  # noqa: PLC0415 -- keep the optional compiler off startup paths
         compile_hogql_to_trino_sql as _compile_hogql_to_trino_sql,
@@ -95,6 +102,8 @@ def compile_hogql_to_trino_sql(
         user=user,
         bypass_warehouse_access_control=bypass_warehouse_access_control,
         include_hogql=include_hogql,
+        expansion_mode=expansion_mode,
+        catalog_manifest=catalog_manifest,
     )
 
 

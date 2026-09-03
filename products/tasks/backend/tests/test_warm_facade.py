@@ -265,7 +265,6 @@ class TestWarmTaskSandbox(APIBaseTest):
                 "gpt-5.4",
                 "bypassPermissions",
             ),
-            ("mode_without_a_runtime", None, None, "plan"),
         ]
     )
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
@@ -297,6 +296,29 @@ class TestWarmTaskSandbox(APIBaseTest):
         assert response.status_code == 400, response.content
         assert response.json()["attr"] == "initial_permission_mode"
         mock_warm.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    def test_warm_endpoint_accepts_a_mode_without_a_runtime(self, mock_warm, _mock_warm_enabled):
+        # A composer whose selection is untouched states the launch mode but pins no runtime, leaving
+        # the triple to the stored default. Requiring the adapter alongside the mode would 400 every
+        # one of those warms, so no default-selection submit could ever land on a warm sandbox.
+        mock_warm.return_value = None
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/warm/",
+            {
+                "repository": "posthog/posthog",
+                "github_integration": self.integration.id,
+                "branch": "main",
+                "initial_permission_mode": "plan",
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        assert mock_warm.call_args.kwargs["initial_permission_mode"] == "plan"
+        assert mock_warm.call_args.kwargs["runtime_adapter"] is None
 
     def test_provisions_selected_sandbox_environment_and_custom_image(self):
         sandbox_environment = SandboxEnvironment.objects.create(

@@ -262,6 +262,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string
@@ -574,6 +575,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string

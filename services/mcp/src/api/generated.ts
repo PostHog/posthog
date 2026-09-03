@@ -785,6 +785,40 @@ export namespace Schemas {
       UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
     } as const;
 
+    export type CustomBotField = typeof CustomBotField[keyof typeof CustomBotField];
+
+
+    export const CustomBotField = {
+      RawUserAgent: '$raw_user_agent',
+      Ip: '$ip',
+      Lib: '$lib',
+      Host: '$host',
+      Pathname: '$pathname',
+      CurrentUrl: '$current_url',
+    } as const;
+
+    export type CustomBotMatcher = typeof CustomBotMatcher[keyof typeof CustomBotMatcher];
+
+
+    export const CustomBotMatcher = {
+      Contains: 'contains',
+      Regex: 'regex',
+      Cidr: 'cidr',
+    } as const;
+
+    export interface CustomBotDefinition {
+      /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
+      category?: string | null;
+      id: string;
+      /** The event property this rule reads. */
+      key: CustomBotField;
+      matcher: CustomBotMatcher;
+      /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+      name: string;
+      /** Matched against the property named by `key`. */
+      pattern: string;
+    }
+
     export type FilterLogicalOperator = typeof FilterLogicalOperator[keyof typeof FilterLogicalOperator];
 
 
@@ -949,6 +983,7 @@ export namespace Schemas {
       bounceRateDurationSeconds?: number | null;
       bounceRatePageViewMode?: BounceRatePageViewMode | null;
       convertToProjectTimezone?: boolean | null;
+      customBotDefinitions?: CustomBotDefinition[] | null;
       customChannelTypeRules?: CustomChannelRule[] | null;
       dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[] | null;
       debug?: boolean | null;
@@ -2460,20 +2495,6 @@ export namespace Schemas {
     export interface ActionConversionGoal {
       actionId: number;
     }
-
-    /**
-     * * `group_summary` - Group summary
-     * * `alert` - Alert
-     * * `per_observation` - Per observation
-     */
-    export type ActionModeEnum = typeof ActionModeEnum[keyof typeof ActionModeEnum];
-
-
-    export const ActionModeEnum = {
-      GroupSummary: 'group_summary',
-      Alert: 'alert',
-      PerObservation: 'per_observation',
-    } as const;
 
     export interface ActionReference {
       /** Resource type: insight, experiment, cohort, or hog_function */
@@ -10046,95 +10067,6 @@ export namespace Schemas {
       readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
-    /**
-     * * `every_match` - Every new match
-     * * `on_breach` - When a threshold is crossed
-     */
-    export type AlertFrequencyEnum = typeof AlertFrequencyEnum[keyof typeof AlertFrequencyEnum];
-
-
-    export const AlertFrequencyEnum = {
-      EveryMatch: 'every_match',
-      OnBreach: 'on_breach',
-    } as const;
-
-    /**
-     * * `count` - Count of matching observations
-     * * `avg_score` - Average score
-     */
-    export type VisionActionAlertMetricEnum = typeof VisionActionAlertMetricEnum[keyof typeof VisionActionAlertMetricEnum];
-
-
-    export const VisionActionAlertMetricEnum = {
-      Count: 'count',
-      AvgScore: 'avg_score',
-    } as const;
-
-    /**
-     * * `above` - At or above
-     * * `below` - At or below
-     */
-    export type VisionAlertDirectionEnum = typeof VisionAlertDirectionEnum[keyof typeof VisionAlertDirectionEnum];
-
-
-    export const VisionAlertDirectionEnum = {
-      Above: 'above',
-      Below: 'below',
-    } as const;
-
-    /**
-     * * `1` - 1 day
-     * * `3` - 3 days
-     * * `7` - 7 days
-     * * `14` - 14 days
-     * * `30` - 30 days
-     */
-    export type WindowDaysEnum = typeof WindowDaysEnum[keyof typeof WindowDaysEnum];
-
-
-    export const WindowDaysEnum = {
-      Number1: 1,
-      Number3: 3,
-      Number7: 7,
-      Number14: 14,
-      Number30: 30,
-    } as const;
-
-    /**
-     * The alert condition for mode='alert', applied after `selection` targeting. 'every_match'
-     * notifies about each new match since the previous check; 'on_breach' compares a metric to a
-     * threshold over a rolling window and notifies on the transition into breach.
-     */
-    export interface AlertConfig {
-      /** 'every_match' notifies about every new matching observation (batched per check); 'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'.
-       *
-       * * `every_match` - Every new match
-       * * `on_breach` - When a threshold is crossed */
-      frequency?: AlertFrequencyEnum;
-      /** What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.
-       *
-       * * `count` - Count of matching observations
-       * * `avg_score` - Average score */
-      metric?: VisionActionAlertMetricEnum;
-      /** The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match. */
-      threshold?: number;
-      /** Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.
-       *
-       * * `above` - At or above
-       * * `below` - At or below */
-      direction?: VisionAlertDirectionEnum;
-      /** Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).
-       *
-       * * `1` - 1 day
-       * * `3` - 3 days
-       * * `7` - 7 days
-       * * `14` - 14 days
-       * * `30` - 30 days */
-      window_days?: WindowDaysEnum;
-      /** When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict/score/tags. Useful when piping the message somewhere else to read or act on. Defaults to false. */
-      include_reasoning?: boolean;
-    }
-
     export interface AlertSimulate {
       /** Numeric insight ID or saved insight short ID to simulate the detector on. */
       insight: number | string;
@@ -11230,7 +11162,7 @@ export namespace Schemas {
      */
     export interface AwsS3DestinationRequest {
       type: AwsS3DestinationRequestType;
-      /** ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+      /** ID of an aws-s3-kind Integration providing AWS credentials. Use the integrations-list MCP tool to find one. */
       integration_id: number;
       config: AwsS3DestinationConfig;
     }
@@ -12221,7 +12153,7 @@ export namespace Schemas {
          */
       integration?: number | null;
       /**
-         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake and Redshift (inline credentials remain supported); unused for other types.
+         * ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake, which still supports inline credentials.
          * @nullable
          */
       integration_id?: number | null;
@@ -13185,7 +13117,7 @@ export namespace Schemas {
      */
     export interface S3CompatibleDestinationRequest {
       type: S3CompatibleDestinationRequestType;
-      /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+      /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Use the integrations-list MCP tool to find one. */
       integration_id: number;
       config: S3CompatibleDestinationConfig;
     }
@@ -19855,6 +19787,18 @@ export namespace Schemas {
       always_include?: boolean;
     }
 
+    /**
+     * * `text` - text
+     * * `image` - image
+     */
+    export type CreateTextTileRequestTypeEnum = typeof CreateTextTileRequestTypeEnum[keyof typeof CreateTextTileRequestTypeEnum];
+
+
+    export const CreateTextTileRequestTypeEnum = {
+      Text: 'text',
+      Image: 'image',
+    } as const;
+
     export interface TileLayoutBox {
       /** Column position in the dashboard grid (0-indexed). */
       x?: number;
@@ -19874,8 +19818,13 @@ export namespace Schemas {
     }
 
     export interface CreateTextTileRequest {
+      /** Tile type. Use image for a body with exactly one Markdown image. Defaults to text.
+       *
+       * * `text` - text
+       * * `image` - image */
+      type?: CreateTextTileRequestTypeEnum;
       /**
-         * Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.
+         * Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. Image tiles require exactly one Markdown image. Max 4000 characters.
          * @minLength 1
          * @maxLength 4000
          */
@@ -21617,10 +21566,15 @@ export namespace Schemas {
       /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
       readonly last_status: string;
       /**
-         * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+         * When the check last passed. Read failing_since for how long a failing check has been failing. Null means it has not passed within the run retention window.
          * @nullable
          */
       readonly last_succeeded_at: string | null;
+      /**
+         * When the current streak of failing runs started, so a failing check can say how long it has been failing. Null when the check is not failing.
+         * @nullable
+         */
+      readonly failing_since: string | null;
       /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
       readonly fingerprint: string;
       /** Whether a human ('user') or an agent ('ai_generated') authored this check.
@@ -21662,6 +21616,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly quality_check: string | null;
+      /**
+         * Name the check carries now, so a run can be told from the others in its suite. Null when the check is unnamed, has been hard deleted, or is out of your reach today -- describe the run by check_type and column_name instead.
+         * @nullable
+         */
+      readonly check_name: string | null;
       readonly suite_run: string;
       readonly subject_type: SubjectTypeEnum;
       readonly subject_uuid: string;
@@ -21810,10 +21769,15 @@ export namespace Schemas {
       /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
       readonly last_status: string;
       /**
-         * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+         * When the check last passed. Read failing_since for how long a failing check has been failing. Null means it has not passed within the run retention window.
          * @nullable
          */
       readonly last_succeeded_at: string | null;
+      /**
+         * When the current streak of failing runs started, so a failing check can say how long it has been failing. Null when the check is not failing.
+         * @nullable
+         */
+      readonly failing_since: string | null;
       /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
       readonly fingerprint: string;
       /** Whether a human ('user') or an agent ('ai_generated') authored this check.
@@ -27286,35 +27250,6 @@ export namespace Schemas {
       merged_pr_count: number;
     }
 
-    /**
-     * * `slack` - Slack
-     * * `webhook` - Webhook
-     */
-    export type DeliveryTargetTypeEnum = typeof DeliveryTargetTypeEnum[keyof typeof DeliveryTargetTypeEnum];
-
-
-    export const DeliveryTargetTypeEnum = {
-      Slack: 'slack',
-      Webhook: 'webhook',
-    } as const;
-
-    /**
-     * A single delivery destination: a Slack channel or an HTTP webhook URL.
-     */
-    export interface DeliveryTarget {
-      /** Destination type: 'slack' posts to a Slack channel; 'webhook' POSTs a JSON payload to a URL.
-       *
-       * * `slack` - Slack
-       * * `webhook` - Webhook */
-      type: DeliveryTargetTypeEnum;
-      /** ID of the Slack Integration on this team used to deliver. Required when type is 'slack'. */
-      integration_id?: number;
-      /** Slack channel ID or name the summary is posted to. Required when type is 'slack'. */
-      channel?: string;
-      /** HTTPS endpoint the summary is POSTed to as JSON. Required when type is 'webhook'. Redacted to scheme+host in responses for users without editor access to the scanner. */
-      url?: string;
-    }
-
     export interface DependentFlag {
       /** Feature flag ID */
       id: number;
@@ -29138,6 +29073,11 @@ export namespace Schemas {
          */
       min_seconds: number | null;
       /**
+         * 5th percentile of the stage's duration, in seconds — the lower whisker when outliers are excluded. Null when nothing deployed.
+         * @nullable
+         */
+      p05_seconds: number | null;
+      /**
          * 25th percentile of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
@@ -29158,6 +29098,11 @@ export namespace Schemas {
          */
       p75_seconds: number | null;
       /**
+         * 95th percentile of the stage's duration, in seconds — the upper whisker when outliers are excluded. Null when nothing deployed.
+         * @nullable
+         */
+      p95_seconds: number | null;
+      /**
          * Slowest duration for this stage in this bucket, in seconds. Null when nothing deployed.
          * @nullable
          */
@@ -29167,7 +29112,7 @@ export namespace Schemas {
     export interface DoraOverview {
       /** Successful deployments per bucket across the window, oldest first, zero-filled, bucketed by series_granularity. Empty when the deploy tables aren't synced. */
       deployment_frequency_series: DeploymentFrequencyBucket[];
-      /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
+      /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p5/p25/p50/mean/p75/p95/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
       merge_to_deploy_series: LeadTimeBucket[];
       /** Open-to-merge distribution over the SAME deployed PRs and buckets as merge_to_deploy_series, so the two stages compare bucket by bucket. Not the all-merged-PRs cycle time. Empty in the same cases as merge_to_deploy_series. */
       open_to_merge_series: LeadTimeBucket[];
@@ -29175,7 +29120,7 @@ export namespace Schemas {
       open_to_deploy_series: LeadTimeBucket[];
       /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
       deploy_data_available: boolean;
-      /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
+      /** What the environment filter resolved to: the exact environment name(s) it matches (the caller's picks, comma-joined when several; by default the busiest production-marked environment, falling back to the busiest persistent one), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
       environment_scope: string;
       /** Distinct persistent environments deployed to in the scan window, most-deployed first — the environment picker's options. Transient environments are omitted but stay reachable by exact name. */
       environments: string[];
@@ -29207,6 +29152,16 @@ export namespace Schemas {
          * @nullable
          */
       median_merge_to_deploy_seconds_prev: number | null;
+      /**
+         * Median seconds from a PR's open to the first successful deployment containing it — the full open-to-deploy lead time over the same deployed-PR population as median_merge_to_deploy_seconds. Null when nothing deployed in the window.
+         * @nullable
+         */
+      median_open_to_deploy_seconds: number | null;
+      /**
+         * Previous-window twin of median_open_to_deploy_seconds.
+         * @nullable
+         */
+      median_open_to_deploy_seconds_prev: number | null;
       /** PRs first deployed in the window — the population behind the merge-to-deploy median and box plot. */
       deployed_pr_count: number;
       /** Previous-window twin of deployed_pr_count. */
@@ -29247,7 +29202,7 @@ export namespace Schemas {
          * @nullable
          */
       latest_deploy_status_at: string | null;
-      /** Bucket width of every series, chosen to fit the window: 'hour', 'day', or 'week'. */
+      /** Bucket width of every series: the granularity param when given, else chosen to fit the window: 'hour', 'day', or 'week'. */
       series_granularity: string;
     }
 
@@ -29347,7 +29302,7 @@ export namespace Schemas {
     /**
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash
      */
     export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
 
@@ -29355,7 +29310,7 @@ export namespace Schemas {
     export const ScannerModelEnum = {
       Gemini35FlashLite: 'gemini-3.5-flash-lite',
       Gemini3FlashPreview: 'gemini-3-flash-preview',
-      Gemini37Flash: 'gemini-3.7-flash',
+      Gemini38Flash: 'gemini-3.8-flash',
     } as const;
 
     /**
@@ -29394,7 +29349,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+       * * `gemini-3.8-flash` - Gemini 3.8 Flash */
       model: ScannerModelEnum | null;
       /**
          * Goal-based flow only: the monthly credit cap, set to `monthly_credit_budget` so a mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow.
@@ -29780,12 +29735,14 @@ export namespace Schemas {
          */
       title?: string | null;
       /**
-         * Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. The pipeline may later re-research and overwrite it.
+         * Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. A heading, or a bold label on a line of its own with a blank line above it, marks a section that a threaded Slack delivery splits into its own reply. The pipeline may later re-research and overwrite it.
+         * @maxLength 20000
          * @nullable
          */
       summary?: string | null;
       /**
          * Optional free-form note to append to the report's work log (attributed to this scout).
+         * @maxLength 10000
          * @nullable
          */
       append_note?: string | null;
@@ -29801,7 +29758,7 @@ export namespace Schemas {
          */
       charts?: ReportChart[] | null;
       /**
-         * The full set of follow-up questions the report should offer above its `Ask AI` box. Replaces the report's questions rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them answering the old report.
+         * The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report.
          * @maxItems 3
          * @nullable
          * @items.maxLength 200
@@ -29824,7 +29781,7 @@ export namespace Schemas {
          */
       charts_set: number | null;
       /**
-         * How many questions the report now suggests, or null if the edit left them as they were (the field omitted, or a re-send of what was already stored). 0 means the edit took the report's suggested prompts down.
+         * How many prompts the report now suggests, or null if the edit left them as they were (the field omitted, or a re-send of what was already stored). 0 means the edit took the report's suggested prompts down.
          * @nullable
          */
       suggested_prompts_set: number | null;
@@ -30194,7 +30151,7 @@ export namespace Schemas {
          * @maxLength 300
          */
       title: string;
-      /** The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. */
+      /** The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. A heading, or a bold label on a line of its own with a blank line above it, marks a section that a threaded Slack delivery splits into its own reply. */
       summary: string;
       /**
          * The observations backing the report — each becomes a bound signal. At least one.
@@ -30240,7 +30197,7 @@ export namespace Schemas {
          */
       charts?: ReportChart[];
       /**
-         * Optional follow-up questions to offer above the report's `Ask AI` box. The reader clicks one to fill the box with it, then sends or edits it. Write the questions your own research left open, phrased as the reader would ask them.
+         * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them.
          * @maxItems 3
          * @items.maxLength 200
          */
@@ -32594,7 +32551,7 @@ export namespace Schemas {
      * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
      */
     export interface EstimateRequest {
-      /** Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate against all recordings. */
+      /** Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate scans a recent window (`window_days` in the response) and scales it to 30 days. Omit to estimate against all recordings. */
       query?: unknown;
       /**
          * 0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).
@@ -32617,7 +32574,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+       * * `gemini-3.8-flash` - Gemini 3.8 Flash */
       model?: ScannerModelEnum;
       /** Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user. */
       experiment_targeting?: ScannerExperimentTargeting | null;
@@ -32627,11 +32584,11 @@ export namespace Schemas {
      * Forward-looking volume and credit-cost estimate for a proposed scanner.
      */
     export interface EstimateResponse {
-      /** Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality filter but before random sampling. */
+      /** Distinct sessions matching the query within the scanned window (`window_days`), after the sampling_mode quality filter but before random sampling. */
       matched_sessions_in_window: number;
-      /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
+      /** Days of recordings the estimate scanned before scaling to 30. Up to a week (shorter when the query's operand rules out sampling); smaller when the team has fewer days of recordings. */
       window_days: number;
-      /** Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate. */
+      /** Projected monthly observations: quality-filtered matched sessions scaled from `window_days` to 30 days, times sampling_rate. */
       estimated_observations_per_month: number;
       /** Credits one observation costs at the proposed `model` (1 credit = $0.01). */
       credits_per_observation: number;
@@ -35357,7 +35314,7 @@ export namespace Schemas {
     /**
      * One variant's compared population.
      */
-    export interface ExperimentWatchArm {
+    export interface ExperimentWatchVariant {
       /** The variant key. */
       key: string;
       /** Exposed people the comparison covered for this variant. People rather than sessions because a variant can change how often the flag is evaluated again later, which moves a variant's session count without anyone behaving differently. Each person is read from the first session the comparison covers them in, so every variant gets the same amount of behavior per person. */
@@ -35379,6 +35336,22 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `too_early` - too_early
+     * * `no_separation` - no_separation
+     * * `no_recordings` - no_recordings
+     * * `no_session_linked_exposures` - no_session_linked_exposures
+     */
+    export type ExperimentWatchEmptyReasonEnum = typeof ExperimentWatchEmptyReasonEnum[keyof typeof ExperimentWatchEmptyReasonEnum];
+
+
+    export const ExperimentWatchEmptyReasonEnum = {
+      TooEarly: 'too_early',
+      NoSeparation: 'no_separation',
+      NoRecordings: 'no_recordings',
+      NoSessionLinkedExposures: 'no_session_linked_exposures',
+    } as const;
+
+    /**
      * The recordings worth watching for this experiment, grouped into cards.
      *
      * Descriptive, never a result: cards say where behavior visibly differed and hand over the
@@ -35386,10 +35359,10 @@ export namespace Schemas {
      * state the magnitudes. Nothing here says a variant is winning.
      */
     export interface ExperimentSessionEventDeltaResponse {
-      /** The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. Group by kind before presenting: a 'variant_only' card outranks every real difference by construction, and reading the shelf in order would report it as the headline. */
+      /** The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. Empty also takes the metric shortcuts with it: a shelf of shortcuts and no finding restates what the experiment's results already answer while reading as a finding, so it is withheld. Read empty_reason and say what it reports instead of presenting an empty shelf. Group by kind before presenting: a 'variant_only' card outranks every real difference by construction, and reading the shelf in order would report it as the headline. */
       cards: ExperimentWatchCard[];
       /** Every variant's compared population, in the flag's variant order. */
-      arms: ExperimentWatchArm[];
+      variants: ExperimentWatchVariant[];
       /** People who saw more than one variant and were left out of every card. Always 0 when the experiment attributes such users to the variant they saw first. */
       multiple_variant_persons: number;
       /** How the experiment handles someone who saw more than one variant, followed here so the cards split their people the same way the analysis does.
@@ -35412,13 +35385,20 @@ export namespace Schemas {
       /** True when the project has more distinct event names in the window than one comparison can rank, so some were never considered. */
       events_truncated: boolean;
       /** How many exposed people a variant needs before it can be compared at all. Below it a variant's cards would be noise whatever the evidence bar allows. */
-      min_arm_persons: number;
+      min_variant_persons: number;
       /** The most recordings one card can carry. A card whose recording_count equals this hit the ceiling, so report it as 'at least this many' rather than as a count. */
       max_card_recordings: number;
       /** How many cards were removed because their recordings were already another card's on the same shelf. Nothing was lost: the recordings are all reachable through the cards that stayed. */
       dropped_duplicate_cards: number;
-      /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented without this would read as 'the variants behaved identically'. */
+      /** True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: this is also true when the variants are empty because no exposure in the window carried a session, which empty_reason reports as 'no_session_linked_exposures' and which more time does not fix on its own. */
       too_early: boolean;
+      /** Why cards is empty, and null whenever cards is not empty. Report which of the four happened rather than reporting an empty shelf, because they ask different things of the reader. 'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared yet and the answer can still change. 'no_separation': the variants were compared and no event told them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants apart, but no recording behind them can be opened, so the project's session replay sampling and retention are what decide whether this surface can ever show anything. 'no_session_linked_exposures': people were exposed between date_from and date_to, and not one exposure carried a session id, so there was nothing to compare. Only that window was checked, so say so. It is how exposure is captured rather than a wait: exposures captured from a client-side SDK carry a session and exposures captured server-side do not, so more of the same capture yields more of the same. Point at capturing exposure from a client-side SDK before telling anyone to check back. Never fill an empty shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that reason.
+       *
+       * * `too_early` - too_early
+       * * `no_separation` - no_separation
+       * * `no_recordings` - no_recordings
+       * * `no_session_linked_exposures` - no_session_linked_exposures */
+      empty_reason: ExperimentWatchEmptyReasonEnum | null;
     }
 
     /**
@@ -39087,6 +39067,22 @@ export namespace Schemas {
       ServiceName: 'service_name',
     } as const;
 
+    /**
+     * * `generating_source` - generating_source
+     * * `reviewing_source` - reviewing_source
+     * * `publishing_source` - publishing_source
+     * * `unknown` - unknown
+     */
+    export type FailurePhaseEnum = typeof FailurePhaseEnum[keyof typeof FailurePhaseEnum];
+
+
+    export const FailurePhaseEnum = {
+      GeneratingSource: 'generating_source',
+      ReviewingSource: 'reviewing_source',
+      PublishingSource: 'publishing_source',
+      Unknown: 'unknown',
+    } as const;
+
     export type FeatureFlagFilters = { [key: string]: unknown };
 
     export type FeatureFlagSurveys = { [key: string]: unknown };
@@ -39321,10 +39317,10 @@ export namespace Schemas {
     export interface FeatureFlagRolloutSummary {
       /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
       effectively_full_rollout: boolean;
-      /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the targeted segment, not of the whole user base. */
+      /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. This says nothing about which condition produced `max_rollout_percentage`: the two fields are computed independently over the whole condition list. */
       has_targeting_conditions: boolean;
       /**
-         * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. Interpret together with `has_targeting_conditions`.
+         * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. The maximum can come from an untargeted condition even when `has_targeting_conditions` is true, so it cannot be attributed to a targeted condition or read as a share of a targeted segment.
          * @nullable
          */
       max_rollout_percentage: number | null;
@@ -39337,6 +39333,8 @@ export namespace Schemas {
       status: string;
       /** Human-readable explanation of the status */
       reason: string;
+      /** True when `reason` already describes the flag's rollout, which happens when the status was reached from the configuration rather than from evaluation data. A caller that narrates the rollout separately should stay quiet rather than repeat it. */
+      reason_states_rollout: boolean;
       /** Summary of the flag's rollout configuration, for determining whether it is fully rolled out. */
       rollout: FeatureFlagRolloutSummary;
     }
@@ -42833,6 +42831,7 @@ export namespace Schemas {
      * * `task_repository` - task_repository
      * * `task_mcp_installations` - task_mcp_installations
      * * `signals_scout` - signals_scout
+     * * `task_skills` - task_skills
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -42859,6 +42858,7 @@ export namespace Schemas {
       TaskRepository: 'task_repository',
       TaskMcpInstallations: 'task_mcp_installations',
       SignalsScout: 'signals_scout',
+      TaskSkills: 'task_skills',
     } as const;
 
     export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
@@ -46251,7 +46251,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+       * * `gemini-3.8-flash` - Gemini 3.8 Flash */
       model?: ScannerModelEnum;
     }
 
@@ -46920,6 +46920,49 @@ export namespace Schemas {
          * @maxLength 400
          */
       identifier: string;
+    }
+
+    /**
+     * One bucket of a provider's sending history.
+     */
+    export interface IspDailyPoint {
+      /** Bucket date, as an ISO 8601 calendar date. */
+      readonly date: string;
+      /** Emails sent to this provider on this date. */
+      readonly emails_sent: number;
+      /** Emails this provider accepted on this date, divided by emails sent to it (0-1). */
+      readonly delivery_rate: number;
+      /** Hard bounces at this provider on this date, divided by emails sent to it (0-1). */
+      readonly bounce_rate: number;
+    }
+
+    /**
+     * How one mailbox provider treated this project's email, from AWS SES's own delivery data.
+     */
+    export interface IspSendingHealth {
+      /** The recipient mailbox provider, as AWS names it — for example Gmail or Yahoo. */
+      readonly isp: string;
+      /** Emails sent to this provider during the window. */
+      readonly emails_sent: number;
+      /**
+         * Emails this provider accepted, divided by emails sent to it (0-1). Acceptance is not inbox placement: a provider can accept a message and still file it as spam. Null when the underlying metric could not be loaded from AWS, which is not the same as zero.
+         * @nullable
+         */
+      readonly delivery_rate: number | null;
+      /**
+         * Hard (permanent) bounces at this provider, divided by emails sent to it (0-1). Null when the underlying metric could not be loaded from AWS.
+         * @nullable
+         */
+      readonly bounce_rate: number | null;
+      /**
+         * Spam complaints from this provider, divided by the deliveries it reports complaints for (0-1). Null when there is no rate to state — the provider runs no feedback loop, or nothing was delivered — and also when the metric could not be loaded from AWS.
+         * @nullable
+         */
+      readonly complaint_rate: number | null;
+      /** Rates AWS did not return for this provider, from `delivery`, `bounce` and `complaint`. A rate named here is missing, not zero, and the UI says so rather than showing a number. */
+      readonly unavailable: readonly string[];
+      /** Sending history for this provider, oldest first, so a drop can be dated rather than averaged into the window. Dates this provider received nothing are omitted. */
+      readonly daily: readonly IspDailyPoint[];
     }
 
     export interface JiraIssueSignalExtra {
@@ -49050,9 +49093,24 @@ export namespace Schemas {
       error: string;
     }
 
+    export interface _SeriesBandsDateRange {
+      /**
+         * Start of the window. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1wStart, etc.
+         * @nullable
+         */
+      date_from?: string | null;
+      /**
+         * End of the window. Same format as date_from. Omit or null for "now".
+         * @nullable
+         */
+      date_to?: string | null;
+    }
+
     export interface LogsSeriesBandsRequest {
       /** Service whose per-series volume to chart (the log record's service_name). */
       serviceName: string;
+      /** Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches. */
+      dateRange?: _SeriesBandsDateRange;
       /** Display grain in minutes for buckets and bands. Only hourly is supported today.
        *
        * * `60` - 60 */
@@ -49970,6 +50028,8 @@ export namespace Schemas {
        * * `api_key` - API Key
        * * `oauth` - OAuth */
       readonly template_auth_type: MCPAuthTypeEnum | null;
+      /** How members connect to this server: the template's type for catalog servers, or the type the custom server was added with. Null only for custom servers registered before the type was recorded; members then choose. */
+      readonly auth_type: MCPAuthTypeEnum | null;
       readonly is_team_enabled: boolean;
       /** Deprecated brand icon key from the linked template. Empty for custom servers. */
       readonly icon_key: string;
@@ -52006,6 +52066,40 @@ export namespace Schemas {
       cursor_head?: number | null;
     }
 
+    export interface NotebookComputePreset {
+      /** Stable identifier for the preset, e.g. 'balanced'. */
+      key: string;
+      /** Preset name as a person reads it, e.g. 'Balanced'. */
+      name: string;
+      /** What this preset suits, in one sentence. */
+      description: string;
+      /** CPU cores the preset provisions. */
+      cpu_cores: number;
+      /** Memory in GB the preset provisions. */
+      memory_gb: number;
+      /** What this preset costs per hour in USD while it is alive. */
+      hourly_price: number;
+    }
+
+    export interface NotebookComputeOptionsResponse {
+      /** Currency of every price in this response. Always 'USD'. */
+      currency: string;
+      /** Price of one CPU core for one hour, in USD. */
+      cpu_rate_per_core_hour: number;
+      /** Price of one GB of memory for one hour, in USD. */
+      memory_rate_per_gb_hour: number;
+      /** Preset a sandbox starts with when the notebook sets no compute config. */
+      default_preset_key: string;
+      /** Sandbox shapes offered as one-click options. */
+      presets: NotebookComputePreset[];
+      /** CPU core counts the kernel config endpoint accepts. */
+      allowed_cpu_cores: number[];
+      /** Memory sizes in GB the kernel config endpoint accepts. */
+      allowed_memory_gb: number[];
+      /** Idle timeouts in seconds the kernel config endpoint accepts. */
+      allowed_idle_timeout_seconds: number[];
+    }
+
     export interface NotebookKernelConfig {
       /** CPU cores for the notebook's sandbox kernel; must be a supported option. */
       cpu_cores?: number;
@@ -52031,8 +52125,17 @@ export namespace Schemas {
          * @nullable
          */
       idle_timeout_seconds?: number | null;
-      /** True when a kernel is currently active: config applies at sandbox provision time, so the running kernel keeps its old resources until restarted (restarting loses materialized dataframes). */
+      /** True when this call restarted a live kernel to apply a new size. Restarting discards every materialized dataframe, so cells that referenced one must run again. */
+      restarted: boolean;
+      /** True when a kernel is live and this call did not restart it, so the running sandbox may not match the saved config. A resize restarts the kernel and reports False on success, or True if that restart fails. An idle-timeout change and a no-op on a live kernel also report True. */
       restart_required: boolean;
+      /** What this sandbox shape costs per hour in USD while it is alive, at this region's rates. It tracks the running sandbox while a kernel is live, otherwise the configured shape. After a failed resize this stays the running sandbox's rate, not the size that failed to apply. */
+      hourly_price: number;
+      /**
+         * Compute preset the configured shape matches, or null when it was tuned by hand.
+         * @nullable
+         */
+      preset_key?: string | null;
     }
 
     export interface NotebookKernelState {
@@ -52125,6 +52228,13 @@ export namespace Schemas {
          * @nullable
          */
       idle_timeout_seconds?: number | null;
+      /** What this sandbox shape costs per hour in USD while it is alive, at this region's rates. Charged on the sandbox's lifetime, not on how much of it a cell uses. Resizing through the kernel config endpoint restarts a live kernel, so this tracks the running sandbox. */
+      hourly_price: number;
+      /**
+         * Compute preset for the shape hourly_price describes: the running sandbox while a kernel is live, otherwise the configured shape. Null when that shape was tuned by hand and matches no preset.
+         * @nullable
+         */
+      preset_key?: string | null;
     }
 
     export interface NotebookMarkdownSave {
@@ -52287,6 +52397,13 @@ export namespace Schemas {
     export interface NotebookSQLV2RunResponse {
       /** Identifier of the dispatched run. Poll the run result endpoint with it until the status is terminal. */
       run_id: string;
+      /** True when this run has to provision a sandbox because none is live for the caller, checked here rather than inferred from a client's cached kernel status. Tell the user what that costs. */
+      starts_sandbox: boolean;
+      /**
+         * What the sandbox this run provisions costs per hour in USD. Null when the run needs no new sandbox, or when the backend is not charged.
+         * @nullable
+         */
+      sandbox_hourly_price?: number | null;
     }
 
     export interface NotebookSQLV2RunStatusResponse {
@@ -55440,6 +55557,11 @@ export namespace Schemas {
       readonly is_demo: boolean;
       readonly timezone: string;
       readonly access_control: boolean;
+      /**
+         * Labels applied to this project.
+         * @items.maxLength 255
+         */
+      readonly tags: readonly string[];
     }
 
     export interface PaginatedProjectBackwardCompatBasicList {
@@ -55779,7 +55901,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+       * * `gemini-3.8-flash` - Gemini 3.8 Flash */
       model: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -55794,10 +55916,15 @@ export namespace Schemas {
          * @nullable
          */
       readonly estimated_monthly_observations: number | null;
+      /**
+         * When `estimated_monthly_observations` was last computed. Null means the estimate is being recomputed after a config change or has never run, so the stored number may be stale.
+         * @nullable
+         */
+      readonly estimated_at: string | null;
       /** Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`. */
       readonly credits_per_observation: number;
       /**
-         * `estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.
+         * `estimated_monthly_observations` priced at `credits_per_observation`, capped at `credit_limit` when one is set. Null until the estimate is first computed.
          * @nullable
          */
       readonly estimated_monthly_credits: number | null;
@@ -56859,7 +56986,7 @@ export namespace Schemas {
       readonly artefact_count: number;
       /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
       readonly charts: readonly ReportChart[];
-      /** Follow-up questions the report's author suggests asking about it, in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
+      /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
       readonly suggested_prompts: readonly string[];
       /**
          * P0–P4 from the latest priority judgment artefact (when present).
@@ -58371,6 +58498,8 @@ export namespace Schemas {
     } as const;
 
     export interface TaskRunSummary {
+      /** ID of the latest run. */
+      id: string;
       status: TaskRunStatusEnum | null;
       environment: TaskRunEnvironmentEnum | null;
     }
@@ -58383,6 +58512,11 @@ export namespace Schemas {
       title: string;
       /** @nullable */
       repository: string | null;
+      /**
+         * ID of the user who created the task, or null for system-created tasks.
+         * @nullable
+         */
+      created_by_id: number | null;
       created_at: string;
       updated_at: string;
       origin_product?: string;
@@ -58650,8 +58784,15 @@ export namespace Schemas {
       readonly author_type: string;
       /** Display name of the author. */
       readonly author_name: string;
+      /**
+         * Email of the authoring PostHog user, when the message was written by one (support replies and internal notes). Null for customer and AI messages.
+         * @nullable
+         */
+      readonly author_email: string | null;
       /** True for internal notes not visible to the customer. */
       readonly is_private: boolean;
+      /** True when the complete inbound email body can be retrieved. */
+      readonly has_full_email_content: boolean;
       /** Edit count. 0 means never edited. */
       readonly version: number;
       readonly created_at: string;
@@ -59395,192 +59536,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `schedule` - Schedule
-     * * `threshold` - Threshold
-     */
-    export type TriggerTypeEnum = typeof TriggerTypeEnum[keyof typeof TriggerTypeEnum];
-
-
-    export const TriggerTypeEnum = {
-      Schedule: 'schedule',
-      Threshold: 'threshold',
-    } as const;
-
-    /**
-     * Schedule trigger parameters. Threshold triggers are reserved and rejected at the API for now.
-     */
-    export interface TriggerConfig {
-      /** iCal RRULE string controlling the schedule cadence (no DTSTART — the start is managed separately). */
-      rrule?: string;
-      /** IANA timezone name the RRULE is expanded in, e.g. 'Europe/Prague'. Defaults to 'UTC'. */
-      timezone?: string;
-    }
-
-    /**
-     * * `yes` - yes
-     * * `no` - no
-     * * `inconclusive` - inconclusive
-     */
-    export type VerdictEnum = typeof VerdictEnum[keyof typeof VerdictEnum];
-
-
-    export const VerdictEnum = {
-      Yes: 'yes',
-      No: 'no',
-      Inconclusive: 'inconclusive',
-    } as const;
-
-    /**
-     * The action's targeting predicate ("run this on…") applied when gathering observations. All keys
-     * optional; this typed shape is the allowlist, so unknown input keys are dropped rather than persisted.
-     */
-    export interface Selection {
-      /** Restrict to observations produced by these scanner IDs. Defaults to the bound scanner. */
-      scanner_ids?: string[];
-      /** Only run on monitor observations with one of these verdicts (yes/no/inconclusive). */
-      verdict?: VerdictEnum[];
-      /** Only run on classifier observations carrying any of these tags (fixed or freeform). */
-      tags?: string[];
-      /** Only run on scorer observations with a score at or above this value (inclusive). */
-      min_score?: number;
-      /** Only run on scorer observations with a score at or below this value (inclusive). */
-      max_score?: number;
-    }
-
-    /**
-     * Options for the group-summary synthesis step.
-     */
-    export interface SynthesisConfig {
-      /**
-         * Free-form guidance steering how the group summary is written.
-         * @maxLength 500
-         */
-      prompt_guide?: string;
-    }
-
-    /**
-     * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
-     */
-    export interface VisionAction {
-      readonly id: string;
-      /**
-         * Human-readable action name. Unique within the team.
-         * @maxLength 255
-         */
-      name: string;
-      /** Scanner whose observations this action operates on. Must belong to the same team. */
-      scanner: string;
-      /** When false, the scheduler skips this action. */
-      enabled?: boolean;
-      /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
-      is_scanner_digest?: boolean;
-      /** What fires the action. MVP supports 'schedule' only.
-       *
-       * * `schedule` - Schedule
-       * * `threshold` - Threshold */
-      trigger_type?: TriggerTypeEnum;
-      /** What the action produces. MVP supports 'group_summary' only.
-       *
-       * * `group_summary` - Group summary
-       * * `alert` - Alert
-       * * `per_observation` - Per observation */
-      mode?: ActionModeEnum;
-      /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
-      trigger_config?: TriggerConfig;
-      /** Targeting predicate: which of the scanner's observations this action runs on. */
-      selection?: Selection;
-      /** Synthesis options for the group summary, e.g. {prompt_guide}. */
-      synthesis_config?: SynthesisConfig;
-      /** Alert condition; required when mode is 'alert', ignored otherwise. */
-      alert_config?: AlertConfig;
-      /** List of delivery destinations the synthesized summary is sent to. */
-      delivery_config?: DeliveryTarget[];
-      /**
-         * Computed next fire time for schedule triggers; the scheduler scans this.
-         * @nullable
-         */
-      readonly next_run_at: string | null;
-      /**
-         * Timestamp of the most recent run, or null if it has never run.
-         * @nullable
-         */
-      readonly last_run_at: string | null;
-      /**
-         * ID of the delivery flow provisioned for this action. Null until delivery is wired up.
-         * @nullable
-         */
-      readonly hog_flow_id: string | null;
-      readonly created_at: string;
-      /** User who created the action. */
-      readonly created_by: UserBasic | null;
-      readonly updated_at: string;
-    }
-
-    export interface PaginatedVisionActionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: VisionAction[];
-    }
-
-    /**
-     * * `running` - Running
-     * * `completed` - Completed
-     * * `failed` - Failed
-     * * `skipped` - Skipped
-     */
-    export type VisionActionRunStatusEnum = typeof VisionActionRunStatusEnum[keyof typeof VisionActionRunStatusEnum];
-
-
-    export const VisionActionRunStatusEnum = {
-      Running: 'running',
-      Completed: 'completed',
-      Failed: 'failed',
-      Skipped: 'skipped',
-    } as const;
-
-    /**
-     * Lightweight run row for the per-action run list (no report body — that's fetched on retrieve).
-     */
-    export interface VisionActionRunList {
-      readonly id: string;
-      /** Run outcome: running, completed, failed, or skipped.
-       *
-       * * `running` - Running
-       * * `completed` - Completed
-       * * `failed` - Failed
-       * * `skipped` - Skipped */
-      readonly status: VisionActionRunStatusEnum;
-      /**
-         * The scheduled fire time this run was claimed for.
-         * @nullable
-         */
-      readonly scheduled_at: string | null;
-      /** Number of observations that fed this run's summary. */
-      readonly observation_count: number;
-      /**
-         * Short human-readable reason a run skipped or failed; null on success.
-         * @nullable
-         */
-      readonly error_reason: string | null;
-      /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
-      readonly is_recovery: boolean;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
-    export interface PaginatedVisionActionRunListList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: VisionActionRunList[];
-    }
-
-    /**
      * * `metric` - Metric
      * * `match` - Match
      */
@@ -59621,6 +59576,18 @@ export namespace Schemas {
     export const VisionAlertMetricEnum = {
       Count: 'count',
       AvgScore: 'avg_score',
+    } as const;
+
+    /**
+     * * `above` - At or above
+     * * `below` - At or below
+     */
+    export type VisionAlertDirectionEnum = typeof VisionAlertDirectionEnum[keyof typeof VisionAlertDirectionEnum];
+
+
+    export const VisionAlertDirectionEnum = {
+      Above: 'above',
+      Below: 'below',
     } as const;
 
     export interface VisionAlertConfiguration {
@@ -61274,10 +61241,15 @@ export namespace Schemas {
       /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
       readonly last_status?: string;
       /**
-         * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+         * When the check last passed. Read failing_since for how long a failing check has been failing. Null means it has not passed within the run retention window.
          * @nullable
          */
       readonly last_succeeded_at?: string | null;
+      /**
+         * When the current streak of failing runs started, so a failing check can say how long it has been failing. Null when the check is not failing.
+         * @nullable
+         */
+      readonly failing_since?: string | null;
       /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
       readonly fingerprint?: string;
       /** Whether a human ('user') or an agent ('ai_generated') authored this check.
@@ -64643,6 +64615,19 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for PATCH /api/users/@me/product_intro_seen.
+     */
+    export interface PatchedProductIntroSeen {
+      /**
+         * Which key in `has_seen_product_intro_for` to set. Any string is accepted: besides the product keys, the map holds keys composed per team and keys for surfaces that are not products.
+         * @maxLength 128
+         */
+      product_key?: string;
+      /** Whether the intro counts as seen. Send false to show it again. */
+      seen?: boolean;
+    }
+
+    /**
      * * `app` - app
      * * `toolbar` - toolbar
      */
@@ -64788,8 +64773,16 @@ export namespace Schemas {
       email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
     }
 
+    export interface TeamFeatureFlagPolicyConfig {
+      /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
+      require_tags?: boolean;
+    }
+
     /**
-     * Mixin for serializers to add user access control fields
+     * A project and its settings, including the settings that live on its passthrough Team.
+     *
+     * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+     * onto /api/projects/ never loses a field.
      */
     export interface PatchedProjectBackwardCompat {
       readonly id?: number;
@@ -64806,6 +64799,11 @@ export namespace Schemas {
          * @nullable
          */
       product_description?: string | null;
+      /**
+         * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       readonly created_at?: string;
       readonly effective_membership_level?: OrganizationMembershipLevelEnum;
       readonly has_group_types?: boolean;
@@ -65588,6 +65586,7 @@ export namespace Schemas {
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
       workflows_config?: TeamWorkflowsConfig;
+      feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       base_currency?: BaseCurrencyEnum;
       /**
          * Enables capturing clicks that had no effect (rage-click detection).
@@ -65814,7 +65813,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+       * * `gemini-3.8-flash` - Gemini 3.8 Flash */
       model?: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -65829,10 +65828,15 @@ export namespace Schemas {
          * @nullable
          */
       readonly estimated_monthly_observations?: number | null;
+      /**
+         * When `estimated_monthly_observations` was last computed. Null means the estimate is being recomputed after a config change or has never run, so the stored number may be stale.
+         * @nullable
+         */
+      readonly estimated_at?: string | null;
       /** Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`. */
       readonly credits_per_observation?: number;
       /**
-         * `estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.
+         * `estimated_monthly_observations` priced at `credits_per_observation`, capped at `credit_limit` when one is set. Null until the estimate is first computed.
          * @nullable
          */
       readonly estimated_monthly_credits?: number | null;
@@ -66302,7 +66306,7 @@ export namespace Schemas {
          * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
          */
       users?: string[] | null;
-      /** When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
+      /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
       thread_reports?: boolean;
     }
 
@@ -67740,6 +67744,7 @@ export namespace Schemas {
          * @nullable
          */
       require_evaluation_contexts?: boolean | null;
+      feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       /** @nullable */
       capture_dead_clicks?: boolean | null;
       /**
@@ -68300,64 +68305,6 @@ export namespace Schemas {
       field_name?: string;
       /** Optional join configuration, for example experiments optimization flags. */
       configuration?: unknown;
-    }
-
-    /**
-     * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
-     */
-    export interface PatchedVisionAction {
-      readonly id?: string;
-      /**
-         * Human-readable action name. Unique within the team.
-         * @maxLength 255
-         */
-      name?: string;
-      /** Scanner whose observations this action operates on. Must belong to the same team. */
-      scanner?: string;
-      /** When false, the scheduler skips this action. */
-      enabled?: boolean;
-      /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
-      is_scanner_digest?: boolean;
-      /** What fires the action. MVP supports 'schedule' only.
-       *
-       * * `schedule` - Schedule
-       * * `threshold` - Threshold */
-      trigger_type?: TriggerTypeEnum;
-      /** What the action produces. MVP supports 'group_summary' only.
-       *
-       * * `group_summary` - Group summary
-       * * `alert` - Alert
-       * * `per_observation` - Per observation */
-      mode?: ActionModeEnum;
-      /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
-      trigger_config?: TriggerConfig;
-      /** Targeting predicate: which of the scanner's observations this action runs on. */
-      selection?: Selection;
-      /** Synthesis options for the group summary, e.g. {prompt_guide}. */
-      synthesis_config?: SynthesisConfig;
-      /** Alert condition; required when mode is 'alert', ignored otherwise. */
-      alert_config?: AlertConfig;
-      /** List of delivery destinations the synthesized summary is sent to. */
-      delivery_config?: DeliveryTarget[];
-      /**
-         * Computed next fire time for schedule triggers; the scheduler scans this.
-         * @nullable
-         */
-      readonly next_run_at?: string | null;
-      /**
-         * Timestamp of the most recent run, or null if it has never run.
-         * @nullable
-         */
-      readonly last_run_at?: string | null;
-      /**
-         * ID of the delivery flow provisioned for this action. Null until delivery is wired up.
-         * @nullable
-         */
-      readonly hog_flow_id?: string | null;
-      readonly created_at?: string;
-      /** User who created the action. */
-      readonly created_by?: UserBasic | null;
-      readonly updated_at?: string;
     }
 
     export interface PatchedVisionAlertConfiguration {
@@ -69236,7 +69183,10 @@ export namespace Schemas {
     export type ProjectBackwardCompatManagedViewsets = {[key: string]: boolean};
 
     /**
-     * Mixin for serializers to add user access control fields
+     * A project and its settings, including the settings that live on its passthrough Team.
+     *
+     * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+     * onto /api/projects/ never loses a field.
      */
     export interface ProjectBackwardCompat {
       readonly id: number;
@@ -69253,6 +69203,11 @@ export namespace Schemas {
          * @nullable
          */
       product_description?: string | null;
+      /**
+         * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       readonly created_at: string;
       readonly effective_membership_level: OrganizationMembershipLevelEnum;
       readonly has_group_types: boolean;
@@ -70035,6 +69990,7 @@ export namespace Schemas {
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
       workflows_config?: TeamWorkflowsConfig;
+      feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       base_currency?: BaseCurrencyEnum;
       /**
          * Enables capturing clicks that had no effect (rage-click detection).
@@ -74392,7 +74348,7 @@ export namespace Schemas {
          */
       content: string;
       /**
-         * Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left null), not rejected, so the memory write is never lost.
+         * Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that is unparseable, or that isn't a run on this project, is dropped rather than rejected, so the memory write is never lost. Omit it and the lineage still lands: a write from a scout sandbox is attributed to that sandbox's own run.
          * @nullable
          */
       run_id?: string | null;
@@ -75752,7 +75708,7 @@ export namespace Schemas {
     export interface ReviewTriggerResponse {
       /** Temporal workflow id for the started review run; empty when no run was started. */
       workflow_id: string;
-      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts). */
+      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts), 'joined_running_review' when a review was already in flight (no new run starts; a report in a cheaper tier is lifted to human strength for the rest of that review and every later one). */
       status: string;
     }
 
@@ -75798,16 +75754,6 @@ export namespace Schemas {
       reference: RoleExternalReference | null;
     }
 
-    /**
-     * Async-accepted response for POST /vision/actions/{id}/run/.
-     */
-    export interface RunActionResponse {
-      /** Temporal workflow id for the run; the resulting run appears under the action's run history. */
-      workflow_id: string;
-      /** True when a run for this action was already in progress (scheduled or manual), so this request coalesced onto it rather than starting a second run. */
-      already_running: boolean;
-    }
-
     export interface RunFailureLogs {
       /** Failed CI jobs of this run with their thinned failure logs, grouped by job. */
       jobs: CIJobFailureLog[];
@@ -75822,30 +75768,6 @@ export namespace Schemas {
     export interface RunInsightsResponse {
       /** Results for each insight tile on the dashboard. */
       results: DashboardTileResult[];
-    }
-
-    /**
-     * One recording an action run included in its summary — the 'recordings included' list on the run detail view.
-     */
-    export interface RunObservation {
-      /** 1-based reference number of this observation in the summary, stable across deletions. The synthesized report cites observations by this number (rendered like `[3]`), so consumers use it to resolve a citation to its observation. */
-      readonly index: number;
-      /** Observation id; links to the observation detail view. */
-      readonly id: string;
-      /** Session recording id this observation was made on. */
-      readonly session_id: string;
-      /**
-         * Email of the person in the recorded session, captured at scan time; null if unidentified.
-         * @nullable
-         */
-      readonly recording_subject_email: string | null;
-      /**
-         * Short title from the observation's summary; null if the observation had none.
-         * @nullable
-         */
-      readonly title: string | null;
-      /** When the observation was produced. */
-      readonly created_at: string;
     }
 
     export interface RunRequest {
@@ -85567,6 +85489,95 @@ export namespace Schemas {
       channel?: string | null;
     }
 
+    /**
+     * The default AI run triple stored at team or user level.
+     *
+     * Write payload for the tasks config endpoints and the `ai_run_preferences` block of
+     * their responses. `runtime_adapter` and `model` must be set together; send all three
+     * as null to clear a stored preference.
+     */
+    export interface TasksAIRunPreferences {
+      /** Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum | null;
+      /**
+         * Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.
+         * @nullable
+         */
+      model?: string | null;
+      /** Default reasoning effort for models that expose an effort control.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max
+       * * `ultracode` - ultracode */
+      reasoning_effort?: ReasoningEffortEnum | null;
+    }
+
+    /**
+     * * `user` - user
+     * * `team` - team
+     * * `none` - none
+     */
+    export type TasksResolvedAIRunDefaultsSourceEnum = typeof TasksResolvedAIRunDefaultsSourceEnum[keyof typeof TasksResolvedAIRunDefaultsSourceEnum];
+
+
+    export const TasksResolvedAIRunDefaultsSourceEnum = {
+      User: 'user',
+      Team: 'team',
+      None: 'none',
+    } as const;
+
+    /**
+     * The AI run triple a new run will effectively use when the caller pins nothing,
+     * plus which preference level supplied it.
+     */
+    export interface TasksResolvedAIRunDefaults {
+      /**
+         * Effective default runtime adapter, or null when no preference is stored.
+         * @nullable
+         */
+      runtime_adapter: string | null;
+      /**
+         * Effective default model identifier, or null when no preference is stored.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * Effective default reasoning effort, or null when unset or unsupported.
+         * @nullable
+         */
+      reasoning_effort: string | null;
+      /** Preference level that supplied the default: the caller's own per-project preference ('user'), the project default ('team'), or 'none'.
+       *
+       * * `user` - user
+       * * `team` - team
+       * * `none` - none */
+      source: TasksResolvedAIRunDefaultsSourceEnum;
+    }
+
+    /**
+     * Team-level tasks configuration.
+     */
+    export interface TasksTeamConfigResponse {
+      /** Project-wide default AI run triple; all fields null when unset. */
+      ai_run_preferences: TasksAIRunPreferences;
+    }
+
+    /**
+     * The requesting user's per-project tasks configuration.
+     */
+    export interface TasksUserConfigResponse {
+      /** The requesting user's per-project default AI run triple; all fields null when unset. */
+      ai_run_preferences: TasksAIRunPreferences;
+      /** The defaults a new run will use when no explicit runtime selection is sent. */
+      resolved_ai_run_defaults: TasksResolvedAIRunDefaults;
+    }
+
     export interface TeachingCanvas {
       /** The teaching canvas that was resolved or created. */
       canvas_id: string;
@@ -85731,6 +85742,7 @@ export namespace Schemas {
          * @nullable
          */
       require_evaluation_contexts?: boolean | null;
+      feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       /** @nullable */
       capture_dead_clicks?: boolean | null;
       /**
@@ -85883,6 +85895,12 @@ export namespace Schemas {
       readonly reputation: EmailSendingRates | null;
       /** Rates per workflow, worst first (complaint rate, then bounce rate), capped at the worst 50. */
       readonly workflows: readonly WorkflowEmailSendingRates[];
+      /** Sending health per mailbox provider, busiest first. Empty when the caller lacks project-wide workflow access, no sending domain is verified, or AWS has no data yet. */
+      readonly isps: readonly IspSendingHealth[];
+      /** Sending domains behind the breakdown that another project also sends from, so its counts include that project's email. Empty when every domain is this project's alone. */
+      readonly isp_shared_domains: readonly string[];
+      /** Sending domains left out of the breakdown because another project sends from them and the caller cannot access that project. Empty when nothing is withheld. */
+      readonly isp_withheld_domains: readonly string[];
       /** True while workflow email sending is suspended for this project to protect deliverability. */
       readonly email_sending_suspended: boolean;
       /**
@@ -86183,6 +86201,11 @@ export namespace Schemas {
     export interface TicketError {
       detail: string;
       error_type?: string;
+    }
+
+    export interface TicketFullEmail {
+      /** Full inbound email body in Markdown. */
+      readonly content: string;
     }
 
     /**
@@ -86899,40 +86922,6 @@ export namespace Schemas {
     }
 
     /**
-     * Full run detail: the list fields plus the synthesized report and the recordings it summarized.
-     */
-    export interface VisionActionRun {
-      readonly id: string;
-      /** Run outcome: running, completed, failed, or skipped.
-       *
-       * * `running` - Running
-       * * `completed` - Completed
-       * * `failed` - Failed
-       * * `skipped` - Skipped */
-      readonly status: VisionActionRunStatusEnum;
-      /**
-         * The scheduled fire time this run was claimed for.
-         * @nullable
-         */
-      readonly scheduled_at: string | null;
-      /** Number of observations that fed this run's summary. */
-      readonly observation_count: number;
-      /**
-         * Short human-readable reason a run skipped or failed; null on success.
-         * @nullable
-         */
-      readonly error_reason: string | null;
-      /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
-      readonly is_recovery: boolean;
-      readonly created_at: string;
-      readonly updated_at: string;
-      /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
-      readonly synthesized_markdown: string;
-      /** Recordings this run included in its summary, in summary order. Empty for runs recorded before this was tracked, and for skipped/failed runs. */
-      readonly observations: readonly RunObservation[];
-    }
-
-    /**
      * * `slack` - slack
      * * `webhook` - webhook
      */
@@ -86976,12 +86965,16 @@ export namespace Schemas {
 
     export interface VisionQuota {
       /**
-         * Credits the org may spend per billing period (1 credit = $0.01). Null when billing has synced the product with no spend limit: uncapped.
+         * Credits the organization may spend per billing period (1 credit = $0.01). 0 is a hard block: no observation can start. Null when billing has synced the product with no spend limit: uncapped.
          * @nullable
          */
       readonly credit_limit: number | null;
-      /** Credits spent this period: succeeded observations from the receipt ledger plus reserved in-flight observations. */
+      /** `credits_settled` plus `credits_reserved`: the organization's total draw on `credit_limit` this period, across every project. */
       readonly credits_used: number;
+      /** Credits posted to the receipt ledger by succeeded observations and finished prompt-test sessions this period, across every project in the organization. Deleting an observation never refunds these. */
+      readonly credits_settled: number;
+      /** Credits held by in-flight observations and running prompt tests across every project in the organization. Released without charge when the work fails, settled into `credits_settled` when it succeeds. */
+      readonly credits_reserved: number;
       /**
          * `credit_limit - credits_used`, floored at 0. Null when uncapped.
          * @nullable
@@ -86995,12 +86988,28 @@ export namespace Schemas {
       readonly period_end: string;
       /** `scanners_monthly_credits` plus `backfills_committed_credits`. Kept as the single headline number; prefer the two components when pro-rating, since only the scanner half is a monthly rate. */
       readonly projected_monthly_credits: number;
-      /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. A monthly rate: only the part falling in the days left of the period lands this period. Scanners without a computed estimate contribute 0. */
+      /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. A capped scanner contributes at most what its own credit limit has left this period, folded back into a 30-day rate. A monthly rate: only the part falling in the days left of the period lands this period. Scanners without a computed estimate contribute 0. */
       readonly scanners_monthly_credits: number;
       /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
       readonly backfills_committed_credits: number;
       /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
       readonly free_monthly_credits: number;
+    }
+
+    export interface VisionSpendDay {
+      /** UTC calendar day. */
+      readonly date: string;
+      /** Credits settled by observations created on this day across every project in the organization; 0 when none. */
+      readonly credits: number;
+    }
+
+    export interface VisionSpendSeries {
+      /** First moment of the current quota period (UTC). */
+      readonly period_start: string;
+      /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
+      readonly period_end: string;
+      /** One entry per UTC day from `period_start` through today, in order, zero-filled for days without spend. */
+      readonly days: readonly VisionSpendDay[];
     }
 
     export interface WarehouseConnection {
@@ -87543,6 +87552,18 @@ export namespace Schemas {
          * @nullable
          */
       error_detail?: string | null;
+      /**
+         * Stable failure code for support and diagnostics.
+         * @nullable
+         */
+      error_code?: string | null;
+      /** Generation step that failed, if a generation job failed.
+       *
+       * * `generating_source` - generating_source
+       * * `reviewing_source` - reviewing_source
+       * * `publishing_source` - publishing_source
+       * * `unknown` - unknown */
+      failure_phase?: FailurePhaseEnum | null;
       /**
          * Short-lived URL for the selected widget version's preview.
          * @nullable
@@ -90647,7 +90668,23 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    /**
+     * Comma-separated tag names to filter by, for example `production,eu-region`. Names are trimmed and lowercased before matching. At most 20 distinct tags per request.
+     */
+    tags?: string;
+    /**
+     * How to combine the `tags` filter. `all` (the default) returns projects carrying every listed tag; `any` returns projects carrying at least one.
+     */
+    tags_match?: OrganizationsProjectsListTagsMatch;
     };
+
+    export type OrganizationsProjectsListTagsMatch = typeof OrganizationsProjectsListTagsMatch[keyof typeof OrganizationsProjectsListTagsMatch];
+
+
+    export const OrganizationsProjectsListTagsMatch = {
+      All: 'all',
+      Any: 'any',
+    } as const;
 
     export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
     /**
@@ -93321,13 +93358,17 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Exact deploy environment to scope to (from the response's `environments` list). Omit to scope to production-marked deployments, falling back to every persistent (non-transient) environment when none are marked production.
+     * Deploy environment(s) to scope to, repeatable (from the response's `environments` list). Omit to scope to the busiest environment GitHub marks production, falling back to the busiest persistent (non-transient) environment when none are marked production.
      */
-    environment?: string;
+    environment?: string[];
     /**
      * GitHub team slug (from the response's `github_teams` list) to narrow the PR-scoped merge-to-deploy figures to that team's authors. Deploy counts stay repo-wide. Needs the team-membership snapshot synced; without it the merge-to-deploy figures return empty rather than silently unfiltered.
      */
     github_team?: string;
+    /**
+     * Bucket width for every series. Omit to pick one that fits the window: hour up to 48h, day up to 90 days, week beyond.
+     */
+    granularity?: EngineeringAnalyticsDoraGranularity;
     /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
@@ -93337,6 +93378,15 @@ export namespace Schemas {
      */
     source_id?: string;
     };
+
+    export type EngineeringAnalyticsDoraGranularity = typeof EngineeringAnalyticsDoraGranularity[keyof typeof EngineeringAnalyticsDoraGranularity];
+
+
+    export const EngineeringAnalyticsDoraGranularity = {
+      Day: 'day',
+      Hour: 'hour',
+      Week: 'week',
+    } as const;
 
     export type EngineeringAnalyticsFlakyTestsParams = {
     /**
@@ -99502,14 +99552,9 @@ export namespace Schemas {
     };
 
     export type TagsListParams = {
-    /**
-     * Number of results to return per page.
-     */
     limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
     offset?: number;
+    search?: string;
     };
 
     export type TaskActivityListParams = {
@@ -99913,6 +99958,28 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type TasksMeConfigListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TasksConfigListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type TasksRepositoryReadinessRetrieveParams = {
     refresh?: boolean;
     /**
@@ -100152,32 +100219,6 @@ export namespace Schemas {
     };
 
     export type UserProductListListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type VisionActionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Filter to the actions belonging to one scanner.
-     */
-    scanner?: string;
-    };
-
-    export type VisionActionsRunsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -101169,6 +101210,8 @@ export namespace Schemas {
     email?: string;
     is_staff?: boolean;
     };
+
+    export type UsersProductIntroSeenPartialUpdate200 = {[key: string]: boolean};
 
 
 }
