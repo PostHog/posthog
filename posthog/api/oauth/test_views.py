@@ -3178,6 +3178,83 @@ class TestOAuthAPI(APIBaseTest):
         code = parse_qs(urlparse(location).query)["code"][0]
         return OAuthGrant.objects.get(code=code)
 
+    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=True)
+    def test_authorize_refuses_a_blocklisted_identity_a_gateway_scope(self, mock_blocked):
+        # The legacy gateway authenticates the token straight from the database, so
+        # a ban has to stop it being issued, not only its use.
+        app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
+        url = self.replace_param_in_url(self.base_authorization_url, "client_id", app.client_id)
+
+        response = self.client.get(f"{url}&scope=insight:read llm_gateway:read")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertEqual(response.json()["error"], "access_denied")
+        self.assertFalse(OAuthGrant.objects.filter(application=app).exists())
+
+    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=True)
+    def test_authorize_still_grants_a_blocklisted_identity_scopes_without_the_gateway(self, mock_blocked):
+        app = self._create_first_party_app_with_ceiling("insight:read")
+
+        grant = self._first_party_authorize_grant(app, "insight:read")
+
+        self.assertEqual(set(grant.scope.split()), {"insight:read"})
+        mock_blocked.assert_not_called()
+
+    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=True)
+    def test_authorize_post_refuses_a_blocklisted_identity_a_gateway_scope(self, mock_blocked):
+        # The only caller passing scopes as a raw string, so it is what proves the
+        # normalisation: a bare set() would intersect nothing.
+        app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                **self.base_authorization_post_body,
+                "client_id": app.client_id,
+                "scope": "insight:read llm_gateway:read",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertEqual(response.json()["error"], "access_denied")
+        self.assertFalse(OAuthGrant.objects.filter(application=app).exists())
+
+    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=True)
+    def test_authorize_post_refuses_a_blocklisted_identity_a_wildcard_scope(self, mock_blocked):
+        # An app with no ceiling keeps `*` verbatim, the shape a self-registered
+        # client has, and the legacy gateway authenticates it.
+        app = self._create_first_party_app_with_ceiling()
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            {**self.base_authorization_post_body, "client_id": app.client_id, "scope": "*"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertFalse(OAuthGrant.objects.filter(application=app).exists())
+
+    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=True)
+    def test_authorize_post_still_grants_scopes_without_a_gateway_scope(self, mock_blocked):
+        app = self._create_first_party_app_with_ceiling("insight:read")
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            {**self.base_authorization_post_body, "client_id": app.client_id, "scope": "insight:read"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        mock_blocked.assert_not_called()
+
+    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=False)
+    def test_authorize_grants_the_gateway_scope_to_an_unlisted_identity(self, mock_blocked):
+        app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
+
+        grant = self._first_party_authorize_grant(app, "insight:read llm_gateway:read")
+
+        self.assertIn("llm_gateway:read", grant.scope.split())
+        self.assertEqual(mock_blocked.call_args.kwargs["surface"], "oauth_authorize")
+        self.assertEqual(mock_blocked.call_args.kwargs["email"], self.user.email)
+
     def test_authorize_wildcard_narrowed_to_seeded_ceiling(self):
         # A `*` request against a seeded ceiling is narrowed to the resolved ceiling
         # rather than rejected. First-party apps skip consent, so the grant is the

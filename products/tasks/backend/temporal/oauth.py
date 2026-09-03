@@ -12,6 +12,7 @@ from posthog.temporal.oauth import (
     McpScopePreset,
     PosthogMcpScopes,
     SandboxOAuthApplication,
+    WizardIdentityBlockedError,
     create_oauth_access_token_for_user as _create_oauth_access_token_for_user,
     create_wizard_oauth_access_token_for_user as _create_wizard_oauth_access_token_for_user,
     resolve_scopes,
@@ -240,6 +241,10 @@ def create_wizard_oauth_access_token(task: Task) -> str:
 
     try:
         return _create_wizard_oauth_access_token_for_user(task.created_by, task.team_id)
+    except WizardIdentityBlockedError as err:
+        # Fatal: the ban holds until someone edits the flag, so retrying only burns
+        # attempts against a settled answer.
+        raise TaskInvalidStateError(str(err), {"team_id": task.team_id}, cause=err) from err
     except RuntimeError as err:
         raise OAuthTokenError(str(err), {"team_id": task.team_id}, cause=err) from err
 

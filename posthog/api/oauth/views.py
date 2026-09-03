@@ -2,6 +2,7 @@ import json
 import uuid
 import hashlib
 import calendar
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from typing import TypedDict, cast
 from urllib.parse import parse_qs, urlparse
@@ -60,6 +61,7 @@ from posthog.api.oauth.client_assertion import (
 from posthog.api.oauth.client_auth import verify_client_secret
 from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
+from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.models.oauth import (
@@ -264,6 +266,32 @@ def _impersonation_ai_processing_block(
             "error": "access_denied",
             "error_description": "This organization has disabled AI data processing, so it cannot be authorized for an OAuth client while impersonating.",
         },
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+def _gateway_blocklist_block(request, scopes: str | Iterable[str]) -> Response | None:
+    """Refuse a blocklisted identity a grant carrying an LLM gateway scope.
+
+    Keyed on the scope rather than the wizard's client id, so another first-party
+    app whose ceiling includes it is not an evasion route.
+
+    Refuses the whole authorization rather than dropping the scope, so a ban costs
+    a bundled client its sign-in too. Deliberate for an abuse ban, and the one
+    departure from this module's clamp-don't-reject policy. Returns a 403 to
+    short-circuit with, or None.
+    """
+    # One caller holds the scopes as a list, another as the raw space-delimited
+    # string, which a bare set() would degrade into characters matching nothing.
+    requested = set(scopes.split() if isinstance(scopes, str) else scopes)
+    if not GATEWAY_BEARING_SCOPES & requested:
+        return None
+    if not wizard_identity_blocked(
+        distinct_id=str(request.user.distinct_id), email=request.user.email, surface="oauth_authorize"
+    ):
+        return None
+    return Response(
+        {"error": "access_denied", "error_description": WIZARD_BLOCKED_DETAIL},
         status=status.HTTP_403_FORBIDDEN,
     )
 
@@ -1363,6 +1391,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         if application.is_first_party:
             if block := _impersonation_ai_processing_block(request):
                 return block
+            if block := _gateway_blocklist_block(request, scope_str.split()):
+                return block
             try:
                 org_ids = request.user.organizations.values_list("id", flat=True)
                 credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
@@ -1399,6 +1429,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         # revoked on logout), so the broader check isn't worth threading the
                         # matched token's scope through — the precise check lives in the POST path.
                         if block := _impersonation_ai_processing_block(request):
+                            return block
+                        if block := _gateway_blocklist_block(request, scope_str.split()):
                             return block
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=scope_str, credentials=credentials, allow=True
@@ -1510,6 +1542,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 scoped_organization_ids=serializer.validated_data.get("scoped_organizations"),
                 scoped_team_ids=serializer.validated_data.get("scoped_teams"),
             ):
+                return block
+
+            if block := _gateway_blocklist_block(request, scopes):
                 return block
 
         try:

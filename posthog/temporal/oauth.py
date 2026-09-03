@@ -415,12 +415,41 @@ def get_wizard_app() -> OAuthApplication:
     )
 
 
+def _organization_id_for_team(team_id: int) -> str:
+    """The organization the run is pinned to. Not the user's current one, which is
+    writable through `PATCH /api/users/@me/` and so cannot carry a ban."""
+    from posthog.models.team.team import Team  # noqa: PLC0415
+
+    organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+    return str(organization_id) if organization_id else ""
+
+
+class WizardIdentityBlockedError(Exception):
+    """The abuse blocklist refuses this identity a wizard credential. Distinct from
+    the mint's RuntimeError cases because it is permanent, and a caller that retries
+    a transient token failure must not retry this one."""
+
+
 def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     """Mint an OAuth access token under the wizard's own app for a cloud wizard run.
 
     Deliberately separate from the sandbox/agent token (`create_oauth_access_token_for_user`) so the
     wizard's scopes stay independent of the agent's. Uses the wizard app's configured scope ceiling.
+
+    Gated here rather than only at the HTTP kickoff, which a workflow retry or
+    resume reaches with no request in front of it.
     """
+    from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked  # noqa: PLC0415
+
+    if wizard_identity_blocked(
+        distinct_id=str(user.distinct_id),
+        email=user.email,
+        surface="wizard_mint",
+        organization_id=_organization_id_for_team(team_id),
+        team_id=team_id,
+    ):
+        raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
+
     app = get_wizard_app()
 
     ceiling = resolve_ceiling(app.ceiling_scopes)

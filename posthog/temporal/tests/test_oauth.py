@@ -2,6 +2,9 @@ import json
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
+from unittest.mock import patch
+
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
@@ -19,6 +22,7 @@ from posthog.temporal.oauth import (
     SCOUT_USER_WRITE_SCOPES,
     SCRATCHPAD_INTERNAL_SCOPES,
     McpScopePreset,
+    WizardIdentityBlockedError,
     create_oauth_access_token_for_user,
     create_wizard_oauth_access_token_for_user,
     has_write_scopes,
@@ -270,6 +274,19 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
         team = Team.objects.create(organization=organization, name="Wizard OAuth test team")
         user = User.objects.create(email="wizard-oauth-test@example.com")
         return user, team
+
+    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
+    @patch("posthog.llm.wizard_blocklist.wizard_identity_blocked", return_value=True)
+    def test_a_blocklisted_identity_is_refused_a_wizard_token(self, mock_blocked) -> None:
+        # Gated at the mint, not only at the HTTP kickoff: a workflow retry or resume
+        # reaches here with no request in front of it.
+        self._create_wizard_app(scopes=["project:read", "llm_gateway:read"])
+        user, team = self._create_user_and_team()
+
+        with pytest.raises(WizardIdentityBlockedError):
+            create_wizard_oauth_access_token_for_user(user, team.id)
+
+        assert not OAuthAccessToken.objects.exists()
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
     def test_mints_token_under_wizard_app_with_its_scopes(self) -> None:

@@ -27,6 +27,12 @@ from posthog.rate_limit import SetupWizardGatewayTokenRateThrottle, refund_wizar
 
 class SetupWizardTests(APIBaseTest):
     def setUp(self):
+        # Patched at the endpoint's seam: these tests replace default_client with a
+        # MagicMock that module-level feature_enabled delegates to, so an unpatched
+        # flag call reads truthy and every query 403s.
+        blocklist_patch = patch("posthog.api.wizard.http.wizard_identity_blocked", return_value=False)
+        self.mock_blocklist = blocklist_patch.start()
+        self.addCleanup(blocklist_patch.stop)
         self.initialize_url = reverse("wizard-initialize")
         self.data_url = reverse("wizard-data")
         self.query_url = reverse("wizard-query")
@@ -37,6 +43,59 @@ class SetupWizardTests(APIBaseTest):
             {"project_api_key": "test-key", "host": "http://localhost:8010", "team_id": self.team.id},
             SETUP_WIZARD_CACHE_TIMEOUT,
         )
+
+    @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
+    @patch("posthog.api.wizard.http.OpenAI")
+    def test_query_from_a_blocked_identity_is_403(self, mock_openai):
+        self.mock_blocklist.return_value = True
+        response = self.client.post(
+            self.query_url,
+            data=json.dumps(
+                {"message": "test", "json_schema": {"type": "object", "properties": {"name": {"type": "string"}}}}
+            ),
+            content_type="application/json",
+            headers={"x-posthog-wizard-hash": self.hash},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert "support@posthog.com" in response.json()["detail"]
+        # The proxy spends PostHog's own provider keys.
+        mock_openai.return_value.chat.completions.create.assert_not_called()
+
+    @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
+    @patch("posthog.api.wizard.http.OpenAI")
+    def test_query_resolves_the_address_behind_the_hash(self, mock_openai):
+        # The hash proves a distinct_id only, and a domain ban needs the address.
+        cache.set(
+            self.cache_key,
+            {
+                "project_api_key": "test-key",
+                "host": "http://localhost:8010",
+                "team_id": self.team.id,
+                "user_distinct_id": str(self.user.distinct_id),
+            },
+            SETUP_WIZARD_CACHE_TIMEOUT,
+        )
+        mock_openai.return_value.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=json.dumps({"foo": "bar"})))]
+        )
+
+        self.client.post(
+            self.query_url,
+            data=json.dumps(
+                {"message": "test", "json_schema": {"type": "object", "properties": {"name": {"type": "string"}}}}
+            ),
+            content_type="application/json",
+            headers={"x-posthog-wizard-hash": self.hash},
+        )
+
+        assert self.mock_blocklist.call_args.kwargs == {
+            "distinct_id": str(self.user.distinct_id),
+            "email": self.user.email,
+            "organization_id": str(self.team.organization_id),
+            "team_id": self.team.id,
+            "surface": "query",
+        }
 
     def test_initialize_creates_hash(self):
         response = self.client.post(self.initialize_url)
@@ -507,6 +566,18 @@ class SetupWizardTests(APIBaseTest):
 class SetupWizardCloudRunTests(APIBaseTest):
     CLOUD_RUN_URL = "/api/wizard/cloud_run"
 
+    @patch("posthog.api.wizard.http.wizard_identity_blocked", return_value=True)
+    def test_a_blocked_identity_cannot_start_a_cloud_run(self, mock_blocked):
+        # The sandbox mints its own gateway token.
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            {"project_id": self.team.project_id, "repository": "PostHog/posthog"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert "support@posthog.com" in response.json()["detail"]
+        assert mock_blocked.call_args.kwargs["surface"] == "cloud_run"
+
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="")
     def test_returns_404_when_feature_not_configured(self):
         response = self.client.post(
@@ -679,6 +750,12 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         )
         self.mock_limit_payload = payload_patch.start()
         self.addCleanup(payload_patch.stop)
+        # Patched at the endpoint's seam: the feature_enabled patches below land on
+        # the shared module object, so an SDK-level patch would read the rollout
+        # flag's value as a ban.
+        blocklist_patch = patch("posthog.api.wizard.http.wizard_identity_blocked", return_value=False)
+        self.mock_blocklist = blocklist_patch.start()
+        self.addCleanup(blocklist_patch.stop)
 
     def tearDown(self):
         super().tearDown()
@@ -728,6 +805,75 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         self._mock_oauth(mock_authentication)
         response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_blocked_identity_is_403_and_never_mints(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
+        # 403 rather than 404, which the CLI reads as "stay on legacy".
+        self._mock_oauth(mock_authentication)
+        self.mock_blocklist.return_value = True
+
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert "support@posthog.com" in response.json()["detail"]
+        mock_mint.assert_not_called()
+
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=False)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_a_ban_outranks_the_rollout_gate(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
+        # Not-rolled-out answers 404 and downgrades to legacy, so the ban has to
+        # land first whatever the rollout says.
+        self._mock_oauth(mock_authentication)
+        self.mock_blocklist.return_value = True
+
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_the_ban_is_asked_about_the_authenticated_identity(
+        self, mock_authentication, mock_flag, mock_mint, mock_authorized
+    ):
+        self._mock_oauth(mock_authentication)
+
+        self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert self.mock_blocklist.call_args.kwargs == {
+            "distinct_id": str(self.user.distinct_id),
+            "email": self.user.email,
+            "organization_id": str(self.team.organization_id),
+            "team_id": self.team.id,
+            "surface": "gateway_token",
+        }
+
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_a_ban_is_counted(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
+        self._mock_oauth(mock_authentication)
+        self.mock_blocklist.return_value = True
+        before = _gateway_token_outcome("blocked")
+
+        self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert _gateway_token_outcome("blocked") == before + 1
 
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_missing_gateway_scope_is_401(self, mock_authentication):

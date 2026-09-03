@@ -71,6 +71,7 @@ from posthog.tasks.tasks import (
 from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_policy_cache_entries
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
+from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credentials
 from posthog.utils import get_crontab, get_instance_region
 
 from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
@@ -236,6 +237,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="0"),
         schedule_warming_for_teams_task.s(),
         name="schedule warming for largest teams",
+    )
+
+    # Wizard abuse blocklist sweep - every 10 minutes. Consent already refuses a
+    # banned user a new gateway-scoped grant; this is what reaches the credentials
+    # issued before the ban, which is the only thing the legacy gateway reads.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        revoke_blocklisted_gateway_credentials.s(),
+        name="wizard blocklist gateway credential revoke",
     )
 
     # Team metadata cache sync - hourly
