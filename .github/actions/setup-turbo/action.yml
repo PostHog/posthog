@@ -1,0 +1,75 @@
+name: Install turbo
+description: |
+    Puts the lockfile-pinned `turbo` binary on PATH without a pnpm install.
+
+    A job that only runs `turbo run` needs the binary, not the workspace. Going
+    through pnpm-install to get it costs a ~1.2 GB pnpm store restore, a Node
+    tool-cache restore, and two setup-node calls against the shared per-repo
+    GITHUB_TOKEN bucket.
+
+    The version and the tarball digest both come from pnpm-lock.yaml, so this
+    installs exactly what `pnpm install` would and verifies it the same way.
+
+inputs:
+    lockfile:
+        description: 'pnpm lockfile that pins the turbo version and its tarball digest.'
+        required: false
+        default: pnpm-lock.yaml
+
+runs:
+    using: composite
+    steps:
+        - name: Install turbo from the pinned tarball
+          shell: bash
+          env:
+              LOCKFILE: ${{ inputs.lockfile }}
+          run: |
+              set -euo pipefail
+
+              version=$(sed -nE 's/^  turbo@([0-9]+\.[0-9]+\.[0-9]+):$/\1/p' "$LOCKFILE" | head -1)
+              if [ -z "$version" ]; then
+                  echo "::error::No pinned turbo version in $LOCKFILE"
+                  exit 1
+              fi
+
+              case "$RUNNER_OS-$RUNNER_ARCH" in
+                  Linux-X64) platform=linux-64 ;;
+                  Linux-ARM64) platform=linux-arm64 ;;
+                  macOS-X64) platform=darwin-64 ;;
+                  macOS-ARM64) platform=darwin-arm64 ;;
+                  *)
+                      echo "::error::No turbo tarball for $RUNNER_OS-$RUNNER_ARCH"
+                      exit 1
+                      ;;
+              esac
+
+              # The digest sits in the `resolution:` line of the platform package's
+              # block, which ends at the first blank line.
+              digest=$(sed -nE "/^  '@turbo\/${platform}@${version}':\$/,/^\$/{s/.*integrity: (sha512-[A-Za-z0-9+\/=]+).*/\1/p;}" "$LOCKFILE" | head -1)
+              if [ -z "$digest" ]; then
+                  echo "::error::No integrity digest for @turbo/${platform}@${version} in $LOCKFILE"
+                  exit 1
+              fi
+
+              dest="$RUNNER_TEMP/turbo-bin"
+              mkdir -p "$dest"
+              tarball="$dest/turbo.tgz"
+              curl --fail --silent --show-error --location --retry 3 --retry-all-errors \
+                  "https://registry.npmjs.org/@turbo/${platform}/-/${platform}-${version}.tgz" \
+                  --output "$tarball"
+
+              actual="sha512-$(openssl dgst -sha512 -binary "$tarball" | openssl base64 -A)"
+              if [ "$actual" != "$digest" ]; then
+                  echo "::error::turbo tarball digest mismatch; expected $digest, got $actual"
+                  exit 1
+              fi
+
+              tar xzf "$tarball" -C "$dest"
+              binary=$(find "$dest" -type f -name turbo -perm -u+x | head -1)
+              if [ -z "$binary" ]; then
+                  echo "::error::No turbo binary in the tarball"
+                  exit 1
+              fi
+              install -m 0755 "$binary" "$dest/turbo"
+              echo "$dest" >> "$GITHUB_PATH"
+              "$dest/turbo" --version
