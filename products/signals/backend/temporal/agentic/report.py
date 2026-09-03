@@ -85,6 +85,11 @@ class RunAgenticReportOutput:
     # matching title/summary, so charts and their prose land in one transaction. Defaults to `None`
     # (the safe skip value) so an older workflow history that predates this field replays cleanly.
     charts: list[dict[str, Any]] | None = None
+    # Which door into PENDING_INPUT this result represents, copied onto `ReportDecision.pending_reason`
+    # so telemetry can tell a lapsed repo-selection integration apart from the agent asking for human
+    # input. Defaults to `"agent_requested"` — the value the workflow used for every research result
+    # before this field, so an older history replays unchanged.
+    pending_reason: str = "agent_requested"
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -619,6 +624,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                     explanation="The team's GitHub integration is no longer available. Reconnect GitHub to run the report.",
                     already_addressed=False,
                     repository=repository,
+                    pending_reason="repo_selection_required",
                 )
             user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(
                 input.team_id, github

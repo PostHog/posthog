@@ -494,6 +494,8 @@ async def test_run_agentic_report_activity_requires_human_input_when_integration
 
     assert result.choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT
     assert result.repository == "posthog/posthog"
+    # Labeled as a repo-selection door, not the agent asking, so telemetry keeps the two apart.
+    assert result.pending_reason == "repo_selection_required"
     assert not research_called
     artefact_count = await database_sync_to_async(lambda: SignalReportArtefact.objects.filter(report=report).count())()
     assert artefact_count == 0
