@@ -113,7 +113,7 @@ Present the full cleanup prompt in a copyable format so the user can paste it di
 
 Present the user with both options and their tradeoffs:
 
-- **Disable** (`active: false`) via `posthog:update-feature-flag`: The flag stops being evaluated but the configuration is preserved. If something was missed in the code cleanup, re-enabling is instant. Recommended as the default.
+- **Disable** via `posthog:feature-flag-disable`: The flag stops being evaluated but the configuration is preserved. The tool takes only the flag id, so targeting cannot change. If something was missed in the code cleanup, re-enabling is instant. Recommended as the default.
 - **Delete** via `posthog:delete-feature-flag`: A soft-delete — the flag is marked as deleted but not physically removed. Keeps the flag list clean, but re-enabling requires recreating the flag. Better for flags the user is confident they'll never need again.
 
 Once the user has chosen and confirms their code changes are deployed, apply the chosen action one flag at a time. Confirm each action so it's easy to stop if something goes wrong.
@@ -171,7 +171,7 @@ Agent steps:
    - Delete: removes from the list, but you'd need to recreate if needed"
 
 - User confirms: "Disable them, code is deployed"
-- Disable each flag using posthog:update-feature-flag (active: false)
+- Disable each flag using posthog:feature-flag-disable
 - Confirm: "Both flags are now disabled in PostHog."
 ```
 
@@ -190,5 +190,5 @@ Agent steps:
 - `posthog:feature-flag-get-all`: List and search feature flags (supports `active: "STALE"` filter)
 - `posthog:feature-flag-get-definition`: Get full flag details including experiment associations
 - `posthog:feature-flags-status-retrieve`: Get the status and reason for a single flag
-- `posthog:update-feature-flag`: Disable a flag by setting `active: false`
+- `posthog:feature-flag-disable`: Turn a flag off without touching its targeting
 - `posthog:delete-feature-flag`: Soft-delete a flag

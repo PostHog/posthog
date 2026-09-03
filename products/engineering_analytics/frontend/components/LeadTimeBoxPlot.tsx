@@ -11,10 +11,12 @@ export interface BoxPlotBucket {
     /** Samples in the bucket; 0 renders an empty slot. */
     count: number
     minSeconds: number | null
+    p05Seconds: number | null
     p25Seconds: number | null
     p50Seconds: number | null
     meanSeconds: number | null
     p75Seconds: number | null
+    p95Seconds: number | null
     maxSeconds: number | null
 }
 
@@ -26,6 +28,8 @@ export interface LeadTimeBoxPlotProps {
     buckets: BoxPlotBucket[]
     /** Value formatter for the tooltip rows (seconds in, short label out). */
     formatSeconds: (seconds: number) => string
+    /** Draw the whiskers at p5/p95 instead of min/max, so one extreme PR can't flatten the boxes. */
+    excludeOutliers?: boolean
     dataAttr: string
     className?: string
 }
@@ -35,7 +39,7 @@ interface BucketMeta {
     counts: number[]
 }
 
-function toDatum(bucket: BoxPlotBucket): BoxPlotDatum | null {
+function toDatum(bucket: BoxPlotBucket, excludeOutliers: boolean): BoxPlotDatum | null {
     if (
         bucket.count === 0 ||
         bucket.minSeconds == null ||
@@ -47,13 +51,16 @@ function toDatum(bucket: BoxPlotBucket): BoxPlotDatum | null {
     ) {
         return null
     }
+    // Older cached responses may lack p5/p95; fall back to the full range rather than dropping the bucket.
+    const lower = excludeOutliers ? (bucket.p05Seconds ?? bucket.minSeconds) : bucket.minSeconds
+    const upper = excludeOutliers ? (bucket.p95Seconds ?? bucket.maxSeconds) : bucket.maxSeconds
     return {
-        min: bucket.minSeconds,
+        min: lower,
         p25: bucket.p25Seconds,
         median: bucket.p50Seconds,
         mean: bucket.meanSeconds,
         p75: bucket.p75Seconds,
-        max: bucket.maxSeconds,
+        max: upper,
     }
 }
 
@@ -68,6 +75,7 @@ export function LeadTimeBoxPlot({
     seriesLabel,
     buckets,
     formatSeconds,
+    excludeOutliers = false,
     dataAttr,
     className,
 }: LeadTimeBoxPlotProps): JSX.Element {
@@ -78,11 +86,11 @@ export function LeadTimeBoxPlot({
             {
                 key: seriesKey,
                 label: seriesLabel,
-                data: buckets.map(toDatum),
+                data: buckets.map((bucket) => toDatum(bucket, excludeOutliers)),
                 meta: { counts: buckets.map((bucket) => bucket.count) },
             },
         ],
-        [seriesKey, seriesLabel, buckets]
+        [seriesKey, seriesLabel, buckets, excludeOutliers]
     )
     return (
         // The chart's root is a `flex-1` child, so the sized wrapper must be a flex column —
@@ -94,7 +102,14 @@ export function LeadTimeBoxPlot({
                 theme={theme}
                 config={{ yTickFormatter: formatSeconds }}
                 dataAttr={dataAttr}
-                tooltip={(ctx) => <BucketTooltip ctx={ctx} dataAttr={dataAttr} formatSeconds={formatSeconds} />}
+                tooltip={(ctx) => (
+                    <BucketTooltip
+                        ctx={ctx}
+                        dataAttr={dataAttr}
+                        formatSeconds={formatSeconds}
+                        excludeOutliers={excludeOutliers}
+                    />
+                )}
             />
         </div>
     )
@@ -104,10 +119,12 @@ function BucketTooltip({
     ctx,
     dataAttr,
     formatSeconds,
+    excludeOutliers,
 }: {
     ctx: BoxPlotTooltipContext<BucketMeta>
     dataAttr: string
     formatSeconds: (seconds: number) => string
+    excludeOutliers: boolean
 }): JSX.Element | null {
     const entry = ctx.seriesData[0]
     const datum = entry?.series.meta?.datums?.[ctx.dataIndex]
@@ -116,12 +133,12 @@ function BucketTooltip({
     }
     const count = entry?.series.meta?.user?.counts?.[ctx.dataIndex] ?? 0
     const rows: [string, number][] = [
-        ['Max', datum.max],
+        [excludeOutliers ? '95th percentile' : 'Max', datum.max],
         ['75th percentile', datum.p75],
         ['Median', datum.median],
         ['Mean', datum.mean],
         ['25th percentile', datum.p25],
-        ['Min', datum.min],
+        [excludeOutliers ? '5th percentile' : 'Min', datum.min],
     ]
     return (
         <TooltipSurface data-attr={`${dataAttr}-tooltip`}>
