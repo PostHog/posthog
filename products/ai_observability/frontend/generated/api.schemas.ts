@@ -882,7 +882,7 @@ export interface ModelConfigurationApi {
 }
 
 /**
- * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
+ * Configuration dict. For 'llm_judge': {prompt, input_transformations?}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
  */
 export type EvaluationApiEvaluationConfig =
     | {
@@ -891,6 +891,23 @@ export type EvaluationApiEvaluationConfig =
            * @minLength 1
            */
           prompt: string
+          /**
+           * Ordered regex replacements applied to evaluation input before it is sent to the judge. Patterns use RE2 syntax. Omit replacement or send an empty string to remove matching text. Stored events and traces are not changed.
+           * @maxItems 20
+           */
+          input_transformations?: {
+              /**
+               * RE2 regular expression matched against evaluation input text.
+               * @minLength 1
+               * @maxLength 2000
+               */
+              pattern: string
+              /**
+               * Literal replacement text. Omit or send an empty string to remove matches.
+               * @maxLength 10000
+               */
+              replacement?: string
+          }[]
       }
     | {
           /**
@@ -975,7 +992,7 @@ export interface EvaluationApi {
      * * `hog` - Hog
      * * `sentiment` - Sentiment analysis */
     evaluation_type: EvaluationTypeEnumApi
-    /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
+    /** Configuration dict. For 'llm_judge': {prompt, input_transformations?}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
     evaluation_config?: EvaluationApiEvaluationConfig
     /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
      *
@@ -1019,7 +1036,7 @@ export interface PaginatedEvaluationListApi {
 }
 
 /**
- * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
+ * Configuration dict. For 'llm_judge': {prompt, input_transformations?}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
  */
 export type PatchedEvaluationApiEvaluationConfig =
     | {
@@ -1028,6 +1045,23 @@ export type PatchedEvaluationApiEvaluationConfig =
            * @minLength 1
            */
           prompt: string
+          /**
+           * Ordered regex replacements applied to evaluation input before it is sent to the judge. Patterns use RE2 syntax. Omit replacement or send an empty string to remove matching text. Stored events and traces are not changed.
+           * @maxItems 20
+           */
+          input_transformations?: {
+              /**
+               * RE2 regular expression matched against evaluation input text.
+               * @minLength 1
+               * @maxLength 2000
+               */
+              pattern: string
+              /**
+               * Literal replacement text. Omit or send an empty string to remove matches.
+               * @maxLength 10000
+               */
+              replacement?: string
+          }[]
       }
     | {
           /**
@@ -1112,7 +1146,7 @@ export interface PatchedEvaluationApi {
      * * `hog` - Hog
      * * `sentiment` - Sentiment analysis */
     evaluation_type?: EvaluationTypeEnumApi
-    /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
+    /** Configuration dict. For 'llm_judge': {prompt, input_transformations?}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
     evaluation_config?: PatchedEvaluationApiEvaluationConfig
     /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
      *

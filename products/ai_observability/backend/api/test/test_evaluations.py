@@ -132,7 +132,10 @@ class TestEvaluationConfigsApi(APIBaseTest):
                 "enabled": True,
                 "evaluation_type": "llm_judge",
                 "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
-                "evaluation_config": {"prompt": "Test prompt"},
+                "evaluation_config": {
+                    "prompt": "Test prompt",
+                    "input_transformations": [{"pattern": "<private>.*</private>"}],
+                },
                 "output_type": "boolean",
                 "output_config": {},
                 "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
@@ -147,7 +150,13 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation_config.description, "Test Description")
         self.assertEqual(evaluation_config.enabled, True)
         self.assertEqual(evaluation_config.evaluation_type, "llm_judge")
-        self.assertEqual(evaluation_config.evaluation_config, {"prompt": "Test prompt"})
+        self.assertEqual(
+            evaluation_config.evaluation_config,
+            {
+                "prompt": "Test prompt",
+                "input_transformations": [{"pattern": "<private>.*</private>", "replacement": ""}],
+            },
+        )
         self.assertEqual(evaluation_config.output_type, "boolean")
         self.assertEqual(evaluation_config.output_config, {"allows_na": False})
         self.assertEqual(len(evaluation_config.conditions), 1)

@@ -258,6 +258,13 @@ export const EvaluationRunsCreateBody = /* @__PURE__ */ zod.object({
 
 export const evaluationsCreateBodyNameMax = 400
 
+export const evaluationsCreateBodyEvaluationConfigOneInputTransformationsItemPatternMax = 2000
+
+export const evaluationsCreateBodyEvaluationConfigOneInputTransformationsItemReplacementDefault = ``
+export const evaluationsCreateBodyEvaluationConfigOneInputTransformationsItemReplacementMax = 10000
+
+export const evaluationsCreateBodyEvaluationConfigOneInputTransformationsMax = 20
+
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
 export const evaluationsCreateBodyConditionsItemIdMax = 100
@@ -302,6 +309,30 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                         .string()
                         .min(1)
                         .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                    input_transformations: zod
+                        .array(
+                            zod.object({
+                                pattern: zod
+                                    .string()
+                                    .min(1)
+                                    .max(evaluationsCreateBodyEvaluationConfigOneInputTransformationsItemPatternMax)
+                                    .describe('RE2 regular expression matched against evaluation input text.'),
+                                replacement: zod
+                                    .string()
+                                    .max(evaluationsCreateBodyEvaluationConfigOneInputTransformationsItemReplacementMax)
+                                    .default(
+                                        evaluationsCreateBodyEvaluationConfigOneInputTransformationsItemReplacementDefault
+                                    )
+                                    .describe(
+                                        'Literal replacement text. Omit or send an empty string to remove matches.'
+                                    ),
+                            })
+                        )
+                        .max(evaluationsCreateBodyEvaluationConfigOneInputTransformationsMax)
+                        .optional()
+                        .describe(
+                            'Ordered regex replacements applied to evaluation input before it is sent to the judge. Patterns use RE2 syntax. Omit replacement or send an empty string to remove matching text. Stored events and traces are not changed.'
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -320,7 +351,7 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
+                "Configuration dict. For 'llm_judge': {prompt, input_transformations?}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
             ),
         output_type: zod
             .enum(['boolean', 'sentiment'])
@@ -455,6 +486,13 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
 
 export const evaluationsUpdateBodyNameMax = 400
 
+export const evaluationsUpdateBodyEvaluationConfigOneInputTransformationsItemPatternMax = 2000
+
+export const evaluationsUpdateBodyEvaluationConfigOneInputTransformationsItemReplacementDefault = ``
+export const evaluationsUpdateBodyEvaluationConfigOneInputTransformationsItemReplacementMax = 10000
+
+export const evaluationsUpdateBodyEvaluationConfigOneInputTransformationsMax = 20
+
 export const evaluationsUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsUpdateBodyOutputConfigAllowsNaDefault = false
 export const evaluationsUpdateBodyConditionsItemIdMax = 100
@@ -499,6 +537,30 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                         .string()
                         .min(1)
                         .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                    input_transformations: zod
+                        .array(
+                            zod.object({
+                                pattern: zod
+                                    .string()
+                                    .min(1)
+                                    .max(evaluationsUpdateBodyEvaluationConfigOneInputTransformationsItemPatternMax)
+                                    .describe('RE2 regular expression matched against evaluation input text.'),
+                                replacement: zod
+                                    .string()
+                                    .max(evaluationsUpdateBodyEvaluationConfigOneInputTransformationsItemReplacementMax)
+                                    .default(
+                                        evaluationsUpdateBodyEvaluationConfigOneInputTransformationsItemReplacementDefault
+                                    )
+                                    .describe(
+                                        'Literal replacement text. Omit or send an empty string to remove matches.'
+                                    ),
+                            })
+                        )
+                        .max(evaluationsUpdateBodyEvaluationConfigOneInputTransformationsMax)
+                        .optional()
+                        .describe(
+                            'Ordered regex replacements applied to evaluation input before it is sent to the judge. Patterns use RE2 syntax. Omit replacement or send an empty string to remove matching text. Stored events and traces are not changed.'
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -517,7 +579,7 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
+                "Configuration dict. For 'llm_judge': {prompt, input_transformations?}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
             ),
         output_type: zod
             .enum(['boolean', 'sentiment'])
@@ -652,6 +714,13 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
 
 export const evaluationsPartialUpdateBodyNameMax = 400
 
+export const evaluationsPartialUpdateBodyEvaluationConfigOneInputTransformationsItemPatternMax = 2000
+
+export const evaluationsPartialUpdateBodyEvaluationConfigOneInputTransformationsItemReplacementDefault = ``
+export const evaluationsPartialUpdateBodyEvaluationConfigOneInputTransformationsItemReplacementMax = 10000
+
+export const evaluationsPartialUpdateBodyEvaluationConfigOneInputTransformationsMax = 20
+
 export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
 export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
@@ -697,6 +766,34 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                         .string()
                         .min(1)
                         .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                    input_transformations: zod
+                        .array(
+                            zod.object({
+                                pattern: zod
+                                    .string()
+                                    .min(1)
+                                    .max(
+                                        evaluationsPartialUpdateBodyEvaluationConfigOneInputTransformationsItemPatternMax
+                                    )
+                                    .describe('RE2 regular expression matched against evaluation input text.'),
+                                replacement: zod
+                                    .string()
+                                    .max(
+                                        evaluationsPartialUpdateBodyEvaluationConfigOneInputTransformationsItemReplacementMax
+                                    )
+                                    .default(
+                                        evaluationsPartialUpdateBodyEvaluationConfigOneInputTransformationsItemReplacementDefault
+                                    )
+                                    .describe(
+                                        'Literal replacement text. Omit or send an empty string to remove matches.'
+                                    ),
+                            })
+                        )
+                        .max(evaluationsPartialUpdateBodyEvaluationConfigOneInputTransformationsMax)
+                        .optional()
+                        .describe(
+                            'Ordered regex replacements applied to evaluation input before it is sent to the judge. Patterns use RE2 syntax. Omit replacement or send an empty string to remove matching text. Stored events and traces are not changed.'
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -715,7 +812,7 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
+                "Configuration dict. For 'llm_judge': {prompt, input_transformations?}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
             ),
         output_type: zod
             .enum(['boolean', 'sentiment'])

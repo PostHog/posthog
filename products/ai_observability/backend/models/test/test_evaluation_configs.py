@@ -1,6 +1,38 @@
 import pytest
 
-from products.ai_observability.backend.models.evaluation_configs import validate_target_config
+from products.ai_observability.backend.models.evaluation_configs import (
+    MAX_EVALUATION_INPUT_TRANSFORMATIONS,
+    validate_evaluation_configs,
+    validate_target_config,
+)
+
+
+class TestLLMJudgeInputTransformations:
+    def test_normalizes_an_omitted_replacement_to_empty(self) -> None:
+        evaluation_config, _ = validate_evaluation_configs(
+            "llm_judge",
+            "boolean",
+            {"prompt": "Judge this", "input_transformations": [{"pattern": "secret"}]},
+            {},
+        )
+
+        assert evaluation_config["input_transformations"] == [{"pattern": "secret", "replacement": ""}]
+
+    @pytest.mark.parametrize(
+        "transformations",
+        [
+            [{"pattern": "["}],
+            [{"pattern": "value"}] * (MAX_EVALUATION_INPUT_TRANSFORMATIONS + 1),
+        ],
+    )
+    def test_rejects_invalid_rules(self, transformations: list[dict[str, str]]) -> None:
+        with pytest.raises(ValueError):
+            validate_evaluation_configs(
+                "llm_judge",
+                "boolean",
+                {"prompt": "Judge this", "input_transformations": transformations},
+                {},
+            )
 
 
 class TestValidateTargetConfig:

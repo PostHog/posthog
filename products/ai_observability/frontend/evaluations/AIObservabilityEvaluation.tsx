@@ -38,6 +38,7 @@ import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
 import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
+import { EvaluationInputPreprocessing } from './components/EvaluationInputPreprocessing'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationReportConfig } from './components/EvaluationReportConfig'
 import { EvaluationReportsCallout } from './components/EvaluationReportsCallout'
@@ -82,6 +83,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         canEnable,
         canEnableReason,
         modelSelectionRequired,
+        inputTransformationsValid,
     } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -98,6 +100,10 @@ export function AIObservabilityEvaluation(): JSX.Element {
         setSettleStrategy,
         patchTargetConfig,
         setActiveTab,
+        addInputTransformation,
+        updateInputTransformation,
+        removeInputTransformation,
+        moveInputTransformation,
     } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
@@ -210,7 +216,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
               : 'Add an evaluation prompt before saving'
           : !hasSelectedJudgeModel
             ? 'Select a judge model before saving'
-            : undefined
+            : !inputTransformationsValid
+              ? 'Fix the input preprocessing rules before saving'
+              : undefined
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')
@@ -738,6 +746,16 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                             </h3>
                                             {isHog ? <EvaluationCodeEditor /> : <EvaluationPromptEditor />}
                                         </div>
+                                    )}
+
+                                    {evaluation.evaluation_type === 'llm_judge' && (
+                                        <EvaluationInputPreprocessing
+                                            transformations={evaluation.evaluation_config.input_transformations ?? []}
+                                            onAdd={addInputTransformation}
+                                            onUpdate={updateInputTransformation}
+                                            onRemove={removeInputTransformation}
+                                            onMove={moveInputTransformation}
+                                        />
                                     )}
 
                                     {/* Judge Model Configuration (LLM judge only) */}

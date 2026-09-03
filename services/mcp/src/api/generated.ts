@@ -32579,7 +32579,7 @@ export namespace Schemas {
     }
 
     /**
-     * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
+     * Configuration dict. For 'llm_judge': {prompt, input_transformations?}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
      */
     export type EvaluationEvaluationConfig = {
       /**
@@ -32587,6 +32587,23 @@ export namespace Schemas {
          * @minLength 1
          */
       prompt: string;
+      /**
+         * Ordered regex replacements applied to evaluation input before it is sent to the judge. Patterns use RE2 syntax. Omit replacement or send an empty string to remove matching text. Stored events and traces are not changed.
+         * @maxItems 20
+         */
+      input_transformations?: {
+      /**
+         * RE2 regular expression matched against evaluation input text.
+         * @minLength 1
+         * @maxLength 2000
+         */
+      pattern: string;
+      /**
+         * Literal replacement text. Omit or send an empty string to remove matches.
+         * @maxLength 10000
+         */
+      replacement?: string;
+    }[];
     } | {
       /**
          * Hog source code. Must return true (pass), false (fail), or null for N/A.
@@ -32810,7 +32827,7 @@ export namespace Schemas {
        * * `hog` - Hog
        * * `sentiment` - Sentiment analysis */
       evaluation_type: EvaluationTypeEnum;
-      /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
+      /** Configuration dict. For 'llm_judge': {prompt, input_transformations?}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: EvaluationEvaluationConfig;
       /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
        *
@@ -61911,7 +61928,7 @@ export namespace Schemas {
     }
 
     /**
-     * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
+     * Configuration dict. For 'llm_judge': {prompt, input_transformations?}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
      */
     export type PatchedEvaluationEvaluationConfig = {
       /**
@@ -61919,6 +61936,23 @@ export namespace Schemas {
          * @minLength 1
          */
       prompt: string;
+      /**
+         * Ordered regex replacements applied to evaluation input before it is sent to the judge. Patterns use RE2 syntax. Omit replacement or send an empty string to remove matching text. Stored events and traces are not changed.
+         * @maxItems 20
+         */
+      input_transformations?: {
+      /**
+         * RE2 regular expression matched against evaluation input text.
+         * @minLength 1
+         * @maxLength 2000
+         */
+      pattern: string;
+      /**
+         * Literal replacement text. Omit or send an empty string to remove matches.
+         * @maxLength 10000
+         */
+      replacement?: string;
+    }[];
     } | {
       /**
          * Hog source code. Must return true (pass), false (fail), or null for N/A.
@@ -61999,7 +62033,7 @@ export namespace Schemas {
        * * `hog` - Hog
        * * `sentiment` - Sentiment analysis */
       evaluation_type?: EvaluationTypeEnum;
-      /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
+      /** Configuration dict. For 'llm_judge': {prompt, input_transformations?}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: PatchedEvaluationEvaluationConfig;
       /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
        *

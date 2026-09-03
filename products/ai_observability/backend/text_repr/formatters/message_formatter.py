@@ -10,6 +10,11 @@ import json
 import base64
 from typing import Any, TypedDict
 
+from products.ai_observability.backend.input_transformations import (
+    CompiledInputTransformations,
+    apply_input_transformations,
+)
+
 from .constants import (
     CHAT_COMPLETIONS_MESSAGE_KEYS,
     DEFAULT_TRUNCATE_BUFFER,
@@ -42,6 +47,7 @@ class FormatterOptions(TypedDict, total=False):
     collapsed: bool  # Show full hierarchy vs summary (default: False)
     include_line_numbers: bool  # Prefix each line with line number (default: False)
     max_length: int | None  # Max output length; randomly drop lines if exceeded (default: None)
+    input_transformations: CompiledInputTransformations
 
 
 class ToolCall(TypedDict, total=False):
@@ -167,6 +173,8 @@ def truncate_content(content: str, options: FormatterOptions | None = None) -> t
     """
     if options is None:
         options = {}
+
+    content = apply_input_transformations(content, options.get("input_transformations", ()))
 
     should_truncate = options.get("truncated", True)  # Default: True
     max_length = options.get("truncate_buffer", DEFAULT_TRUNCATE_BUFFER)

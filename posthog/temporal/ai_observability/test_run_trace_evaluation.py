@@ -416,7 +416,13 @@ class TestExecuteTraceLLMJudgeActivity:
 
                 result = execute_trace_llm_judge_activity(
                     ExecuteTraceEvaluationInputs(
-                        evaluation=evaluation_dict(setup_data),
+                        evaluation=evaluation_dict(
+                            setup_data,
+                            evaluation_config={
+                                "prompt": "Did the agent resolve the user's request?",
+                                "input_transformations": [{"pattern": "2\\+2", "replacement": "[first calculation]"}],
+                            },
+                        ),
                         team_id=setup_data["team"].id,
                         trace_id="trace-123",
                         window_start=FROZEN_NOW.isoformat(),
@@ -428,7 +434,8 @@ class TestExecuteTraceLLMJudgeActivity:
                 assert "AI trace" in request.system
                 assert "TRACE HIERARCHY" in content
                 assert content.count("[GEN]") == 2
-                assert "What is 2+2?" in content
+                assert "What is [first calculation]?" in content
+                assert "2+2" not in content
                 assert "And times 3?" in content
 
         assert result["verdict"] is True

@@ -379,6 +379,37 @@ class TestExecuteSessionActivities:
                 )
             )
 
+    def test_judge_applies_input_transformations(self):
+        trace = _trace("t1", cost=0, latency=0)
+        trace.events[0].properties["$ai_input"] = [{"role": "user", "content": "private value"}]
+        with (
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
+                return_value=SessionFetchOutcome(traces=[trace], skip_reason=None, event_count=1),
+            ),
+            patch("posthog.temporal.ai_observability.run_session_evaluation.call_llm_judge") as mock_call_llm_judge,
+        ):
+            execute_session_llm_judge_activity(
+                ExecuteSessionEvaluationInputs(
+                    evaluation={
+                        "evaluation_type": "llm_judge",
+                        "evaluation_config": {
+                            "prompt": "Did the user accomplish their goal?",
+                            "input_transformations": [{"pattern": "private", "replacement": "[removed]"}],
+                        },
+                        "output_type": "boolean",
+                        "output_config": {"allows_na": False},
+                    },
+                    team_id=1,
+                    session_id="s-1",
+                    window_start=datetime.now(UTC).isoformat(),
+                )
+            )
+
+        user_prompt = mock_call_llm_judge.call_args.kwargs["user_prompt"]
+        assert "[removed] value" in user_prompt
+        assert "private value" not in user_prompt
+
     def test_judge_skips_without_judging_when_the_session_is_truncated(self):
         with (
             patch(

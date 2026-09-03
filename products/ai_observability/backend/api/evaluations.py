@@ -46,6 +46,9 @@ from ..llm import DEFAULT_MODEL_BY_PROVIDER
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
+    MAX_EVALUATION_INPUT_TRANSFORMATION_PATTERN_LENGTH,
+    MAX_EVALUATION_INPUT_TRANSFORMATION_REPLACEMENT_LENGTH,
+    MAX_EVALUATION_INPUT_TRANSFORMATIONS,
     SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
     SESSION_EVAL_MAX_MAX_AGE_SECONDS,
     SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
@@ -90,7 +93,37 @@ logger = structlog.get_logger(__name__)
                         "type": "string",
                         "description": "Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.",
                         "minLength": 1,
-                    }
+                    },
+                    "input_transformations": {
+                        "type": "array",
+                        "description": (
+                            "Ordered regex replacements applied to evaluation input before it is sent to the "
+                            "judge. Patterns use RE2 syntax. Omit replacement or send an empty string to remove "
+                            "matching text. Stored events and traces are not changed."
+                        ),
+                        "maxItems": MAX_EVALUATION_INPUT_TRANSFORMATIONS,
+                        "items": {
+                            "type": "object",
+                            "required": ["pattern"],
+                            "properties": {
+                                "pattern": {
+                                    "type": "string",
+                                    "description": "RE2 regular expression matched against evaluation input text.",
+                                    "minLength": 1,
+                                    "maxLength": MAX_EVALUATION_INPUT_TRANSFORMATION_PATTERN_LENGTH,
+                                },
+                                "replacement": {
+                                    "type": "string",
+                                    "description": (
+                                        "Literal replacement text. Omit or send an empty string to remove matches."
+                                    ),
+                                    "default": "",
+                                    "maxLength": MAX_EVALUATION_INPUT_TRANSFORMATION_REPLACEMENT_LENGTH,
+                                },
+                            },
+                            "additionalProperties": False,
+                        },
+                    },
                 },
                 "additionalProperties": False,
             },
@@ -312,7 +345,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     evaluation_config = _EvaluationConfigField(
         required=False,
         help_text=(
-            "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; "
+            "Configuration dict. For 'llm_judge': {prompt, input_transformations?}; for 'hog': {source}; "
             "for 'sentiment': {source: 'user_messages'}."
         ),
     )
@@ -1025,6 +1058,13 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             return len(content) if isinstance(content, str) else 0
         return 0
 
+    @staticmethod
+    def _get_input_transformation_count(instance: Evaluation) -> int:
+        if instance.evaluation_type != EvaluationType.LLM_JUDGE or not isinstance(instance.evaluation_config, dict):
+            return 0
+        transformations = instance.evaluation_config.get("input_transformations")
+        return len(transformations) if isinstance(transformations, list) else 0
+
     def perform_create(self, serializer):
         with transaction.atomic():
             instance = serializer.save()
@@ -1056,6 +1096,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 "condition_count": condition_count,
                 "has_rollout_percentage": has_rollout_percentage,
                 "config_length": config_length,
+                "input_transformation_count": self._get_input_transformation_count(instance),
             },
             team=self.team,
             request=self.request,
@@ -1075,6 +1116,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         condition_count_changed = False
         condition_count_new = 0
         config_content_changed = False
+        input_transformations_changed = False
 
         for field in [
             "name",
@@ -1113,6 +1155,13 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                         )
                         if old_content != new_content:
                             config_content_changed = True
+                        old_transformations = (
+                            old_value.get("input_transformations", []) if isinstance(old_value, dict) else []
+                        )
+                        new_transformations = (
+                            new_value.get("input_transformations", []) if isinstance(new_value, dict) else []
+                        )
+                        input_transformations_changed = old_transformations != new_transformations
 
         instance = serializer.save()
 
@@ -1143,6 +1192,9 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 event_properties["condition_count_new"] = condition_count_new
             if config_content_changed:
                 event_properties["config_content_changed"] = True
+            if input_transformations_changed:
+                event_properties["input_transformations_changed"] = True
+                event_properties["input_transformation_count"] = self._get_input_transformation_count(instance)
 
             report_user_action(
                 self.request.user,

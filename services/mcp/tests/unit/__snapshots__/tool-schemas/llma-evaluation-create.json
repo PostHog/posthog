@@ -63,6 +63,29 @@
             "anyOf": [
                 {
                     "properties": {
+                        "input_transformations": {
+                            "description": "Ordered regex replacements applied to evaluation input before it is sent to the judge. Patterns use RE2 syntax. Omit replacement or send an empty string to remove matching text. Stored events and traces are not changed.",
+                            "items": {
+                                "properties": {
+                                    "pattern": {
+                                        "description": "RE2 regular expression matched against evaluation input text.",
+                                        "maxLength": 2000,
+                                        "minLength": 1,
+                                        "type": "string"
+                                    },
+                                    "replacement": {
+                                        "default": "",
+                                        "description": "Literal replacement text. Omit or send an empty string to remove matches.",
+                                        "maxLength": 10000,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["pattern"],
+                                "type": "object"
+                            },
+                            "maxItems": 20,
+                            "type": "array"
+                        },
                         "prompt": {
                             "description": "Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.",
                             "minLength": 1,
@@ -95,7 +118,7 @@
                     "type": "object"
                 }
             ],
-            "description": "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
+            "description": "Configuration dict. For 'llm_judge': {prompt, input_transformations?}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
         },
         "evaluation_type": {
             "description": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog\n* `sentiment` - Sentiment analysis",

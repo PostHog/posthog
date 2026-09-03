@@ -71,6 +71,10 @@ from posthog.temporal.ai_observability.team_capture import capture_internal_for_
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
+from products.ai_observability.backend.input_transformations import (
+    EvaluationInputTransformation,
+    compile_input_transformations,
+)
 from products.ai_observability.backend.models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
@@ -442,7 +446,9 @@ def build_trace_system_prompt(prompt: str, allows_na: bool) -> str:
 {config.instructions}"""
 
 
-def format_trace_for_judge(trace: LLMTrace) -> str:
+def format_trace_for_judge(
+    trace: LLMTrace, input_transformations: list[EvaluationInputTransformation] | None = None
+) -> str:
     """Serialize a trace into the canonical text representation for the LLM judge.
 
     Delegates to the shared `text_repr` formatter — the same plain-text rendering the trace
@@ -459,6 +465,7 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
         "truncated": True,
         "include_line_numbers": True,
         "max_length": JUDGE_TRACE_MAX_CHARS,
+        "input_transformations": compile_input_transformations(input_transformations or []),
     }
     text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
     return text
@@ -550,7 +557,9 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
     return call_llm_judge(
         evaluation=evaluation,
         system_prompt=build_trace_system_prompt(prompt, allows_na),
-        user_prompt=format_trace_for_judge(outcome.trace),
+        user_prompt=format_trace_for_judge(
+            outcome.trace, evaluation.get("evaluation_config", {}).get("input_transformations")
+        ),
         allows_na=allows_na,
     )
 

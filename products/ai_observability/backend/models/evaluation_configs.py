@@ -4,6 +4,12 @@ from django.db import models
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
+from ..input_transformations import compile_input_transformations
+
+MAX_EVALUATION_INPUT_TRANSFORMATIONS = 20
+MAX_EVALUATION_INPUT_TRANSFORMATION_PATTERN_LENGTH = 2000
+MAX_EVALUATION_INPUT_TRANSFORMATION_REPLACEMENT_LENGTH = 10000
+
 
 class EvaluationType(models.TextChoices):
     """How the evaluation is performed"""
@@ -20,10 +26,35 @@ class OutputType(models.TextChoices):
     SENTIMENT = "sentiment", "Sentiment"
 
 
+class LLMJudgeInputTransformation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pattern: str = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_EVALUATION_INPUT_TRANSFORMATION_PATTERN_LENGTH,
+    )
+    replacement: str = Field(
+        default="",
+        max_length=MAX_EVALUATION_INPUT_TRANSFORMATION_REPLACEMENT_LENGTH,
+    )
+
+    @field_validator("pattern")
+    @classmethod
+    def validate_pattern(cls, value: str) -> str:
+        compile_input_transformations([{"pattern": value}])
+        return value
+
+
 class LLMJudgeConfig(BaseModel):
     """Configuration for LLM judge evaluations"""
 
     prompt: str = Field(..., min_length=1, description="Evaluation criteria prompt")
+    input_transformations: list[LLMJudgeInputTransformation] | None = Field(
+        default=None,
+        max_length=MAX_EVALUATION_INPUT_TRANSFORMATIONS,
+        description="Ordered regex replacements applied to evaluation input before it is sent to the judge.",
+    )
 
     @field_validator("prompt")
     @classmethod
@@ -31,6 +62,13 @@ class LLMJudgeConfig(BaseModel):
         if not v or not v.strip():
             raise ValueError("Prompt cannot be empty")
         return v.strip()
+
+    @field_validator("input_transformations")
+    @classmethod
+    def normalize_empty_input_transformations(
+        cls, value: list[LLMJudgeInputTransformation] | None
+    ) -> list[LLMJudgeInputTransformation] | None:
+        return value or None
 
 
 class HogEvalConfig(BaseModel):
