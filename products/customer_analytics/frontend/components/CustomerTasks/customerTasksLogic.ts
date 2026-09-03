@@ -384,7 +384,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         },
         updateTask: async ({ taskId, patch }: { taskId: string; patch: PatchedCustomerTaskUpdateApi }) => {
             const current = values.tasks.find((task) => task.id === taskId)
-            if (current && !current.can_edit) {
+            if (current && (!current.can_edit || current.archived_at)) {
                 return
             }
             const changed = current

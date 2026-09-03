@@ -6,6 +6,7 @@ import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalend
 
 import type { CustomerTaskApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { customerTaskEditDisabledReason } from './customerTaskFilters'
 import type { customerTasksLogicType } from './customerTasksLogic'
 export interface CustomerTaskDueAtInputProps {
     task: CustomerTaskApi
@@ -38,7 +39,7 @@ export function CustomerTaskDueAtInput({ task, logic, timezone }: CustomerTaskDu
                 type: 'tertiary',
                 size: 'small',
                 loading: saving,
-                disabledReason: !task.can_edit ? 'You cannot edit this task' : saving ? 'Saving' : undefined,
+                disabledReason: customerTaskEditDisabledReason(task) ?? (saving ? 'Saving' : undefined),
                 className: overdue ? 'text-danger' : undefined,
                 'data-attr': 'customer-task-due',
                 children: task.due_at ? (

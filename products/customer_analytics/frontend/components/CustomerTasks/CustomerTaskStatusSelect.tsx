@@ -8,7 +8,7 @@ import type {
     CustomerTaskStatusEnumApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { CUSTOMER_TASK_STATUS_TRANSITIONS } from './customerTaskFilters'
+import { CUSTOMER_TASK_STATUS_TRANSITIONS, customerTaskEditDisabledReason } from './customerTaskFilters'
 import type { customerTasksLogicType } from './customerTasksLogic'
 export interface CustomerTaskStatusSelectProps {
     task: CustomerTaskApi
@@ -33,7 +33,7 @@ export function CustomerTaskStatusSelect({ task, logic }: CustomerTaskStatusSele
                 size="small"
                 sideIcon={<IconChevronDown />}
                 loading={saving}
-                disabledReason={!task.can_edit ? 'You cannot edit this task' : saving ? 'Saving' : undefined}
+                disabledReason={customerTaskEditDisabledReason(task) ?? (saving ? 'Saving' : undefined)}
                 data-attr="customer-task-status"
             >
                 {statusLabel(task.status)}

@@ -1,5 +1,8 @@
+import type { CustomerTaskApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+
 import {
     customerTaskDueBounds,
+    customerTaskEditDisabledReason,
     customerTasksQuery,
     defaultCustomerTaskFilters,
     hasCustomerTaskFilters,
@@ -65,6 +68,19 @@ describe('customer task filter helpers', () => {
             due_after: '2026-09-02T07:00:00.000Z',
             due_before: '2026-09-03T07:00:00.000Z',
         })
+    })
+
+    test.each([
+        ['an archived task', { archived_at: '2026-09-02T11:00:00Z' }, 'Restore this task to edit it'],
+        ['a task the user cannot edit', { can_edit: false }, 'You cannot edit this task'],
+        ['an editable task', {}, undefined],
+    ])('resolves the edit blocker for %s', (_, overrides, expected) => {
+        const task = {
+            archived_at: null,
+            can_edit: true,
+            ...(overrides as Partial<CustomerTaskApi>),
+        } as CustomerTaskApi
+        expect(customerTaskEditDisabledReason(task)).toBe(expected)
     })
 
     test.each([

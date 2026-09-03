@@ -3,6 +3,7 @@ import type { Sorting } from '@posthog/lemon-ui'
 import { dayjs, dayjsLocalToTimezone, dayjsNowInTimezone } from 'lib/dayjs'
 
 import type {
+    CustomerTaskApi,
     CustomerTaskStatusEnumApi,
     CustomerTasksListArchiveState,
     CustomerTasksListParams,
@@ -81,6 +82,17 @@ export const CUSTOMER_TASK_STATUS_TRANSITIONS: Readonly<
     in_progress: ['open', 'completed', 'canceled'],
     completed: ['open'],
     canceled: ['open'],
+}
+
+// The API refuses to update an archived task, so every write control shares this reason.
+export function customerTaskEditDisabledReason(task: CustomerTaskApi): string | undefined {
+    if (task.archived_at) {
+        return 'Restore this task to edit it'
+    }
+    if (!task.can_edit) {
+        return 'You cannot edit this task'
+    }
+    return undefined
 }
 
 export function customerTaskOrderingToSorting(ordering: CustomerTaskOrdering): Sorting {

@@ -6,6 +6,7 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { dayjsLocalToTimezone, dayjsUtcToTimezone } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 
+import { customerTaskEditDisabledReason } from './customerTaskFilters'
 import type { customerTasksLogicType } from './customerTasksLogic'
 export interface CustomerTaskModalProps {
     logic: import('kea').BuiltLogic<customerTasksLogicType>
@@ -37,7 +38,7 @@ export function CustomerTaskModal({ logic, accountName }: CustomerTaskModalProps
     } = useActions(logic)
     const saving = Boolean(mutationKeys[modalTask?.id ?? 'create'])
     const create = modalTask === null
-    const editable = create || modalTask?.can_edit === true
+    const editDisabledReason = modalTask ? customerTaskEditDisabledReason(modalTask) : undefined
     const accountOptionsForSelect = accountOptions.map((account) => ({ key: account.id, label: account.name }))
     if (draftAccountId && !accountOptionsForSelect.some((option) => option.key === draftAccountId)) {
         const selectedAccountName = modalTask?.account?.id === draftAccountId ? modalTask.account.name : accountName
@@ -60,13 +61,7 @@ export function CustomerTaskModal({ logic, accountName }: CustomerTaskModalProps
                         type="primary"
                         onClick={submitModal}
                         loading={saving}
-                        disabledReason={
-                            !editable
-                                ? 'You cannot edit this task'
-                                : !draftName.trim()
-                                  ? 'Enter a task name'
-                                  : undefined
-                        }
+                        disabledReason={editDisabledReason ?? (!draftName.trim() ? 'Enter a task name' : undefined)}
                     >
                         {create ? 'Create task' : 'Save changes'}
                     </LemonButton>
@@ -92,7 +87,7 @@ export function CustomerTaskModal({ logic, accountName }: CustomerTaskModalProps
                         onInputChange={(query) => loadAccountOptions({ query })}
                         onChange={(values) => setDraftAccountId(values[0] ?? null)}
                         placeholder="No account"
-                        disabledReason={!editable ? 'You cannot edit this task' : undefined}
+                        disabledReason={editDisabledReason}
                         fullWidth
                         data-attr="customer-task-account"
                     />

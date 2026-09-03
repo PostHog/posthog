@@ -7,6 +7,7 @@ import { fullName } from 'lib/utils/strings'
 
 import type { CustomerTaskApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { customerTaskEditDisabledReason } from './customerTaskFilters'
 import type { customerTasksLogicType } from './customerTasksLogic'
 export interface CustomerTaskAssigneeSelectProps {
     task: CustomerTaskApi
@@ -30,7 +31,7 @@ export function CustomerTaskAssigneeSelect({ task, logic }: CustomerTaskAssignee
                     type="tertiary"
                     size="small"
                     loading={saving}
-                    disabledReason={!task.can_edit ? 'You cannot edit this task' : saving ? 'Saving' : undefined}
+                    disabledReason={customerTaskEditDisabledReason(task) ?? (saving ? 'Saving' : undefined)}
                     icon={selected ? <ProfilePicture user={selected} size="sm" /> : undefined}
                     data-attr="customer-task-assignee"
                 >

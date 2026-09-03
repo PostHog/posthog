@@ -176,7 +176,7 @@ describe('customerTasksLogic', () => {
         expect(logic.values.tasks).toEqual([updatedTask, otherTask])
     })
 
-    test('does not submit a no-op or a mutation for a task the user cannot edit', async () => {
+    test('does not submit a no-op, an uneditable task, or an archived task', async () => {
         mockList.mockResolvedValueOnce({ count: 1, next: null, previous: null, results: [task()] })
         logic = customerTasksLogic({ context: 'account', accountId: 'account-1' })
         logic.mount()
@@ -186,6 +186,14 @@ describe('customerTasksLogic', () => {
         expect(mockUpdate).not.toHaveBeenCalled()
 
         mockList.mockResolvedValueOnce({ count: 1, next: null, previous: null, results: [task(false)] })
+        logic.actions.loadTaskPage()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.updateTask('task-1', { name: 'Changed' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockUpdate).not.toHaveBeenCalled()
+
+        const archivedTask = { ...task(), archived_at: '2026-09-02T11:00:00Z' }
+        mockList.mockResolvedValueOnce({ count: 1, next: null, previous: null, results: [archivedTask] })
         logic.actions.loadTaskPage()
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.updateTask('task-1', { name: 'Changed' })
