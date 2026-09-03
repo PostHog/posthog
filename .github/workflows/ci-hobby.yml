@@ -336,7 +336,12 @@ jobs:
                   RUN_ATTEMPT: ${{ github.run_attempt }}
             - name: Smoke test event ingestion
               if: env.TEST_EXIT_CODE == '0' && env.PREVIEW_MODE == 'false'
-              timeout-minutes: 10
+              # Must stay above smoke_test_ingestion's internal budget in bin/hobby-ci.py so the
+              # script times out first and reports which check failed, instead of the runner
+              # killing the step (which also leaves TEST_EXIT_CODE at its stale prior value).
+              # Raise both together: the CSP self-report check alone can wait up to 10 minutes
+              # for the web container to restart with the new report endpoint configured.
+              timeout-minutes: 35
               run: |
                   set +e
                   uv run bin/hobby-ci.py smoke-test-ingestion
