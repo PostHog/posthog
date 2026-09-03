@@ -65,6 +65,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_QUERY_FAILURE_TYPE,
     AI_REPORT_SNAPSHOT_KEY,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
@@ -1538,9 +1539,8 @@ class AIReportQueryDiagnosticSerializer(serializers.Serializer):
 
 
 class SubscriptionDeliverySerializer(serializers.ModelSerializer):
-    AI_REPORT_QUERY_FAILURE = "AIReportQueryFailure"
     AI_REPORT_SCRUBBED_ERROR = {
-        "type": AI_REPORT_QUERY_FAILURE,
+        "type": AI_REPORT_QUERY_FAILURE_TYPE,
         "message": "The report could not be computed.",
     }
     # Delivery fields that embed the query-derived AI report, mapped to the value each returns when
@@ -1671,7 +1671,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
         # user-authored and already readable on the subscription, so it is deliberately not scrubbed.
         if self.context.get("hide_ai_report"):
             data.update(self.AI_REPORT_SCRUBBED)
-            if isinstance(data.get("error"), dict) and data["error"].get("type") == self.AI_REPORT_QUERY_FAILURE:
+            if isinstance(data.get("error"), dict) and data["error"].get("type") == AI_REPORT_QUERY_FAILURE_TYPE:
                 data["error"] = self.AI_REPORT_SCRUBBED_ERROR
             return data
         # The AI report now ships via the typed ai_report / ai_report_diagnostics / ai_report_prompt

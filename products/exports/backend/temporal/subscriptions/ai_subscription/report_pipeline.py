@@ -9,11 +9,10 @@ from enum import StrEnum
 from typing import Any, Optional, Union
 
 import structlog
-from rest_framework.exceptions import APIException
 
 from posthog.schema import AssistantHogQLQuery
 
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -62,7 +61,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     build_enriched_prompt,
     build_frozen_prompt,
 )
-from products.exports.backend.temporal.subscriptions.types import safe_error_message
+from products.exports.backend.temporal.subscriptions.types import safe_query_error_details
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
@@ -111,24 +110,6 @@ _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
     ExposedHogQLError,
     InternalHogQLError,
 )
-
-
-def safe_query_error_details(exc: BaseException) -> dict[str, str] | None:
-    """Return the canonical query API code and message when the exception is safe to disclose."""
-    seen: set[int] = set()
-    current: BaseException | None = exc
-    while current is not None and id(current) not in seen:
-        if isinstance(current, APIException):
-            code = current.get_codes()
-            if isinstance(code, str) and isinstance(current.detail, str):
-                return {"code": code, "message": str(current.detail).replace("\x00", "")}
-        elif isinstance(current, ExposedHogQLError):
-            return {"code": current.code_name, "message": str(current).replace("\x00", "")}
-        elif isinstance(current, ResolutionError):
-            return {"code": "hogql_resolution_error", "message": str(current).replace("\x00", "")}
-        seen.add(id(current))
-        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
-    return None
 
 
 def _all_queries_failed_notice(total_steps: int) -> str:
@@ -589,11 +570,12 @@ async def _run_steps(
                     max_retries=_MAX_QUERY_FIX_RETRIES,
                     error_type=type(exc).__name__,
                 )
+                error_details = safe_query_error_details(exc)
                 fixed = await _arequest_hogql_fix(
                     original_hogql=current_hogql,
                     # Forward the safe message (exposed/resolution errors describe the field/property the
                     # planner referenced, which is what the fixer needs); fall back to the type name.
-                    error_message=safe_error_message(exc) or type(exc).__name__,
+                    error_message=(error_details["message"] if error_details else None) or type(exc).__name__,
                     step_description=safe_description,
                     # The planner's project schema (event/property names) — a schema-blind fixer just
                     # re-guesses the wrong name, so give it the same grounding the planner had.

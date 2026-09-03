@@ -2589,7 +2589,11 @@ async def test_generate_ai_report_persists_report_for_delivery(team, user):
     assert result.failed_step_count == 1
     assert result.total_step_count == 1
     assert result.query_errors == [
-        {"code": "clickhouse_memory_limit_exceeded", "message": "Query exceeded the memory limit."}
+        {
+            "type": "ClickHouseQueryMemoryLimitExceeded",
+            "code": "clickhouse_memory_limit_exceeded",
+            "message": "Query exceeded the memory limit.",
+        }
     ]
     # The report is handed to delivery via the row, not the activity return value.
     refreshed = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery.id)

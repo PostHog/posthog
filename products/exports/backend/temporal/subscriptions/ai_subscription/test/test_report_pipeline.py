@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
+from rest_framework.exceptions import APIException
 
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
 
@@ -28,7 +29,6 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipe
     _plan_to_freeze,
     _run_steps,
     generate_ai_report,
-    safe_query_error_details,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     MAX_CHARTS_PER_REPORT,
@@ -44,7 +44,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     ReportWindow,
     StoredPlanInvalidError,
 )
-from products.exports.backend.temporal.subscriptions.types import safe_error_message
+from products.exports.backend.temporal.subscriptions.types import safe_error_message, safe_query_error_details
 
 from ee.hogai.context.insight.query_executor import FormattedQueryResult
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -105,14 +105,73 @@ def _spec_with_window_placeholder() -> EnrichedPromptSpec:
     )
 
 
-@parameterized.expand(
+def _wrap(
+    outer: BaseException, *, cause: BaseException | None = None, context: BaseException | None = None
+) -> BaseException:
+    if cause is not None:
+        outer.__cause__ = cause
+    if context is not None:
+        outer.__context__ = context
+    return outer
+
+
+@pytest.mark.parametrize(
+    "exc,expected",
     [
-        ("memory_limit", ClickHouseQueryMemoryLimitExceeded(), ClickHouseQueryMemoryLimitExceeded.default_code),
-        ("timeout", ClickHouseQueryTimeOut(), ClickHouseQueryTimeOut.default_code),
-    ]
+        (
+            ClickHouseQueryMemoryLimitExceeded(),
+            {
+                "type": "ClickHouseQueryMemoryLimitExceeded",
+                "code": ClickHouseQueryMemoryLimitExceeded.default_code,
+                "message": ClickHouseQueryMemoryLimitExceeded.default_detail,
+            },
+        ),
+        (
+            ClickHouseQueryTimeOut(),
+            {
+                "type": "ClickHouseQueryTimeOut",
+                "code": ClickHouseQueryTimeOut.default_code,
+                "message": ClickHouseQueryTimeOut.default_detail,
+            },
+        ),
+        (
+            ResolutionError("Unknown field: signups"),
+            {
+                "type": "ResolutionError",
+                "code": "hogql_resolution_error",
+                "message": "Unknown field: signups",
+            },
+        ),
+        (
+            ExposedHogQLError("Unable to resolve field 'operaton'"),
+            {
+                "type": "ExposedHogQLError",
+                "code": "hogql_error",
+                "message": "Unable to resolve field 'operaton'",
+            },
+        ),
+        (
+            _wrap(Exception("outer"), cause=ResolutionError("Unknown field: signups")),
+            {
+                "type": "ResolutionError",
+                "code": "hogql_resolution_error",
+                "message": "Unknown field: signups",
+            },
+        ),
+        (
+            _wrap(RuntimeError("outer"), context=ExposedHogQLError("Unknown field: revenue")),
+            {"type": "ExposedHogQLError", "code": "hogql_error", "message": "Unknown field: revenue"},
+        ),
+        # Only explicitly allowlisted API exceptions are safe. A generic one may carry team-scoped detail.
+        (APIException("internal detail with a team-scoped id"), None),
+    ],
 )
-def test_safe_query_error_details_matches_query_api(_name: str, exc, expected_code: str) -> None:
-    assert safe_query_error_details(exc) == {"code": expected_code, "message": str(exc.detail)}
+def test_safe_query_error_details_matches_query_api(exc: BaseException, expected: dict[str, str] | None) -> None:
+    assert safe_query_error_details(exc) == expected
+
+
+def test_resolution_error_owns_its_stable_error_code() -> None:
+    assert ResolutionError.code_name == "hogql_resolution_error"
 
 
 def _slo_completed(capture_mock: MagicMock) -> dict:
@@ -472,21 +531,12 @@ async def test_run_steps_bounds_concurrent_query_execution(mock_executor_cls: Ma
     assert max_concurrent == _MAX_CONCURRENT_STEPS
 
 
-def _wrap(
-    outer: BaseException, *, cause: BaseException | None = None, context: BaseException | None = None
-) -> BaseException:
-    if cause is not None:
-        outer.__cause__ = cause
-    if context is not None:
-        outer.__context__ = context
-    return outer
-
-
 @pytest.mark.parametrize(
     "exc,expected",
     [
         (ExposedHogQLError("Unable to resolve field 'operaton'"), "Unable to resolve field 'operaton'"),
         (ResolutionError("Unknown field: signups"), "Unknown field: signups"),
+        (ClickHouseQueryMemoryLimitExceeded(), ClickHouseQueryMemoryLimitExceeded.default_detail),
         # A plain InternalHogQLError (not a ResolutionError) can echo team-scoped data — stays type-only.
         (InternalHogQLError("internal detail with a team-scoped id"), None),
         (ValueError("boom"), None),

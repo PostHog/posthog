@@ -36,6 +36,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_QUERY_FAILURE_TYPE,
     AI_REPORT_SNAPSHOT_KEY,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
@@ -2384,9 +2385,16 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         scrubbed_error_message = "Unable to resolve field 'adoption_rate'"
         query_error_code = "hogql_resolution_error"
         query_failure_error = {
-            "type": "AIReportQueryFailure",
+            "type": AI_REPORT_QUERY_FAILURE_TYPE,
             "code": query_error_code,
-            "message": scrubbed_error_message,
+            "message": "The query the AI generated failed to run (ResolutionError), so the report could not be computed.",
+            "details": [
+                {
+                    "type": "ResolutionError",
+                    "code": query_error_code,
+                    "message": scrubbed_error_message,
+                }
+            ],
         }
         content_snapshot: dict = {"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]}
         if is_ai:
@@ -2441,7 +2449,10 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             assert generated_hogql not in str(data)
             assert query_error_code not in str(data)
             assert scrubbed_error_message not in str(data)
-            assert data["error"] == {"type": "AIReportQueryFailure", "message": "The report could not be computed."}
+            assert data["error"] == {
+                "type": AI_REPORT_QUERY_FAILURE_TYPE,
+                "message": "The report could not be computed.",
+            }
             # The prompt is user-authored (not query-derived) and already readable on the parent
             # subscription, so it stays visible even for a query-restricted caller.
             assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
@@ -2460,7 +2471,10 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             assert generated_hogql not in str(row)
             assert query_error_code not in str(row)
             assert scrubbed_error_message not in str(row)
-            assert row["error"] == {"type": "AIReportQueryFailure", "message": "The report could not be computed."}
+            assert row["error"] == {
+                "type": AI_REPORT_QUERY_FAILURE_TYPE,
+                "message": "The report could not be computed.",
+            }
         else:
             assert data["content_snapshot"]["insights"][0]["name"] == "Secret"
             assert data["change_summary"] == "Signups up 20% week over week"

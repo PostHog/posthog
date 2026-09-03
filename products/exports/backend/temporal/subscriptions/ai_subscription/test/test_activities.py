@@ -169,14 +169,31 @@ async def test_persist_ai_report_omits_blank_prompt(team, user, prompt) -> None:
 class TestReportDiagnosticCounts:
     @parameterized.expand(
         [
-            ("all_ok", [True, True], 0, 2, []),
-            ("partial", [True, False], 1, 2, ["ResolutionError"]),
-            ("all_failed", [False, False], 2, 2, ["ResolutionError"]),
-            ("none", [], 0, 0, []),
+            ("all_ok", [True, True], 0, 2, [], []),
+            (
+                "partial",
+                [True, False],
+                1,
+                2,
+                ["ResolutionError"],
+                [{"type": "ResolutionError", "code": None, "message": None}],
+            ),
+            (
+                "all_failed",
+                [False, False],
+                2,
+                2,
+                ["ResolutionError"],
+                [
+                    {"type": "ResolutionError", "code": None, "message": None},
+                    {"type": "ResolutionError", "code": None, "message": None},
+                ],
+            ),
+            ("none", [], 0, 0, [], []),
         ]
     )
     def test_counts_failures_and_distinct_error_types(
-        self, _name, oks, expected_failed, expected_total, expected_types
+        self, _name, oks, expected_failed, expected_total, expected_types, expected_errors
     ):
         result = AiReportResult(
             markdown="report",
@@ -195,7 +212,7 @@ class TestReportDiagnosticCounts:
             failed_step_count=expected_failed,
             total_step_count=expected_total,
             error_types=expected_types,
-            query_errors=[],
+            query_errors=expected_errors,
         )
 
     def test_distinct_error_types_are_sorted_and_deduped(self):
@@ -212,10 +229,14 @@ class TestReportDiagnosticCounts:
             failed_step_count=3,
             total_step_count=3,
             error_types=["ExposedHogQLError", "ResolutionError"],
-            query_errors=[],
+            query_errors=[
+                {"type": "ResolutionError", "code": None, "message": None},
+                {"type": "ExposedHogQLError", "code": None, "message": None},
+                {"type": "ResolutionError", "code": None, "message": None},
+            ],
         )
 
-    def test_collects_only_complete_safe_query_errors(self):
+    def test_pairs_each_safe_query_error_with_its_type(self):
         result = AiReportResult(
             markdown="report",
             window_end_utc=_WINDOW_END_UTC,
@@ -229,7 +250,12 @@ class TestReportDiagnosticCounts:
                     human_readable_error="Query exceeded the memory limit.",
                 ),
                 QueryStepDiagnostic(
-                    description="internal", hogql="SELECT bad", ok=False, error_type="InternalHogQLError"
+                    description="resolution",
+                    hogql="SELECT bad",
+                    ok=False,
+                    error_type="ResolutionError",
+                    error_code="hogql_resolution_error",
+                    human_readable_error="Unable to resolve field 'bad'",
                 ),
             ),
         )
@@ -237,8 +263,19 @@ class TestReportDiagnosticCounts:
         assert _report_diagnostic_counts(result) == DiagnosticCounts(
             failed_step_count=2,
             total_step_count=2,
-            error_types=["ClickHouseQueryMemoryLimitExceeded", "InternalHogQLError"],
-            query_errors=[{"code": "clickhouse_memory_limit_exceeded", "message": "Query exceeded the memory limit."}],
+            error_types=["ClickHouseQueryMemoryLimitExceeded", "ResolutionError"],
+            query_errors=[
+                {
+                    "type": "ClickHouseQueryMemoryLimitExceeded",
+                    "code": "clickhouse_memory_limit_exceeded",
+                    "message": "Query exceeded the memory limit.",
+                },
+                {
+                    "type": "ResolutionError",
+                    "code": "hogql_resolution_error",
+                    "message": "Unable to resolve field 'bad'",
+                },
+            ],
         )
 
 
@@ -270,7 +307,13 @@ async def test_snapshot_diagnostic_counts_reads_persisted_failure_shape(team, us
         failed_step_count=1,
         total_step_count=2,
         error_types=["ResolutionError"],
-        query_errors=[{"code": "hogql_resolution_error", "message": "Unable to resolve field 'bad'"}],
+        query_errors=[
+            {
+                "type": "ResolutionError",
+                "code": "hogql_resolution_error",
+                "message": "Unable to resolve field 'bad'",
+            }
+        ],
     )
 
 

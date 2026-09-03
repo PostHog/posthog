@@ -6,6 +6,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     UNDISCLOSED_QUERY_ERROR_TYPES,
     DeliveryStatus,
     GenerateAIReportResult,
+    QueryErrorDetails,
 )
 
 
@@ -68,18 +69,25 @@ class TestGenerateAIReportResult:
                 ["ClickHouseQueryMemoryLimitExceeded"],
                 [
                     {
+                        "type": "ClickHouseQueryMemoryLimitExceeded",
                         "code": ClickHouseQueryMemoryLimitExceeded.default_code,
                         "message": ClickHouseQueryMemoryLimitExceeded.default_detail,
                     }
                 ],
-                ClickHouseQueryMemoryLimitExceeded.default_detail,
+                "The query the AI generated failed to run, so the report could not be computed.",
             ),
             (
                 "timeout_has_actionable_reason",
                 2,
                 ["ClickHouseQueryTimeOut", "ResolutionError"],
-                [{"code": ClickHouseQueryTimeOut.default_code, "message": ClickHouseQueryTimeOut.default_detail}],
-                ClickHouseQueryTimeOut.default_detail,
+                [
+                    {
+                        "type": "ClickHouseQueryTimeOut",
+                        "code": ClickHouseQueryTimeOut.default_code,
+                        "message": ClickHouseQueryTimeOut.default_detail,
+                    }
+                ],
+                "All 2 queries the AI generated failed to run (ClickHouseQueryTimeOut, ResolutionError), so the report could not be computed.",
             ),
             (
                 "legacy_memory_limit_without_details_stays_generic",
@@ -98,14 +106,15 @@ class TestGenerateAIReportResult:
         ]
     )
     def test_failure_error(
-        self, _name, total: int, error_types: list[str], query_errors: list[dict[str, str]], expected_message: str
+        self, _name, total: int, error_types: list[str], query_errors: list[QueryErrorDetails], expected_message: str
     ) -> None:
         result = GenerateAIReportResult(
             failed_step_count=total, total_step_count=total, query_error_types=error_types, query_errors=query_errors
         )
-        expected_error = {"message": expected_message, "type": "AIReportQueryFailure"}
+        expected_error: dict[str, object] = {"message": expected_message, "type": "AIReportQueryFailure"}
         if query_errors:
             expected_error["code"] = query_errors[0]["code"]
+            expected_error["details"] = query_errors
         assert result.failure_error() == expected_error
 
     # delivered_status maps a shipped report to the status the workflow records: fully degraded (every query

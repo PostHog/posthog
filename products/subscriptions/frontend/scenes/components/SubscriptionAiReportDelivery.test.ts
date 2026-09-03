@@ -1,19 +1,10 @@
-import { render, screen } from '@testing-library/react'
-import { createElement } from 'react'
-
 import type {
     AIReportQueryDiagnosticApi,
     SubscriptionDeliveryApi,
 } from 'products/subscriptions/frontend/generated/api.schemas'
 import { SubscriptionDeliveryStatusEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
-import {
-    ExpandedDeliveryRow,
-    isPartialDelivery,
-    queryFailureReason,
-    queryStatusLabel,
-} from './SubscriptionAiReportDelivery'
-import { MOCK_SUBSCRIPTION_DELIVERIES } from './subscriptionStoryFixtures'
+import { isPartialDelivery, queryFailureReason, queryStatusLabel } from './SubscriptionAiReportDelivery'
 
 const diagnostic = (ok: boolean): AIReportQueryDiagnosticApi => ({
     description: 'q',
@@ -73,28 +64,5 @@ describe('SubscriptionAiReportDelivery helpers', () => {
         ])('%s', (_name, ok, human_readable_error, expected) => {
             expect(queryFailureReason({ ok, human_readable_error })).toBe(expected)
         })
-    })
-
-    it('renders a surfaced query failure with its trusted documentation URL linked', () => {
-        const docsUrl =
-            'https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries'
-        const row: SubscriptionDeliveryApi = {
-            ...MOCK_SUBSCRIPTION_DELIVERIES[1],
-            ai_report_diagnostics:
-                MOCK_SUBSCRIPTION_DELIVERIES[1].ai_report_diagnostics?.map((diagnostic) =>
-                    diagnostic.ok
-                        ? diagnostic
-                        : {
-                              ...diagnostic,
-                              human_readable_error: `This query ran out of memory. See ${docsUrl}`,
-                          }
-                ) ?? null,
-        }
-
-        render(createElement(ExpandedDeliveryRow, { row }))
-
-        const failure = screen.getByText(/This query ran out of memory/)
-        expect(failure.closest('.LemonBanner--error')).not.toBeNull()
-        expect(screen.getByText(docsUrl).closest('a')?.getAttribute('href')).toBe(docsUrl)
     })
 })

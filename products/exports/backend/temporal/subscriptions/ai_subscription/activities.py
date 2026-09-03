@@ -44,6 +44,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliverSubscriptionResult,
     GenerateAIReportInputs,
     GenerateAIReportResult,
+    QueryErrorDetails,
     RecipientResult,
 )
 
@@ -82,21 +83,27 @@ class DiagnosticCounts:
     failed_step_count: int
     total_step_count: int
     error_types: list[str]
-    query_errors: list[dict[str, str]]
+    query_errors: list[QueryErrorDetails]
 
 
-def _tally_diagnostics(steps: list[tuple[bool, str | None, str | None, str | None]]) -> DiagnosticCounts:
-    # Failed/total step counts, distinct failure types, and canonical safe query errors — shared by
-    # the persisted-snapshot and in-memory diagnostic paths.
-    failed = [(error_type, error_code, error_message) for ok, error_type, error_code, error_message in steps if not ok]
-    error_types = sorted({str(error_type) for error_type, _, _ in failed if error_type})
-    query_errors = [
-        {"code": error_code, "message": error_message}
-        for _, error_code, error_message in failed
-        if error_code and error_message
-    ]
+def _query_error_details(error_type: object, error_code: object, error_message: object) -> QueryErrorDetails:
+    return {
+        "type": error_type if isinstance(error_type, str) else None,
+        "code": error_code if isinstance(error_code, str) else None,
+        "message": error_message if isinstance(error_message, str) else None,
+    }
+
+
+def _tally_diagnostics(steps: list[QueryErrorDetails | None]) -> DiagnosticCounts:
+    # One typed object keeps every failed query's type, code, and safe message paired. None marks a
+    # successful step. The same representation is built from persisted and in-memory diagnostics.
+    query_errors = [step for step in steps if step is not None]
+    error_types = sorted({error["type"] for error in query_errors if error["type"]})
     return DiagnosticCounts(
-        failed_step_count=len(failed), total_step_count=len(steps), error_types=error_types, query_errors=query_errors
+        failed_step_count=len(query_errors),
+        total_step_count=len(steps),
+        error_types=error_types,
+        query_errors=query_errors,
     )
 
 
@@ -109,7 +116,9 @@ def _snapshot_diagnostic_counts(snapshot: dict | None) -> DiagnosticCounts:
     # all-failed report; `ok is not False` keeps a missing/None ok out of the failed set.
     return _tally_diagnostics(
         [
-            (d.get("ok") is not False, d.get("error_type"), d.get("error_code"), d.get("human_readable_error"))
+            None
+            if d.get("ok") is not False
+            else _query_error_details(d.get("error_type"), d.get("error_code"), d.get("human_readable_error"))
             for d in diagnostics
             if isinstance(d, dict)
         ]
@@ -117,7 +126,12 @@ def _snapshot_diagnostic_counts(snapshot: dict | None) -> DiagnosticCounts:
 
 
 def _report_diagnostic_counts(result: AiReportResult) -> DiagnosticCounts:
-    return _tally_diagnostics([(d.ok, d.error_type, d.error_code, d.human_readable_error) for d in result.diagnostics])
+    return _tally_diagnostics(
+        [
+            None if d.ok else _query_error_details(d.error_type, d.error_code, d.human_readable_error)
+            for d in result.diagnostics
+        ]
+    )
 
 
 async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, prompt: str | None) -> None:

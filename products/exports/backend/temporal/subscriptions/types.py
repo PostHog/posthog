@@ -2,53 +2,67 @@ import uuid
 import typing
 import dataclasses
 
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
-
 from posthog.slo.types import SloConfig
 
-# AI report query failures we never name in owner/recipient-facing copy. The recipient didn't
-# write the query, so the OOM advice is unactionable. Type still lands in diagnostics, logs, and
-# error tracking. Held as a name (not the class) so this module stays free of Django/DRF imports
-# for the Temporal sandbox; the test pins it to ClickHouseQueryMemoryLimitExceeded.__name__.
+# Type names of these failures never appear in recipient-facing copy. When a safe code and message
+# exist, they are available to query-access owners; this mask only governs the legacy fallback that
+# has no persisted details. The type still lands in diagnostics, logs, and error tracking.
 UNDISCLOSED_QUERY_ERROR_TYPES = frozenset({"ClickHouseQueryMemoryLimitExceeded"})
 
+# Explicit allowlist for exception families whose messages are safe to show to a query-access owner.
+# Names keep this module free of Django/DRF imports for the Temporal workflow sandbox. Matching the
+# exception MRO preserves subclass behavior without making every query exception safe by default.
+SAFE_QUERY_ERROR_BASE_TYPES = frozenset(
+    {
+        "ClickHouseQueryMemoryLimitExceeded",
+        "ClickHouseQueryTimeOut",
+        "ExposedHogQLError",
+        "ResolutionError",
+    }
+)
 
-def undisclosed_query_error_type(exc: BaseException) -> typing.Optional[str]:
+
+class QueryErrorDetails(typing.TypedDict):
+    """A failed query's type paired with its optional safe code and message."""
+
+    type: typing.Optional[str]
+    code: typing.Optional[str]
+    message: typing.Optional[str]
+
+
+def safe_query_error_details(exc: BaseException) -> typing.Optional[QueryErrorDetails]:
+    """Return stable details for an explicitly safe query exception in a wrapped exception chain."""
     seen: set[int] = set()
     current: typing.Optional[BaseException] = exc
     while current is not None and id(current) not in seen:
-        type_name = type(current).__name__
-        if type_name in UNDISCLOSED_QUERY_ERROR_TYPES:
-            return type_name
+        exception_type_names = {cls.__name__ for cls in type(current).__mro__}
+        if exception_type_names & SAFE_QUERY_ERROR_BASE_TYPES:
+            code = getattr(current, "code_name", None)
+            if not isinstance(code, str):
+                get_codes = getattr(current, "get_codes", None)
+                code = get_codes() if callable(get_codes) else None
+
+            raw_detail = getattr(current, "detail", None)
+            message = str(raw_detail) if isinstance(raw_detail, str) else str(current)
+            if isinstance(code, str) and message:
+                return {
+                    "type": type(current).__name__,
+                    "code": code,
+                    "message": message.replace("\x00", ""),
+                }
         seen.add(id(current))
         current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
     return None
 
 
 def safe_error_message(exc: BaseException) -> typing.Optional[str]:
-    """Owner-safe snippet of an exception, or None when the text may carry team-scoped data.
+    """Owner-safe snippet of a query exception, or None when its text may carry team-scoped data.
 
-    HogQL/ClickHouse error text can echo team-scoped identifiers (query data, internal
-    names), so only the query-structure error classes (which describe the field/property the
-    query referenced) are safe to surface to the subscription owner — the same trust boundary
-    the HogQL repair loop uses when forwarding to the fixer. Everything else returns None so
-    the caller falls back to a generic message. Executors often wrap a resolution/exposed
-    error in a generic Exception, so walk the __cause__/__context__ chain for a wrapped safe
-    message.
-
-    The result is persisted to Postgres jsonb columns, so NUL bytes are stripped (Postgres
-    rejects them); callers of the sibling raw "message" field already expect this scrub. The
-    walk honours ``raise ... from None`` (``__suppress_context__``) — a deliberately severed
-    chain stays severed, so an internal error the author meant to hide is never surfaced.
+    Uses the single classifier above so every consumer shares the same allowlist, wrapped-chain
+    handling, and NUL stripping. Everything else returns None and callers use a generic fallback.
     """
-    seen: set[int] = set()
-    current: typing.Optional[BaseException] = exc
-    while current is not None and id(current) not in seen:
-        if isinstance(current, (ExposedHogQLError, ResolutionError)):
-            return str(current).replace("\x00", "")
-        seen.add(id(current))
-        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
-    return None
+    details = safe_query_error_details(exc)
+    return details["message"] if details else None
 
 
 class DeliveryStatus:
@@ -102,6 +116,9 @@ AI_REPORT_PROMPT_SNAPSHOT_KEY = "ai_report_prompt"
 # Per-step query diagnostics (generated HogQL + failure type) so a degraded report is debuggable
 # after the fact. Written alongside the markdown; never shipped to recipients.
 AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
+# Top-level delivery error type for a report whose generated queries all failed. Shared with the
+# serializer's query-access scrub so a rename cannot accidentally expose query-derived details.
+AI_REPORT_QUERY_FAILURE_TYPE = "AIReportQueryFailure"
 # The analysis window's end for this run, as a UTC ISO instant. The next run anchors its window here
 # (exactly gap-free); rows written before this key existed fall back to finished_at.
 AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
@@ -277,30 +294,41 @@ class GenerateAIReportResult:
     query_error_types: list[str] = dataclasses.field(default_factory=list)
     target_type: str = ""
     # Appended to preserve the positional shape of this Temporal activity result.
-    query_errors: list[dict[str, str]] = dataclasses.field(default_factory=list)
+    query_errors: list[QueryErrorDetails] = dataclasses.field(default_factory=list)
 
     @property
     def all_queries_failed(self) -> bool:
         # Single source of truth for the "fully degraded" judgement, so callers don't re-derive it.
         return bool(self.total_step_count) and self.failed_step_count >= self.total_step_count
 
-    def failure_error(self) -> dict[str, str]:
-        if self.query_errors:
-            return {"type": "AIReportQueryFailure", **self.query_errors[0]}
-
-        disclosed_types = [t for t in self.query_error_types if t not in UNDISCLOSED_QUERY_ERROR_TYPES]
+    def failure_error(self) -> dict[str, typing.Any]:
+        all_error_types = set(self.query_error_types)
+        all_error_types.update(error["type"] for error in self.query_errors if error["type"])
+        disclosed_types = sorted(t for t in all_error_types if t not in UNDISCLOSED_QUERY_ERROR_TYPES)
         detail = f" ({', '.join(disclosed_types)})" if disclosed_types else ""
         subject = (
             "The query the AI generated"
             if self.total_step_count == 1
             else f"All {self.total_step_count} queries the AI generated"
         )
-        return {
+        error: dict[str, typing.Any] = {
             "message": f"{subject} failed to run{detail}, so the report could not be computed.",
-            "type": "AIReportQueryFailure",
+            "type": AI_REPORT_QUERY_FAILURE_TYPE,
         }
 
-    def delivered_status(self) -> tuple[str, typing.Optional[dict[str, str]]]:
+        safe_errors: list[dict[str, str]] = []
+        for query_error in self.query_errors:
+            error_type = query_error["type"]
+            code = query_error["code"]
+            message = query_error["message"]
+            if error_type and code and message:
+                safe_errors.append({"type": error_type, "code": code, "message": message})
+        if safe_errors:
+            error["code"] = safe_errors[0]["code"]
+            error["details"] = safe_errors
+        return error
+
+    def delivered_status(self) -> tuple[str, typing.Optional[dict[str, typing.Any]]]:
         # Status to record once the report shipped: a fully-degraded report (every query failed) is FAILED
         # with its failure detail — recording it COMPLETED would misrepresent an empty report. Partial
         # failures stay COMPLETED. Owns this mapping so the workflow can't diverge from the judgement above.
