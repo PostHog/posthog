@@ -336,8 +336,8 @@ export function InboxScene(): JSX.Element {
                             <div>
                                 <h3 className="m-0 text-base font-semibold">Report not found</h3>
                                 <p className="m-0 mt-1 text-sm text-tertiary">
-                                    We can't find this report in this project. Check that you have the
-                                    right project selected.
+                                    We can't find this report in this project. Check that you have the right project
+                                    selected.
                                 </p>
                             </div>
                             <LemonButton
