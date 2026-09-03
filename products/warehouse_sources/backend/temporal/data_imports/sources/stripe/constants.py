@@ -27,6 +27,7 @@ TAX_ID_RESOURCE_NAME = "TaxId"
 QUOTE_RESOURCE_NAME = "Quote"
 EVENT_RESOURCE_NAME = "Event"
 BILLING_METER_RESOURCE_NAME = "BillingMeter"
+BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME = "BillingMeterEventSummary"
 BILLING_CREDIT_GRANT_RESOURCE_NAME = "BillingCreditGrant"
 BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME = "BillingCreditBalanceTransaction"
 BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME = "BillingCreditBalanceSummary"
@@ -178,6 +179,8 @@ RESOURCE_TO_STRIPE_WEBHOOK_EVENT: dict[str, str] = {
     #   ShippingRate         - no `shipping_rate.*` events exist
     #   Event                - the event log itself; subscribing to it to populate it is circular
     #   BillingCreditBalanceSummary   - only reachable as a retrieve off a credit grant
+    #   BillingMeterEventSummary      - an aggregate Stripe computes on request, not a stored
+    #       object, so no event ever carries one
     #   EntitlementsFeature           - no `entitlements.feature.*` events exist
     #   EntitlementsActiveEntitlement - the one entitlements event carries an
     #       `entitlements.active_entitlement_summary` object (a per-customer summary), not an

@@ -54,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
     APPEND_ONLY_INCREMENTAL_FIELDS as STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS,
     DEFAULT_OFF_ENDPOINTS as STRIPE_DEFAULT_OFF_ENDPOINTS,
     ENDPOINTS as STRIPE_ENDPOINTS,
+    MERGE_ONLY_ENDPOINTS as STRIPE_MERGE_ONLY_ENDPOINTS,
     WAREHOUSE_PARENT_FANOUT,
     WEBHOOK_ONLY_ENDPOINTS as STRIPE_WEBHOOK_ONLY_ENDPOINTS,
     WEBHOOK_SYNC_ONLY_ENDPOINTS as STRIPE_WEBHOOK_SYNC_ONLY_ENDPOINTS,
@@ -359,7 +360,9 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                # A merge-only table re-reads rows it already holds, so an append would write
+                # them twice.
+                supports_incremental=endpoint in STRIPE_MERGE_ONLY_ENDPOINTS,
                 # An endpoint supports webhooks iff a Stripe event emits its object type — i.e. it's in
                 # RESOURCE_TO_STRIPE_WEBHOOK_EVENT (the same map that drives event subscription) — or
                 # it's webhook-only (e.g. Discount, no list API). This is what lets CustomerPaymentMethod
@@ -377,8 +380,16 @@ If automatic creation failed with a permissions error, the fix depends on how yo
                 webhook_only=(
                     endpoint in STRIPE_WEBHOOK_ONLY_ENDPOINTS or endpoint in STRIPE_WEBHOOK_SYNC_ONLY_ENDPOINTS
                 ),
-                # nested resources are only full refresh and are not in STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS
-                supports_append=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
+                # A table supports append when it declares an incremental field and never re-reads
+                # a row. A nested resource normally declares no field, because its sweep walks a
+                # parent list and cannot filter on the child's own timestamp.
+                # BillingMeterEventSummary declares one, the time range it asks Stripe to aggregate,
+                # but that range starts on the newest day the table already holds, so the table
+                # merges instead.
+                supports_append=(
+                    STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None
+                    and endpoint not in STRIPE_MERGE_ONLY_ENDPOINTS
+                ),
                 incremental_fields=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint not in STRIPE_DEFAULT_OFF_ENDPOINTS,
             )

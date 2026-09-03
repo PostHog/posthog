@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
     BILLING_CREDIT_GRANT_RESOURCE_NAME,
+    BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME,
     BILLING_METER_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
     CHECKOUT_SESSION_RESOURCE_NAME,
@@ -84,6 +85,7 @@ ENDPOINTS = (
     QUOTE_RESOURCE_NAME,
     EVENT_RESOURCE_NAME,
     BILLING_METER_RESOURCE_NAME,
+    BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME,
     BILLING_CREDIT_GRANT_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
@@ -308,6 +310,18 @@ APPEND_ONLY_INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field_type": IncrementalFieldType.Integer,
         }
     ],
+    # Meter event summaries are aggregates over a day, so they carry `start_time` and `end_time`
+    # rather than `created`. The field doubles as the sync watermark: the next sweep asks Stripe for
+    # the newest day the table holds and everything after it, instead of the whole lookback. That
+    # day is read a second time, which is why the table is in `MERGE_ONLY_ENDPOINTS`.
+    BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME: [
+        {
+            "label": "start_time",
+            "type": IncrementalFieldType.DateTime,
+            "field": "start_time",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ],
     # Discount objects expose `start`/`end`, not `created`. Without this entry the partition key
     # falls back to "created" (stripe_source), which Discount rows lack, so a KeyError kills the
     # sync as soon as real customer.discount.* webhook events arrive.
@@ -352,3 +366,11 @@ APPEND_ONLY_INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         )
     },
 }
+
+
+# Endpoints whose incremental sync has to merge rather than append. Every other endpoint above
+# filters on `created` with Stripe's exclusive `created[gt]`, so it never reads an object twice and
+# an append writes each row once. BillingMeterEventSummary asks Stripe for a day range that starts
+# at the newest day the table already holds, so an append would write that day again on every sync
+# and overcount its usage. A merge collapses the re-read onto the day bucket's own id.
+MERGE_ONLY_ENDPOINTS: set[str] = {BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME}
