@@ -31,11 +31,12 @@ from rest_framework import (
 from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed, ValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, set_tags_on_object
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -73,7 +74,14 @@ from products.conversations.backend.events import (
     capture_ticket_status_changed,
 )
 from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECONDS
-from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
+from products.conversations.backend.models import (
+    EmailChannel,
+    EmailChannelKind,
+    EmailMessageMapping,
+    Ticket,
+    TicketAssignment,
+    TicketView,
+)
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
 
@@ -114,8 +122,15 @@ class TicketMessageSerializer(serializers.Serializer):
     is_private = serializers.BooleanField(
         read_only=True, help_text="True for internal notes not visible to the customer."
     )
+    has_full_email_content = serializers.BooleanField(
+        read_only=True, help_text="True when the complete inbound email body can be retrieved."
+    )
     version = serializers.IntegerField(read_only=True, help_text="Edit count. 0 means never edited.")
     created_at = serializers.DateTimeField(read_only=True)
+
+
+class TicketFullEmailSerializer(serializers.Serializer):
+    content = serializers.CharField(read_only=True, help_text="Full inbound email body in Markdown.")
 
 
 class TicketNoteUpdateRequestSerializer(serializers.Serializer):
@@ -223,6 +238,13 @@ class ComposeTicketSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="TipTap rich content JSON for formatted messages.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        default=list,
+        max_length=100,
+        help_text="Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.",
     )
 
     def validate_message(self, value: str) -> str:
@@ -498,6 +520,13 @@ NOTE_MESSAGE_ID_PARAM = OpenApiParameter(
     description="The UUID of the private note (comment) to edit or delete.",
 )
 
+TICKET_MESSAGE_ID_PARAM = OpenApiParameter(
+    name="message_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.PATH,
+    description="The UUID of the ticket message.",
+)
+
 
 def _status_implied_by_snooze(before: datetime | None, after: datetime | None) -> str | None:
     """Return the status a snooze change implies, or None when it implies no status change.
@@ -605,7 +634,7 @@ class _TicketUpdateDiff:
 )
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
-    scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
+    scope_object_read_actions = ["list", "retrieve", "unread_count", "messages", "full_email"]
     # "create" stays listed so a ticket:write token reaches the create() override below and
     # gets a clear 405 (pointing to the SDK), rather than a misleading "not supported" 403.
     scope_object_write_actions = [
@@ -1280,6 +1309,51 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             return self.get_paginated_response(data)
         return Response(data)
 
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM, TICKET_MESSAGE_ID_PARAM],
+        responses={
+            200: TicketFullEmailSerializer,
+            404: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"messages/(?P<message_id>[^/.]+)/full_email",
+        pagination_class=None,
+    )
+    def full_email(self, request: Request, message_id: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        """Return the full inbound email body in Markdown."""
+        ticket = self.get_object()
+        try:
+            message_uuid = uuid.UUID(message_id or "")
+        except ValueError:
+            return Response(
+                {"detail": "Full email not found.", "error_type": "full_email_not_found"},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        full_body_plain = (
+            EmailMessageMapping.objects.filter(
+                team_id=self.team_id,
+                ticket=ticket,
+                comment_id=message_uuid,
+                comment__team_id=self.team_id,
+                comment__scope="conversations_ticket",
+                comment__item_id=str(ticket.id),
+                comment__deleted=False,
+            )
+            .values_list("full_body_plain", flat=True)
+            .first()
+        )
+        if full_body_plain is None:
+            return Response(
+                {"detail": "Full email not found.", "error_type": "full_email_not_found"},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(TicketFullEmailSerializer({"content": full_body_plain}).data)
+
     def _serialize_message(self, comment: Comment, ticket: Ticket) -> dict:
         item_context = comment.item_context or {}
         author_type = item_context.get("author_type", "customer")
@@ -1315,6 +1389,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             "author_type": author_type,
             "author_name": author_name,
             "is_private": item_context.get("is_private") is True,
+            "has_full_email_content": item_context.get("has_full_email_content") is True,
             "version": comment.version,
             "created_at": comment.created_at,
         }
@@ -1700,6 +1775,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 rich_content=data.get("rich_content"),
                 item_context={"author_type": "human", "is_private": False},
             )
+
+            if data.get("tags"):
+                set_tags_on_object(data["tags"], ticket)
 
         try:
             report_user_action(

@@ -1761,6 +1761,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "agent_session_init_ms": agent_server_output.session_init_ms,
                 "agent_server_total_ms": agent_server_output.boot_phases_ms.get("server_total"),
                 "agent_server_http_ready_ms": agent_server_output.boot_phases_ms.get("http_ready"),
+                "agent_launcher_to_process_ms": agent_server_output.boot_phases_ms.get("launcher_to_process"),
                 "agent_context_fetch_ms": agent_server_output.boot_phases_ms.get("context_fetch"),
                 "agent_acp_initialize_ms": agent_server_output.boot_phases_ms.get("acp_initialize"),
                 "agent_repository_ready_ms": agent_server_output.boot_phases_ms.get("repository_ready"),

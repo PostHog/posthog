@@ -57,6 +57,7 @@ export enum NotebookNodeType {
     DuckSQL = 'ph-duck-sql',
     HogQLSQL = 'ph-hogql-sql',
     SQLV2 = 'ph-sql-v2',
+    GeneratedWidget = 'ph-generated-widget',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
@@ -149,6 +150,7 @@ export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<Note
         autoHideMetadata?: boolean
         /** Expand the node if the component is clicked */
         expandOnClick?: boolean
+        unmountWhenOutOfView?: boolean
         settingsPlacement?: NotebookNodeSettingsPlacement
         defaultView?: PostHogWidgetDefaultView
         views?: PostHogWidgetViews<T>

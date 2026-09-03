@@ -10,7 +10,7 @@ def get_destination_test(
     (databricks, google-cloud-bigquery, snowflake, etc.). Importing them lazily keeps the
     SDKs off the API import path — only the requested destination's SDK loads.
     """
-    if destination in ("S3", "S3Compatible"):
+    if destination == "S3Compatible":
         from products.batch_exports.backend.api.destination_tests.s3 import S3CompatibleDestinationTest  # noqa: PLC0415
 
         return S3CompatibleDestinationTest()

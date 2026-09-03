@@ -15,9 +15,13 @@ import pyarrow as pa
 import deltalake
 from parameterized import parameterized
 from stripe import ListObject
+from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import (
+    FANOUT_PARENT_ROWS_CONSUMED,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
 )
@@ -462,6 +466,7 @@ def _run_nested_get_rows(
     warehouse_parent=None,
     parent_method=None,
     can_resume=False,
+    logger: FilteringBoundLogger | None = None,
 ):
     if parent_objects is None:
         parent_objects = [{"id": "cus_ok1"}, {"id": "cus_gone"}, {"id": "cus_ok2"}]
@@ -494,7 +499,7 @@ def _run_nested_get_rows(
             account_id=None,
             db_incremental_field_last_value=None,
             db_incremental_field_earliest_value=None,
-            logger=MagicMock(),
+            logger=logger or MagicMock(),
             resumable_source_manager=resumable_source_manager,
             api_version=STRIPE_API_VERSION_ACACIA,
             warehouse_parent=warehouse_parent,
@@ -587,16 +592,21 @@ class TestStripeNestedResourceGetRows:
             return _list_object([])
 
         manager = MagicMock()
+        logger = MagicMock()
         with patch.object(stripe_module, "NESTED_SWEEP_CHECKPOINT_PARENTS", 3):
             rows = _run_nested_get_rows(
                 nested_method,
                 parent_objects=[{"id": f"cus_{i}"} for i in range(8)],
                 resumable_source_manager=manager,
+                logger=logger,
             )
 
         assert rows == []
         # Checkpointed after the 3rd and 6th parent; the 7th and 8th are still in flight.
         assert [call.args[0].starting_after for call in manager.save_state.call_args_list] == ["cus_2", "cus_5"]
+        # The pipeline kills this loop mid-sweep on a worker shutdown, so every checkpoint carries
+        # the running fan-out size instead of leaving the attempt's only line until after the loop.
+        assert [call.kwargs["rows_total"] for call in logger.info.call_args_list] == [3, 6, 8]
 
     def test_query_param_service_receives_parent_in_params(self):
         # Flat Stripe services with a required filter (e.g. entitlements.active_entitlements.list)
@@ -1561,6 +1571,41 @@ class TestStripeWarehouseParentFanout:
         assert warehouse_rows == api_rows
         assert [row["customer"] for row in warehouse_rows] == ["cus_1", "cus_2"]
 
+    def test_both_parent_paths_report_the_fan_out_size_and_where_it_came_from(self, tmp_path):
+        # A webhook-maintained parent holds only what its drains delivered, so it can be missing
+        # customers the API listing still returns. Comparing the fan-out size across the two parent
+        # sources for one schema is the only signal for that, and it needs both a count and the
+        # label naming which source produced it. `cus_zero` is ruled out by the skip predicate and
+        # still counts, because the number has to mean the same thing on both sources.
+        customers = [{"id": "cus_zero", "balance": 0}, {"id": "cus_credit", "balance": -500}]
+        uri = _write_customer_parent_table(tmp_path, customers)
+        api_logger = MagicMock()
+        warehouse_logger = MagicMock()
+
+        api_method, api_probed = _recording_nested_method()
+        warehouse_method, warehouse_probed = _recording_nested_method()
+
+        _run_nested_get_rows(
+            api_method,
+            parent_objects=customers,
+            parent_has_nested=stripe_module._customer_might_have_balance_transactions,
+            logger=api_logger,
+        )
+        _run_nested_get_rows(
+            warehouse_method,
+            parent_has_nested=stripe_module._customer_might_have_balance_transactions,
+            warehouse_parent=ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version()),
+            logger=warehouse_logger,
+        )
+
+        assert api_probed == warehouse_probed == ["cus_credit"]
+        api_logger.info.assert_called_once_with(
+            FANOUT_PARENT_ROWS_CONSUMED, parent_source="api", rows_total=2, resumed=False
+        )
+        warehouse_logger.info.assert_called_once_with(
+            FANOUT_PARENT_ROWS_CONSUMED, parent_source="warehouse", rows_total=2, resumed=False
+        )
+
     def test_the_skip_predicate_reads_the_balance_off_the_warehouse_row(self, tmp_path):
         # The projected `balance` column is what makes this conversion worth doing: without it
         # every customer would be probed, turning a listing-dominated run into one call each.
@@ -1671,14 +1716,19 @@ class TestStripeWarehouseParentFanout:
         )
 
         nested_method, _ = _recording_nested_method()
+        logger = MagicMock()
         rows = _run_nested_get_rows(
             nested_method,
             resumable_source_manager=manager,
             warehouse_parent=ParentTableRef(uri=uri, version=version),
             can_resume=True,
+            logger=logger,
         )
 
         assert [row["id"] for row in rows] == ["cbt_cus_2", "cbt_cus_3"]
+        # A resumed attempt counts only the parents it walked, so its fan-out size is partial. The
+        # line has to say so, or it reads as a warehouse parent that is missing rows.
+        assert logger.info.call_args.kwargs["resumed"] is True
 
     @parameterized.expand(
         [
