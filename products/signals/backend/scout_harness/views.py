@@ -2208,7 +2208,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Config not found for this project (or the scout is withheld)."),
             409: OpenApiResponse(description="A run for this scout is already in progress."),
             429: OpenApiResponse(
-                description="The project is over its Signals credits quota, its daily report limit, or its daily scout run budget; try again later."
+                description="Self-driving is paused at the project's pull request limit, or the project is over its daily report limit or its daily scout run budget; try again later."
             ),
         },
         summary="Run a scout now",
@@ -2217,8 +2217,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Useful to test a scout right after authoring it, or to refresh its findings on demand. "
             "The run executes asynchronously on the worker and inherits every guard the scheduled "
             "path has: it is forbidden if scouts are not enabled for the project (403), and skipped "
-            "if the project is over its Signals credits quota, daily report limit, or daily run "
-            "budget (429) or a run for this scout is already in progress (409). A manual run counts "
+            "if self-driving is paused at the project's pull request limit, or the project is over "
+            "its daily report limit or daily run budget (429), or a run for this scout is already "
+            "in progress (409). A manual run counts "
             "against the same daily run "
             "budget as scheduled runs, so repeated manual runs of the same scout can exhaust the "
             "project's daily allowance. A manual run does not change the scout's schedule or "
@@ -2267,7 +2268,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # single-flight in the runner and at the Temporal server), but rejecting here avoids
         # dispatching a workflow that would only be skipped, and turns the common cases into clean
         # 429/409 responses. Shared with the workflow-triggered path (see `run_gates`).
-        team = Team.objects.get(pk=team_id)
+        # `organization` is select_related for the spend gate's quota-pause capture.
+        team = Team.objects.select_related("organization").get(pk=team_id)
         for rejection in (check_spend_gates(team), check_run_in_flight(team_id, skill_name)):
             if rejection is not None:
                 _raise_rejection(rejection)

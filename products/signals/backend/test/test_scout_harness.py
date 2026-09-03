@@ -30,6 +30,7 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
@@ -2234,21 +2235,33 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("billing_limited", "daily_limited", "expected_skip_reason"),
+    ("quota_gate", "daily_limited", "expected_skip_reason"),
     [
-        (True, False, "quota_limited"),
-        (False, True, "daily_report_limit"),
-        (True, True, "quota_limited"),
+        (SelfDrivingQuotaGate(limited=True, enforced=True), False, "quota_limited"),
+        (SelfDrivingQuotaGate(limited=False, enforced=False), True, "daily_report_limit"),
+        (SelfDrivingQuotaGate(limited=True, enforced=True), True, "quota_limited"),
+        # Dark launch: a limited team with enforcement off still runs, and still reports the pause.
+        (SelfDrivingQuotaGate(limited=True, enforced=False), False, None),
     ],
 )
 async def test_activity_skips_run_attributed_to_the_limit_that_fired(
-    ateam, billing_limited, daily_limited, expected_skip_reason
+    ateam, quota_gate, daily_limited, expected_skip_reason
 ):
-    fake_arun = AsyncMock()
+    fake_arun = AsyncMock(
+        return_value=RunResult(
+            run_id="abc",
+            task_run_id="def",
+            status="completed",
+            last_message="ok",
+            runtime_s=1.5,
+            skill_name="signals-scout-errors",
+            skill_version=2,
+        )
+    )
     with (
         patch(
-            "products.signals.backend.temporal.agentic.scout_scheduler.is_team_signals_quota_limited",
-            return_value=billing_limited,
+            "products.signals.backend.temporal.agentic.scout_scheduler.self_driving_quota_gate",
+            return_value=quota_gate,
         ),
         patch(
             "products.signals.backend.temporal.agentic.scout_scheduler.daily_report_limit_gate",
@@ -2256,7 +2269,10 @@ async def test_activity_skips_run_attributed_to_the_limit_that_fired(
         ),
         patch(
             "products.signals.backend.temporal.agentic.scout_scheduler.capture_signal_report_daily_limit_paused"
-        ) as capture,
+        ) as capture_daily,
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.capture_signal_report_quota_paused"
+        ) as capture_quota,
         patch("products.signals.backend.scout_harness.runner.arun_signals_scout", fake_arun),
     ):
         env = ActivityEnvironment()
@@ -2265,16 +2281,24 @@ async def test_activity_skips_run_attributed_to_the_limit_that_fired(
             RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors"),
         )
 
-    fake_arun.assert_not_called()
-    assert output.run_id is None
-    assert output.status is None
     assert output.skip_reason == expected_skip_reason
-    # The capture event tracks its own gate: it fires whenever the daily limit binds, even when
-    # the quota skip wins the single-status run counter.
-    if daily_limited:
-        assert capture.call_args.kwargs["stage"] == "scout_run"
+    if expected_skip_reason is None:
+        fake_arun.assert_called_once()
     else:
-        capture.assert_not_called()
+        fake_arun.assert_not_called()
+        assert output.run_id is None
+        assert output.status is None
+    # Each capture tracks its own gate: it fires whenever that limit binds, even when the other
+    # one wins the single-status run counter, and a dark-launch pause is reported without blocking.
+    if quota_gate.limited:
+        assert capture_quota.call_args.kwargs["stage"] == "scout_run"
+        assert capture_quota.call_args.kwargs["enforced"] is quota_gate.enforced
+    else:
+        capture_quota.assert_not_called()
+    if daily_limited:
+        assert capture_daily.call_args.kwargs["stage"] == "scout_run"
+    else:
+        capture_daily.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -2295,8 +2319,8 @@ async def test_activity_runs_when_team_under_signals_quota(ateam):
 
     with (
         patch(
-            "products.signals.backend.temporal.agentic.scout_scheduler.is_team_signals_quota_limited",
-            return_value=False,
+            "products.signals.backend.temporal.agentic.scout_scheduler.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=False, enforced=False),
         ),
         patch("products.signals.backend.scout_harness.runner.arun_signals_scout", side_effect=fake_arun),
     ):

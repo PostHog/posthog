@@ -22,7 +22,6 @@ from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import STEP_SCOUT_SUGGESTIONS, resolve_agent_runtime
-from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.scout_harness.config_registry import (
     MAX_RUN_INTERVAL_MINUTES,
     MIN_RUN_INTERVAL_MINUTES,
@@ -133,10 +132,12 @@ class SuggestionRunResult:
 
 
 def _gate_skip_reason(team: Team) -> str | None:
+    """No self-driving credits gate here: a scan opens no pull request, so it bills nothing, and
+    the coordinator stamps `last_requested_at` at dispatch — a skip would cost the team its whole
+    refresh window for a limit the scan never charges against.
+    """
     if team.organization.is_ai_data_processing_approved is not True:
         return "ai_data_processing_not_approved"
-    if is_team_signals_quota_limited(team.api_token):
-        return "quota_limited"
     return None
 
 

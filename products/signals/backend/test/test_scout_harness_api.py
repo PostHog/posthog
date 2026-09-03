@@ -40,6 +40,7 @@ from products.signals.backend.models import (
     SignalScratchpad,
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
+from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
@@ -3149,7 +3150,9 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
 
 # The gates themselves live in `run_gates`, shared with the workflow-triggered run path, so
 # that's where they're patched; the view only maps their outcome onto DRF exceptions.
-_QUOTA = "products.signals.backend.scout_harness.run_gates.is_team_signals_quota_limited"
+_QUOTA = "products.signals.backend.scout_harness.run_gates.self_driving_quota_gate"
+_QUOTA_CAPTURE = "products.signals.backend.scout_harness.run_gates.capture_signal_report_quota_paused"
+_UNDER_QUOTA = SelfDrivingQuotaGate(limited=False, enforced=False)
 _DAILY_GATE = "products.signals.backend.scout_harness.run_gates.daily_report_limit_gate"
 _FLAG = "products.signals.backend.scout_harness.run_gates._read_flag_payload"
 _START = "products.signals.backend.temporal.agentic.scout_scheduler.start_manual_signals_scout_run"
@@ -3178,7 +3181,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         # guard for the "allow disabled" decision; a stray `enabled` gate would fail the disabled case.
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=enabled)
         with (
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_CONNECT) as connect,
             patch(_START, return_value="wf-123") as start,
         ):
@@ -3188,18 +3191,37 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         assert response.json() == {"skill_name": "signals-scout-foo", "workflow_id": "wf-123", "started": True}
         start.assert_called_once_with(connect.return_value, team_id=self.team.id, skill_name="signals-scout-foo")
 
-    def test_run_over_quota_returns_429_without_dispatching(self) -> None:
+    @parameterized.expand(
+        [
+            ("enforced", True, status.HTTP_429_TOO_MANY_REQUESTS, False),
+            # Dark launch: the pause is reported, but the run still dispatches.
+            ("dark_launch", False, status.HTTP_202_ACCEPTED, True),
+        ]
+    )
+    def test_run_over_quota_reports_the_pause_and_blocks_only_when_enforced(
+        self, _name: str, enforced: bool, expected_status: int, dispatches: bool
+    ) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
-        with patch(_QUOTA, return_value=True), patch(_START) as start:
+        gate = SelfDrivingQuotaGate(limited=True, enforced=enforced)
+        with (
+            patch(_QUOTA, return_value=gate),
+            patch(_QUOTA_CAPTURE) as capture,
+            patch(_CONNECT),
+            patch(_START, return_value="wf-123") as start,
+        ):
             response = self.client.post(self._run_url(str(config.id)))
 
-        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        start.assert_not_called()
+        assert response.status_code == expected_status
+        assert start.called is dispatches
+        # Without this the pause leaves no event trail: a rejected trigger never reaches the
+        # activity that would otherwise report it.
+        assert capture.call_args.kwargs["stage"] == "scout_run"
+        assert capture.call_args.kwargs["enforced"] is enforced
 
     def test_run_over_daily_report_limit_returns_429_without_dispatching(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         with (
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_DAILY_GATE, return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2)),
             patch(_START) as start,
         ):
@@ -3211,7 +3233,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
     def test_run_with_in_flight_run_returns_409_without_dispatching(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         _make_run(self.team, skill_name="signals-scout-foo")  # TaskRun IN_PROGRESS by default
-        with patch(_QUOTA, return_value=False), patch(_START) as start:
+        with patch(_QUOTA, return_value=_UNDER_QUOTA), patch(_START) as start:
             response = self.client.post(self._run_url(str(config.id)))
 
         assert response.status_code == status.HTTP_409_CONFLICT
@@ -3220,13 +3242,13 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
     def test_run_maps_workflow_already_started_race_to_409(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         race = WorkflowAlreadyStartedError("wf", "RunSignalsScoutWorkflow")
-        with patch(_QUOTA, return_value=False), patch(_CONNECT), patch(_START, side_effect=race):
+        with patch(_QUOTA, return_value=_UNDER_QUOTA), patch(_CONNECT), patch(_START, side_effect=race):
             response = self.client.post(self._run_url(str(config.id)))
 
         assert response.status_code == status.HTTP_409_CONFLICT
 
     def test_run_unknown_config_returns_404_without_dispatching(self) -> None:
-        with patch(_QUOTA, return_value=False), patch(_START) as start:
+        with patch(_QUOTA, return_value=_UNDER_QUOTA), patch(_START) as start:
             response = self.client.post(self._run_url("00000000-0000-0000-0000-000000000000"))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -3236,7 +3258,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         with (
             patch(_WITHHELD, return_value={"signals-scout-foo"}),
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_START) as start,
         ):
             response = self.client.post(self._run_url(str(config.id)))
@@ -3248,7 +3270,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         # A config can outlive its skill; dispatching would 202 then fail in the runner with no run
         # row to poll. Reject up front — guards the latest-non-deleted-skill check in `run`.
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-orphan")
-        with patch(_QUOTA, return_value=False), patch(_START) as start:
+        with patch(_QUOTA, return_value=_UNDER_QUOTA), patch(_START) as start:
             response = self.client.post(self._run_url(str(config.id)))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -3264,7 +3286,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         TaskRun = apps.get_model("tasks", "TaskRun")
         TaskRun.objects.filter(id=stale.task_run_id).update(created_at=old)
         with (
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_CONNECT),
             patch(_START, return_value="wf-123") as start,
         ):
@@ -3280,7 +3302,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         with (
             patch(_FLAG, return_value={"guaranteed_team_ids": [self.team.id], "skip_team_ids": [self.team.id]}),
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_START) as start,
         ):
             response = self.client.post(self._run_url(str(config.id)))
@@ -3300,7 +3322,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
                 _FLAG,
                 return_value={"guaranteed_team_ids": [self.team.id], "default_team_config": {"max_runs_per_day": 1}},
             ),
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_START) as start,
         ):
             response = self.client.post(self._run_url(str(config.id)))

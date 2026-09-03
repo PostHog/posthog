@@ -22,7 +22,6 @@ import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
-import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { PRIORITY_THRESHOLD_OPTIONS, SignalReportPriority } from '../../types'
@@ -231,9 +230,10 @@ function BaseBranchOverrides(): JSX.Element {
  * than the billing usage card: it is "how much should the agents do", not "what does the plan
  * allow", and placing it next to plan usage read as if the two limits were one system. Renders
  * regardless of the auto-start toggle, since the cap pauses report generation, not just PRs.
- * While the billing quota has the pipeline paused, the live count is withheld so remaining daily
- * headroom is not advertised on a day when nothing will arrive. Same collapsed-by-default shape
- * as Base branch overrides: the trigger's count keeps the state readable without opening.
+ * The billing quota deliberately does not overwrite this row: it caps pull requests, not reports,
+ * so stamping its pause here reported the wrong limit as the reason nothing arrived. Same
+ * collapsed-by-default shape as Base branch overrides: the trigger's count keeps the state
+ * readable without opening.
  */
 function DailyReportLimit(): JSX.Element {
     const {
@@ -245,13 +245,11 @@ function DailyReportLimit(): JSX.Element {
         teamConfigUpdating,
     } = useValues(signalTeamConfigLogic)
     const { setDraftMaxReportsPerDay, saveDraftMaxReportsPerDay } = useActions(signalTeamConfigLogic)
-    const { quotaLimited } = useValues(inboxUsageLogic)
 
-    const summary = quotaLimited
-        ? 'Paused by plan limit'
-        : maxReportsPerDay != null
-          ? `${Math.min(reportsGeneratedToday, maxReportsPerDay)} / ${maxReportsPerDay} today`
-          : null
+    const summary =
+        maxReportsPerDay != null
+            ? `${Math.min(reportsGeneratedToday, maxReportsPerDay)} / ${maxReportsPerDay} today`
+            : null
 
     return (
         <>
@@ -289,7 +287,7 @@ function DailyReportLimit(): JSX.Element {
                     </div>
                 </CollapsibleContent>
             </Collapsible>
-            {dailyReportLimitReached && !quotaLimited && (
+            {dailyReportLimitReached && (
                 <p className="text-xs font-medium text-danger mb-0 px-2.5 pb-1.5">
                     Daily report limit reached. New reports resume at midnight in your project's timezone.
                 </p>

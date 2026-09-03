@@ -521,6 +521,28 @@ async def test_runner_records_a_cancelled_scan_as_a_failure(asuggestion_team):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_runner_scans_a_project_that_is_over_its_pr_quota(asuggestion_team):
+    # A scan opens no pull request, so it charges nothing against the self-driving credits meter,
+    # and a skip would still cost the team the whole refresh window stamped at dispatch. Patched
+    # at the limiter read every quota gate bottoms out on, so re-adding one in any form fails here.
+    batch = ScoutSuggestionBatch(suggestions=[_custom()])
+    with (
+        patch("products.signals.backend.quota.is_team_limited", return_value=True),
+        patch(
+            f"{_RUNNER}.MultiTurnSession.start", new_callable=AsyncMock, return_value=(_fake_session(), batch)
+        ) as start,
+        patch(f"{_RUNNER}.get_or_create_signals_sandbox_env", return_value="env"),
+        patch(f"{_RUNNER}.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.scout_harness.suggestions.discover_canonical_skills", return_value=()),
+    ):
+        result = await arun_scout_suggestions(asuggestion_team.id)
+
+    assert (result.status, result.skip_reason) == ("completed", None)
+    start.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_runner_skips_unapproved_org_before_any_spend(asuggestion_team):
     organization = asuggestion_team.organization
     organization.is_ai_data_processing_approved = False
@@ -621,6 +643,24 @@ class TestScoutSuggestionsAPI(APIBaseTest):
         mock_start.assert_called_once()
         # The scan must act as the caller, not a resolved (possibly more privileged) member.
         self.assertEqual(mock_start.call_args.kwargs["acting_user_id"], self.user.pk)
+
+    @patch("products.signals.backend.scout_suggestions_api.sync_connect", return_value=MagicMock())
+    @patch(
+        "products.signals.backend.temporal.agentic.scout_suggestions.start_manual_scout_suggestions_run",
+        return_value="wf-1",
+    )
+    @patch(
+        "products.signals.backend.scout_suggestions_api.read_suggestion_settings",
+        return_value=SuggestionSettings(enabled=True),
+    )
+    def test_refresh_dispatches_for_a_project_over_its_pr_quota(self, _settings, mock_start, _connect):
+        # The refresh cannot mint a pull request, so the credits limit must not throttle it.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        with patch("products.signals.backend.quota.is_team_limited", return_value=True):
+            response = self.client.post(f"/api/projects/{self.team.id}/signals/scout/suggestions/refresh/")
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        mock_start.assert_called_once()
 
     @patch("products.signals.backend.scout_suggestions_api.sync_connect", return_value=MagicMock())
     @patch("products.signals.backend.temporal.agentic.scout_suggestions.start_manual_scout_suggestions_run")
