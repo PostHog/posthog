@@ -166,6 +166,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     const runtime = await this.runtimeFactory.create({
       taskContext: input.taskContext,
       model: input.model,
+      piSubscriptionProvider: input.piSubscriptionProvider,
     });
     const client = runtime.client;
     const session = this.registerSession(taskId, runtime, cwd);

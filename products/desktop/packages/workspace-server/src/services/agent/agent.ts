@@ -44,6 +44,12 @@ import {
   getAvailableModes,
 } from "@posthog/agent/execution-mode";
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
+import {
+  type PiSubscriptionLoginSession,
+  piSubscriptionLoginState,
+  signOutPiSubscription as signOutPiNativeSubscription,
+  startPiSubscriptionLogin as startPiNativeSubscriptionLogin,
+} from "@posthog/agent/pi/subscription-login-client";
 import { buildTaskSystemPrompt } from "@posthog/agent/pi/task-system-prompt";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import {
@@ -86,6 +92,7 @@ import {
   type ExecutionMode,
   isAuthError,
   type ModelAccess,
+  type PiSubscriptionProvider,
   resolveCloudInitialPermissionMode,
   serializeError,
   TypedEventEmitter,
@@ -132,6 +139,7 @@ import {
   type Credentials,
   type EffortLevel,
   type InterruptReason,
+  type PiSubscriptionStatus,
   type PromptOutput,
   type ReconnectSessionInput,
   type RtkStatus,
@@ -534,6 +542,27 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private codexLogin?: CodexLoginSession;
   private codexAuthGeneration = 0;
   private claudeAuthGeneration = 0;
+  private readonly piSubscriptionLogins = new Map<
+    PiSubscriptionProvider,
+    PiSubscriptionLoginSession
+  >();
+  // Bumped by any cancel/sign-out/new-start for a provider. Lets
+  // startPiSubscriptionLogin notice, after its own await returns, that it
+  // was superseded while in flight — including a cancel that arrived
+  // before the session existed in piSubscriptionLogins to be cancelled
+  // directly.
+  private readonly piSubscriptionLoginGenerations = new Map<
+    PiSubscriptionProvider,
+    number
+  >();
+
+  private bumpPiSubscriptionGeneration(
+    provider: PiSubscriptionProvider,
+  ): number {
+    const next = (this.piSubscriptionLoginGenerations.get(provider) ?? 0) + 1;
+    this.piSubscriptionLoginGenerations.set(provider, next);
+    return next;
+  }
 
   async getCodexSubscriptionStatus(): Promise<CodexSubscriptionStatus> {
     if (this.codexLogin) return { loginState: "logged-out" };
@@ -607,6 +636,62 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     await signOutCodexChatgpt({
       binaryPath: this.getCodexBinaryPath(),
     });
+  }
+
+  async getPiSubscriptionStatus(
+    provider: PiSubscriptionProvider,
+  ): Promise<PiSubscriptionStatus> {
+    if (this.piSubscriptionLogins.has(provider)) {
+      return { loginState: "logged-out" };
+    }
+    return { loginState: await piSubscriptionLoginState(provider) };
+  }
+
+  async startPiSubscriptionLogin(
+    provider: PiSubscriptionProvider,
+  ): Promise<{ authUrl: string }> {
+    await this.piSubscriptionLogins.get(provider)?.cancel();
+    this.piSubscriptionLogins.delete(provider);
+    const generation = this.bumpPiSubscriptionGeneration(provider);
+
+    const login = await startPiNativeSubscriptionLogin(provider);
+    if (this.piSubscriptionLoginGenerations.get(provider) !== generation) {
+      // A cancel (or a newer start) landed while this one was spawning its
+      // host process; don't resurrect it as the active login.
+      await login.cancel();
+      throw new Error("Pi sign-in was cancelled");
+    }
+
+    this.piSubscriptionLogins.set(provider, login);
+    void login.completed.then((loggedIn) => {
+      if (this.piSubscriptionLogins.get(provider) === login) {
+        this.piSubscriptionLogins.delete(provider);
+      }
+      this.log.info("Pi subscription login finished", { provider, loggedIn });
+    });
+    return { authUrl: login.authUrl };
+  }
+
+  async signOutPiSubscription(provider: PiSubscriptionProvider): Promise<void> {
+    this.bumpPiSubscriptionGeneration(provider);
+    await this.piSubscriptionLogins.get(provider)?.cancel();
+    this.piSubscriptionLogins.delete(provider);
+    await signOutPiNativeSubscription(provider);
+  }
+
+  /**
+   * Stops a pending login without touching any stored credential (unlike
+   * `signOutPiSubscription`, which also logs an already-connected account
+   * out). Lets the UI offer a real cancel instead of only "start over",
+   * which would otherwise leave the previous attempt's callback server
+   * running until it either completes or hits its own 10-minute timeout.
+   */
+  async cancelPiSubscriptionLogin(
+    provider: PiSubscriptionProvider,
+  ): Promise<void> {
+    this.bumpPiSubscriptionGeneration(provider);
+    await this.piSubscriptionLogins.get(provider)?.cancel();
+    this.piSubscriptionLogins.delete(provider);
   }
 
   private async prepareCodexAccountChange(): Promise<void> {
@@ -1856,6 +1941,10 @@ For git operations while detached:
   async cleanupAll(): Promise<void> {
     await this.codexLogin?.cancel();
     this.codexLogin = undefined;
+    await Promise.all(
+      [...this.piSubscriptionLogins.values()].map((login) => login.cancel()),
+    );
+    this.piSubscriptionLogins.clear();
     for (const { handle } of this.idleTimeouts.values()) clearTimeout(handle);
     this.idleTimeouts.clear();
     const sessionIds = Array.from(this.sessions.keys());

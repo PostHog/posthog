@@ -5,10 +5,16 @@ import {
   createRuntimeMcpServers,
   type PiRpcClient,
 } from "@posthog/agent/pi/rpc-client";
+import { piSubscriptionLoginState } from "@posthog/agent/pi/subscription-login-client";
 import type { TaskContext } from "@posthog/agent/pi/task-system-prompt";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
-import { type CloudRegion, getCloudUrlFromRegion } from "@posthog/shared";
+import {
+  type CloudRegion,
+  getCloudUrlFromRegion,
+  PI_SUBSCRIPTION_DEFAULT_MODEL_ID,
+  type PiSubscriptionProvider,
+} from "@posthog/shared";
 import { buildPosthogScopedPropertyHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import { prepareContextWiki } from "@posthog/workspace-server/services/agent/context-wiki";
 import {
@@ -70,8 +76,14 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
       ...input.taskContext,
     };
 
+    const subscription = await this.resolveSubscriptionProvider(
+      input.piSubscriptionProvider,
+    );
+
     return createPiRpcClient({
-      model: input.model,
+      model: subscription
+        ? PI_SUBSCRIPTION_DEFAULT_MODEL_ID[subscription]
+        : input.model,
       sessionFile: input.sessionFile,
       taskContext,
       enrichment: {
@@ -82,14 +94,40 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
       },
       runtimeMcpServers,
       mcpToolPolicies: mcpConfiguration.policies,
-      providerOptions: {
-        region: credentials.region,
-        baseUrl,
-        apiKey: PROXY_API_KEY,
-      },
+      providerOptions: subscription
+        ? { provider: subscription }
+        : {
+            region: credentials.region,
+            baseUrl,
+            apiKey: PROXY_API_KEY,
+          },
       extensions: ["context-wiki"],
       contextWikiPath,
     });
+  }
+
+  /**
+   * Own-subscription requires an actual stored login: a stale toggle (the
+   * user signed out elsewhere, or never finished login) falls back to the
+   * PostHog gateway rather than starting a session that can't authenticate,
+   * mirroring the same safety net the Claude/Codex ACP adapters use.
+   */
+  private async resolveSubscriptionProvider(
+    requested: PiSubscriptionProvider | undefined,
+  ): Promise<PiSubscriptionProvider | undefined> {
+    if (!requested) {
+      return undefined;
+    }
+    const loginState = await piSubscriptionLoginState(requested);
+    if (loginState !== "logged-in") {
+      this.rootLogger
+        .scope("pi-rpc-client-factory")
+        .warn("Pi own-subscription requested but login is not active", {
+          provider: requested,
+        });
+      return undefined;
+    }
+    return requested;
   }
 
   /**
