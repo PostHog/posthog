@@ -207,6 +207,9 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         # work: d1 succeeded after PR 6's merge but its head merged before it, so d1 doesn't count.
         assert result.median_merge_to_deploy_seconds == 9000.0
         assert result.median_merge_to_deploy_seconds_prev == 7200.0
+        # Open→deploy per PR: PR 1 26h, PR 2 28h, PR 6 51h; prev window PR 5 4h.
+        assert result.median_open_to_deploy_seconds == 100800.0
+        assert result.median_open_to_deploy_seconds_prev == 14400.0
         assert result.merged_pr_count == 4  # PRs 1, 2, 4, 6; the bot merge is excluded
         assert result.unattributed_merged_pr_share == 0.25  # PR 4 merged Jan 19, never deployed
         assert result.latest_deploy_status_at == datetime(2026, 1, 13, 12, 0, tzinfo=UTC)

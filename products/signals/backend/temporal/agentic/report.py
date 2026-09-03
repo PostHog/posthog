@@ -272,6 +272,7 @@ def _build_reviewers_content(
                 reason=None,
                 # Pipeline reviewers are commit-authorship-derived, never owner-injected.
                 is_skill_owner=False,
+                source_skill=None,
             )
         )
     return _PipelineReviewerResolution(reviewers=reviewers_content, diagnostics=resolution.diagnostics)

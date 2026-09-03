@@ -284,6 +284,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - [`products/conversations/skills/organizing-conversations-code/SKILL.md`](products/conversations/skills/organizing-conversations-code/SKILL.md) — adding, moving, renaming, or reviewing files under `products/conversations/`
 - `/integrating-with-posthog-ai` — making a product surface work with PostHog AI: injecting scene context or custom instructions, reacting to the agent's tool calls, or rendering your product's tool cards in a thread
 - `/sending-notifications` — adding notification support
+- `/adding-activity-logging` — adding activity logging (the audit trail) to a model, writing or changing a `model_activity_signal` receiver or an activity describer, auditing which write paths of a model are logged, or debugging a change that is missing from the activity log
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
 - `/writing-evals` — adding or changing eval suites, cases, scorers, or seeders under `products/posthog_ai/evals/` or `products/*/evals/`, touching the harness in `products/posthog_ai/eval_harness/`, or running those evals
 - [`ee/hogai/eval/AGENTS.md`](ee/hogai/eval/AGENTS.md) — writing eval cases or fixture data by hand anywhere (not a skill, and not covered by `/writing-evals`): where that data may come from, and why anonymizing a real conversation does not make it publishable
