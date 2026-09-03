@@ -295,6 +295,16 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         assert "revoked" in body["error_description"]
         assert OAuthAccessToken.objects.count() == tokens_before
 
+    def test_refresh_rejected_when_user_deactivated(self):
+        first = self._request_bearer_token().json()
+
+        self.user.is_active = False
+        self.user.save()
+
+        res = self._refresh(first["refresh_token"])
+        assert res.status_code == 400
+        assert res.json()["error"] == "invalid_grant"
+
     def test_refresh_allowed_when_token_postdates_session_revoke(self):
         self._stamp_session_revoke(timezone.now() - timedelta(hours=1))
         first = self._request_bearer_token()
