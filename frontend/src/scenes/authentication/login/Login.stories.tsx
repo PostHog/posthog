@@ -16,6 +16,7 @@ type StoryArgs = {
     samlAvailable: boolean
     ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
     generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent'
+    codeVerification: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -42,6 +43,7 @@ const meta: Meta<StoryArgs> = {
             name: 'General error',
             options: ['none', 'invalid_credentials', 'code_based_verification_sent'],
         },
+        codeVerification: { control: 'boolean', name: 'Waiting on the emailed login code' },
     },
     args: {
         cloud: true,
@@ -52,6 +54,7 @@ const meta: Meta<StoryArgs> = {
         samlAvailable: false,
         ssoEnforcement: 'none',
         generalError: 'none',
+        codeVerification: false,
     },
 }
 export default meta
@@ -65,6 +68,7 @@ const Template: StoryFn<StoryArgs> = ({
     samlAvailable,
     ssoEnforcement,
     generalError,
+    codeVerification,
 }) => {
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
 
@@ -109,6 +113,14 @@ const Template: StoryFn<StoryArgs> = ({
         }
     }, [generalError])
 
+    useEffect(() => {
+        if (codeVerification) {
+            loginLogic.actions.setCodeVerificationRequired('test@posthog.com')
+        } else {
+            loginLogic.actions.exitCodeVerification()
+        }
+    }, [codeVerification])
+
     return <Login />
 }
 
@@ -131,3 +143,6 @@ LoginError.args = { generalError: 'invalid_credentials' }
 
 export const EmailVerification: StoryFn<StoryArgs> = Template.bind({})
 EmailVerification.args = { generalError: 'code_based_verification_sent' }
+
+export const CodeVerification: StoryFn<StoryArgs> = Template.bind({})
+CodeVerification.args = { codeVerification: true }

@@ -121,6 +121,32 @@ export function LoginForm(): JSX.Element {
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
+    const openLoginSupportForm = (errorCode?: string): void => {
+        // Trust the precheck only when it resolved for the email now in the form: a failed
+        // precheck reports permissive defaults, and a stale one still holds the previous email's
+        // account.
+        const precheckTrusted =
+            precheckResponse.status === 'completed' &&
+            !precheckResponse.precheckFailed &&
+            precheckResponse.email === login.email
+        openSupportForm({
+            kind: 'support',
+            email: login.email,
+            // Prefill only into an empty form. Passing no message lets openSupportForm keep a
+            // draft the person already started, so reopening this link never overwrites their text.
+            message: sendSupportRequest.message
+                ? undefined
+                : buildLoginSupportMessage({
+                      errorCode,
+                      region: preflight?.region,
+                      ssoEnforcement: precheckResponse.sso_enforcement,
+                      availableLoginMethods,
+                      precheckTrusted,
+                      codeVerificationPending: codeVerificationRequired,
+                  }),
+        })
+    }
+
     const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
     const isCodeSent = codeVerificationRequired
     const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
@@ -196,6 +222,24 @@ export function LoginForm(): JSX.Element {
                                 <span>Code sent</span>
                             </p>
                         )}
+                        <p className="text-secondary text-center text-balance mb-0">
+                            <span>No code yet? Check your spam folder.</span>
+                            {preflight?.cloud && (
+                                <>
+                                    {' '}
+                                    <Link
+                                        data-attr="login-code-contact-support"
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            openLoginSupportForm()
+                                        }}
+                                        className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                                    >
+                                        Still stuck? Get help
+                                    </Link>
+                                </>
+                            )}
+                        </p>
                     </div>
                 )}
                 {generalError && (
@@ -212,30 +256,7 @@ export function LoginForm(): JSX.Element {
                                     data-attr="login-error-contact-support"
                                     onClick={(e) => {
                                         e.preventDefault()
-                                        // Trust the precheck only when it resolved for the email now
-                                        // in the form: a failed precheck reports permissive defaults,
-                                        // and a stale one still holds the previous email's account.
-                                        const precheckTrusted =
-                                            precheckResponse.status === 'completed' &&
-                                            !precheckResponse.precheckFailed &&
-                                            precheckResponse.email === login.email
-                                        openSupportForm({
-                                            kind: 'support',
-                                            email: login.email,
-                                            // Prefill only into an empty form. Passing no message lets
-                                            // openSupportForm keep a draft the person already started,
-                                            // so reopening this link never overwrites their text.
-                                            message: sendSupportRequest.message
-                                                ? undefined
-                                                : buildLoginSupportMessage({
-                                                      errorCode: generalError.code,
-                                                      region: preflight?.region,
-                                                      ssoEnforcement: precheckResponse.sso_enforcement,
-                                                      availableLoginMethods,
-                                                      precheckTrusted,
-                                                      codeVerificationPending: codeVerificationRequired,
-                                                  }),
-                                        })
+                                        openLoginSupportForm(generalError.code)
                                     }}
                                     className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
                                 >
