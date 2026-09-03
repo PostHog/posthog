@@ -34,6 +34,7 @@ import {
     llmProviderKeysLogic,
     sortProviderKeys,
 } from './llmProviderKeysLogic'
+import { LLMProviderResidencyNotice } from './LLMProviderResidencyNotice'
 
 function StateTag({ state, errorMessage }: { state: LLMProviderKeyState; errorMessage: string | null }): JSX.Element {
     const tagProps: { type: 'success' | 'danger' | 'warning' | 'default'; children: string } = {
@@ -305,6 +306,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                         fullWidth
                     />
                 </div>
+                <LLMProviderResidencyNotice provider={provider} />
                 {isAzure && (
                     <>
                         <div>
@@ -470,6 +472,7 @@ function EditKeyModal({
                         <span>{LLM_PROVIDER_LABELS[keyToEdit.provider]}</span>
                     </div>
                 </div>
+                <LLMProviderResidencyNotice provider={keyToEdit.provider} />
                 {isAzureEdit && (
                     <>
                         <div>
