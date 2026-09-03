@@ -23,7 +23,7 @@ import {
 } from "@posthog/quill";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { Flex, Switch, Text, Tooltip } from "@radix-ui/themes";
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
 
 const MODE_OPTIONS = [
@@ -242,6 +242,7 @@ export function ScoutConfigForm({
  * before the PATCH, and saved on blur or Enter.
  */
 function ScoutCustomCronField({ config, onUpdate }: ScoutConfigControlsProps) {
+  const errorId = useId();
   const [draft, setDraft] = useState(config.run_cron_schedule ?? "");
   const expression = draft.trim();
   // An empty field is a half-finished edit, not a mistake, so it stays neutral and saves nothing.
@@ -269,6 +270,7 @@ function ScoutCustomCronField({ config, onUpdate }: ScoutConfigControlsProps) {
           className="font-mono"
           aria-label={`${config.skill_name} cron expression`}
           aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
           onChange={(event) => setDraft(event.currentTarget.value)}
           onBlur={save}
           onKeyDown={(event) => {
@@ -276,7 +278,7 @@ function ScoutCustomCronField({ config, onUpdate }: ScoutConfigControlsProps) {
           }}
         />
         {error ? (
-          <QuillText size="xxs" className="text-red-11">
+          <QuillText id={errorId} size="xxs" className="text-red-11">
             {error}
           </QuillText>
         ) : null}
