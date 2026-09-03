@@ -9,6 +9,7 @@ import { ReportFeedbackFooter } from "@posthog/ui/features/inbox/components/deta
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
 import { ReportChatSidebar } from "@posthog/ui/features/inbox/components/ReportChatSidebar";
+import { ReportCostsSection } from "@posthog/ui/features/inbox/components/ReportCostsSection";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
 import { ReportReviewersSection } from "@posthog/ui/features/inbox/components/ReportReviewersSection";
 import { ReportRunsSection } from "@posthog/ui/features/inbox/components/ReportRunsSection";
@@ -117,6 +118,7 @@ function ReportDetailContent({
         >
           <ReportReviewersSection report={report} />
           <ReportRunsSection report={report} />
+          <ReportCostsSection />
           <ReportActivitySection reportId={report.id} />
         </InboxDetailFrame>
       </div>
