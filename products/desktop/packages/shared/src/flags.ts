@@ -24,7 +24,6 @@ export const LOOPS_FLAG = "loops";
 export const LOOPS_HOG_FLOWS_FLAG = "loops-hog-flows";
 export const DESKTOP_HOME_FLAG = "desktop-home-flag";
 export const SAVED_SEARCHES_RAIL_FLAG = "posthog-desktop-saved-searches-rail";
-export const SLACK_SPACE_ROUTING_FLAG = "posthog-code-slack-space-routing";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";
 export const GLM_MODEL_FLAG = "posthog-code-glm-model";
 export const GLM53_MODEL_FLAG = "posthog-code-glm-53-model";

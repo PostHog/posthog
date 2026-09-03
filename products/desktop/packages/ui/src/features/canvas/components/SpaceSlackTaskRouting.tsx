@@ -5,10 +5,8 @@ import {
   parseChannelNameFromTargetValue,
 } from "@posthog/core/settings/slackNotificationTarget";
 import { Button, Spinner } from "@posthog/quill";
-import { SLACK_SPACE_ROUTING_FLAG } from "@posthog/shared";
 import type { TaskChannel } from "@posthog/shared/domain-types";
 import { useUpdateTaskChannelSlackTaskRouting } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { SlackWorkspaceChannelPicker } from "@posthog/ui/features/settings/components/SlackWorkspaceChannelPicker";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
@@ -19,14 +17,13 @@ interface SpaceSlackTaskRoutingProps {
 }
 
 export function SpaceSlackTaskRouting({ channel }: SpaceSlackTaskRoutingProps) {
-  const enabled = useFeatureFlag(SLACK_SPACE_ROUTING_FLAG);
   const integrationsQuery = useIntegrations();
   const update = useUpdateTaskChannelSlackTaskRouting();
   const [selectedIntegrationId, setSelectedIntegrationId] = useState<
     number | null
   >(null);
 
-  if (!enabled || channel.channel_type !== "public") return null;
+  if (channel.channel_type !== "public") return null;
 
   const slackIntegrations = (integrationsQuery.data ?? []).filter(
     (integration) => integration.kind === "slack",
@@ -44,9 +41,6 @@ export function SpaceSlackTaskRouting({ channel }: SpaceSlackTaskRoutingProps) {
           slackTaskRouting.display_name ?? slackTaskRouting.slack_channel_id,
         )
       : null;
-  const canEdit = channel.can_manage_slack_task_routing === true;
-  const routingPermissionResolved =
-    channel.can_manage_slack_task_routing !== undefined;
   const selectedChannelLabel = slackTaskRouting
     ? `#${slackTaskRouting.display_name ?? slackTaskRouting.slack_channel_id}`
     : "No Slack channel";
@@ -104,41 +98,28 @@ export function SpaceSlackTaskRouting({ channel }: SpaceSlackTaskRoutingProps) {
       ) : slackIntegrations.length === 0 ? (
         <div className="flex flex-wrap items-center gap-2 text-[12px] text-muted-foreground">
           <span>{selectedChannelLabel}</span>
-          {canEdit ? (
-            <>
-              <span>
-                Connect Slack in Settings to route new Slack tasks here.
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                data-attr="space-slack-routing-settings"
-                onClick={() => openSettings("slack")}
-              >
-                Open Slack settings
-              </Button>
-            </>
-          ) : null}
+          <span>Connect Slack in Settings to route new Slack tasks here.</span>
+          <Button
+            variant="outline"
+            size="sm"
+            data-attr="space-slack-routing-settings"
+            onClick={() => openSettings("slack")}
+          >
+            Open Slack settings
+          </Button>
         </div>
       ) : (
-        <>
-          <SlackWorkspaceChannelPicker
-            integrations={slackIntegrations}
-            integrationId={integrationId}
-            channelValue={channelValue}
-            channelAriaLabel="Slack task channel"
-            offLabel="No Slack channel"
-            publicOnly
-            disabled={!canEdit || update.isPending}
-            onIntegrationChange={setSelectedIntegrationId}
-            onChannelChange={updateRouting}
-          />
-          {routingPermissionResolved && !canEdit ? (
-            <span className="text-[12px] text-muted-foreground">
-              A project admin must change this setting.
-            </span>
-          ) : null}
-        </>
+        <SlackWorkspaceChannelPicker
+          integrations={slackIntegrations}
+          integrationId={integrationId}
+          channelValue={channelValue}
+          channelAriaLabel="Slack task channel"
+          offLabel="No Slack channel"
+          publicOnly
+          disabled={update.isPending}
+          onIntegrationChange={setSelectedIntegrationId}
+          onChannelChange={updateRouting}
+        />
       )}
     </div>
   );

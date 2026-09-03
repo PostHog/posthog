@@ -4,7 +4,6 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  enabled: true,
   integrations: {
     data: undefined as { id: number; kind: string }[] | undefined,
     isPending: false,
@@ -18,9 +17,6 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => mocks.enabled,
-}));
 vi.mock("@posthog/ui/features/integrations/useIntegrations", () => ({
   useIntegrations: () => mocks.integrations,
 }));
@@ -59,7 +55,6 @@ function taskChannel(overrides: Partial<TaskChannel> = {}): TaskChannel {
 
 describe("SpaceSlackTaskRouting", () => {
   beforeEach(() => {
-    mocks.enabled = true;
     mocks.integrations.data = [];
     mocks.integrations.isPending = false;
     mocks.integrations.isError = false;
@@ -69,21 +64,21 @@ describe("SpaceSlackTaskRouting", () => {
     mocks.update.mutate.mockReset();
   });
 
-  it("does not render when the feature flag is off", () => {
-    mocks.enabled = false;
-
-    render(<SpaceSlackTaskRouting channel={taskChannel()} />);
+  it("does not render for a personal Space", () => {
+    render(
+      <SpaceSlackTaskRouting
+        channel={taskChannel({ channel_type: "personal" })}
+      />,
+    );
 
     expect(screen.queryByText("Slack task channel")).not.toBeInTheDocument();
   });
 
-  it("shows the current channel but disables updates without routing permission", () => {
+  it("shows the current channel and disables changes only while saving", () => {
     mocks.integrations.data = [{ id: 1, kind: "slack" }];
-
-    render(
+    const { rerender } = render(
       <SpaceSlackTaskRouting
         channel={taskChannel({
-          can_manage_slack_task_routing: false,
           slack_task_routing: {
             integration: 1,
             slack_channel_id: "C123",
@@ -95,24 +90,38 @@ describe("SpaceSlackTaskRouting", () => {
 
     expect(screen.getByText("C123|#task-updates")).toBeInTheDocument();
     expect(
-      screen.getByText("A project admin must change this setting."),
-    ).toBeInTheDocument();
+      screen.getByRole("button", { name: "Slack task channel" }),
+    ).toBeEnabled();
+
+    mocks.update.isPending = true;
+    rerender(
+      <SpaceSlackTaskRouting
+        channel={taskChannel({
+          slack_task_routing: {
+            integration: 1,
+            slack_channel_id: "C123",
+            display_name: "task-updates",
+          },
+        })}
+      />,
+    );
+
     expect(
       screen.getByRole("button", { name: "Slack task channel" }),
     ).toBeDisabled();
   });
 
-  it("does not explain an unresolved routing permission", () => {
-    mocks.integrations.data = [{ id: 1, kind: "slack" }];
-
+  it("shows a settings link when Slack is not connected", () => {
     render(<SpaceSlackTaskRouting channel={taskChannel()} />);
 
     expect(
-      screen.queryByText("A project admin must change this setting."),
-    ).not.toBeInTheDocument();
+      screen.getByText(
+        "Connect Slack in Settings to route new Slack tasks here.",
+      ),
+    ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Slack task channel" }),
-    ).toBeDisabled();
+      screen.getByRole("button", { name: "Open Slack settings" }),
+    ).toBeEnabled();
   });
 
   it("does not show the connect state while integrations load", () => {
