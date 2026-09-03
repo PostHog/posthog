@@ -549,16 +549,24 @@ def _force_datetime(expr: ast.Expr) -> ast.Expr:
 def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeGuard[list[str]]:
     if not isinstance(value, list) or len(value) != 2:
         raise QueryError(f"{operator} operator requires a two-element array [min, max]")
-    # Bools pass float() silently (False/True -> 0.0/1.0) and "NaN" parses to a real NaN, but the
-    # Rust evaluator (rust/feature-flags/src/properties/property_matching.rs) rejects both as bounds.
-    if isinstance(value[0], bool) or isinstance(value[1], bool):
-        raise QueryError(f"{operator} operator requires numeric values")
-    try:
-        low, high = float(value[0]), float(value[1])
-    except (ValueError, TypeError):
-        raise QueryError(f"{operator} operator requires numeric values")
-    if math.isnan(low) or math.isnan(high):
-        raise QueryError(f"{operator} operator requires numeric values")
+
+    # ValueT declares list[str], but a filter value reaches here as parsed JSON, so a bound can be
+    # any scalar. Taking `object` keeps the runtime checks below reachable.
+    def _to_bound(bound: object) -> float:
+        # bool is a subclass of int, so float() would silently accept it, and float("NaN") parses
+        # to a real NaN. The Rust evaluator (rust/feature-flags/src/properties/property_matching.rs)
+        # rejects both as bounds.
+        if isinstance(bound, bool) or not isinstance(bound, (str, int, float)):
+            raise QueryError(f"{operator} operator requires numeric values")
+        try:
+            parsed = float(bound)
+        except (ValueError, TypeError):
+            raise QueryError(f"{operator} operator requires numeric values")
+        if math.isnan(parsed):
+            raise QueryError(f"{operator} operator requires numeric values")
+        return parsed
+
+    low, high = _to_bound(value[0]), _to_bound(value[1])
     if low > high:
         raise QueryError(f"{operator} operator requires min value to be less than or equal to max value")
     return True
@@ -1371,24 +1379,29 @@ def property_to_expr(
                 ],
             )
 
+        # _expr_to_compare_op combines every value of these into one multiSearchAnyCaseInsensitive
+        # call, so they must reach it with the list intact. Expanding them per value would OR
+        # separate negations together and keep a row that matches only one needle.
+        combines_values_itself = operator in (
+            PropertyOperator.ICONTAINS_MULTI,
+            PropertyOperator.NOT_ICONTAINS_MULTI,
+        )
+
         if isinstance(value, list) and operator not in (
             PropertyOperator.BETWEEN,
             PropertyOperator.NOT_BETWEEN,
             PropertyOperator.ICONTAINS,
             PropertyOperator.NOT_ICONTAINS,
-            # ICONTAINS_MULTI/NOT_ICONTAINS_MULTI already combine every value into one
-            # multiSearchAnyCaseInsensitive call in _expr_to_compare_op; per-value expansion below
-            # would instead OR together separate negations, keeping a row that matches only one needle.
-            PropertyOperator.ICONTAINS_MULTI,
-            PropertyOperator.NOT_ICONTAINS_MULTI,
             # starts_with/ends_with intentionally excluded: no ClickHouse anchored multi-search
             # primitive exists, so multi-value use falls through to per-value ILIKE scans below.
         ):
             if len(value) == 0:
+                # An unconfigured filter matches every row. multiSearchAnyCaseInsensitive(x, [])
+                # would instead fail the query with ILLEGAL_TYPE_OF_ARGUMENT.
                 return ast.Constant(value=1)
-            elif len(value) == 1:
+            elif len(value) == 1 and not combines_values_itself:
                 value = value[0]
-            else:
+            elif not combines_values_itself:
                 if operator in (
                     PropertyOperator.EXACT,
                     PropertyOperator.IS_NOT,

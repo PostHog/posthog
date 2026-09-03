@@ -39,7 +39,7 @@ from posthog.hogql.property import (
     tag_name_to_expr,
 )
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.visitor import clear_locations
+from posthog.hogql.visitor import TraversingVisitor, clear_locations
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
 from posthog.models import Property, PropertyDefinition, Team
@@ -57,6 +57,20 @@ from ee.clickhouse.materialized_columns.columns import materialize
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
 elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})
 not_call = lambda x: ast.Call(name="not", args=[x])
+
+
+class _FieldChainCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        self.parts: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.parts.update(str(part) for part in node.chain)
+
+
+def field_parts_read_by(expr: ast.Expr) -> set[str]:
+    collector = _FieldChainCollector()
+    collector.visit(expr)
+    return collector.parts
 
 
 class TestProperty(BaseTest):
@@ -1976,7 +1990,23 @@ class TestProperty(BaseTest):
         result = self._property_to_expr(
             {"type": "event", "key": "test_prop", "value": value, "operator": operator_value}
         )
-        self.assertIsInstance(result, ast.Expr)
+        # An unhandled operator degrades to a neutral constant that matches every row, which an
+        # isinstance check accepts. Requiring the compiled expression to read the filtered property
+        # rejects that. This guards dispatch only: how multiple values combine is behavior, covered
+        # by test_multi_value_negative_operator_drops_row_matching_any_value.
+        assert "test_prop" in field_parts_read_by(result)
+
+    # An empty value list means the filter is not configured, so HogQL matches every row. Without a
+    # guard these two operators build multiSearchAnyCaseInsensitive(x, []), which ClickHouse rejects
+    # with ILLEGAL_TYPE_OF_ARGUMENT. This is HogQL's own convention, not a cross-engine agreement:
+    # the Rust flag evaluator treats an empty icontains_multi list as matching nothing instead.
+    # "$exception_types" exercises the array-backed path, which compiles through arrayExists.
+    @parameterized.expand([("icontains_multi",), ("not_icontains_multi",)])
+    def test_empty_value_list_is_a_neutral_filter(self, operator: str):
+        for key in ("plan", "$exception_types"):
+            assert self._property_to_expr({"type": "event", "key": key, "value": [], "operator": operator}) == (
+                ast.Constant(value=1)
+            )
 
     def test_every_negative_operator_is_known(self):
         # A negative operator missing from operator_is_negative silently negates per element on
@@ -2551,13 +2581,6 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
                 {"present_nonmatch", "missing"},
             ),
             (
-                # present_nonmatch matches the "enterprise" needle and present_match matches the "free"
-                # needle, so both rows must drop and only "missing" can stay.
-                "event_not_icontains_multi_two_needles",
-                {"type": "event", "key": "plan", "value": ["free", "enterprise"], "operator": "not_icontains_multi"},
-                {"missing"},
-            ),
-            (
                 "event_not_between",
                 {"type": "event", "key": "score", "value": [0, 100], "operator": "not_between"},
                 {"present_match", "missing"},
@@ -2579,6 +2602,24 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
         self, _name: str, filter: dict, expected_kept: set[str]
     ):
         assert self._kept(filter, self.EVENT) == expected_kept
+
+    # present_nonmatch holds "enterprise" and present_match holds "free", so each row matches exactly
+    # one of the two values and both must drop. A negative operator that ORs its per-value negations
+    # keeps both instead, because each row fails to match the other value.
+    @parameterized.expand(
+        [
+            ("not_icontains",),
+            ("not_icontains_multi",),
+            ("is_not",),
+            ("not_in",),
+            ("not_regex",),
+            ("not_starts_with",),
+            ("not_ends_with",),
+        ]
+    )
+    def test_multi_value_negative_operator_drops_row_matching_any_value(self, operator: str):
+        filter = {"type": "event", "key": "plan", "value": ["free", "enterprise"], "operator": operator}
+        assert self._kept(filter, self.EVENT) == {"missing"}
 
     # Same inputs and outcomes as test_match_properties_between_operator_uncoercible_values in
     # rust/feature-flags/src/properties/property_matching.rs. NaN is in neither set: its comparisons
