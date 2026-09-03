@@ -293,6 +293,60 @@ describe("createPiConversationTranslator", () => {
     );
   });
 
+  it("appends the rest of a settled block whose deltas diverged from it", () => {
+    const translator = createPiConversationTranslator();
+    const message = assistant([
+      { type: "thinking", thinking: "weigh the options carefully" },
+    ]);
+
+    translator.translateEvent({ type: "message_start", message });
+    translator.translateEvent({
+      type: "message_update",
+      assistantMessageEvent: {
+        type: "thinking_delta",
+        contentIndex: 0,
+        delta: "weigh the option",
+      },
+    });
+    translator.translateEvent({
+      type: "message_update",
+      assistantMessageEvent: {
+        type: "thinking_delta",
+        contentIndex: 0,
+        delta: "z",
+      },
+    });
+
+    expect(translator.translateEvent({ type: "message_end", message })).toEqual(
+      [
+        {
+          type: "assistant_thought_chunk",
+          timestamp: 10,
+          content: { type: "text", text: "s carefully" },
+        },
+      ],
+    );
+  });
+
+  it("emits nothing when the settled block is shorter than the deltas", () => {
+    const translator = createPiConversationTranslator();
+    const message = assistant([{ type: "text", text: "Done" }]);
+
+    translator.translateEvent({ type: "message_start", message });
+    translator.translateEvent({
+      type: "message_update",
+      assistantMessageEvent: {
+        type: "text_delta",
+        contentIndex: 0,
+        delta: "Done and dusted",
+      },
+    });
+
+    expect(translator.translateEvent({ type: "message_end", message })).toEqual(
+      [],
+    );
+  });
+
   it("keeps unstreamed content when assistant timestamps collide", () => {
     const translator = createPiConversationTranslator();
     const first = assistant([{ type: "text", text: "first" }]);
