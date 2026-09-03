@@ -49,6 +49,7 @@ import type {
     ScoutNoteApi,
     ScoutNoteCreateRequestApi,
     ScoutRunIdsBatchRequestApi,
+    ScoutRunTokenCostsApi,
     ScoutSuggestionItemApi,
     ScoutSuggestionRefreshApi,
     ScoutSuggestionSetApi,
@@ -1356,6 +1357,27 @@ export const signalsScoutRunsRecentPerScout = async (
     return apiMutator<SignalScoutRunSummaryApi[]>(getSignalsScoutRunsRecentPerScoutUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsScoutRunsTokenCostsUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/token-costs/`
+}
+
+/**
+ * Return what each requested `SignalScoutRun` spent on model calls, summed from the `$ai_generation` events its sandbox produced. One query for the whole batch, cached per run: a settled run's total is final, a run still in progress reports what it has spent so far. `available` is false where the internal AI observability project holding those events can't be read, so an unknown cost never reads as zero. Staff-only — fleet spend is an internal operating number, and the events sit outside the project in the path. Strictly team-scoped — run ids belonging to another project contribute no rows.
+ * @summary Get the model spend of many runs at once
+ */
+export const signalsScoutRunsTokenCosts = async (
+    projectId: string,
+    scoutRunIdsBatchRequestApi: ScoutRunIdsBatchRequestApi,
+    options?: RequestInit
+): Promise<ScoutRunTokenCostsApi> => {
+    return apiMutator<ScoutRunTokenCostsApi>(getSignalsScoutRunsTokenCostsUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutRunIdsBatchRequestApi),
     })
 }
 
