@@ -60,7 +60,11 @@ export function HogFlowEditorPanel({
                     ? 'absolute right-0 p-2 transition-[width]'
                     : 'relative h-full shrink-0 bg-surface-primary'
             )}
-            style={layout === 'floating' ? { width } : { width: panelWidth ?? '50%', minWidth: width, maxWidth: '70%' }}
+            style={
+                layout === 'floating'
+                    ? { width }
+                    : { width: panelWidth ?? '50%', minWidth: `min(${width}, 70%)`, maxWidth: '70%' }
+            }
         >
             {layout === 'panel' && <Resizer {...resizerProps} />}
             <div
