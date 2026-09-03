@@ -272,9 +272,11 @@ describe('LiquidRenderer', () => {
             expect(() => LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toThrow(expectedError)
         })
 
-        it('ignores expression filters, which the render deadline cannot interrupt', () => {
+        it('rejects expression filters, which the render deadline cannot interrupt', () => {
             const template = '{{ (1..3) | where_exp: "x", "x > 1" | size }}'
-            expect(LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toBe('3')
+            expect(() => LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toThrow(
+                'liquid filter where_exp is not supported'
+            )
         })
 
         it('decodes many unmatched openers in linear time', () => {
