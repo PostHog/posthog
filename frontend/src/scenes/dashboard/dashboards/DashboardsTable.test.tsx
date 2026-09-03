@@ -142,4 +142,45 @@ describe('DashboardsTable move to folder', () => {
 
         expect(setFilters).toHaveBeenCalledWith({ tags: ['finance'] })
     })
+
+    it('shows overflow tags in a popover and filters by them', () => {
+        const setFilters = jest.fn()
+        ;(useActions as jest.Mock).mockReturnValue({
+            unpinDashboard: jest.fn(),
+            pinDashboard: jest.fn(),
+            tableSortingChanged: jest.fn(),
+            setFilters,
+            showDuplicateDashboardModal: jest.fn(),
+            showDeleteDashboardModal: jest.fn(),
+            moveDashboardsToFolder,
+        })
+        ;(useValues as jest.Mock).mockReturnValue({
+            tableSorting: null,
+            filters: { search: '' },
+            currentTeam: { id: 1 },
+            filedDashboardIds: new Set([1]),
+        })
+
+        render(
+            <DashboardsTable
+                dashboards={
+                    [
+                        {
+                            id: 1,
+                            name: 'Dashboard 1',
+                            tags: ['alpha', 'beta', 'gamma', 'delta', 'epsilon', '', 'zeta'],
+                            user_access_level: AccessControlLevel.Editor,
+                        },
+                    ] as any
+                }
+                dashboardsLoading={false}
+            />
+        )
+
+        expect(screen.getByText('+1')).toBeInTheDocument()
+        fireEvent.click(screen.getByText('+1'))
+        fireEvent.click(screen.getByText('zeta'))
+
+        expect(setFilters).toHaveBeenCalledWith({ tags: ['zeta'] })
+    })
 })

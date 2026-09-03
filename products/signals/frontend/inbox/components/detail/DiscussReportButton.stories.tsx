@@ -35,7 +35,7 @@ export const WithSuggestions: Story = {
                 suggested_prompts: [
                     'Which teams are hitting this exception the most?',
                     'Did the error rate change after the 18 June deploy?',
-                    'Is anything else in the checkout flow failing at the same time?',
+                    'Add the missing null check and open a pull request',
                 ],
             })}
             reportUrl="https://app.posthog.com/project/1/inbox/report-1"

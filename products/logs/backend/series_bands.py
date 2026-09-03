@@ -1,8 +1,9 @@
 """Per-series log volume band charts for one service, read from logs_volume_buckets.
 
-The observed line is the last WINDOW_DAYS of volume per (namespace, environment,
-severity) series. The expected band is a time-of-week aligned min/max envelope
-over the BASELINE_WEEKS weeks before the window: each display slot's band comes
+The observed line is the caller's window of volume per (namespace, environment,
+severity) series, at most MAX_WINDOW_DAYS wide. The expected band is a
+time-of-week aligned min/max envelope over the BASELINE_WEEKS weeks before the
+window: each display slot's band comes
 from the same weekly slot in prior weeks. ClickHouse folds the baseline weeks
 onto the display window; Python finishes the envelope (zero-fill, maturity
 gating, widening) where the arithmetic is cheap and unit-testable.
@@ -10,6 +11,7 @@ gating, widening) where the arithmetic is cheap and unit-testable.
 
 import os
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 from posthog.schema import HogQLQueryModifiers
 
@@ -22,9 +24,16 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team
-from posthog.utils import ensure_utc
+from posthog.utils import ensure_utc, relative_date_parse
 
 WINDOW_DAYS = 7
+MAX_WINDOW_DAYS = 7
+VOLUME_BUCKETS_TTL_DAYS = 42  # TTL on logs_volume_buckets, see posthog/clickhouse/hcl/sql/*/logs.sql
+# The whole window has to sit inside that retention, or the observed line itself
+# starts vanishing. Baseline depth thins well before this point, but a thin
+# baseline is reported per series through band_ready_at and drawn as still
+# learning, not rejected here.
+MAX_WINDOW_START_AGE_DAYS = VOLUME_BUCKETS_TTL_DAYS - MAX_WINDOW_DAYS
 BASELINE_WEEKS = 5
 # Below this many full prior weeks the band rests on too little history to draw.
 MIN_BASELINE_WEEKS_FOR_BAND = 2
@@ -41,6 +50,10 @@ MAX_EXECUTION_SECONDS = int(os.environ.get("LOGS_SERIES_BANDS_MAX_EXECUTION_SECO
 
 
 class SeriesBandsFetchTruncated(Exception):
+    pass
+
+
+class SeriesBandsWindowInvalid(Exception):
     pass
 
 
@@ -72,6 +85,12 @@ class SeriesBandsResult:
     interval_minutes: int
     series_truncated: bool
     series: list[BandSeries]
+
+
+@frozen
+class SeriesBandsWindow:
+    start: dt.datetime
+    end: dt.datetime
 
 
 @frozen
@@ -279,18 +298,63 @@ def _build_series(
     )
 
 
-def run_series_bands(
-    team: Team,
-    service_name: str,
+_UTC_ZONE = ZoneInfo("UTC")
+
+
+def _parse_bound(value: str, *, now: dt.datetime) -> dt.datetime:
+    # No calendar snapping here, so there is no calendar to snap in: a relative
+    # bound is an offset from now and an ISO bound carries its own offset.
+    return ensure_utc(relative_date_parse(value, _UTC_ZONE, now=now))
+
+
+def resolve_window(
+    date_from: str | None,
+    date_to: str | None,
+    *,
     interval_minutes: int = 60,
     now: dt.datetime | None = None,
-) -> SeriesBandsResult:
+) -> SeriesBandsWindow:
+    """Turn a request date range into the snapped window to chart, defaulting to the last WINDOW_DAYS."""
     # Wall clock, never max(time_bucket): prod carries future buckets from
     # device clock skew (ingest clamps at +24h), and the exclusive window_end
     # bound is what keeps them out of the observed line.
-    now = now or dt.datetime.now(dt.UTC)
-    window_end = floor_to_interval(now, interval_minutes)
-    window_start = window_end - dt.timedelta(days=WINDOW_DAYS)
+    now = ensure_utc(now) if now is not None else dt.datetime.now(dt.UTC)
+
+    window_end = _parse_bound(date_to, now=now) if date_to else now
+    window_end = min(window_end, now)
+    window_start = _parse_bound(date_from, now=now) if date_from else window_end - dt.timedelta(days=WINDOW_DAYS)
+    # Snapping can move either bound by up to one interval, so every check runs
+    # on the snapped values the query will actually see.
+    window_start = floor_to_interval(window_start, interval_minutes)
+    window_end = floor_to_interval(window_end, interval_minutes)
+
+    if window_end < window_start:
+        raise SeriesBandsWindowInvalid("date_to must be after date_from.")
+    if window_end == window_start:
+        raise SeriesBandsWindowInvalid(
+            f"The window is empty at the {interval_minutes} minute grain. Pick a range that covers at least one bucket."
+        )
+    if window_end - window_start > dt.timedelta(days=MAX_WINDOW_DAYS):
+        raise SeriesBandsWindowInvalid(f"The window may span at most {MAX_WINDOW_DAYS} days.")
+    if now - window_start > dt.timedelta(days=MAX_WINDOW_START_AGE_DAYS):
+        raise SeriesBandsWindowInvalid(
+            f"Log volume history does not reach that far back. The window may start at most "
+            f"{MAX_WINDOW_START_AGE_DAYS} days ago."
+        )
+
+    return SeriesBandsWindow(start=window_start, end=window_end)
+
+
+def run_series_bands(
+    team: Team,
+    service_name: str,
+    *,
+    window_start: dt.datetime,
+    window_end: dt.datetime,
+    interval_minutes: int = 60,
+) -> SeriesBandsResult:
+    window_start = floor_to_interval(window_start, interval_minutes)
+    window_end = floor_to_interval(window_end, interval_minutes)
 
     slot_rows = fetch_series_slot_rows(team, service_name, window_start, window_end, interval_minutes)
     series = [_build_series(key, rows, window_start, window_end, interval_minutes) for key, rows in slot_rows.items()]

@@ -25,7 +25,6 @@ from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
-from products.replay_vision.backend.digest import SCANNER_DIGEST_RRULE
 from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -42,7 +41,6 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
-from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
@@ -1103,33 +1101,6 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertNotIn("goal", properties)
 
 
-class TestScannerDigestProvisioning(_VisionAPITestCase):
-    _CREATE_BODY = {
-        "name": "checkout-monitor",
-        "scanner_type": ScannerType.MONITOR,
-        "scanner_config": {"prompt": "did checkout complete?"},
-        "model": ScannerModel.GEMINI_3_7_FLASH,
-    }
-
-    def test_create_provisions_daily_digest(self) -> None:
-        resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
-        self.assertEqual(resp.status_code, 201, resp.json())
-        digest = VisionAction.objects.for_team(self.team.id).get(scanner_id=resp.json()["id"], is_scanner_digest=True)
-        self.assertEqual(digest.name, "Featured digest: checkout-monitor")
-        self.assertEqual(digest.trigger_config["rrule"], SCANNER_DIGEST_RRULE)
-        self.assertEqual(digest.trigger_config["timezone"], self.team.timezone)
-        self.assertEqual(digest.delivery_config, [])
-        # Synthesis aborts on a null creator, so the digest must carry the scanner's creator.
-        self.assertEqual(digest.created_by_id, self.user.id)
-        self.assertTrue(digest.enabled)
-
-    def test_scanner_creation_survives_digest_failure(self) -> None:
-        with patch("products.replay_vision.backend.digest.digest_name_for_scanner", side_effect=RuntimeError("boom")):
-            resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
-        self.assertEqual(resp.status_code, 201, resp.json())
-        self.assertFalse(VisionAction.objects.for_team(self.team.id).filter(scanner_id=resp.json()["id"]).exists())
-
-
 class TestScannerDuplicateAction(_VisionAPITestCase):
     def _duplicate(self, scanner_id: Any) -> Any:
         return self.client.post(f"{self.scanners_url}{scanner_id}/duplicate/")
@@ -1217,13 +1188,12 @@ class TestScannerDuplicateAction(_VisionAPITestCase):
         self.assertIn("editor access", resp.json()["detail"])
         self.assertEqual(ReplayScanner.objects.filter(team=self.team).count(), 1)
 
-    def test_duplicate_provisions_no_digest_and_reports_a_distinct_event(self) -> None:
+    def test_duplicate_reports_a_distinct_event(self) -> None:
         source = self._create_scanner(name="my-scanner")
         with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
             resp = self._duplicate(source.id)
         self.assertEqual(resp.status_code, 201, resp.json())
         copy_id = resp.json()["id"]
-        self.assertFalse(VisionAction.objects.for_team(self.team.id).filter(scanner_id=copy_id).exists())
         report.assert_called_once()
         self.assertEqual(report.call_args.args[1], "replay_vision_scanner_duplicated")
         properties = report.call_args.args[2]
@@ -1260,11 +1230,29 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
 
     def test_response_exposes_estimated_monthly_observations(self) -> None:
         scanner = self._create_scanner()
+        estimated_at = timezone.now()
+        ReplayScanner.objects.filter(pk=scanner.pk).update(estimated_monthly_observations=42, estimated_at=estimated_at)
+        body = self.client.get(f"{self.scanners_url}{scanner.id}/").json()
+        self.assertEqual(body["estimated_monthly_observations"], 42)
+        self.assertEqual(body["estimated_at"], estimated_at.isoformat().replace("+00:00", "Z"))
+
+    @parameterized.expand(
+        [
+            ("no_limit", None, None),
+            ("limit_above_projection", 10_000, None),
+            ("limit_below_projection", 100, 100),
+        ]
+    )
+    def test_estimated_monthly_credits_clamp_to_the_scanner_credit_limit(
+        self, _name: str, credit_limit: int | None, clamped_to: int | None
+    ) -> None:
+        scanner = self._create_scanner()
         ReplayScanner.objects.filter(pk=scanner.pk).update(
-            estimated_monthly_observations=42, estimated_at=timezone.now()
+            estimated_monthly_observations=42, estimated_at=timezone.now(), credit_limit=credit_limit
         )
-        resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
-        self.assertEqual(resp.json()["estimated_monthly_observations"], 42)
+        body = self.client.get(f"{self.scanners_url}{scanner.id}/").json()
+        expected = clamped_to if clamped_to is not None else 42 * observation_credits_for_model(scanner.model)
+        self.assertEqual(body["estimated_monthly_credits"], expected)
 
     @parameterized.expand(
         [
@@ -3662,9 +3650,9 @@ class TestCurrentPeriodBounds(SimpleTestCase):
                 (datetime(2026, 7, 10, tzinfo=UTC), datetime(2026, 8, 10, tzinfo=UTC)),
             ),
             (
-                "stale_billing_period_falls_back_to_month",
+                "stale_billing_period_rolls_forward_on_its_cadence",
                 {"period": ["2026-05-10T00:00:00+00:00", "2026-06-10T00:00:00+00:00"]},
-                MONTH_BOUNDS,
+                (datetime(2026, 7, 10, tzinfo=UTC), datetime(2026, 8, 10, tzinfo=UTC)),
             ),
             (
                 "naive_timestamps_treated_as_utc",
