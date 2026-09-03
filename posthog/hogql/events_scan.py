@@ -177,8 +177,17 @@ def attribute_findings(
     return attributed
 
 
-def _finding_key(finding: EventsScanFinding) -> tuple[EventsScanReason, int | None, int | None]:
-    return (finding.reason, finding.start, finding.end)
+@frozen
+class _FindingKey:
+    """Identity of a finding across expansions of the same query: same reason on the same `events` reference."""
+
+    reason: EventsScanReason
+    start: int | None
+    end: int | None
+
+
+def _finding_key(finding: EventsScanFinding) -> _FindingKey:
+    return _FindingKey(reason=finding.reason, start=finding.start, end=finding.end)
 
 
 EVENT_FILTER_ADVICE = (
