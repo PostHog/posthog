@@ -77,25 +77,35 @@ from products.notebooks.backend.facade.widgets import (
     WidgetConflictError,
     WidgetError,
     WidgetRateLimitError,
+    attach_reusable_widget,
     cancel_widget_generation,
+    fork_reusable_widget,
     get_widget_status,
     infer_widget_inputs,
     inspect_widget_inputs,
     is_notebook_widget_enabled,
     list_widget_versions,
+    publish_reusable_widget,
     read_widget_frame,
     read_widget_source,
     revert_widget_version,
+    set_widget_instance_version,
     start_widget_generation,
 )
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.presentation.reusable_widget_serializers import (
+    ReusableWidgetAttachRequestSerializer,
+    ReusableWidgetDetailSerializer,
+    ReusableWidgetPublishRequestSerializer,
+)
 from products.notebooks.backend.presentation.widget_serializers import (
     WidgetCancelRequestSerializer,
     WidgetErrorSerializer,
     WidgetFrameQuerySerializer,
     WidgetFrameSerializer,
     WidgetGenerateRequestSerializer,
+    WidgetPinRequestSerializer,
     WidgetRevertRequestSerializer,
     WidgetSourceQuerySerializer,
     WidgetSourceSerializer,
@@ -921,6 +931,143 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         return Response(WidgetStatusSerializer(result).data)
 
     @extend_schema(
+        operation_id="notebooks_widget_publish",
+        request=ReusableWidgetPublishRequestSerializer,
+        responses={
+            201: ReusableWidgetDetailSerializer,
+            400: WidgetErrorSerializer,
+            403: WidgetErrorSerializer,
+            404: WidgetErrorSerializer,
+            409: WidgetErrorSerializer,
+        },
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the generated widget node.",
+            )
+        ],
+    )
+    @action(
+        methods=["POST"],
+        url_path="widgets/(?P<node_id>[^/.]+)/publish",
+        detail=True,
+        required_scopes=["notebook:write", "query:read"],
+    )
+    def widget_publish(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        if node_id is None:
+            raise Http404()
+        user = self._current_user()
+        if user is None:
+            raise PermissionDenied("A user is required to make a widget reusable.")
+        if not is_notebook_widget_enabled(user):
+            raise Http404()
+        serializer = ReusableWidgetPublishRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self.get_object()
+        self._require_query_access()
+        try:
+            result = publish_reusable_widget(
+                notebook=notebook,
+                node_id=node_id,
+                name=serializer.validated_data["name"],
+                description=serializer.validated_data.get("description", ""),
+                tags=serializer.validated_data.get("tags", []),
+                user=user,
+                authorize_run=self._authorize_widget_run,
+            )
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(ReusableWidgetDetailSerializer(result).data, status=201)
+
+    @extend_schema(
+        operation_id="notebooks_widget_attach",
+        request=ReusableWidgetAttachRequestSerializer,
+        responses={
+            200: WidgetStatusSerializer,
+            400: WidgetErrorSerializer,
+            404: WidgetErrorSerializer,
+            409: WidgetErrorSerializer,
+        },
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the generated widget node.",
+            )
+        ],
+    )
+    @action(
+        methods=["POST"],
+        url_path="widgets/(?P<node_id>[^/.]+)/attach",
+        detail=True,
+        required_scopes=["notebook:write"],
+    )
+    def widget_attach(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        if node_id is None:
+            raise Http404()
+        user = self._current_user()
+        if user is None:
+            raise PermissionDenied("A user is required to add a reusable widget.")
+        if not is_notebook_widget_enabled(user):
+            raise Http404()
+        serializer = ReusableWidgetAttachRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = attach_reusable_widget(
+                notebook=self.get_object(),
+                node_id=node_id,
+                widget_id=serializer.validated_data["widget_id"],
+                version_id=serializer.validated_data.get("version_id"),
+                input_bindings=serializer.validated_data["input_bindings"],
+                user=user,
+            )
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetStatusSerializer(result).data)
+
+    @extend_schema(
+        operation_id="notebooks_widget_fork",
+        request=None,
+        responses={
+            201: WidgetStatusSerializer,
+            400: WidgetErrorSerializer,
+            404: WidgetErrorSerializer,
+            409: WidgetErrorSerializer,
+            429: WidgetErrorSerializer,
+        },
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the reusable widget node to fork.",
+            )
+        ],
+    )
+    @action(
+        methods=["POST"],
+        url_path="widgets/(?P<node_id>[^/.]+)/fork",
+        detail=True,
+        required_scopes=["notebook:write"],
+    )
+    def widget_fork(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        if node_id is None:
+            raise Http404()
+        user = self._current_user()
+        if user is None:
+            raise PermissionDenied("A user is required to fork a reusable widget.")
+        if not is_notebook_widget_enabled(user):
+            raise Http404()
+        try:
+            result = fork_reusable_widget(notebook=self.get_object(), node_id=node_id, user=user)
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetStatusSerializer(result).data, status=201)
+
+    @extend_schema(
         operation_id="notebooks_widget_versions",
         responses={200: WidgetVersionPageSerializer, 404: WidgetErrorSerializer},
         parameters=[
@@ -1037,6 +1184,42 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 version_id=serializer.validated_data["version_id"],
                 expected_current_version_id=serializer.validated_data["expected_current_version_id"],
                 user_id=user.id,
+            )
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetStatusSerializer(result).data)
+
+    @extend_schema(
+        operation_id="notebooks_widget_pin",
+        request=WidgetPinRequestSerializer,
+        responses={200: WidgetStatusSerializer, 400: WidgetErrorSerializer, 404: WidgetErrorSerializer},
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the generated widget node.",
+            )
+        ],
+    )
+    @action(
+        methods=["POST"],
+        url_path="widgets/(?P<node_id>[^/.]+)/pin",
+        detail=True,
+        required_scopes=["notebook:write"],
+    )
+    def widget_pin(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        if node_id is None:
+            raise Http404()
+        if not is_notebook_widget_enabled(self._current_user()):
+            raise Http404()
+        serializer = WidgetPinRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = set_widget_instance_version(
+                notebook=self.get_object(),
+                node_id=node_id,
+                version_id=serializer.validated_data["version_id"],
             )
         except WidgetError as error:
             return self._widget_error_response(error)
