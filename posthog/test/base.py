@@ -1460,7 +1460,27 @@ def _format_sql_for_snapshot(query: str) -> str:
     return formatted
 
 
-class NewEventsSchemaSnapshotExtension(AmberSnapshotExtension):
+class WorkerSuffixAmberExtension(AmberSnapshotExtension):
+    """Amber extension that hides the pytest-xdist worker suffix from snapshot content.
+
+    Every test-scoped name carries a `_gwN` suffix under xdist so workers cannot see each
+    other's data: the Postgres and ClickHouse databases, and the Kafka topics. Generated
+    SQL embeds those names, so a snapshot would otherwise record which worker ran the test
+    and never match one written by a single-process run.
+    """
+
+    # The suffix terminates an identifier, so require a word character before it and none
+    # after. A `_gwN` inside a longer word is left alone.
+    _suffix_pattern = re.compile(rf"(?<=\w){re.escape(settings.XDIST_SUFFIX)}(?!\w)") if settings.XDIST_SUFFIX else None
+
+    def serialize(self, data, **kwargs):
+        serialized = super().serialize(data, **kwargs)
+        if self._suffix_pattern is None:
+            return serialized
+        return self._suffix_pattern.sub("", serialized)
+
+
+class NewEventsSchemaSnapshotExtension(WorkerSuffixAmberExtension):
     """Amber extension that writes new-events-schema snapshots to `<test_file>.new_events_schema.ambr`.
 
     These snapshots only get written when CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA is on
@@ -2376,7 +2396,7 @@ def snapshot_hogql_queries(fn_or_class):
     return wrapped
 
 
-class HogQLSnapshotExtension(AmberSnapshotExtension):
+class HogQLSnapshotExtension(WorkerSuffixAmberExtension):
     """Custom syrupy extension for HogQL snapshots to use separate files."""
 
     _file_extension = "hogql.ambr"

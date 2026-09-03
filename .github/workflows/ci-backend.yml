@@ -3012,18 +3012,15 @@ jobs:
                   fi
 
             - name: Clone the test databases for a second pytest worker
-              # A shard uses about half of its runner, because most of the test phase waits
-              # on Postgres and ClickHouse. A second worker takes that idle half and cuts
-              # shard wall time by about a fifth, on the same runner size.
+              # A shard leaves about half its runner idle, waiting on Postgres and ClickHouse.
+              # A second worker uses that half.
               #
-              # Runs that publish .test_durations stay on one worker: pytest-split writes
-              # that file once per process with no xdist awareness, so a parallel run would
-              # publish partial timings and unbalance every later shard plan. That is master,
-              # and any pull request editing the timing scripts, which uploads the file too.
+              # Runs that publish .test_durations stay on one worker: pytest-split writes that
+              # file once per process with no xdist awareness, so a parallel run would publish
+              # partial timings and unbalance every later shard plan.
               #
               # A branch that has not rebased carries neither this script nor the snapshot
-              # normalization that parallel runs need, so an absent script keeps it on one
-              # worker instead of failing it.
+              # normalization, so an absent script keeps it on one worker instead of failing it.
               if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true' && needs.changes.outputs.timing_scripts != 'true' }}
               shell: bash
               run: |
@@ -3031,9 +3028,9 @@ jobs:
                       echo "::notice::Checked-out revision predates in-shard parallelism, running one worker"
                       exit 0
                   fi
-                  # loadfile, not the default: django_db_setup is package scoped, and
-                  # several suites leave process state that the next test inherits. Keeping
-                  # a file's tests on one worker preserves the order they already pass in.
+                  # loadfile, not the default: several suites leave process state that the next
+                  # test inherits, so keeping a file's tests on one worker preserves the order
+                  # they already pass in.
                   if ./bin/clone-test-db-for-xdist 2; then
                       echo "XDIST_ARGS=-n 2 --dist loadfile" >> "$GITHUB_ENV"
                   else
