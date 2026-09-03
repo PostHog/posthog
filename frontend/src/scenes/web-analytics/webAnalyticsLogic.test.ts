@@ -692,3 +692,38 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
     })
 })
+
+describe('webAnalyticsLogic graph series', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'update').mockResolvedValue({} as any)
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    // Cards and tables count $pageview OR $screen (event_type_expr in web_analytics_query_runner). If the
+    // graph series drift back to a single event, a $screen-only project gets an empty chart beside
+    // populated tiles again.
+    it('counts $pageview OR $screen so the graph matches the cards', () => {
+        const graphsTile = logic.values.tiles.find((tile: any) => tile.tileId === TileId.GRAPHS) as any
+        const uniqueUsersTab = graphsTile.tabs.find((tab: any) => tab.id === GraphsTab.UNIQUE_USERS)
+        const series = uniqueUsersTab.query.source.series
+
+        expect(series).toHaveLength(1)
+        expect(series[0]).toMatchObject({
+            event: null,
+            properties: [{ type: PropertyFilterType.HogQL, key: "event in ('$pageview', '$screen')" }],
+        })
+    })
+})

@@ -186,6 +186,16 @@ export function ScannerInsightsChart({
     )
     // The Observations tab requires session_recording read access; without it the chart stays static.
     const canDrillIntoObservations = !getReplayVisionRecordingViewDisabledReason()
+
+    // The category panels read observation rows, but the chart reads $recording_observed events, which
+    // only completed observations emit. When the scanner has coverage yet the chart is empty, say so
+    // instead of blaming the user's filters.
+    const hasCoverage = coverageStats.totalSessions > 0
+    const emptyStateHeading = hasCoverage ? 'No completed observations in this range' : undefined
+    const emptyStateDetail = hasCoverage
+        ? 'This scanner has recorded observations, but only completed ones show on this chart. Try a wider date range.'
+        : undefined
+
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
             <div className="flex items-baseline justify-between gap-2">
@@ -211,6 +221,8 @@ export function ScannerInsightsChart({
                 insightProps={chartInsightProps}
                 className="InsightCard h-80"
                 onDataPointClick={canDrillIntoObservations ? onDataPointClick : undefined}
+                emptyStateHeading={emptyStateHeading}
+                emptyStateDetail={emptyStateDetail}
             />
         </div>
     )
