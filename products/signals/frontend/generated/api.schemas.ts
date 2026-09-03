@@ -104,6 +104,55 @@ export interface ReportChartApi {
     size?: SizeEnumApi | null
 }
 
+export type SignalReportAssignmentPrStateEnumApi =
+    (typeof SignalReportAssignmentPrStateEnumApi)[keyof typeof SignalReportAssignmentPrStateEnumApi]
+
+export const SignalReportAssignmentPrStateEnumApi = {
+    Unknown: 'unknown',
+    Draft: 'draft',
+    Open: 'open',
+    Closed: 'closed',
+    Merged: 'merged',
+} as const
+
+export type SignalReportWorkStateEnumApi =
+    (typeof SignalReportWorkStateEnumApi)[keyof typeof SignalReportWorkStateEnumApi]
+
+export const SignalReportWorkStateEnumApi = {
+    Unclaimed: 'unclaimed',
+    Working: 'working',
+    InReview: 'in_review',
+    Done: 'done',
+} as const
+
+export type SignalActorKindEnumApi = (typeof SignalActorKindEnumApi)[keyof typeof SignalActorKindEnumApi]
+
+export const SignalActorKindEnumApi = {
+    User: 'user',
+    Task: 'task',
+    Agent: 'agent',
+    System: 'system',
+} as const
+
+export interface _UserApi {
+    readonly id: number
+    readonly uuid: string
+    readonly first_name: string
+    readonly last_name: string
+    readonly email: string
+}
+
+export interface SignalReportAssigneeApi {
+    kind: SignalActorKindEnumApi
+    user: _UserApi | null
+    /** @nullable */
+    task_id: string | null
+    /** @nullable */
+    agent: string | null
+    /** @nullable */
+    claimed_at: string | null
+}
+
 /**
  * * `pr_incorrect` - PR incorrect
  * * `pr_not_useful` - PR not useful
@@ -241,12 +290,18 @@ export interface SignalReportApi {
      */
     readonly scout_name: string | null
     /**
-     * PR URL from the latest implementation task run, if available.
+     * Pull request attached to this report's claim, if available.
      * @nullable
      */
     readonly implementation_pr_url: string | null
+    /** Latest known pull request state: unknown, draft, open, closed, or merged. */
+    readonly implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
     /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
     readonly implementation_pr_merged: boolean
+    /** Derived remediation state: unclaimed, working, in_review, or done. */
+    readonly work_state: SignalReportWorkStateEnumApi
+    /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
+    readonly assignee: SignalReportAssigneeApi | null
     /** The report's PR refund, when one exists. One refund per report, ever. */
     readonly refund: SignalReportRefundApi | null
     /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -293,6 +348,13 @@ export interface PatchedSignalReportContentUpdateApi {
      * @maxLength 10000
      */
     summary?: string
+}
+
+export interface SignalReportClaimApi {
+    /** Optional GitHub pull request to attach to the claim. The report may be claimed without one. */
+    pr_url?: string
+    /** Release ownership while preserving any attached pull request. */
+    release?: boolean
 }
 
 /**
@@ -1664,14 +1726,6 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     RelatedTo: 'related_to',
 } as const
 
-export interface _UserApi {
-    readonly id: number
-    readonly uuid: string
-    readonly first_name: string
-    readonly last_name: string
-    readonly email: string
-}
-
 export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
 
 export interface SignalReportArtefactApi {
@@ -1681,10 +1735,17 @@ export interface SignalReportArtefactApi {
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
-    /** User the artefact is attributed to, when a user produced it. Null for task/system writes. */
+    /** Actor kind. Legacy rows without attribution are returned as system. */
+    readonly actor_kind: SignalActorKindEnumApi
+    /**
+     * MCP client name when an external agent produced the artefact.
+     * @nullable
+     */
+    readonly actor_agent: string | null
+    /** Authenticated user principal for user or external agent writes. Null for internal task and system writes. */
     readonly created_by: _UserApi | null
     /**
-     * Task the artefact is attributed to, when an agent produced it. Null for user/system writes.
+     * Internal task the artefact is attributed to. Null for user, external agent, and system writes.
      * @nullable
      */
     readonly task_id: string | null
@@ -4256,6 +4317,10 @@ export type SignalsReportsListParams = {
      */
     already_addressed?: boolean
     /**
+     * Use 'me' to return reports claimed by the current user, task, or MCP agent.
+     */
+    assignee?: string
+    /**
      * Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.
      */
     channel_id?: string
@@ -4264,7 +4329,7 @@ export type SignalsReportsListParams = {
      */
     count_only?: boolean
     /**
-     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.
+     * Filter reports by whether an implementation pull request is attached. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.
      */
     has_implementation_pr?: boolean
     /**
@@ -4331,6 +4396,10 @@ export type SignalsReportsListParams = {
      * PostHog user UUID used when scope=teammate.
      */
     teammate_uuid?: string
+    /**
+     * Filter by whether the report has neither an owner nor an open or unknown PR.
+     */
+    unclaimed?: boolean
     /**
      * When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.
      */

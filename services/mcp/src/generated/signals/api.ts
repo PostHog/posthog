@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 40 enabled ops
+ * PostHog API - MCP 41 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -29,6 +29,10 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             'Filter by whether the latest actionability judgment says the issue is already being handled. False also includes older reports where that judgment did not record a value.'
         ),
+    assignee: zod
+        .string()
+        .optional()
+        .describe("Use 'me' to return reports claimed by the current user, task, or MCP agent."),
     channel_id: zod
         .string()
         .optional()
@@ -45,7 +49,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .boolean()
         .optional()
         .describe(
-            "Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total."
+            "Filter reports by whether an implementation pull request is attached. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total."
         ),
     include_all_statuses: zod
         .boolean()
@@ -117,6 +121,10 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .optional()
         .describe("Only reports associated with this task (via the report's task associations)."),
     teammate_uuid: zod.string().optional().describe('PostHog user UUID used when scope=teammate.'),
+    unclaimed: zod
+        .boolean()
+        .optional()
+        .describe('Filter by whether the report has neither an owner nor an open or unknown PR.'),
     use_priority_preference: zod
         .boolean()
         .optional()
@@ -177,6 +185,32 @@ export const SignalsReportsPartialUpdateBody = () => zod
     .describe(
         'Editable human-facing fields on a signal report (PATCH).\n\nBoth fields are optional so a caller can change either independently, but at least one\nmust be supplied. Every other report field — status, weights, judgments — is owned by the\nsignals pipeline and is deliberately not writable here.'
     )
+
+/**
+ * Claim a report for the current user, internal task, or external MCP agent. A later claim silently takes over ownership. Supply pr_url to attach or replace the report's pull request, or release=true to clear only ownership while preserving the pull request.
+ * @summary Claim or release a signal report
+ */
+export const SignalsReportsClaimParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReportsClaimBodyReleaseDefault = false
+
+export const SignalsReportsClaimBody = () => zod.object({
+    pr_url: zod
+        .url()
+        .optional()
+        .describe('Optional GitHub pull request to attach to the claim. The report may be claimed without one.'),
+    release: zod
+        .boolean()
+        .default(signalsReportsClaimBodyReleaseDefault)
+        .describe('Release ownership while preserving any attached pull request.'),
+})
 
 /**
  * Transition a report to a new state. The model validates allowed transitions.
