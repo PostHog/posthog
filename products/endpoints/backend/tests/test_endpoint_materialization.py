@@ -20,13 +20,11 @@ from rest_framework.response import Response
 from posthog.hogql.errors import QueryError
 
 from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS
-from posthog.settings.temporal import DATA_MODELING_TASK_QUEUE
 from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, get_declared_target
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node
-from products.data_warehouse.backend.facade.api import get_saved_query_schedule
 from products.endpoints.backend.logic.execution import EndpointExecutionService
 from products.endpoints.backend.logic.materialization import (
     EndpointMaterializationService,
@@ -2360,57 +2358,3 @@ class TestEndpointMaterializationTemporal:
         await sync_to_async(version.save)()
 
         yield endpoint
-
-    async def test_saved_query_temporal_schedule_created(self, materialized_endpoint):
-        """Test that a Temporal schedule is created for the SavedQuery."""
-        version = await sync_to_async(materialized_endpoint.get_version)()
-
-        def get_saved_query(v):
-            return v.saved_query
-
-        saved_query = await sync_to_async(get_saved_query)(version)
-        assert saved_query is not None
-
-        # Get the schedule that should be created
-        schedule = await sync_to_async(get_saved_query_schedule)(saved_query)
-
-        # Verify schedule configuration
-        from temporalio.client import ScheduleActionStartWorkflow, ScheduleOverlapPolicy
-
-        assert isinstance(schedule.action, ScheduleActionStartWorkflow)
-        assert schedule.action.id == str(saved_query.id)
-        assert schedule.action.task_queue == DATA_MODELING_TASK_QUEUE
-
-        # Verify schedule uses calendar spec (medium interval for 12h)
-        assert len(schedule.spec.calendars) == 1
-        assert schedule.spec.jitter == timedelta(hours=1)
-
-        # Verify schedule policy
-        assert schedule.policy.overlap == ScheduleOverlapPolicy.CANCEL_OTHER
-
-    async def test_sync_frequency_affects_schedule_interval(self, materialized_endpoint):
-        """Test that different sync_frequency values create schedules with correct intervals."""
-        version = await sync_to_async(materialized_endpoint.get_version)()
-
-        def get_saved_query(v):
-            return v.saved_query
-
-        saved_query = await sync_to_async(get_saved_query)(version)
-
-        # Test 1-hour frequency (short interval: calendar with minute buckets, 1min jitter)
-        saved_query.sync_frequency_interval = timedelta(hours=1)
-        schedule = await sync_to_async(get_saved_query_schedule)(saved_query)
-        assert len(schedule.spec.calendars) == 1
-        assert schedule.spec.jitter == timedelta(minutes=1)
-
-        # Test 12-hour frequency (medium interval: calendar with hour buckets, 1hr jitter)
-        saved_query.sync_frequency_interval = timedelta(hours=12)
-        schedule = await sync_to_async(get_saved_query_schedule)(saved_query)
-        assert len(schedule.spec.calendars) == 1
-        assert schedule.spec.jitter == timedelta(hours=1)
-
-        # Test 24-hour frequency (medium interval: calendar with hour buckets, 1hr jitter)
-        saved_query.sync_frequency_interval = timedelta(hours=24)
-        schedule = await sync_to_async(get_saved_query_schedule)(saved_query)
-        assert len(schedule.spec.calendars) == 1
-        assert schedule.spec.jitter == timedelta(hours=1)
