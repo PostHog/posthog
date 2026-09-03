@@ -1164,6 +1164,18 @@ export interface CopyDashboardTileRequestApi {
     tileId: number
 }
 
+/**
+ * * `text` - text
+ * * `image` - image
+ */
+export type CreateTextTileRequestTypeEnumApi =
+    (typeof CreateTextTileRequestTypeEnumApi)[keyof typeof CreateTextTileRequestTypeEnumApi]
+
+export const CreateTextTileRequestTypeEnumApi = {
+    Text: 'text',
+    Image: 'image',
+} as const
+
 export interface TileLayoutBoxApi {
     /** Column position in the dashboard grid (0-indexed). */
     x?: number
@@ -1183,8 +1195,13 @@ export interface TileLayoutsApi {
 }
 
 export interface CreateTextTileRequestApi {
+    /** Tile type. Use image for a body with exactly one Markdown image. Defaults to text.
+     *
+     * * `text` - text
+     * * `image` - image */
+    type?: CreateTextTileRequestTypeEnumApi
     /**
-     * Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.
+     * Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. Image tiles require exactly one Markdown image. Max 4000 characters.
      * @minLength 1
      * @maxLength 4000
      */
@@ -1321,6 +1338,38 @@ export const BounceRatePageViewModeApi = {
     UniqUrls: 'uniq_urls',
     UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
 } as const
+
+export type CustomBotFieldApi = (typeof CustomBotFieldApi)[keyof typeof CustomBotFieldApi]
+
+export const CustomBotFieldApi = {
+    RawUserAgent: '$raw_user_agent',
+    Ip: '$ip',
+    Lib: '$lib',
+    Host: '$host',
+    Pathname: '$pathname',
+    CurrentUrl: '$current_url',
+} as const
+
+export type CustomBotMatcherApi = (typeof CustomBotMatcherApi)[keyof typeof CustomBotMatcherApi]
+
+export const CustomBotMatcherApi = {
+    Contains: 'contains',
+    Regex: 'regex',
+    Cidr: 'cidr',
+} as const
+
+export interface CustomBotDefinitionApi {
+    /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
+    category?: string | null
+    id: string
+    /** The event property this rule reads. */
+    key: CustomBotFieldApi
+    matcher: CustomBotMatcherApi
+    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+    name: string
+    /** Matched against the property named by `key`. */
+    pattern: string
+}
 
 export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
 
@@ -1473,6 +1522,7 @@ export interface HogQLQueryModifiersApi {
     bounceRateDurationSeconds?: number | null
     bounceRatePageViewMode?: BounceRatePageViewModeApi | null
     convertToProjectTimezone?: boolean | null
+    customBotDefinitions?: CustomBotDefinitionApi[] | null
     customChannelTypeRules?: CustomChannelRuleApi[] | null
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
     debug?: boolean | null
@@ -8981,6 +9031,8 @@ export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
+    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+    legendPosition?: LegendPositionApi | null
     pie?: PieChartSettingsApi | null
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations

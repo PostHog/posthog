@@ -50,7 +50,6 @@ from posthog.utils import relative_date_parse, str_to_bool
 from products.batch_exports.backend.api.destination_tests import get_destination_test
 from products.batch_exports.backend.models.batch_export import (
     BATCH_EXPORT_INTERVALS,
-    S3_CREATABLE_TYPES,
     S3_FAMILY_TYPES,
     TIMEZONES,
     BatchExport,
@@ -697,7 +696,7 @@ class AwsS3DestinationRequestSerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=["AwsS3"])
     integration_id = serializers.IntegerField(
         help_text=(
-            "ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. "
+            "ID of an aws-s3-kind Integration providing AWS credentials. "
             "Use the integrations-list MCP tool to find one."
         ),
     )
@@ -711,7 +710,7 @@ class S3CompatibleDestinationRequestSerializer(serializers.Serializer):
     integration_id = serializers.IntegerField(
         help_text=(
             "ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. "
-            "Required when creating a batch export. Use the integrations-list MCP tool to find one."
+            "Use the integrations-list MCP tool to find one."
         ),
     )
     config = S3CompatibleDestinationConfigSerializer()
@@ -885,9 +884,9 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "ID of a team-scoped Integration providing credentials. Required when creating Databricks, "
-            "AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake "
-            "and Redshift (inline credentials remain supported); unused for other types."
+            "ID of a team-scoped Integration providing credentials, for destinations that authenticate "
+            "through one. Required for all of those except Snowflake, which still supports inline "
+            "credentials."
         ),
     )
 
@@ -927,19 +926,13 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
 
         # Some credential/connection fields are optional on the dataclass (integration-backed exports
         # resolve them at run time), so they must be required here only when no Integration is linked.
-        # For the S3 family this is only possible when updating an export that predates integrations:
-        # creating one without an Integration is rejected in `validate_destination`. Redshift is
-        # absent for the same reason, and because this check runs first: leaving it in would report a
-        # missing 'user' instead of the missing integration that is the actual problem.
-        # TODO: remove this code once inline credentials are gone for S3 and integrations are enforced
-        # for Snowflake
+        # Only Snowflake needs this. Every other destination requires an Integration, so
+        # `validate_destination` reports a missing one. Listing them here would report a missing
+        # credential field instead, because this check runs first.
+        # TODO: remove this code once integrations are enforced for Snowflake
         conditionally_required: set[str] = set()
         if attrs.get("integration") is None:
-            if export_type in S3_FAMILY_TYPES:
-                conditionally_required = {"aws_access_key_id", "aws_secret_access_key"}
-                if export_type == BatchExportDestination.Destination.S3_COMPATIBLE:
-                    conditionally_required.add("endpoint_url")
-            elif export_type == BatchExportDestination.Destination.SNOWFLAKE:
+            if export_type == BatchExportDestination.Destination.SNOWFLAKE:
                 conditionally_required = {"account", "user"}
 
         for destination_field in destination_fields:
@@ -1143,6 +1136,9 @@ def resolve_and_validate_url(url: str) -> None:
 
 def is_local_dev_or_test() -> bool:
     return settings.DEBUG or settings.TEST
+
+
+INVALID_HOST_MESSAGE = "Invalid host. Enter a hostname or IP address without credentials, scheme, or path."
 
 
 def resolve_and_validate_host(host: str) -> None:
@@ -1433,11 +1429,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 "Delete this batch export and create a new one with the new destination type."
             )
 
-        # The legacy `S3` type is retained only for existing rows; new destinations must use the
-        # refined `AwsS3` or `S3Compatible` types. `instance is None` means we're creating.
-        if instance is None and destination_type == BatchExportDestination.Destination.S3:
+        # The legacy `S3` type predates both the AwsS3/S3Compatible split and integration-backed
+        # credentials. Every row has been migrated off it, so it accepts no writes at all.
+        if destination_type == BatchExportDestination.Destination.S3:
             raise serializers.ValidationError(
-                "The 'S3' destination type is deprecated and can no longer be created. "
+                "The 'S3' destination type is deprecated and can no longer be used. "
                 "Use 'AwsS3' for AWS S3, or 'S3Compatible' for S3-compatible storage."
             )
 
@@ -1473,26 +1469,20 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         if destination_type in S3_FAMILY_TYPES:
             integration = destination_attrs.get("integration")
+            if integration is None and "integration" not in destination_attrs and instance is not None:
+                # A PATCH may send config alone, which keeps the export's existing integration.
+                # An explicit `integration: null` is a removal, and is rejected below.
+                integration = instance.destination.integration
 
-            # TODO: remove this guard once integrations are mandatory for S3 and inline credentials are gone.
-            if instance is not None and instance.destination.integration is not None and integration is None:
-                raise serializers.ValidationError(
-                    "Cannot remove the integration from an S3 batch export that uses one. "
-                    "Re-send its `integration` to keep it (or a different one to swap)."
-                )
-
-            # New S3 exports must use an Integration for credentials. Exports created before
-            # integrations existed keep their inline credentials, so only require it on create
-            # (`instance is None`); existing inline-credential exports stay valid when edited.
-            if integration is None and instance is None and destination_type in S3_CREATABLE_TYPES:
+            if integration is None:
                 raise serializers.ValidationError(f"Integration is required for {destination_type} batch exports")
+
+            # Credentials and the provider endpoint are not declared on the input dataclasses, so
+            # `BatchExportDestinationSerializer.validate` already rejects them as unknown fields.
 
             # we already validate the required inputs in BatchExportDestinationSerializer::validate
             # so here we just ensure that the inputs are not empty
             required_non_empty_inputs = ["bucket_name", "region", "prefix"]
-            # Credentials are only required inline when no Integration provides them.
-            if integration is None:
-                required_non_empty_inputs += ["aws_access_key_id", "aws_secret_access_key", "aws_role_arn"]
 
             empty_inputs = []
 
@@ -1504,24 +1494,13 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if empty_inputs:
                 raise serializers.ValidationError(f"The following inputs are empty: {empty_inputs}")
 
-            # When an Integration is supplied it must match the destination kind. (Team ownership is
-            # already enforced by the team-scoped `integration` field, which can only resolve
-            # integrations belonging to the request's team.)
-            if integration is not None:
-                # An Integration only makes sense for the integration-backed S3 types. Reject it on the
-                # legacy "S3" type
-                # TODO: remove this branch once the legacy "S3" destination type is fully removed
-                try:
-                    kind = S3_DESTINATION_TO_INTEGRATION_KIND[destination_type]
-                except KeyError:
-                    raise serializers.ValidationError(
-                        f"{destination_type} destinations do not support integration-based credentials."
-                    )
-
-                if not integration.kind == kind:
-                    raise serializers.ValidationError(
-                        f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
-                    )
+            # The integration must match the destination kind. (Team ownership is already enforced
+            # by the team-scoped `integration` field, which can only resolve integrations belonging
+            # to the request's team.)
+            if integration.kind != S3_DESTINATION_TO_INTEGRATION_KIND[destination_type]:
+                raise serializers.ValidationError(
+                    f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
+                )
 
             # JSONLines is the default file format for S3 exports for legacy reasons
             file_format = merged_config.get("file_format", "JSONLines")
@@ -1535,16 +1514,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {S3_SUPPORTED_COMPRESSIONS[file_format]}"
                 )
-
-            # if someone is trying to reset the endpoint url, then we need to convert empty string to None
-            if merged_config.get("endpoint_url") == "":
-                destination_attrs["config"]["endpoint_url"] = None
-
-            if merged_config.get("endpoint_url") is not None:
-                try:
-                    resolve_and_validate_url(merged_config["endpoint_url"])
-                except ValueError:
-                    raise serializers.ValidationError(f"Invalid endpoint_url: '{merged_config['endpoint_url']}'")
 
         if destination_type == BatchExportDestination.Destination.DATABRICKS:
             # validate the Integration is valid (this is mandatory for Databricks batch exports)
@@ -1733,7 +1702,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 try:
                     resolve_and_validate_host(host)
                 except ValueError:
-                    raise serializers.ValidationError(f"Invalid host: '{host}'")
+                    raise serializers.ValidationError(INVALID_HOST_MESSAGE)
 
         return destination_attrs
 

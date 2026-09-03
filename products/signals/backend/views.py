@@ -89,6 +89,7 @@ from products.signals.backend.billing import (
     annotate_first_billable_pr_run_at,
     current_billing_period_bounds,
     first_billable_pr_run,
+    first_billable_pr_run_at_by_report,
     period_billable_credits_for_org,
     refund_ineligibility_reason,
     report_pr_is_merged,
@@ -828,12 +829,21 @@ class SignalReportViewSet(
     # Requires `latest_actionability_value` annotation to be applied first.
     _Q_READY_NOT_ACTIONABLE = Q(status=SignalReport.Status.READY) & Q(latest_actionability_value="not_actionable")
     _DEFAULT_SIGNAL_REPORT_ORDERING = "-is_suggested_reviewer,status,-updated_at"
+    _INBOX_SORT_ORDERINGS = {
+        "priority": "priority,status,-updated_at",
+        "last_updated": "-updated_at,status",
+        "newest": "-created_at,status,-updated_at",
+        "oldest": "created_at,status,-updated_at",
+    }
+    _INBOX_VIEWS = frozenset(
+        {"actionable", "needs_input", "monitoring", "resolved", "dismissed", "not_actionable", "all"}
+    )
     _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
         "status": "pipeline_status_rank",
         "is_suggested_reviewer": "is_suggested_reviewer",
         "signal_count": "signal_count",
         "total_weight": "total_weight",
-        "priority": "priority_rank",
+        "priority": "priority_sort_rank",
         "created_at": "created_at",
         "updated_at": "updated_at",
         "id": "id",
@@ -845,19 +855,16 @@ class SignalReportViewSet(
             # report: only visibility matters here, so skip the rendering annotations and
             # prefetches every other action's serializer needs.
             qs = queryset.filter(team=self.team)
-            qs = self._exclude_deleted_signal_reports(qs)
             return self._apply_signal_report_status_filter(qs)
         if self.action in {"retrieve", "signals"}:
             qs = self._scope_signal_report_queryset(queryset)
-            qs = self._exclude_deleted_signal_reports(qs)
             qs = self._apply_signal_report_status_filter(qs)
-            qs = self._annotate_latest_actionability_value(qs)
+            qs = self._annotate_latest_actionability(qs)
             qs = self._prefetch_signal_report_priority_artefacts(qs)
             qs = self._annotate_is_suggested_reviewer(qs)
             return annotate_first_billable_pr_run_at(qs)
         qs = queryset
         qs = self._scope_signal_report_queryset(qs)
-        qs = self._exclude_deleted_signal_reports(qs)
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_source_product_filter(qs)
@@ -867,17 +874,22 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_channel_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
+        qs = self._apply_signal_report_inbox_scope_filter(qs)
         qs = self._apply_signal_report_task_filter(qs)
-        qs = self._annotate_latest_actionability_value(qs)
+        qs = self._annotate_latest_actionability(qs)
         qs = self._apply_signal_report_actionability_filter(qs)
+        qs = self._apply_signal_report_already_addressed_filter(qs)
+        qs = self._apply_signal_report_inbox_view_filter(qs)
         qs = self._annotate_signal_report_status_rank(qs)
         qs = self._annotate_signal_report_priority(qs)
         qs = self._apply_signal_report_priority_filter(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
         qs = self._annotate_is_suggested_reviewer(qs)
-        # Batched billable-moment lookup for the serializer's refund_ineligibility_reason field.
-        qs = annotate_first_billable_pr_run_at(qs)
-        if self.action != "list":
+        if self.action not in self._MULTI_REPORT_ACTIONS:
+            # Both of these are correlated subqueries, so they cost one walk per row the query
+            # matches. The multi-row actions do without them: `list` serves the same two values
+            # from batched lookups over the page it returns, and `bulk_state` renders no report.
+            qs = annotate_first_billable_pr_run_at(qs)
             qs = self._annotate_implementation_pr_url(qs)
         return qs
 
@@ -917,13 +929,13 @@ class SignalReportViewSet(
             )
         )
 
-    def _exclude_deleted_signal_reports(self, queryset):
-        # Deleted reports are terminal -- exclude from all endpoints (detail, list, actions)
-        return queryset.exclude(status=SignalReport.Status.DELETED)
-
-    # `deleted` is in the model but always stripped upstream by `_exclude_deleted_signal_reports`,
-    # so it is never a valid filter target.
+    # Deleted reports are terminal, so `deleted` never reaches any endpoint (detail, list,
+    # actions) and is never a valid filter target either.
     _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {SignalReport.Status.DELETED}
+    _DEFAULT_STATUSES = _FILTERABLE_STATUSES - {SignalReport.Status.SUPPRESSED}
+
+    # Actions that work on many reports at once, so per-row annotations are wasted work there.
+    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state"})
 
     # Actions allowed to resolve a suppressed report by ID even without an explicit
     # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
@@ -936,9 +948,10 @@ class SignalReportViewSet(
     # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
     # returning 404 — matching the existing contract.
     # `viewed` follows `retrieve` for the same reason: the Dismissed tab's detail view records its
-    # open like any other.
+    # open like any other. `pr_checks` and `pr_comments` are there because that same view renders the
+    # read-only PR panel whatever the report's status is.
     _SUPPRESSED_VISIBLE_ACTIONS = frozenset(
-        {"state", "bulk_state", "retrieve", "signals", "refund", "feedback", "viewed"}
+        {"state", "bulk_state", "retrieve", "signals", "refund", "feedback", "viewed", "pr_checks", "pr_comments"}
     )
 
     # Human-readable explanation per bulk outcome, surfaced in each result's `detail` field
@@ -950,6 +963,12 @@ class SignalReportViewSet(
     }
 
     def _apply_signal_report_status_filter(self, queryset):
+        # Always a positive `status__in`, never a negated equality: Postgres can put an IN into the
+        # `(team, status, promoted_at)` index condition, while `exclude(status=...)` leaves the
+        # status as a filter that runs on rows the index already made it read.
+        return queryset.filter(status__in=sorted(self._visible_statuses()))
+
+    def _visible_statuses(self) -> frozenset[str]:
         status_filter = self.request.query_params.get("status")
         if status_filter:
             statuses = [s.strip() for s in status_filter.split(",") if s.strip()]
@@ -961,7 +980,7 @@ class SignalReportViewSet(
                         "status": f"Invalid status value(s): {', '.join(sorted(set(invalid)))}. Accepted values: {accepted}."
                     }
                 )
-            return queryset.filter(status__in=statuses)
+            return frozenset(statuses)
         # A few read/reopen actions must be able to reach a suppressed report by ID
         # (e.g. `state` reopens a dismissed report, `retrieve`/`signals` back the
         # inbox's Dismissed-tab detail view). Everywhere else — including the list and
@@ -970,11 +989,13 @@ class SignalReportViewSet(
         # the default exclusions with `include_all_statuses=true` (agents deduping
         # against the full inbox state, human dismissals included, without enumerating
         # every status — and without breaking if the status set evolves).
-        if self.action in self._SUPPRESSED_VISIBLE_ACTIONS:
-            return queryset
-        if self._include_all_statuses_requested():
-            return queryset
-        return queryset.exclude(status=SignalReport.Status.SUPPRESSED)
+        if (
+            self.action in self._SUPPRESSED_VISIBLE_ACTIONS
+            or self._include_all_statuses_requested()
+            or self.request.query_params.get("view") in {"dismissed", "all"}
+        ):
+            return self._FILTERABLE_STATUSES
+        return self._DEFAULT_STATUSES
 
     def _include_all_statuses_requested(self) -> bool:
         # List-only: the flag widens the *list* for full-inbox-state scans (agent dedup). By-ID
@@ -1103,7 +1124,8 @@ class SignalReportViewSet(
         # `Exists` over `tasks.TaskRun` evaluated once per candidate report (which made the inbox
         # PR-tab count scan the whole `ready` set per PR'd run).
         return SignalReport.reports_for_task_ids_filter(
-            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter())
+            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter()),
+            team_id=self.team.id,
         )
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
@@ -1145,6 +1167,9 @@ class SignalReportViewSet(
             return queryset
 
         reviewer_user_uuids = [s.strip() for s in suggested_reviewer_filter.split(",") if s.strip()]
+        return self._filter_signal_reports_by_suggested_reviewers(queryset, reviewer_user_uuids)
+
+    def _filter_signal_reports_by_suggested_reviewers(self, queryset, reviewer_user_uuids: list[str]):
         try:
             reviewer_user_uuids = [str(uuid.UUID(user_uuid)) for user_uuid in reviewer_user_uuids]
         except (ValueError, AttributeError) as e:
@@ -1170,6 +1195,22 @@ class SignalReportViewSet(
             )
         )
 
+    def _apply_signal_report_inbox_scope_filter(self, queryset):
+        scope = self.request.query_params.get("scope")
+        if not scope or scope == "entire_project":
+            return queryset
+        if scope == "for_me":
+            user = cast(User, self.request.user)
+            return self._filter_signal_reports_by_suggested_reviewers(queryset, [str(user.uuid)])
+        if scope == "teammate":
+            teammate_uuid = (self.request.query_params.get("teammate_uuid") or "").strip()
+            if not teammate_uuid:
+                raise serializers.ValidationError({"teammate_uuid": "This field is required when scope is teammate."})
+            return self._filter_signal_reports_by_suggested_reviewers(queryset, [teammate_uuid])
+        raise serializers.ValidationError(
+            {"scope": f"Invalid value: {scope!r}. Allowed: for_me, entire_project, teammate."}
+        )
+
     def _apply_signal_report_task_filter(self, queryset):
         # Reports a given task is associated with — used by running agents ("which reports am I
         # working against?") and by the agent harness to fan commit artefacts out to them. Uses the
@@ -1188,6 +1229,20 @@ class SignalReportViewSet(
         # Filters on the `priority_rank` annotation, which must be applied first.
         # Reports without a priority artefact (coalesced to "~") are excluded when this filter is set.
         priority_filter = self.request.query_params.get("priority")
+        if not priority_filter and self.request.query_params.get("use_priority_preference", "false").lower() == "true":
+            user = cast(User, self.request.user)
+            personal_threshold = (
+                SignalUserAutonomyConfig.objects.filter(user=user).values_list("autostart_priority", flat=True).first()
+            )
+            project_threshold = (
+                SignalTeamConfig.objects.filter(team=self.team)
+                .values_list("default_autostart_priority", flat=True)
+                .first()
+                or AutonomyPriority.P4
+            )
+            threshold = personal_threshold or project_threshold
+            values = AutonomyPriority.values[: AutonomyPriority.values.index(threshold) + 1]
+            return queryset.filter(priority_rank__in=values)
         if not priority_filter:
             return queryset
 
@@ -1234,6 +1289,44 @@ class SignalReportViewSet(
 
         return queryset.filter(latest_actionability_value__in=values)
 
+    def _apply_signal_report_already_addressed_filter(self, queryset):
+        raw = self.request.query_params.get("already_addressed")
+        if raw is None or not raw.strip():
+            return queryset
+        value = raw.strip().lower()
+        if value in ("1", "true", "yes"):
+            return queryset.filter(latest_already_addressed_value="true")
+        if value in ("0", "false", "no"):
+            return queryset.exclude(latest_already_addressed_value="true")
+        raise serializers.ValidationError({"already_addressed": f"Invalid value: {raw!r}. Allowed: true, false."})
+
+    def _apply_signal_report_inbox_view_filter(self, queryset):
+        inbox_view = self.request.query_params.get("view")
+        if not inbox_view:
+            return queryset
+        if inbox_view not in self._INBOX_VIEWS:
+            allowed = ", ".join(sorted(self._INBOX_VIEWS))
+            raise serializers.ValidationError({"view": f"Invalid value: {inbox_view!r}. Allowed: {allowed}."})
+        if inbox_view == "actionable":
+            return queryset.filter(
+                status=SignalReport.Status.READY,
+                latest_actionability_value=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+            ).exclude(self._implementation_pr_report_filter() | Q(latest_already_addressed_value="true"))
+        if inbox_view == "needs_input":
+            return queryset.filter(
+                status=SignalReport.Status.PENDING_INPUT,
+                latest_actionability_value=ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
+            )
+        if inbox_view == "monitoring":
+            return queryset.filter(status=SignalReport.Status.READY).filter(self._implementation_pr_report_filter())
+        if inbox_view == "resolved":
+            return queryset.filter(status=SignalReport.Status.RESOLVED)
+        if inbox_view == "dismissed":
+            return queryset.filter(status=SignalReport.Status.SUPPRESSED)
+        if inbox_view == "not_actionable":
+            return queryset.filter(latest_actionability_value=ActionabilityChoice.NOT_ACTIONABLE.value)
+        return queryset
+
     def _annotate_signal_report_status_rank(self, queryset):
         # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
         # `status=ready` splits into two virtual stages (requires `latest_actionability_value`):
@@ -1277,13 +1370,19 @@ class SignalReportViewSet(
             .values("_priority_val")[:1],
             output_field=CharField(),
         )
-        return queryset.annotate(
-            priority_rank=Coalesce(latest_priority, Value("~"), output_field=CharField()),
+        return queryset.annotate(priority_rank=latest_priority).annotate(
+            priority_sort_rank=Case(
+                *(
+                    When(priority_rank=priority, then=Value(index))
+                    for index, priority in enumerate(AutonomyPriority.values)
+                ),
+                default=Value(len(AutonomyPriority.values)),
+                output_field=IntegerField(),
+            )
         )
 
-    def _annotate_latest_actionability_value(self, queryset):
-        # Extract the "actionability" value from the latest actionability_judgment artefact.
-        latest_actionability = Subquery(
+    def _latest_actionability_field(self, field: str):
+        return Subquery(
             SignalReportArtefact.objects.filter(
                 report_id=OuterRef("id"),
                 type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
@@ -1293,7 +1392,7 @@ class SignalReportViewSet(
             .annotate(
                 _actionability_val=Func(
                     Cast(F("content"), output_field=JSONField()),
-                    Value("actionability"),
+                    Value(field),
                     function="jsonb_extract_path_text",
                     output_field=CharField(),
                 ),
@@ -1301,7 +1400,12 @@ class SignalReportViewSet(
             .values("_actionability_val")[:1],
             output_field=CharField(),
         )
-        return queryset.annotate(latest_actionability_value=latest_actionability)
+
+    def _annotate_latest_actionability(self, queryset):
+        return queryset.annotate(
+            latest_actionability_value=self._latest_actionability_field("actionability"),
+            latest_already_addressed_value=self._latest_actionability_field("already_addressed"),
+        )
 
     def _prefetch_signal_report_priority_artefacts(self, queryset):
         return queryset.prefetch_related(
@@ -1401,7 +1505,16 @@ class SignalReportViewSet(
         return self._parse_ordering_string(self._DEFAULT_SIGNAL_REPORT_ORDERING)
 
     def _parse_signal_report_ordering(self) -> list[str]:
-        raw = self.request.query_params.get("ordering", self._DEFAULT_SIGNAL_REPORT_ORDERING)
+        raw = self.request.query_params.get("ordering")
+        if raw is None:
+            inbox_sort = self.request.query_params.get("sort")
+            if inbox_sort:
+                raw = self._INBOX_SORT_ORDERINGS.get(inbox_sort)
+                if raw is None:
+                    allowed = ", ".join(sorted(self._INBOX_SORT_ORDERINGS))
+                    raise serializers.ValidationError({"sort": f"Invalid value: {inbox_sort!r}. Allowed: {allowed}."})
+            else:
+                raw = self._DEFAULT_SIGNAL_REPORT_ORDERING
         if not raw or not str(raw).strip():
             return self._default_signal_report_ordering_clauses
         clauses = self._parse_ordering_string(str(raw).strip())
@@ -1493,10 +1606,10 @@ class SignalReportViewSet(
             edit_artefacts.append(SummaryChange(old_summary=report.summary, new_summary=data["summary"]))
             report.summary = data["summary"]
             update_fields.append("summary")
-            # The suggested questions were written against the prose this edit replaces, so they go
+            # The suggested prompts were written against the prose this edit replaces, so they go
             # down with it — the same rule the research pipeline applies when it rewrites a summary.
-            # Leaving them would offer questions about a report that no longer says what they ask
-            # about, and this field is read-only here, so nothing could take them back down.
+            # Leaving them would offer prompts about a report that no longer says what they point
+            # at, and this field is read-only here, so nothing could take them back down.
             if report.suggested_prompts:
                 report.suggested_prompts = []
                 update_fields.append("suggested_prompts")
@@ -1621,6 +1734,51 @@ class SignalReportViewSet(
                 ),
             ),
             OpenApiParameter(
+                name="actionability",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated actionability judgments to include. Valid values: immediately_actionable, "
+                    "requires_human_input, not_actionable. Reports without a judgment are excluded."
+                ),
+            ),
+            OpenApiParameter(
+                name="already_addressed",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Filter by whether the latest actionability judgment says the issue is already being handled. "
+                    "False also includes older reports where that judgment did not record a value."
+                ),
+            ),
+            OpenApiParameter(
+                name="view",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Apply an inbox view: actionable, needs_input, monitoring, resolved, dismissed, "
+                    "not_actionable, or all. Each view applies the corresponding status, actionability, and "
+                    "implementation-PR filters."
+                ),
+            ),
+            OpenApiParameter(
+                name="scope",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=("Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate."),
+            ),
+            OpenApiParameter(
+                name="teammate_uuid",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="PostHog user UUID used when scope=teammate.",
+            ),
+            OpenApiParameter(
                 name="priority",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -1628,6 +1786,25 @@ class SignalReportViewSet(
                 description=(
                     "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. "
                     "Reports without a priority assignment are excluded when this filter is set."
+                ),
+            ),
+            OpenApiParameter(
+                name="use_priority_preference",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When true and priority is omitted, include priorities at or above the requesting user's "
+                    "personal PR-generation threshold, falling back to the project threshold."
+                ),
+            ),
+            OpenApiParameter(
+                name="sort",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied."
                 ),
             ),
             OpenApiParameter(
@@ -1729,12 +1906,18 @@ class SignalReportViewSet(
                 logger.exception("signals.reports.list.implementation_pr_url_failed", report_count=len(report_ids))
                 implementation_pr_by_report = {}
 
+        # One grouped query for the whole page, in place of the per-row annotation the other
+        # actions carry, for the serializer's refund_ineligibility_reason field.
+        with tracer.start_as_current_span("signals.reports.list.fetch_billable_pr_runs"):
+            first_billable_pr_run_at_map = first_billable_pr_run_at_by_report(report_ids)
+
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
+            "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 

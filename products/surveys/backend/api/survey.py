@@ -113,11 +113,106 @@ DEFAULT_BASE_LANGUAGE = "en"
 # Sentinel keys we explicitly reject — these used to appear in customer data and never
 # resolved to anything in the SDK. Block them at the API so they don't keep accumulating.
 REJECTED_TRANSLATION_KEYS = frozenset({"default", "original", "base"})
+SURVEY_APPEARANCE_HTML_FIELDS = (
+    "thankYouMessageHeader",
+    "thankYouMessageDescription",
+    "thankYouMessageCloseButtonText",
+    "introScreenHeader",
+    "introScreenDescription",
+    "introScreenButtonText",
+)
+SURVEY_QUESTION_HTML_FIELDS = (
+    "question",
+    "description",
+    "buttonText",
+    "lowerBoundLabel",
+    "upperBoundLabel",
+)
+SURVEY_TRANSLATION_HTML_FIELDS = (
+    "name",
+    "description",
+    "thankYouMessageHeader",
+    "thankYouMessageDescription",
+    "thankYouMessageCloseButtonText",
+    *SURVEY_QUESTION_HTML_FIELDS,
+)
 
 
 def _normalize_language_code(raw: str) -> str:
     """Lowercase + underscore-to-hyphen. Matches what the SDK does before lookup."""
     return raw.strip().lower().replace("_", "-")
+
+
+def sanitize_survey_appearance(appearance: dict[str, Any]) -> dict[str, Any]:
+    sanitized_appearance = dict(appearance)
+    for field in SURVEY_APPEARANCE_HTML_FIELDS:
+        field_value = sanitized_appearance.get(field)
+        if isinstance(field_value, str) and nh3.is_html(field_value):
+            sanitized_appearance[field] = nh3_clean_with_allow_list(field_value)
+    return sanitized_appearance
+
+
+def _sanitize_survey_html(value: str) -> str:
+    return nh3_clean_with_allow_list(value) if nh3.is_html(value) else value
+
+
+def _sanitize_survey_link(link: str) -> str | None:
+    parsed_url = urlparse(link)
+    if parsed_url.scheme == "https" and parsed_url.netloc:
+        return _sanitize_survey_html(link)
+    if parsed_url.scheme == "mailto" and re.match(EMAIL_REGEX, link):
+        return _sanitize_survey_html(link)
+    return None
+
+
+def sanitize_survey_translations(translations: dict[str, Any]) -> dict[str, Any]:
+    sanitized_translations = dict(translations)
+    for language, translation in translations.items():
+        if not isinstance(translation, dict):
+            continue
+        sanitized_translation = dict(translation)
+        for field in SURVEY_TRANSLATION_HTML_FIELDS:
+            value = sanitized_translation.get(field)
+            if isinstance(value, str):
+                sanitized_translation[field] = _sanitize_survey_html(value)
+        choices = sanitized_translation.get("choices")
+        if isinstance(choices, list):
+            sanitized_translation["choices"] = [
+                _sanitize_survey_html(choice) if isinstance(choice, str) else choice for choice in choices
+            ]
+        if "link" in sanitized_translation:
+            link = sanitized_translation["link"]
+            sanitized_link = _sanitize_survey_link(link) if isinstance(link, str) else None
+            if sanitized_link is None:
+                sanitized_translation.pop("link")
+            else:
+                sanitized_translation["link"] = sanitized_link
+        sanitized_translations[language] = sanitized_translation
+    return sanitized_translations
+
+
+def sanitize_survey_question(question: dict[str, Any]) -> dict[str, Any]:
+    sanitized_question = dict(question)
+    for field in SURVEY_QUESTION_HTML_FIELDS:
+        value = sanitized_question.get(field)
+        if isinstance(value, str):
+            sanitized_question[field] = _sanitize_survey_html(value)
+    choices = sanitized_question.get("choices")
+    if isinstance(choices, list):
+        sanitized_question["choices"] = [
+            _sanitize_survey_html(choice) if isinstance(choice, str) else choice for choice in choices
+        ]
+    if "link" in sanitized_question:
+        link = sanitized_question["link"]
+        sanitized_link = _sanitize_survey_link(link) if isinstance(link, str) else None
+        if sanitized_link is None:
+            sanitized_question.pop("link")
+        else:
+            sanitized_question["link"] = sanitized_link
+    translations = sanitized_question.get("translations")
+    if isinstance(translations, dict):
+        sanitized_question["translations"] = sanitize_survey_translations(translations)
+    return sanitized_question
 
 
 # Keep this in sync with SurveyAPISerializer's public runtime contract.
@@ -868,6 +963,28 @@ class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializ
     def get_conditions(self, survey: Survey):
         return get_survey_conditions_with_actions(survey)
 
+    def validate_appearance(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return value
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Appearance must be an object")
+        return sanitize_survey_appearance(value)
+
+    def to_representation(self, instance: Survey) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        appearance = data.get("appearance")
+        if isinstance(appearance, dict):
+            data["appearance"] = sanitize_survey_appearance(appearance)
+        questions = data.get("questions")
+        if isinstance(questions, list):
+            data["questions"] = [
+                sanitize_survey_question(question) if isinstance(question, dict) else question for question in questions
+            ]
+        translations = data.get("translations")
+        if isinstance(translations, dict):
+            data["translations"] = sanitize_survey_translations(translations)
+        return data
+
 
 class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
@@ -995,17 +1112,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Appearance must be an object")
 
-        thank_you_message = value.get("thankYouMessageHeader")
-        if thank_you_message and nh3.is_html(thank_you_message):
-            value["thankYouMessageHeader"] = nh3_clean_with_allow_list(thank_you_message)
-
-        thank_you_description = value.get("thankYouMessageDescription")
-        if thank_you_description and nh3.is_html(thank_you_description):
-            value["thankYouMessageDescription"] = nh3_clean_with_allow_list(thank_you_description)
-
-        thank_you_close_button = value.get("thankYouMessageCloseButtonText")
-        if thank_you_close_button and nh3.is_html(thank_you_close_button):
-            value["thankYouMessageCloseButtonText"] = nh3_clean_with_allow_list(thank_you_close_button)
+        value = sanitize_survey_appearance(value)
 
         thank_you_description_content_type = value.get("thankYouMessageDescriptionContentType")
         if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
@@ -2122,6 +2229,7 @@ class SurveyFilterSet(FilterSet):
 
 @extend_schema_view(
     create=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
+    update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     partial_update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     list=extend_schema(
         parameters=[
@@ -2142,10 +2250,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     filterset_class = SurveyFilterSet
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
-        if self.request.method == "POST" or self.request.method == "PATCH":
+        if self.request.method in ("POST", "PUT", "PATCH"):
             return SurveySerializerCreateUpdateOnly
-        else:
-            return SurveySerializer
+        return SurveySerializer
 
     def safely_get_queryset(self, queryset):
         queryset = queryset.exclude(product_tour__isnull=False)
@@ -3375,7 +3482,7 @@ def get_survey_api_translations(
             continue
 
         safe_translation = {
-            field: value
+            field: _sanitize_survey_html(value)
             for field, value in translation.items()
             if field in SURVEY_API_TRANSLATION_FIELDS and isinstance(value, str)
         }
@@ -3460,11 +3567,14 @@ class SurveyAPISerializer(serializers.ModelSerializer):
                     next_question["translations"] = filtered
                 else:
                     next_question.pop("translations", None)
-            cleaned.append(next_question)
+            cleaned.append(sanitize_survey_question(next_question))
         return cleaned
 
     def to_representation(self, instance: Survey) -> dict[str, Any]:
         data = super().to_representation(instance)
+        appearance = data.get("appearance")
+        if isinstance(appearance, dict):
+            data["appearance"] = sanitize_survey_appearance(appearance)
         if data.get("translations") is None:
             data.pop("translations", None)
         return data
@@ -3526,6 +3636,34 @@ def _survey_page_site_url() -> str:
     return settings.SITE_URL
 
 
+def _public_survey_csp(request: HttpRequest) -> str:
+    nonce = getattr(request, "csp_nonce", "")
+    script_sources = ["'self'", f"'nonce-{nonce}'", "'strict-dynamic'"]
+    if settings.DEBUG or settings.TEST:
+        script_sources.append("http://localhost:8234")
+    elif settings.SITE_URL.endswith(".dev.posthog.dev"):
+        script_sources.append("https://*.dev.posthog.dev")
+    else:
+        script_sources.extend(["https://*.posthog.com", "https://*.i.posthog.com"])
+
+    return "; ".join(
+        [
+            "sandbox allow-scripts allow-forms allow-popups",
+            f"script-src {' '.join(script_sources)}",
+            "script-src-attr 'none'",
+            "object-src 'none'",
+            "base-uri 'none'",
+        ]
+    )
+
+
+def _isolate_public_survey_response(request: HttpRequest, response: HttpResponse) -> HttpResponse:
+    # This must omit allow-same-origin because hosted survey content shares a host with authenticated app sessions.
+    response["Content-Security-Policy"] = _public_survey_csp(request)
+    response["Referrer-Policy"] = "no-referrer"
+    return response
+
+
 def _survey_error_response(
     request: HttpRequest,
     *,
@@ -3541,17 +3679,17 @@ def _survey_error_response(
     }
     if appearance is not None:
         context["appearance"] = appearance
-    return render(request, "surveys/error.html", context, status=status)
+    return _isolate_public_survey_response(request, render(request, "surveys/error.html", context, status=status))
 
 
 @csrf_exempt
 @axes_dispatch
-def public_survey_page(request, survey_id: str):
+def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
     """
     Server-side rendered public survey page with security and performance optimizations
     """
     if request.method == "OPTIONS":
-        return cors_response(request, HttpResponse(""))
+        return _isolate_public_survey_response(request, cors_response(request, HttpResponse("")))
 
     # Input validation
     if not UUIDT.is_valid_uuid(survey_id):
@@ -3643,7 +3781,7 @@ def public_survey_page(request, survey_id: str):
     response["Cache-Control"] = f"public, max-age={CACHE_TIMEOUT_SECONDS}"
     response["Vary"] = "Accept-Encoding"  # Enable compression caching
 
-    return response
+    return _isolate_public_survey_response(request, response)
 
 
 @contextmanager

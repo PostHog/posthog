@@ -26,10 +26,16 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import RecordingsQuery
 
+from posthog.api.search import (
+    ENTITY_MAP as _SEARCH_ENTITY_MAP,
+    EntityConfig,
+    search_entities,
+)
 from posthog.llm.semantic_enrichment import get_team_business_context
 from posthog.models import EventDefinition
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.billing import observation_credits_for_model
@@ -51,8 +57,7 @@ from ee.hogai.utils.untrusted import as_untrusted_data
 logger = structlog.get_logger(__name__)
 
 # Interactive request path, but drafting a whole scanner well needs more model than the tag helper.
-# The stable flash tier: gemini-3.6-flash is retired in billing.py's lineup.
-_DRAFT_MODEL = "gemini-3.7-flash"
+_DRAFT_MODEL = "gemini-3.8-flash"
 _MODEL_CALL_TIMEOUT_MS = 90_000
 _MAX_NAME_LENGTH = 255  # ReplayScanner.name column length
 _MAX_DESCRIPTION_LENGTH = 1_000
@@ -97,6 +102,34 @@ _MAX_GOAL_MATCHED_EVENTS = 30
 _MIN_GOAL_TERM_CHARS = 4
 # Only the first terms are looked up, so a long goal stays one bounded query.
 _MAX_GOAL_TERMS = 8
+# Surveys whose names match the goal, shown with their IDs so a filter can name one exactly.
+_MAX_MATCHED_SURVEYS = 10
+# The events that carry a survey's identity, and the property holding it. A filter on one survey is
+# an event filter plus this property, which is why the draft needs property filters at all.
+_SURVEY_EVENTS = ("survey sent", "survey shown", "survey dismissed")
+_SURVEY_ID_PROPERTY = "$survey_id"
+# Actions whose names match the goal, shown so the draft can filter on a curated behavior.
+_MAX_MATCHED_ACTIONS = 10
+# Actions AND with the other filters like events do, so the same small ceiling applies.
+_MAX_FILTER_ACTIONS = 2
+# Cohorts whose names match the goal, shown so the draft can scope to a curated audience.
+_MAX_MATCHED_COHORTS = 10
+# A cohort filter is a person-level property, and separate properties AND, so one is usually the point.
+_MAX_FILTER_COHORTS = 1
+# Property filters the model may attach to its chosen events. Two is enough to name a thing and
+# qualify it; more usually means the filter is describing several flows at once.
+_MAX_FILTER_EVENT_PROPERTIES = 2
+# The shared search does not exclude soft-deleted rows, and a deleted entity is worse than no
+# filter. A deleted cohort's filter is dropped when the recordings query resolves it
+# (`CohortPropertyGroupsSubQuery` skips a cohort it cannot load), so the scan silently widens to
+# every session while the rationale still describes an audience. Surveys are excluded from this on
+# purpose: an archived survey keeps its id and its past `survey sent` events, so scanning the people
+# who answered it is a real goal.
+_LIVE_SEARCH_ENTITY_MAP: dict[str, EntityConfig] = {
+    **_SEARCH_ENTITY_MAP,
+    "action": {**_SEARCH_ENTITY_MAP["action"], "filters": {"deleted": False}},
+    "cohort": {**_SEARCH_ENTITY_MAP["cohort"], "filters": {"deleted": False}},
+}
 # Words common to almost any goal. Matching them returns arbitrary events rather than the ones the
 # user means, and crowds out the terms that carry the intent.
 _GOAL_STOPWORDS = frozenset(
@@ -239,6 +272,48 @@ class ScannerDraft:
     # budget so a mis-estimate cannot overspend it. None on the legacy path.
     model: str | None = None
     credit_limit: int | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class _MatchedSurvey:
+    """One of the team's surveys whose name matches the goal, with the ID a filter needs."""
+
+    name: str
+    survey_id: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class _MatchedAction:
+    """One of the team's actions whose name matches the goal, with the ID a filter needs."""
+
+    name: str
+    action_id: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class _MatchedCohort:
+    """One of the team's cohorts whose name matches the goal, with the ID a filter needs."""
+
+    name: str
+    cohort_id: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class _GoalEntityMatches:
+    """The named objects a goal can target, each resolved to the ID a filter needs. Empty lists
+    where the goal named nothing of that kind, or the caller's scopes exclude reading it."""
+
+    surveys: list[_MatchedSurvey]
+    actions: list[_MatchedAction]
+    cohorts: list[_MatchedCohort]
+
+
+class _SearchView:
+    """The duck type `search_entities` reads from its `view` argument. The real callers are
+    viewsets; here only the access-control handle is needed."""
+
+    def __init__(self, user_access_control: UserAccessControl) -> None:
+        self.user_access_control = user_access_control
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -618,6 +693,14 @@ def _finalize(
 # ---------------------------------------------------------------------------
 
 
+class _LlmEventPropertyFilter(BaseModel):
+    """One property condition narrowing an event the draft already filters on."""
+
+    event: str = Field(description="The event to narrow, copied from this draft's `filter_events`.")
+    property: str = Field(description="The property name, copied verbatim from the briefing (e.g. '$survey_id').")
+    value: str = Field(description="The value to match, copied verbatim from the briefing (e.g. a survey's id).")
+
+
 class _LlmDraftV2(BaseModel):
     """The model's structured output for the goal-based flow: one drafted scanner plus targeting."""
 
@@ -663,15 +746,33 @@ class _LlmDraftV2(BaseModel):
         "fired when a flow starts). Each event ANDs, with the other events and with the pages, so a session must "
         "have all of them; keep to the one or two that define the flow, and leave empty when pages already capture it.",
     )
+    filter_actions: list[str] = Field(
+        default_factory=list,
+        description="Actions a session must contain to be worth scanning, each copied verbatim from the "
+        "briefing's matching-actions list. An action is the team's own saved definition of a behavior, so "
+        "prefer one over hand-picking events when it covers the goal. Each ANDs with the other filters.",
+    )
+    filter_cohorts: list[str] = Field(
+        default_factory=list,
+        description="Cohorts whose members the scan is limited to, each copied verbatim from the briefing's "
+        "matching-cohorts list. Use when the goal is about a specific audience ('what do power users do'); a "
+        "cohort scopes to those people. Usually just one; leave empty when the goal is not about who the user is.",
+    )
+    filter_event_properties: list[_LlmEventPropertyFilter] = Field(
+        default_factory=list,
+        description="Narrows an event in `filter_events` to one thing, for goals that name a specific survey "
+        "rather than surveys in general. Only use a property and value the briefing showed; anything else is "
+        "dropped. Leave empty when the event alone is what the goal means.",
+    )
     sampling_mode: Literal["comprehensive", "balanced", "focused"] = Field(
         default="comprehensive",
         description="Which sessions deserve the budget when it cannot cover everything; see the drafting rules.",
     )
-    model: Literal["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.7-flash"] = Field(
+    model: Literal["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.8-flash"] = Field(
         default="gemini-3-flash-preview",
         description="The model that watches each recording. Pick by how much judgment the goal needs: "
         "'gemini-3.5-flash-lite' (cheapest, 2 credits) for a simple yes/no check, 'gemini-3-flash-preview' "
-        "(balanced, 5 credits) for an everyday scanner, 'gemini-3.7-flash' (most capable, 15 credits) for "
+        "(balanced, 5 credits) for an everyday scanner, 'gemini-3.8-flash' (most capable, 15 credits) for "
         "nuanced scoring, summarizing, or subtle judgment. A pricier model watches fewer recordings for the "
         "same budget, so only step up when the goal truly needs the extra judgment.",
     )
@@ -713,7 +814,12 @@ Pick the single type that best fits the goal, then draft the scanner:
   - filter_pages: the pages list is what the product actually calls things, so map the goal's words
     onto their closest real pages, including synonyms: someone saying "money" or "payments" means the
     billing pages. Pick up to 5, each copied EXACTLY from the briefing's pages list. They OR together:
-    a session that visited ANY of them is scanned, so cover the flow rather than picking one page.
+    a session that visited ANY of them is scanned. Pick the MOST SPECIFIC page that matches the goal.
+    Do NOT also add a parent of a page you already picked: "/experiments/new" is the creation page, so
+    adding "/experiments" as well widens the scan to everyone browsing the experiments section, which
+    a goal about creation does not want. Use several pages only when the goal genuinely spans distinct
+    pages (a checkout moving through cart, shipping, and payment), never to add a broader page around a
+    specific one.
   - filter_events: when a specific action is the sharpest signal for the goal, pick the one or two
     custom events that mark it, each copied EXACTLY from the briefing's events list. An event is often
     more precise than a page for "did the user DO X" (e.g. an event fired when a flow starts).
@@ -722,6 +828,20 @@ Pick the single type that best fits the goal, then draft the scanner:
     nothing. Anything not copied from the briefing's lists is discarded.
   - Leave both empty ONLY when the goal genuinely spans the whole product ("summarize what users do
     here").
+- filter_event_properties: use ONLY when the goal names one specific thing its event cannot identify
+  on its own. The case this exists for is surveys: every survey fires the same "survey sent" event,
+  so a goal about ONE survey needs that event AND the property filter the briefing lists beside the
+  matching survey. Copy the event, property, and value exactly as shown. An invented value matches
+  nothing and the scanner never runs, so anything not from the briefing is discarded. When the goal
+  is about surveys in general, filter on the event alone and leave this empty.
+- filter_actions: the briefing may list the team's saved actions matching the goal. An action is the
+  team's own curated definition of a behavior, so when one covers the goal, prefer it over hand-picking
+  events or pages. Copy the name exactly; anything not in the list is discarded. Actions AND with every
+  other filter, so the one strongest action usually stands alone.
+- filter_cohorts: the briefing may list the team's cohorts matching the goal. A cohort is a saved
+  audience, so use one when the goal is about WHO the user is ('what do power users struggle with')
+  rather than what they did. Copy the name exactly; anything not in the list is discarded. Usually
+  one cohort; it ANDs with every other filter.
 - sampling_mode: who deserves the budget when it cannot cover every matching session. Each session
   carries a score of how eventful it looks; the mode drops the lowest-scoring sessions before random
   sampling. Choose by what the goal hunts:
@@ -737,7 +857,7 @@ Pick the single type that best fits the goal, then draft the scanner:
     from the recording ("did the user reach the confirmation page?").
   - gemini-3-flash-preview (balanced): the default. Most everyday monitors and classifiers, where the
     judgment is moderate.
-  - gemini-3.7-flash (most capable): scoring intensity, summarizing, or any goal needing subtle reading
+  - gemini-3.8-flash (most capable): scoring intensity, summarizing, or any goal needing subtle reading
     of intent, emotion, or a hard multi-step judgment.
 - rationale: one or two sentences, addressed to the user, explaining why the chosen type, model, and
   settings fit their goal (e.g. why a scorer on the capable model, or which pages the filter covers and
@@ -765,6 +885,9 @@ def _build_user_content_v2(
     pages: Sequence[VisitedPath],
     *,
     scanners: list[_ExistingScanner] | None = None,
+    surveys: Sequence[_MatchedSurvey] = (),
+    actions: Sequence[_MatchedAction] = (),
+    cohorts: Sequence[_MatchedCohort] = (),
     business_context: str = "",
     company: str = "",
 ) -> str:
@@ -803,6 +926,46 @@ def _build_user_content_v2(
                 "existing-scanners",
                 [_scanner_context_line(s) for s in scanners],
                 source="the scanners the team already has (the goal may reference these by name)",
+            )
+        )
+    if surveys:
+        lines.append(
+            "\n"
+            + as_untrusted_data(
+                "matching-surveys",
+                [
+                    f'"{s.name}" -> filter_event_properties {{"event": "survey sent", '
+                    f'"property": "{_SURVEY_ID_PROPERTY}", "value": "{s.survey_id}"}}'
+                    for s in surveys
+                ],
+                source=(
+                    "the team's surveys whose names match the goal. Every survey shares the same "
+                    "'survey sent' event, so targeting one needs the property filter shown beside it"
+                ),
+            )
+        )
+    if actions:
+        lines.append(
+            "\n"
+            + as_untrusted_data(
+                "matching-actions",
+                [f'"{a.name}"' for a in actions],
+                source=(
+                    "the team's saved actions whose names match the goal. Each is a curated definition "
+                    "of a behavior; copy a name into filter_actions to scan only sessions containing it"
+                ),
+            )
+        )
+    if cohorts:
+        lines.append(
+            "\n"
+            + as_untrusted_data(
+                "matching-cohorts",
+                [f'"{c.name}"' for c in cohorts],
+                source=(
+                    "the team's cohorts whose names match the goal. Each is a saved audience; copy a name "
+                    "into filter_cohorts to scan only sessions from people in it"
+                ),
             )
         )
     return "\n".join(lines)
@@ -860,6 +1023,101 @@ def _events_for_goal(team: Team, goal: str) -> list[str]:
     return list(dict.fromkeys([*matched, *baseline]))
 
 
+def _scopes_allow_read(allowed_scopes: list[str] | None, resource: APIScopeObject) -> bool:
+    """Whether a credential's API scopes permit reading `resource`.
+
+    `None` means session or other non-token auth, which is not scope-gated (RBAC applies instead).
+    Mirrors APIScopePermission's matching: `*` grants everything, and a `:write` scope implies
+    `:read`. Without this, a scoped token carrying only `replay_scanner:write` and
+    `session_recording:read` could name a team's surveys and receive their IDs through the draft,
+    despite lacking `survey:read`.
+    """
+    if allowed_scopes is None:
+        return True
+    return "*" in allowed_scopes or f"{resource}:read" in allowed_scopes or f"{resource}:write" in allowed_scopes
+
+
+def _goal_entity_matches(
+    team: Team,
+    goal: str,
+    user_access_control: UserAccessControl,
+    allowed_scopes: list[str] | None = None,
+) -> _GoalEntityMatches:
+    """Surveys, actions, and cohorts the caller can read whose names match the goal's words.
+
+    A goal that names a survey ("people who answered the pricing survey") cannot be filtered from
+    events alone: every survey shares the same `survey sent` event, and the one the user means is
+    identified by `$survey_id`. Reading the survey by name gives that ID exactly, where sampling the
+    property's values would return a list of UUIDs with nothing to choose between them. Actions and
+    cohorts are the team's own curated definitions of a behavior and an audience, so a goal naming
+    one is the sharpest filter available.
+
+    Matching goes through `search_entities`, the ranked full-text search behind the app's search bar,
+    one bounded call per goal term because its query grammar ANDs every word of its input.
+
+    Access control has two gates, and RBAC differs by kind. RBAC: `search_entities` applies the
+    queryset filter, but that filter passes everything through when the caller has neither resource
+    access nor object grants, and this helper has no viewset permission check behind it, so each
+    resource in `ACCESS_CONTROL_RESOURCES` (`survey`, `action`) needs the resource-level gate here.
+    `cohort` is not an access-controlled resource, so it has no resource gate to apply (gating it
+    would always deny). Scope: a scoped token must not receive any resource its scopes exclude, since
+    this path has no viewset to enforce `required_scopes`, so every kind is also scope-gated.
+    """
+    terms = _goal_terms(goal)
+    if not terms:
+        return _GoalEntityMatches(surveys=[], actions=[], cohorts=[])
+
+    def _readable(resource: APIScopeObject) -> bool:
+        return user_access_control.check_access_level_for_resource(
+            resource, required_level="viewer"
+        ) or user_access_control.has_any_specific_access_for_resource(resource, required_level="viewer")
+
+    acl_kinds: tuple[APIScopeObject, ...] = ("survey", "action")
+    kinds: set[str] = {kind for kind in acl_kinds if _readable(kind) and _scopes_allow_read(allowed_scopes, kind)}
+    # Cohorts are team-scoped only, not in ACCESS_CONTROL_RESOURCES, so they get no resource gate,
+    # but a scoped token still must hold cohort:read to receive them.
+    if _scopes_allow_read(allowed_scopes, "cohort"):
+        kinds.add("cohort")
+    # `search_entities` builds its result by unioning one queryset per kind, then orders by the rank
+    # those querysets annotate. With no kind it orders an empty base queryset by a column that was
+    # never added, which raises.
+    if not kinds:
+        return _GoalEntityMatches(surveys=[], actions=[], cohorts=[])
+
+    surveys: dict[str, _MatchedSurvey] = {}
+    actions: dict[str, _MatchedAction] = {}
+    cohorts: dict[str, _MatchedCohort] = {}
+    view = _SearchView(user_access_control)
+    try:
+        for term in terms:
+            results, _, _ = search_entities(
+                entities=kinds,
+                query=term,
+                project_id=team.project_id,
+                view=view,  # type: ignore[arg-type]
+                entity_map=_LIVE_SEARCH_ENTITY_MAP,
+                include_counts=False,
+            )
+            for result in results:
+                extra = result.get("extra_fields") or {}
+                name, result_id = str(extra.get("name") or ""), str(result.get("result_id") or "")
+                if not name or not result_id:
+                    continue
+                kind = result.get("type")
+                if kind == "survey" and len(surveys) < _MAX_MATCHED_SURVEYS:
+                    surveys.setdefault(result_id, _MatchedSurvey(name=name, survey_id=result_id))
+                elif kind == "action" and len(actions) < _MAX_MATCHED_ACTIONS:
+                    actions.setdefault(result_id, _MatchedAction(name=name, action_id=int(result_id)))
+                elif kind == "cohort" and len(cohorts) < _MAX_MATCHED_COHORTS:
+                    cohorts.setdefault(result_id, _MatchedCohort(name=name, cohort_id=int(result_id)))
+    except Exception:
+        # Losing the entity matches costs the precise filters, not the draft.
+        logger.warning("replay_vision.scanner_draft.goal_entities_failed", team_id=team.id, exc_info=True)
+    return _GoalEntityMatches(
+        surveys=list(surveys.values()), actions=list(actions.values()), cohorts=list(cohorts.values())
+    )
+
+
 def _page_filter_regex(pathname: str) -> str | None:
     """A ClickHouse regex matching real URLs for a collapsed grounding path, or None when the path
     cannot narrow.
@@ -887,23 +1145,57 @@ def _strip_page_count(page: str) -> str:
     return re.sub(r"\s*\(\d+\)\s*$", "", page).strip()
 
 
-def _v2_query(pathnames: Sequence[str], events: Sequence[str]) -> dict[str, Any] | None:
-    """The scanner's recording filter from the grounded pages and events.
+def _v2_query(
+    pathnames: Sequence[str],
+    events: Sequence[str],
+    event_properties: Sequence[_LlmEventPropertyFilter] = (),
+    actions: Sequence[_MatchedAction] = (),
+    cohorts: Sequence[_MatchedCohort] = (),
+) -> dict[str, Any] | None:
+    """The scanner's recording filter from the grounded pages, events, and event properties.
 
     Pages become ONE multi-value `visited_page` property (its values OR). Each value is a regex that
     matches the collapsed page against real URLs, with ":id" runs wildcarded. Events go in the
-    `events` list, where each event ANDs, with the other events and with the page property. The
-    estimate the caller runs, and the review page's Save-at-zero gate, catch an over-constrained AND
-    before it ever becomes a scanner.
+    `events` list, where each event ANDs, with the other events and with the page property. A
+    property filter rides on its event's entry, so "survey sent where $survey_id is X" stays one
+    condition rather than matching every survey. The estimate the caller runs, and the review page's
+    Save-at-zero gate, catch an over-constrained AND before it ever becomes a scanner.
     """
     query: dict[str, Any] = {"kind": "RecordingsQuery"}
+    properties: list[dict[str, Any]] = []
     values = list(dict.fromkeys(v for p in pathnames if (v := _page_filter_regex(p)) is not None))
     if values:
-        query["properties"] = [{"type": "recording", "key": "visited_page", "value": values, "operator": "regex"}]
+        properties.append({"type": "recording", "key": "visited_page", "value": values, "operator": "regex"})
+    # A cohort is a person-level property; separate properties AND, so this narrows to sessions from
+    # people in the cohort on top of any page filter.
+    properties.extend(
+        {"type": "cohort", "key": "id", "value": cohort.cohort_id, "operator": "in"} for cohort in cohorts
+    )
+    if properties:
+        query["properties"] = properties
     if events:
+        by_event: dict[str, list[dict[str, Any]]] = {}
+        for prop in event_properties:
+            by_event.setdefault(prop.event, []).append(
+                {"key": prop.property, "value": [prop.value], "operator": "exact", "type": "event"}
+            )
         # The shape the replay filter UI produces for an event condition.
-        query["events"] = [{"id": event, "name": event, "type": "events", "order": 0} for event in events]
-    if "properties" not in query and "events" not in query:
+        query["events"] = [
+            {
+                "id": event,
+                "name": event,
+                "type": "events",
+                "order": 0,
+                **({"properties": p} if (p := by_event.get(event)) else {}),
+            }
+            for event in events
+        ]
+    if actions:
+        # The shape the replay filter UI produces for an action condition.
+        query["actions"] = [
+            {"id": action.action_id, "name": action.name, "type": "actions", "order": 0} for action in actions
+        ]
+    if not any(key in query for key in ("properties", "events", "actions")):
         return None
     return query
 
@@ -979,8 +1271,40 @@ def _solve_budget(
     )
 
 
+def _grounded_event_properties(
+    proposed: Sequence[_LlmEventPropertyFilter],
+    *,
+    kept_events: Sequence[str],
+    allowed_surveys: Sequence[_MatchedSurvey],
+) -> list[_LlmEventPropertyFilter]:
+    """Property filters whose event survived grounding and whose value the briefing actually showed.
+
+    A property filter narrows a scan, so an invented value is worse than a dropped one: it would
+    match nothing and the scanner would never run. Only values read back from the team's own data
+    are allowed through.
+    """
+    allowed_values = {s.survey_id for s in allowed_surveys}
+    kept = set(kept_events)
+    out: list[_LlmEventPropertyFilter] = []
+    for prop in proposed:
+        event, name, value = prop.event.strip(), prop.property.strip(), prop.value.strip()
+        if event not in kept or name != _SURVEY_ID_PROPERTY or value not in allowed_values:
+            continue
+        out.append(_LlmEventPropertyFilter(event=event, property=name, value=value))
+        if len(out) >= _MAX_FILTER_EVENT_PROPERTIES:
+            break
+    return out
+
+
 def _finalize_v2(
-    parsed: _LlmDraftV2, *, allowed_pages: Sequence[str], allowed_events: Sequence[str], team_id: int
+    parsed: _LlmDraftV2,
+    *,
+    allowed_pages: Sequence[str],
+    allowed_events: Sequence[str],
+    team_id: int,
+    allowed_surveys: Sequence[_MatchedSurvey] = (),
+    allowed_actions: Sequence[_MatchedAction] = (),
+    allowed_cohorts: Sequence[_MatchedCohort] = (),
 ) -> ScannerDraft:
     """Normalize the v2 model output; costing is applied by the caller."""
     name = parsed.name.strip()[:_MAX_NAME_LENGTH]
@@ -1001,7 +1325,24 @@ def _finalize_v2(
     # creator says otherwise (the recordings step can toggle it back on). No-op for a team that has
     # not configured internal-user filters. The narrowing query is None when no page or event
     # survives, so the base still carries this default.
-    narrowing = _v2_query(pages, events)
+    event_properties = _grounded_event_properties(
+        parsed.filter_event_properties, kept_events=events, allowed_surveys=allowed_surveys
+    )
+    # Grounding by construction: a name maps back to the matched action's own id, so an invented
+    # name has no id to resolve to and drops out.
+    actions_by_name = {a.name: a for a in allowed_actions}
+    kept_actions = [
+        actions_by_name[name]
+        for name in dict.fromkeys(n.strip() for n in parsed.filter_actions)
+        if name in actions_by_name
+    ][:_MAX_FILTER_ACTIONS]
+    cohorts_by_name = {c.name: c for c in allowed_cohorts}
+    kept_cohorts = [
+        cohorts_by_name[name]
+        for name in dict.fromkeys(n.strip() for n in parsed.filter_cohorts)
+        if name in cohorts_by_name
+    ][:_MAX_FILTER_COHORTS]
+    narrowing = _v2_query(pages, events, event_properties, kept_actions, kept_cohorts)
     query: dict[str, Any] = narrowing if narrowing is not None else {"kind": "RecordingsQuery"}
     query["filter_test_accounts"] = True
 
@@ -1010,7 +1351,9 @@ def _finalize_v2(
     # A page can ground yet drop to None in `_page_filter_value` (a too-short prefix) with nothing
     # formally dropped, so the query still widens to everything. Fire the warning whenever the model
     # wanted a filter but none survived, not only when a value was dropped.
-    widened_unexpectedly = narrowing is None and bool(proposed_pages or parsed.filter_events)
+    widened_unexpectedly = narrowing is None and bool(
+        proposed_pages or parsed.filter_events or parsed.filter_actions or parsed.filter_cohorts
+    )
     if dropped_pages or dropped_events or widened_unexpectedly:
         # Every dropped value silently broadens the scan (worst case to every non-internal session,
         # the most expensive outcome) while the rationale may still describe a narrow one.
@@ -1047,6 +1390,7 @@ def draft_scanner_from_goal_v2(
     monthly_credit_budget: int,
     user_access_control: UserAccessControl,
     include_business_context: bool = True,
+    allowed_scopes: list[str] | None = None,
 ) -> ScannerDraft:
     """The goal-based flow: ground the goal in the team's real pages, draft the whole scanner in one
     model call, then solve the sampling dials from the stated monthly credit budget.
@@ -1066,11 +1410,20 @@ def draft_scanner_from_goal_v2(
         if include_business_context
         else ""
     )
+    matches = _goal_entity_matches(team, goal, user_access_control, allowed_scopes)
+    if matches.surveys:
+        # A goal can name a survey without using the word "survey" ("who answered XYZ Feedback"), so
+        # the survey events may not have matched on their own. A property filter is useless without
+        # the event it rides on, so offer those events whenever a survey matched.
+        events = list(dict.fromkeys([*_SURVEY_EVENTS, *events]))
     user_content = _build_user_content_v2(
         goal,
         events,
         pages,
         scanners=_existing_scanners(team, user_access_control),
+        surveys=matches.surveys,
+        actions=matches.actions,
+        cohorts=matches.cohorts,
         business_context=_business_context(team, user) if include_business_context else "",
         company=company,
     )
@@ -1087,6 +1440,9 @@ def draft_scanner_from_goal_v2(
         allowed_pages=[p.pathname for p in pages],
         allowed_events=events,
         team_id=team.id,
+        allowed_surveys=matches.surveys,
+        allowed_actions=matches.actions,
+        allowed_cohorts=matches.cohorts,
     )
     # The cap is the stated budget, so a mis-estimate stops the scanner at the credits the user
     # agreed to rather than overspending. Kept even when costing fails, so the guardrail survives.

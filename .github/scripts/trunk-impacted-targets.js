@@ -470,7 +470,6 @@ const TRIPWIRE_RULES = [
     ['.github/actions/trunk-quarantine-gate/**', FULLSTACK],
     ['.github/actions/setup-emsdk/**', FULLSTACK],
     ['.github/actions/desktop-build-agent-release/**', DESKTOP],
-    ['.github/actions/desktop-restore-turbo-cache/**', DESKTOP],
     ['.github/actions/setup-python-cached/**', PYTHON],
     // Also used by ci-scripts.yml, which is universal, so the node lane is the
     // only radius left to claim.

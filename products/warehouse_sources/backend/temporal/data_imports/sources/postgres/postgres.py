@@ -659,6 +659,18 @@ def _recovery_conflict_abort_error(retries: int) -> Exception:
     )
 
 
+def _unorderable_read_abort_error(schema: str, table_name: str) -> Exception:
+    # Non-retryable (see source.py): a full-table read orders nothing, so a re-read can only be paged
+    # by seeking on a key that is unique and never NULL. Without one there is no safe page order at
+    # all, and every whole-activity retry re-reads into the same wall.
+    return Exception(
+        f"Read replica canceled the read of {schema}.{table_name} due to conflict with recovery, and "
+        f"the table has no key that can resume a canceled read. Resuming needs a key that is unique "
+        f"and never NULL. Add a primary key to the table, increase max_standby_streaming_delay or "
+        f"enable hot_standby_feedback on the replica, or sync from the primary database instead."
+    )
+
+
 def _statement_timeout_as_non_retryable(
     error: BaseException,
     *,
@@ -2218,6 +2230,63 @@ def _build_xmin_query(
     return ordered
 
 
+def _column_is_not_null(table: Table[PostgreSQLColumn], column_name: str) -> bool:
+    """Whether `column_name` is declared NOT NULL.
+
+    `Column.nullable` is annotated `bool`, but `_get_table` fills it straight from
+    `information_schema.columns.is_nullable` for a table, which Postgres returns as the string
+    "YES"/"NO"; only the materialised-view branch produces a real boolean. A bare truth test
+    therefore reads every column of every table as nullable, because "NO" is truthy. Sibling
+    sources normalise at construction (Redshift, Trino), but doing that here would change the Arrow
+    field nullability this source has always emitted, so interpret both shapes at the point of use.
+    """
+
+    def is_not_null(nullable: object) -> bool:
+        if isinstance(nullable, str):
+            return nullable.strip().upper() == "NO"
+        return not nullable
+
+    return any(is_not_null(column.nullable) for column in table.columns if column.name == column_name)
+
+
+def _build_keyset_query(
+    schema: str,
+    table_name: str,
+    primary_keys: list[str],
+    after: Optional[tuple[Any, ...]],
+    *,
+    incremental_field: Optional[str] = None,
+    enabled_columns: Optional[list[str]] = None,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
+) -> sql.Composed:
+    """One page of a full-table read, seeking past the last primary key already read.
+
+    A full-table read has no ORDER BY, so LIMIT/OFFSET cannot page it: every page is its own scan
+    and may come back in a different order, which both repeats and drops rows. Ordering by the
+    primary key gives the pages one sequence to walk, and seeking past the last key keeps each page
+    an index range scan. The key must be unique, or a page boundary inside a run of equal keys
+    drops the rest of that run.
+    """
+    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+    select_clause: sql.Composable = (
+        sql.SQL("*") if projected is None else sql.SQL(", ").join(sql.Identifier(c) for c in projected)
+    )
+    key_columns = sql.SQL(", ").join(sql.Identifier(key) for key in primary_keys)
+
+    conditions = render_psycopg_row_filter_conditions(row_filters or [])
+    if after is not None:
+        conditions.append(
+            sql.SQL("({keys}) > ({values})").format(
+                keys=key_columns, values=sql.SQL(", ").join(sql.Literal(value) for value in after)
+            )
+        )
+
+    query = sql.SQL("SELECT {cols} FROM {table}").format(cols=select_clause, table=sql.Identifier(schema, table_name))
+    if conditions:
+        query = query + sql.SQL(" WHERE ") + and_join(conditions)
+    return query + sql.SQL(" ORDER BY {keys} ASC").format(keys=key_columns)
+
+
 def _build_count_query(
     schema: str,
     table_name: str,
@@ -3631,13 +3700,28 @@ def postgres_source(
                 connection.commit()
                 return connection
 
-            def offset_chunking(offset: int, chunk_size: int, *, from_recovery_conflict: bool = False):
+            def offset_chunking(
+                offset: int,
+                chunk_size: int,
+                *,
+                from_recovery_conflict: bool = False,
+                keyset_primary_keys: list[str] | None = None,
+            ):
                 # If the db is a read replica and we're running into `conflict with recovery errors,
                 # we create a new query for each chunk. This is due to how the primary replicates
-                # over, we often run into errors when vacuums are happening
-                logger.debug(
-                    f"Using offset chunking to read from read replica. offset = {offset}, chunk_size = {chunk_size}"
-                )
+                # over, we often run into errors when vacuums are happening.
+                #
+                # `keyset_primary_keys` pages by seeking past the last key read instead of by OFFSET,
+                # for a read whose own query orders nothing (see `_build_keyset_query`).
+                if keyset_primary_keys is not None:
+                    logger.debug(
+                        f"Using keyset chunking to read from read replica. keys = {keyset_primary_keys}, "
+                        f"chunk_size = {chunk_size}"
+                    )
+                else:
+                    logger.debug(
+                        f"Using offset chunking to read from read replica. offset = {offset}, chunk_size = {chunk_size}"
+                    )
 
                 query = _build_query(
                     schema,
@@ -3652,6 +3736,25 @@ def postgres_source(
                     row_filters=row_filters,
                     xmin_bounds=xmin_bounds,
                 )
+
+                last_key: tuple[Any, ...] | None = None
+
+                def build_page_query() -> sql.Composed:
+                    if keyset_primary_keys is not None:
+                        page = _build_keyset_query(
+                            schema,
+                            table_name,
+                            keyset_primary_keys,
+                            last_key,
+                            incremental_field=incremental_field,
+                            enabled_columns=enabled_columns,
+                            row_filters=row_filters,
+                        )
+                        return page + sql.SQL(" LIMIT {limit}").format(limit=sql.Literal(chunk_size))
+                    return query + sql.SQL(" LIMIT {limit} OFFSET {offset}").format(
+                        limit=sql.Literal(chunk_size),
+                        offset=sql.Literal(offset),
+                    )
 
                 successive_errors = 0
                 successive_conn_errors = 0
@@ -3701,10 +3804,7 @@ def postgres_source(
                         # argument: 'name'". This LIMIT/OFFSET fetchall path wants an
                         # unnamed client cursor.
                         with psycopg.Cursor(connection) as cursor:
-                            query_with_limit_sql = query + sql.SQL(" LIMIT {limit} OFFSET {offset}").format(
-                                limit=sql.Literal(chunk_size),
-                                offset=sql.Literal(offset),
-                            )
+                            query_with_limit_sql = build_page_query()
                             logger.debug(f"Postgres query: {query_with_limit_sql}")
                             cursor.execute(query_with_limit_sql)
 
@@ -3714,7 +3814,11 @@ def postgres_source(
                             if not rows or len(rows) == 0:
                                 break
 
-                            offset += len(rows)
+                            if keyset_primary_keys is not None:
+                                key_positions = [column_names.index(key) for key in keyset_primary_keys]
+                                last_key = tuple(rows[-1][position] for position in key_positions)
+                            else:
+                                offset += len(rows)
 
                             yield table_from_iterator(
                                 (dict(zip(column_names, row)) for row in rows),
@@ -3896,6 +4000,22 @@ def postgres_source(
                 )
                 return
 
+            # Seeking needs a key that is unique and never NULL. A page boundary inside a run of
+            # equal keys drops the rest of that run, and `key > last` never matches NULL, so a NULL
+            # row is dropped unless it lands on the first page. Postgres guarantees both for a
+            # declared primary key, so that needs no further check. The assumed `id` is neither
+            # until proven: its duplicate probe groups NULLs together, so one NULL row alone passes
+            # it, and the column has to be NOT NULL as well. A partitioned parent's key is unique
+            # only per child.
+            assumed_id_is_seekable = not has_duplicate_primary_keys and all(
+                _column_is_not_null(full_table, key) for key in primary_keys or []
+            )
+            keyset_primary_keys = (
+                primary_keys
+                if primary_keys and not is_partitioned and (not used_id_pk_fallback or assumed_id_is_seekable)
+                else None
+            )
+
             initial_read_drop_retries = 0
             initial_read_lock_timeout_retries = 0
             while True:
@@ -3949,6 +4069,29 @@ def postgres_source(
                 except psycopg.errors.SerializationFailure as e:
                     # If we hit a SerializationFailure and we're reading from a read replica, we fallback to offset chunking
                     if using_read_replica and "conflict with recovery" in "".join(e.args):
+                        # Paging by OFFSET needs a query that orders its rows, the precondition the
+                        # connection-dropped handler below also enforces. A full-table read orders
+                        # nothing, so seek on the primary key instead, and only from the start,
+                        # because rows already yielded are already written.
+                        if not should_use_incremental_field and xmin_bounds is None:
+                            if keyset_primary_keys is None:
+                                raise _unorderable_read_abort_error(schema, table_name) from e
+                            if offset > 0:
+                                # Retryable, so Temporal restarts the read and the load overwrites
+                                # from the first batch. The next attempt can conflict before any row
+                                # is out, where seeking takes over.
+                                raise
+                            logger.debug(
+                                f"Falling back to keyset chunking for table due to SerializationFailure error: {e}."
+                            )
+                            yield from offset_chunking(
+                                0,
+                                chunk_size,
+                                from_recovery_conflict=True,
+                                keyset_primary_keys=keyset_primary_keys,
+                            )
+                            return
+
                         logger.debug(
                             f"Falling back to offset chunking for table due to SerializationFailure error: {e}."
                         )

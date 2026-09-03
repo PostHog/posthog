@@ -1,12 +1,20 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, REVIEW_MODEL
+from products.review_hog.backend.reviewer.constants import (
+    DEFAULT_REVIEW_ARM,
+    REVIEW_MODEL,
+    VALIDATION_MODEL,
+    VALIDATION_REASONING_EFFORT,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
@@ -19,10 +27,14 @@ from products.review_hog.backend.reviewer.persistence import (
 from products.review_hog.backend.temporal.activities import (
     TrackReviewCompletedInput,
     TrackReviewFailedInput,
+    TrackReviewStartedInput,
     _track_review_completed,
     _track_review_completed_safe,
     _track_review_failed,
+    _track_review_started,
 )
+from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL
+from products.signals.backend.enums import ReportPriority
 
 _PR_URL = "https://github.com/o/r/pull/7"
 
@@ -60,14 +72,26 @@ def _issue(issue_id: str) -> Issue:
 
 
 class TestTrackReviewCompleted(BaseTest):
-    def _review_report(self) -> str:
-        # The upsert draws a random experiment arm; pin it so arm-property assertions are deterministic.
-        with patch("products.review_hog.backend.reviewer.persistence.draw_review_arm", return_value=DEFAULT_REVIEW_ARM):
-            return upsert_review_report(
-                team_id=self.team.id, repository="o/r", pr_url=_PR_URL, pr_metadata=_pr_metadata()
-            )
+    def _review_report(
+        self,
+        *,
+        signal_report_id: str | None = None,
+        trigger_source: str | None = None,
+        signal_priority: ReportPriority | None = None,
+    ) -> str:
+        return upsert_review_report(
+            team_id=self.team.id,
+            repository="o/r",
+            pr_url=_PR_URL,
+            pr_metadata=_pr_metadata(),
+            signal_report_id=signal_report_id,
+            trigger_source=trigger_source,
+            signal_priority=signal_priority,
+        )
 
-    def _tracking_input(self, report_id: str, *, published: bool = True) -> TrackReviewCompletedInput:
+    def _tracking_input(
+        self, report_id: str, *, published: bool = True, turn_trigger_source: str = "manual"
+    ) -> TrackReviewCompletedInput:
         return TrackReviewCompletedInput(
             team_id=self.team.id,
             report_id=report_id,
@@ -75,6 +99,7 @@ class TestTrackReviewCompleted(BaseTest):
             run_index=1,
             published=published,
             workflow_started_at=(datetime.now(UTC) - timedelta(seconds=90)).isoformat(),
+            turn_trigger_source=turn_trigger_source,
         )
 
     @parameterized.expand([(True,), (False,)])
@@ -122,6 +147,7 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["pr_number"] == 7
         assert props["run_index"] == 1
         assert props["trigger_source"] == "manual"
+        assert props["turn_trigger_source"] == "manual"
         assert props["author_login"] == "octocat"
         assert props["published"] is published
         assert props["findings_total"] == 2
@@ -133,6 +159,9 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["review_runtime_adapter"] == DEFAULT_REVIEW_ARM.runtime_adapter.value
         assert props["review_reasoning_effort"] == DEFAULT_REVIEW_ARM.reasoning_effort.value
         assert props["review_arm_fallback"] is False
+        assert props["review_tier"] == "human"
+        assert props["signal_priority"] is None
+        assert props["signal_report_id"] is None
         assert props["pr_additions"] == 120
         assert props["pr_deletions"] == 30
         assert props["pr_changed_files"] == 7
@@ -154,15 +183,32 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["pr_reviewable_additions"] is None
         assert props["findings_total"] == 0
 
-    def test_event_uuid_is_stable_across_retries(self) -> None:
+    @parameterized.expand([("completed",), ("failed",), ("started",)])
+    def test_event_uuid_is_stable_across_retries(self, event: str) -> None:
         # A Temporal retry after a successful capture re-emits the event; a stable uuid lets
-        # ingestion dedupe it instead of double-counting the review.
+        # ingestion dedupe it instead of double-counting the turn.
         report_id = self._review_report()
-        tracking_input = self._tracking_input(report_id)
+        emit = {
+            "completed": lambda: _track_review_completed(self._tracking_input(report_id)),
+            "failed": lambda: _track_review_failed(
+                TrackReviewFailedInput(
+                    team_id=self.team.id, report_id=report_id, run_index=1, turn_trigger_source="manual"
+                )
+            ),
+            "started": lambda: _track_review_started(
+                TrackReviewStartedInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    head_sha="sha1",
+                    run_index=1,
+                    turn_trigger_source="manual",
+                )
+            ),
+        }[event]
 
         with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
-            _track_review_completed(tracking_input)
-            _track_review_completed(tracking_input)
+            emit()
+            emit()
 
         first, second = capture.call_args_list
         assert first.kwargs["uuid"]
@@ -207,6 +253,58 @@ class TestTrackReviewCompleted(BaseTest):
         # The failed event needs its own stable uuid namespace: colliding with the completed event's
         # would make ingestion dedupe a real failure against a later success of the same turn.
         assert failed.kwargs["uuid"] != completed.kwargs["uuid"]
+
+    def test_events_carry_the_tier_and_report_link_of_an_agent_pr(self) -> None:
+        # The per-tier dashboards split on these: an event that drops the tier, the priority, or
+        # the report link makes a cheap agent review indistinguishable from a full one, and the
+        # turn's own trigger is what tells a person's re-trigger of an inbox report apart from
+        # the report's first turn. The started event is the third event of a turn: a dashboard
+        # compares it against completed to see a lift, so it must carry the same labels.
+        signal_report_id = str(uuid.uuid4())
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+            report_id = self._review_report(
+                signal_report_id=signal_report_id, trigger_source=TRIGGER_INBOX, signal_priority=ReportPriority.P3
+            )
+
+        with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
+            _track_review_completed(self._tracking_input(report_id, turn_trigger_source=TRIGGER_LABEL))
+            _track_review_failed(
+                TrackReviewFailedInput(
+                    team_id=self.team.id, report_id=report_id, run_index=1, turn_trigger_source=TRIGGER_INBOX
+                )
+            )
+            _track_review_started(
+                TrackReviewStartedInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    head_sha="sha1",
+                    run_index=1,
+                    turn_trigger_source=TRIGGER_INBOX,
+                )
+            )
+
+        completed, failed, started = capture.call_args_list
+        assert started.kwargs["event"] == "reviewhog_review_started"
+        expected_validator_effort = VALIDATION_REASONING_EFFORT.value if VALIDATION_REASONING_EFFORT else None
+        for call in (completed, failed, started):
+            props = call.kwargs["properties"]
+            assert props["review_tier"] == "agent_p3_p4"
+            assert props["signal_priority"] == "P3"
+            assert props["signal_report_id"] == signal_report_id
+            assert props["trigger_source"] == "inbox"
+            assert props["review_model"] == "gpt-5.6-sol"
+            assert props["review_reasoning_effort"] == "low"
+            assert props["review_arm_fallback"] is False
+            # The validator and resolver are fixed pins, but the event is where a cost dashboard
+            # reads them, so every event names them next to the reviewer arm.
+            assert props["validator_model"] == VALIDATION_MODEL
+            assert props["validator_reasoning_effort"] == expected_validator_effort
+        assert completed.kwargs["properties"]["turn_trigger_source"] == "label"
+        assert failed.kwargs["properties"]["turn_trigger_source"] == "inbox"
+        assert started.kwargs["properties"]["turn_trigger_source"] == "inbox"
+        # Three events per turn, three uuid namespaces: a shared one would dedupe a start or a
+        # failure against the completion of the same turn.
+        assert len({call.kwargs["uuid"] for call in (completed, failed, started)}) == 3
 
     @parameterized.expand(
         [
