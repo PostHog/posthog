@@ -1794,6 +1794,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                     set_tags_on_object(data["tags"], ticket)
             return ticket
 
+        # message, recipient_email, and email_config are all validated above, so build never
+        # returns None here.
         fingerprint = reply_dedupe.ComposeFingerprint.build(
             team_id=team.id,
             email_config_id=str(email_config.id),
@@ -1802,21 +1804,18 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             message=data["message"],
             rich_content=data.get("rich_content"),
         )
-        if fingerprint is None:
-            ticket = create_ticket()
-            created = True
-        else:
-            guarded = reply_dedupe.create_ticket_deduplicated(fingerprint, create_ticket)
-            if guarded.outcome is reply_dedupe.CreateOutcome.CONFLICT:
-                return Response(
-                    {
-                        "detail": reply_dedupe.COMPOSE_IN_PROGRESS_DETAIL,
-                        "error_type": reply_dedupe.COMPOSE_IN_PROGRESS_ERROR_TYPE,
-                    },
-                    status=drf_status.HTTP_409_CONFLICT,
-                )
-            ticket = cast(Ticket, guarded.ticket)
-            created = guarded.outcome is reply_dedupe.CreateOutcome.CREATED
+        assert fingerprint is not None
+        guarded = reply_dedupe.create_ticket_deduplicated(fingerprint, create_ticket)
+        if guarded.outcome is reply_dedupe.CreateOutcome.CONFLICT:
+            return Response(
+                {
+                    "detail": reply_dedupe.COMPOSE_IN_PROGRESS_DETAIL,
+                    "error_type": reply_dedupe.COMPOSE_IN_PROGRESS_ERROR_TYPE,
+                },
+                status=drf_status.HTTP_409_CONFLICT,
+            )
+        ticket = cast(Ticket, guarded.ticket)
+        created = guarded.outcome is reply_dedupe.CreateOutcome.CREATED
 
         # A replay already reported this action and already emailed the customer, so only a genuine
         # create repeats either.

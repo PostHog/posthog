@@ -2066,6 +2066,27 @@ class TestComposeTicketAPI(APIBaseTest):
         assert Ticket.objects.filter(team=self.team).count() == 1
         assert Comment.objects.filter(scope="conversations_ticket", item_id=first.json()["id"]).count() == 1
 
+    def test_compose_recovers_the_existing_ticket_when_the_reservation_is_lost(self, mock_on_commit):
+        # The Redis reservation can vanish (eviction, restart) after a ticket commits. A retry then
+        # reserves cleanly and must recover the existing ticket from the database — via
+        # find_persisted_match — instead of opening a second one and re-emailing the customer.
+        payload = {
+            "recipient_email": "pitch@test.com",
+            "email_config_id": str(self.email_config.id),
+            "email_subject": "Thanks for your pitch",
+            "message": "Great idea, we logged it.",
+        }
+
+        first = self._compose(payload)
+        assert first.status_code == status.HTTP_201_CREATED
+        get_client().flushall()
+
+        second = self._compose(payload)
+
+        assert second.status_code == status.HTTP_200_OK
+        assert second.json() == first.json()
+        assert Ticket.objects.filter(team=self.team).count() == 1
+
     def test_compose_distinct_messages_are_not_deduplicated(self, mock_on_commit):
         base = {
             "recipient_email": "pitch@test.com",
@@ -2095,8 +2116,9 @@ class TestComposeTicketAPI(APIBaseTest):
             rich_content=None,
         )
         assert fingerprint is not None
-        # Simulate another request that reserved the fingerprint and hasn't finished creating yet.
-        get_client().set(fingerprint.key, f"{reply_dedupe._IN_FLIGHT_VALUE_PREFIX}someone-else", nx=True, ex=30)
+        # Another request holds the reservation and hasn't finished creating yet.
+        held = reply_dedupe.reserve(fingerprint)
+        assert held.state is reply_dedupe.ReservationState.ACQUIRED
 
         response = self._compose(payload)
 
