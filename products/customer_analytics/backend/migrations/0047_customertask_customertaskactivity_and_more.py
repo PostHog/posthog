@@ -52,9 +52,8 @@ class Migration(migrations.Migration):
                     "account",
                     models.ForeignKey(
                         blank=True,
-                        db_index=False,
                         null=True,
-                        on_delete=django.db.models.deletion.CASCADE,
+                        on_delete=django.db.models.deletion.SET_NULL,
                         related_name="customer_tasks",
                         to="customer_analytics.account",
                     ),
@@ -147,7 +146,6 @@ class Migration(migrations.Migration):
                 (
                     "task",
                     models.ForeignKey(
-                        db_index=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="activities",
                         to="customer_analytics.customertask",

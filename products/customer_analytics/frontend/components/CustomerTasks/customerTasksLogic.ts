@@ -18,6 +18,9 @@ import { lemonToast, type PaginationManual, type Sorting } from '@posthog/lemon-
 
 import { ApiError } from 'lib/api-error'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import type { UserType } from '~/types'
 
 import {
     accountsList,
@@ -32,6 +35,7 @@ import type {
     CustomerTaskApi,
     CustomerTaskCreateApi,
     CustomerTaskPageApi,
+    CustomerTaskUserApi,
     PaginatedAccountListApi,
     PatchedCustomerTaskUpdateApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -52,6 +56,7 @@ import {
 const ACCOUNT_PAGE_SIZE = 20
 const INBOX_PAGE_SIZE = 50
 const ACCOUNT_OPTIONS_LIMIT = 50
+
 export interface CustomerTasksLogicProps {
     context: CustomerTasksContext
     accountId?: string
@@ -81,9 +86,10 @@ export interface customerTasksLogicValues {
     timezone: string
     draftName: string
     draftDescription: string
-    draftAccountId: string | null
-    draftAssignedTo: number | null
+    draftAccount: CustomerTaskAccountFilter | null
+    draftAssignedTo: CustomerTaskUserApi | null
     draftDueAt: string | null
+    user: UserType | null
 }
 export interface customerTasksLogicActions {
     closeModal: () => void
@@ -104,8 +110,8 @@ export interface customerTasksLogicActions {
     setTaskSorting: (sorting: Sorting | null) => { sorting: Sorting | null }
     setPage: (page: number) => { page: number }
     setSearch: (search: string) => { search: string }
-    setDraftAccountId: (accountId: string | null) => { accountId: string | null }
-    setDraftAssignedTo: (assignedToId: number | null) => { assignedToId: number | null }
+    setDraftAccount: (account: CustomerTaskAccountFilter | null) => { account: CustomerTaskAccountFilter | null }
+    setDraftAssignedTo: (assignedTo: CustomerTaskUserApi | null) => { assignedTo: CustomerTaskUserApi | null }
     setDraftDescription: (description: string) => { description: string }
     setDraftDueAt: (dueAt: string | null) => { dueAt: string | null }
     setDraftName: (name: string) => { name: string }
@@ -139,7 +145,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
     props({} as CustomerTasksLogicProps),
     key((p) => 'customer-tasks-' + p.context + '-' + (p.accountId ?? p.persistPrefix ?? 'all')),
     path(['products', 'customer_analytics', 'frontend', 'components', 'CustomerTasks', 'customerTasksLogic']),
-    connect(() => ({ values: [teamLogic, ['currentTeamId', 'timezone']] })),
+    connect(() => ({ values: [teamLogic, ['currentTeamId', 'timezone'], userLogic, ['user']] })),
     actions({
         loadTaskPage: true,
         loadAccountOptions: (payload: { query: string }) => payload,
@@ -156,8 +162,8 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         closeModal: () => ({}),
         setDraftName: (name: string) => ({ name }),
         setDraftDescription: (description: string) => ({ description }),
-        setDraftAccountId: (accountId: string | null) => ({ accountId }),
-        setDraftAssignedTo: (assignedToId: number | null) => ({ assignedToId }),
+        setDraftAccount: (account: CustomerTaskAccountFilter | null) => ({ account }),
+        setDraftAssignedTo: (assignedTo: CustomerTaskUserApi | null) => ({ assignedTo }),
         setDraftDueAt: (dueAt: string | null) => ({ dueAt }),
         submitModal: () => ({}),
         createTask: (task: CustomerTaskCreateApi) => ({ task }),
@@ -290,21 +296,25 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                     closeModal: () => '',
                 },
             ],
-            draftAccountId: [
-                props.accountId ?? null,
+            draftAccount: [
+                null as CustomerTaskAccountFilter | null,
                 {
-                    openCreateModal: () => props.accountId ?? null,
-                    openEditModal: (_: string | null, a: { task: CustomerTaskApi }) => a.task.account?.id ?? null,
-                    setDraftAccountId: (_: string | null, a: { accountId: string | null }) => a.accountId,
-                    closeModal: () => props.accountId ?? null,
+                    openCreateModal: () => null,
+                    openEditModal: (_: CustomerTaskAccountFilter | null, a: { task: CustomerTaskApi }) => a.task.account,
+                    setDraftAccount: (
+                        _: CustomerTaskAccountFilter | null,
+                        a: { account: CustomerTaskAccountFilter | null }
+                    ) => a.account,
+                    closeModal: () => null,
                 },
             ],
             draftAssignedTo: [
-                null as number | null,
+                null as CustomerTaskUserApi | null,
                 {
                     openCreateModal: () => null,
-                    openEditModal: (_: number | null, a: { task: CustomerTaskApi }) => a.task.assigned_to?.id ?? null,
-                    setDraftAssignedTo: (_: number | null, a: { assignedToId: number | null }) => a.assignedToId,
+                    openEditModal: (_: CustomerTaskUserApi | null, a: { task: CustomerTaskApi }) => a.task.assigned_to,
+                    setDraftAssignedTo: (_: CustomerTaskUserApi | null, a: { assignedTo: CustomerTaskUserApi | null }) =>
+                        a.assignedTo,
                     closeModal: () => null,
                 },
             ],
@@ -346,7 +356,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
             }),
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, props, values }) => ({
         setFilters: () => actions.loadTaskPage(),
         setSearch: () => actions.loadTaskPage(),
         setAccountFilter: () => actions.loadTaskPage(),
@@ -359,24 +369,51 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
             }
         },
         resetFilters: () => actions.loadTaskPage(),
+        openCreateModal: () => {
+            if (props.context === 'inbox' && values.filters.assignee === 'me' && values.user) {
+                actions.setDraftAssignedTo({
+                    id: values.user.id,
+                    email: values.user.email,
+                    first_name: values.user.first_name,
+                    last_name: values.user.last_name ?? '',
+                })
+            }
+        },
         submitModal: () => {
             if (values.mutationKeys.create || (values.modalTask && values.mutationKeys[values.modalTask.id])) {
                 return
             }
+            const accountId = props.context === 'account' ? (props.accountId ?? null) : (values.draftAccount?.id ?? null)
+            const description = values.draftDescription || null
+            const assignedToId = values.draftAssignedTo?.id ?? null
             if (values.modalTask) {
-                actions.updateTask(values.modalTask.id, {
-                    account_id: values.draftAccountId,
-                    name: values.draftName,
-                    description: values.draftDescription || null,
-                    assigned_to_id: values.draftAssignedTo,
-                    due_at: values.draftDueAt,
-                })
+                const patch: PatchedCustomerTaskUpdateApi = {}
+                if (accountId !== (values.modalTask.account?.id ?? null)) {
+                    patch.account_id = accountId
+                }
+                if (values.draftName !== values.modalTask.name) {
+                    patch.name = values.draftName
+                }
+                if (values.draftDescription !== (values.modalTask.description ?? '')) {
+                    patch.description = description
+                }
+                if (assignedToId !== (values.modalTask.assigned_to?.id ?? null)) {
+                    patch.assigned_to_id = assignedToId
+                }
+                if (values.draftDueAt !== values.modalTask.due_at) {
+                    patch.due_at = values.draftDueAt
+                }
+                if (Object.keys(patch).length === 0) {
+                    actions.closeModal()
+                    return
+                }
+                actions.updateTask(values.modalTask.id, patch)
             } else {
                 actions.createTask({
-                    account_id: values.draftAccountId,
+                    account_id: accountId,
                     name: values.draftName,
-                    description: values.draftDescription || null,
-                    assigned_to_id: values.draftAssignedTo,
+                    description,
+                    assigned_to_id: assignedToId,
                     due_at: values.draftDueAt,
                 })
             }
@@ -406,13 +443,12 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                       ([key, value]) =>
                           (key === 'assigned_to_id'
                               ? (current.assigned_to?.id ?? null)
-                              : current[key as keyof CustomerTaskApi]) !== value
+                              : key === 'account_id'
+                                ? (current.account?.id ?? null)
+                                : current[key as keyof CustomerTaskApi]) !== value
                   )
                 : true
             if (!changed || values.mutationKeys[taskId] || values.currentTeamId === null) {
-                if (!changed) {
-                    actions.closeModal()
-                }
                 return
             }
             actions.mutationStarted(taskId)
@@ -444,7 +480,8 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
             }
         },
         restoreTask: async ({ taskId }: { taskId: string }) => {
-            if (values.tasks.find((task) => task.id === taskId)?.can_edit === false) {
+            const current = values.tasks.find((task) => task.id === taskId)
+            if (current && !current.can_restore) {
                 return
             }
             if (values.mutationKeys[taskId] || values.currentTeamId === null) {
@@ -461,8 +498,10 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, props }) => {
         actions.loadTaskPage()
-        actions.loadAccountOptions({ query: String() })
+        if (props.context === 'inbox') {
+            actions.loadAccountOptions({ query: '' })
+        }
     }),
 ])

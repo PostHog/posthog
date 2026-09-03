@@ -2,8 +2,7 @@
     container-type: inline-size;
 }
 
-// Declared before the container query so the narrow override wins: both selectors are a
-// single class, so source order decides.
+// Source order makes this container override take precedence over the base rule.
 .CustomerTasksTable__narrow-assignee {
     display: none;
 }

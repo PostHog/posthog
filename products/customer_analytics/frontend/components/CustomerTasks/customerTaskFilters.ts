@@ -193,7 +193,6 @@ export function customerTasksQuery(
         ...customerTaskDueBounds(filters.due, timezone),
     }
     if (context === 'account') {
-        delete query.assigned_to
         delete query.due_after
         delete query.due_before
         delete query.has_due_at

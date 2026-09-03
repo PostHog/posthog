@@ -122,6 +122,7 @@ const customerTaskStoryItems: CustomerTaskApi[] = [
         created_at: '2024-01-08T10:00:00Z',
         updated_at: '2024-01-14T14:30:00Z',
         can_edit: true,
+        can_restore: false,
     },
     {
         id: '018f47de-7e12-7000-8000-000000000042',
@@ -143,6 +144,7 @@ const customerTaskStoryItems: CustomerTaskApi[] = [
         created_at: '2024-01-09T09:00:00Z',
         updated_at: '2024-01-13T16:15:00Z',
         can_edit: true,
+        can_restore: false,
     },
     {
         id: '018f47de-7e12-7000-8000-000000000043',
@@ -159,6 +161,7 @@ const customerTaskStoryItems: CustomerTaskApi[] = [
         created_at: '2024-01-10T13:00:00Z',
         updated_at: '2024-01-12T09:45:00Z',
         can_edit: true,
+        can_restore: false,
     },
 ]
 

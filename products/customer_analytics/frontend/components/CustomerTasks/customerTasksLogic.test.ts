@@ -3,6 +3,8 @@ import { expectLogic } from 'kea-test-utils'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api-error'
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -47,6 +49,7 @@ function task(canEdit = true): CustomerTaskApi {
         created_at: '2026-09-02T10:00:00Z',
         updated_at: '2026-09-02T10:00:00Z',
         can_edit: canEdit,
+        can_restore: false,
     }
 }
 
@@ -139,18 +142,30 @@ describe('customerTasksLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         logic.actions.openEditModal(originalTask)
-        expect(logic.values.draftAccountId).toBe(account?.id ?? null)
-        logic.actions.setDraftAccountId(selectedAccountId)
+        expect(logic.values.draftAccount).toEqual(account)
+        logic.actions.setDraftAccount(selectedAccountId ? { id: selectedAccountId, name: 'Acme' } : null)
         logic.actions.submitModal()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockUpdate).toHaveBeenCalledWith(expect.any(String), originalTask.id, {
             account_id: selectedAccountId,
-            name: originalTask.name,
-            description: null,
-            assigned_to_id: null,
-            due_at: null,
         })
+    })
+
+    test('assigns an inbox draft to the current user under the default filter', async () => {
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true })
+        logic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openCreateModal()
+
+        expect(logic.values.draftAssignedTo).toMatchObject({
+            id: MOCK_DEFAULT_USER.id,
+            email: MOCK_DEFAULT_USER.email,
+        })
+        logic.actions.setDraftAssignedTo(null)
+        expect(logic.values.draftAssignedTo).toBeNull()
     })
 
     test('persists inbox filters for one team and user, then resets them to defaults', async () => {
@@ -220,14 +235,17 @@ describe('customerTasksLogic', () => {
         toast.mockRestore()
     })
 
-    test('does not submit a no-op, an uneditable task, or an archived task', async () => {
-        mockList.mockResolvedValueOnce({ count: 1, next: null, previous: null, results: [task()] })
+    test('does not submit an unchanged modal, an uneditable task, or an archived task', async () => {
+        const accountTask = { ...task(), account: { id: 'account-1', name: 'Acme' } }
+        mockList.mockResolvedValueOnce({ count: 1, next: null, previous: null, results: [accountTask] })
         logic = customerTasksLogic({ context: 'account', accountId: 'account-1' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        logic.actions.updateTask('task-1', { name: 'Follow up' })
+        logic.actions.openEditModal(logic.values.tasks[0])
+        logic.actions.submitModal()
         await expectLogic(logic).toFinishAllListeners()
         expect(mockUpdate).not.toHaveBeenCalled()
+        expect(logic.values.modalOpen).toBe(false)
 
         mockList.mockResolvedValueOnce({ count: 1, next: null, previous: null, results: [task(false)] })
         logic.actions.loadTaskPage()

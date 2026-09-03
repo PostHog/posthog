@@ -70,6 +70,22 @@ describe('customer task filter helpers', () => {
         })
     })
 
+    test('keeps an assignee and omits due filters in account context', () => {
+        const query = customerTasksQuery(
+            { ...defaultCustomerTaskFilters('account'), assignee: 42, due: 'overdue' },
+            'account',
+            'account-1',
+            1,
+            20,
+            'UTC'
+        )
+
+        expect(query).toMatchObject({ account_id: 'account-1', assigned_to: '42' })
+        expect(query).not.toHaveProperty('due_after')
+        expect(query).not.toHaveProperty('due_before')
+        expect(query).not.toHaveProperty('has_due_at')
+    })
+
     test.each([
         ['an archived task', { archived_at: '2026-09-02T11:00:00Z' }, 'Restore this task to edit it'],
         ['a task the user cannot edit', { can_edit: false }, 'You cannot edit this task'],

@@ -39,6 +39,7 @@ const accountlessTask: CustomerTaskApi = {
     created_at: '2026-09-02T10:00:00Z',
     updated_at: '2026-09-02T10:00:00Z',
     can_edit: false,
+    can_restore: false,
 }
 
 function tableHeaders(table: HTMLElement): HTMLTableCellElement[] {
@@ -69,7 +70,7 @@ describe('CustomerTasksTable', () => {
         logic.unmount()
     })
 
-    test('renders task details and opens the editor', async () => {
+    test('renders task details and opens the read-only modal', async () => {
         await expectLogic(logic).toFinishAllListeners()
 
         render(
@@ -88,9 +89,13 @@ describe('CustomerTasksTable', () => {
         expect(taskRow!.querySelector('[data-attr="customer-task-assignee"]')).toHaveTextContent('Casey Kim')
 
         fireEvent.click(taskName)
-        expect(screen.getByText('Edit task')).toBeInTheDocument()
-        expect(screen.getByText('Account (optional)')).toBeInTheDocument()
-        expect(screen.getByText('No account')).toBeInTheDocument()
+        const dialog = screen.getByRole('dialog')
+        expect(within(dialog).getByText('Task details')).toBeInTheDocument()
+        expect(within(dialog).getByText('Account (optional)')).toBeInTheDocument()
+        expect(within(dialog).getByText('No account')).toBeInTheDocument()
+        expect(within(dialog).getByDisplayValue('Follow up')).toBeDisabled()
+        expect(within(dialog).queryByText('Save changes')).not.toBeInTheDocument()
+        expect(within(dialog).getByText('Close')).toBeInTheDocument()
 
         mockList.mockResolvedValueOnce({
             count: 1,
@@ -101,6 +106,36 @@ describe('CustomerTasksTable', () => {
         logic.actions.loadTaskPage()
         await expectLogic(logic).toFinishAllListeners()
         expect(within(table).queryByText('First line Second line Third line')).not.toBeInTheDocument()
+    })
+
+    test('shows the task assignee before project members load', async () => {
+        mockList.mockResolvedValueOnce({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [
+                {
+                    ...accountlessTask,
+                    assigned_to: {
+                        id: 178,
+                        email: 'alex@example.com',
+                        first_name: 'Alex',
+                        last_name: 'Morgan',
+                    },
+                },
+            ],
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        render(
+            <Provider>
+                <CustomerTasksTable logic={logic} context="inbox" />
+            </Provider>
+        )
+
+        expect(screen.getAllByText('Alex Morgan').length).toBeGreaterThan(0)
+        fireEvent.click(screen.getByText('Follow up'))
+        expect(within(screen.getByRole('dialog')).getByText('Alex Morgan')).toBeInTheDocument()
     })
 
     test.each([

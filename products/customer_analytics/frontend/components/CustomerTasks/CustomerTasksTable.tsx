@@ -25,14 +25,12 @@ export interface CustomerTasksTableProps {
     context: CustomerTasksContext
     canCreate?: boolean
     canViewAll?: boolean
-    accountName?: string
 }
 export function CustomerTasksTable({
     logic,
     context,
     canCreate = false,
     canViewAll = false,
-    accountName,
 }: CustomerTasksTableProps): JSX.Element {
     const { taskPage, taskPageError, taskPageLoading, tasks, pagination, hasActiveFilters, taskSorting, timezone } =
         useValues(logic)
@@ -169,7 +167,7 @@ export function CustomerTasksTable({
                 nouns={['task', 'tasks']}
                 tableLayout="fixed"
             />
-            <CustomerTaskModal logic={logic} accountName={accountName} />
+            <CustomerTaskModal logic={logic} context={context} />
         </div>
     )
 }

@@ -107,10 +107,18 @@ def _validate_assignee(
     return assignee
 
 
-def can_edit_customer_task(task: CustomerTask, user_access_control: UserAccessControl) -> bool:
+def _has_customer_task_edit_authorization(task: CustomerTask, user_access_control: UserAccessControl) -> bool:
     return task.assigned_to_id == user_access_control.user.id or user_access_control.check_access_level_for_resource(
         "customer_task", "editor"
     )
+
+
+def can_edit_customer_task(task: CustomerTask, user_access_control: UserAccessControl) -> bool:
+    return task.archived_at is None and _has_customer_task_edit_authorization(task, user_access_control)
+
+
+def can_restore_customer_task(task: CustomerTask, user_access_control: UserAccessControl) -> bool:
+    return task.archived_at is not None and _has_customer_task_edit_authorization(task, user_access_control)
 
 
 def _timestamp(value: datetime | None) -> str | None:
@@ -154,7 +162,18 @@ def _changes(
         ("assigned_to", _snapshot_user(before_assignee), _snapshot_user(after_assignee)),
         ("due_at", _timestamp(before_due_at), _timestamp(after_due_at)),
     )
-    return [{"field": field, "before": before, "after": after} for field, before, after in values if before != after]
+    before_account_id = str(before_account.id) if before_account is not None else None
+    after_account_id = str(after_account.id) if after_account is not None else None
+    changes: list[dict[str, object | None]] = []
+    for field, before, after in values:
+        if before == after:
+            continue
+        change: dict[str, object | None] = {"field": field, "before": before, "after": after}
+        if field != "account":
+            change["before_account_id"] = before_account_id
+            change["after_account_id"] = after_account_id
+        changes.append(change)
+    return changes
 
 
 def _record_activity(
@@ -437,7 +456,17 @@ def _list_visible_historical_account_ids(
     historical_account_ids: set[UUID] = set()
     for activity in activities:
         for change in activity.changes:
-            if not isinstance(change, dict) or change.get("field") != "account":
+            if not isinstance(change, dict):
+                continue
+            for context_key in ("before_account_id", "after_account_id"):
+                account_id = change.get(context_key)
+                if not isinstance(account_id, str):
+                    continue
+                try:
+                    historical_account_ids.add(UUID(account_id))
+                except ValueError:
+                    continue
+            if change.get("field") != "account":
                 continue
             for key in ("before", "after"):
                 snapshot = change.get(key)

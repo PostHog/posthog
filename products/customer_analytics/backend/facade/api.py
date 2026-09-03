@@ -4582,26 +4582,45 @@ def _to_customer_task_view(task: CustomerTask, user_access_control: "UserAccessC
         created_at=task.created_at,
         updated_at=task.updated_at,
         can_edit=_customer_tasks_logic.can_edit_customer_task(task, user_access_control),
+        can_restore=_customer_tasks_logic.can_restore_customer_task(task, user_access_control),
     )
 
 
 def _to_customer_task_change_value(
-    *, field: str, value: object | None, visible_account_ids: frozenset[str]
+    *,
+    field: str,
+    value: object | None,
+    account_context_present: bool,
+    account_context_id: object | None,
+    visible_account_ids: frozenset[str],
 ) -> object | None:
-    if field != "account" or value is None:
+    if field == "account":
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            account_id = value.get("id")
+            account_name = value.get("name")
+            if isinstance(account_id, str) and isinstance(account_name, str):
+                try:
+                    normalized_account_id = str(UUID(account_id))
+                except ValueError:
+                    pass
+                else:
+                    if normalized_account_id in visible_account_ids:
+                        return {"id": account_id, "name": account_name}
+        return {"id": None, "name": "Restricted account"}
+    if not account_context_present:
+        return None
+    if account_context_id is None:
         return value
-    if isinstance(value, dict):
-        account_id = value.get("id")
-        account_name = value.get("name")
-        if isinstance(account_id, str) and isinstance(account_name, str):
-            try:
-                normalized_account_id = str(UUID(account_id))
-            except ValueError:
-                pass
-            else:
-                if normalized_account_id in visible_account_ids:
-                    return {"id": account_id, "name": account_name}
-    return {"id": None, "name": "Restricted account"}
+    if isinstance(account_context_id, str):
+        try:
+            normalized_account_id = str(UUID(account_context_id))
+        except ValueError:
+            return None
+        if normalized_account_id in visible_account_ids:
+            return value
+    return None
 
 
 def _to_customer_task_activity_view(
@@ -4616,10 +4635,18 @@ def _to_customer_task_activity_view(
             contracts.CustomerTaskChange(
                 field=field,
                 before=_to_customer_task_change_value(
-                    field=field, value=change.get("before"), visible_account_ids=visible_account_ids
+                    field=field,
+                    value=change.get("before"),
+                    account_context_present="before_account_id" in change,
+                    account_context_id=change.get("before_account_id"),
+                    visible_account_ids=visible_account_ids,
                 ),
                 after=_to_customer_task_change_value(
-                    field=field, value=change.get("after"), visible_account_ids=visible_account_ids
+                    field=field,
+                    value=change.get("after"),
+                    account_context_present="after_account_id" in change,
+                    account_context_id=change.get("after_account_id"),
+                    visible_account_ids=visible_account_ids,
                 ),
             )
         )

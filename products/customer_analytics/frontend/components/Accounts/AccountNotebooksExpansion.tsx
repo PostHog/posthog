@@ -203,8 +203,8 @@ export function AccountNotebooksExpansion({
     const { setActiveTab } = useActions(accountsExpansionLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
     const activeTab = activeTabFor(accountId)
-    const canCreateTasks = userHasAccess(AccessControlResourceType.CustomerTask, AccessControlLevel.Editor)
-    const canViewAllTasks = userHasAccess(AccessControlResourceType.CustomerTask, AccessControlLevel.Viewer)
+    const canCreateTasks = userHasAccess(AccessControlResourceType.CustomerAnalytics, AccessControlLevel.Editor)
+    const canViewAllTasks = userHasAccess(AccessControlResourceType.CustomerAnalytics, AccessControlLevel.Viewer)
 
     const columns: LemonTableColumns<AccountNotebookApi> = [
         {

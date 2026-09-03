@@ -88,6 +88,7 @@ class CustomerTaskSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(read_only=True, help_text="When the task was created.")
     updated_at = serializers.DateTimeField(read_only=True, help_text="When the task was last updated.")
     can_edit = serializers.BooleanField(read_only=True, help_text="Whether the current user can edit this task.")
+    can_restore = serializers.BooleanField(read_only=True, help_text="Whether the current user can restore this task.")
 
 
 class CustomerTaskAssigneeErrorSerializer(serializers.Serializer):
@@ -216,8 +217,7 @@ class CustomerTaskListQuerySerializer(serializers.Serializer):
     def validate_assigned_to(self, value: str) -> str:
         if value in {"me", "unassigned"}:
             return value
-        # str.isdigit() is not enough on its own: it accepts characters like "²" that int() then
-        # rejects, and the filter casts this value to an int.
+        # str.isdigit() accepts characters such as "²" that int() rejects.
         try:
             member_id = int(value)
         except ValueError:
@@ -398,11 +398,10 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         return Response(CustomerTaskSerializer(instance=task).data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(request=CustomerTaskUpdateSerializer, responses={200: CustomerTaskSerializer})
-    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = CustomerTaskUpdateSerializer(data=request.data, partial=True)
+    def _update_customer_task(self, request: Request, *, partial: bool) -> Response:
+        serializer = CustomerTaskUpdateSerializer(data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
-        if not request.data:
+        if partial and not request.data:
             raise ValidationError({"detail": "Change at least one task field."})
         data = serializer.validated_data
         task = api.update_customer_task(
@@ -425,8 +424,12 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(CustomerTaskSerializer(instance=task).data)
 
     @extend_schema(request=CustomerTaskUpdateSerializer, responses={200: CustomerTaskSerializer})
+    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._update_customer_task(request, partial=True)
+
+    @extend_schema(request=CustomerTaskUpdateSerializer, responses={200: CustomerTaskSerializer})
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self.partial_update(request, *args, **kwargs)
+        return self._update_customer_task(request, partial=False)
 
     @extend_schema(request=None, responses={200: CustomerTaskSerializer})
     @action(detail=True, methods=["post"])

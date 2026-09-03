@@ -102,9 +102,44 @@ class CustomerTaskAPI(APIBaseTest):
         activities_response = self.client.get(f"{self.url}{task.id}/activities/?limit=1&offset=0")
         assert activities_response.status_code == status.HTTP_200_OK
         assert activities_response.json()["count"] == 1
-        assert activities_response.json()["results"][0]["activity_type"] == "created"
+        result = activities_response.json()["results"][0]
+        assert result["activity_type"] == "created"
+        name_change = next(change for change in result["changes"] if change["field"] == "name")
+        assert name_change == {"field": "name", "before": None, "after": "Follow up"}
         activity = CustomerTaskActivity.objects.unscoped().get(task=task)
         assert activity.activity_type == "created"
+
+    def test_account_deletion_preserves_task_and_activities(self) -> None:
+        account = Account.objects.for_team(self.team.id).create(team=self.team, name="Temporary account")
+        created = self.client.post(
+            self.url,
+            {"name": "Preserved task", "account_id": str(account.id)},
+            format="json",
+        )
+        task = CustomerTask.objects.unscoped().get(id=created.json()["id"])
+        activity_ids = list(
+            CustomerTaskActivity.objects.unscoped().filter(task=task).values_list("id", flat=True)
+        )
+
+        account.delete()
+
+        task.refresh_from_db()
+        assert task.account_id is None
+        assert (
+            list(CustomerTaskActivity.objects.unscoped().filter(task=task).values_list("id", flat=True)) == activity_ids
+        )
+
+    def test_put_requires_name_while_patch_accepts_partial_fields(self) -> None:
+        created = self.client.post(self.url, {"name": "Original task"}, format="json")
+        task_url = f"{self.url}{created.json()['id']}/"
+
+        put_response = self.client.put(task_url, {"description": "PUT description"}, format="json")
+        patch_response = self.client.patch(task_url, {"description": "PATCH description"}, format="json")
+
+        assert put_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "name" in put_response.json()
+        assert patch_response.status_code == status.HTTP_200_OK
+        assert patch_response.json()["description"] == "PATCH description"
 
     def test_noop_status_completion_archive_and_restore_lifecycle(self) -> None:
         created = self.client.post(self.url, {"name": "Follow up"}, format="json")
@@ -322,6 +357,7 @@ class CustomerTaskAPI(APIBaseTest):
         viewer = User.objects.create_and_join(self.organization, "activity-viewer@example.com", "testpassword")
         membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
         visible_account = Account.objects.unscoped().create(team=self.team, name="Visible account")
+        context_only_visible_account = Account.objects.unscoped().create(team=self.team, name="Context account")
         hidden_account = Account.objects.unscoped().create(team=self.team, name="Hidden account")
         AccessControl.objects.create(
             team=self.team,
@@ -341,6 +377,27 @@ class CustomerTaskAPI(APIBaseTest):
                 "field": "account",
                 "before": {"id": "not-an-account-id", "name": "Malformed account"},
                 "after": ["malformed"],
+            },
+            {
+                "field": "name",
+                "before": "Hidden before",
+                "after": "Hidden after",
+                "before_account_id": str(hidden_account.id),
+                "after_account_id": str(hidden_account.id),
+            },
+            {
+                "field": "description",
+                "before": "Visible before",
+                "after": "Visible after",
+                "before_account_id": str(context_only_visible_account.id),
+                "after_account_id": str(context_only_visible_account.id),
+            },
+            {
+                "field": "status",
+                "before": "open",
+                "after": "in_progress",
+                "before_account_id": None,
+                "after_account_id": None,
             },
         ]
         activity = CustomerTaskActivity.objects.for_team(self.team.id).create(
@@ -366,6 +423,13 @@ class CustomerTaskAPI(APIBaseTest):
             "before": {"id": None, "name": "Restricted account"},
             "after": {"id": None, "name": "Restricted account"},
         }
+        assert changes[2] == {"field": "name", "before": None, "after": None}
+        assert changes[3] == {
+            "field": "description",
+            "before": "Visible before",
+            "after": "Visible after",
+        }
+        assert changes[4] == {"field": "status", "before": "open", "after": "in_progress"}
         activity.refresh_from_db()
         assert activity.changes == stored_changes
 
@@ -381,7 +445,13 @@ class CustomerTaskAPI(APIBaseTest):
     def test_archived_tasks_are_retrievable_but_not_active_or_editable(self) -> None:
         created = self.client.post(self.url, {"name": "Archived task"}, format="json")
         task_id = created.json()["id"]
-        assert self.client.post(f"{self.url}{task_id}/archive/", {}, format="json").status_code == status.HTTP_200_OK
+        assert created.json()["can_edit"] is True
+        assert created.json()["can_restore"] is False
+
+        archived = self.client.post(f"{self.url}{task_id}/archive/", {}, format="json")
+        assert archived.status_code == status.HTTP_200_OK
+        assert archived.json()["can_edit"] is False
+        assert archived.json()["can_restore"] is True
 
         assert self.client.get(f"{self.url}{task_id}/").status_code == status.HTTP_200_OK
         assert all(task["id"] != task_id for task in self.client.get(self.url).json()["results"])
@@ -390,6 +460,21 @@ class CustomerTaskAPI(APIBaseTest):
             self.client.patch(f"{self.url}{task_id}/", {"name": "No edit"}, format="json").status_code
             == status.HTTP_409_CONFLICT
         )
+
+        viewer = User.objects.create_and_join(self.organization, "task-viewer@example.com", "testpassword")
+        viewer_membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_task",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=viewer_membership,
+        )
+        self.client.force_login(viewer)
+        viewer_response = self.client.get(f"{self.url}{task_id}/")
+        assert viewer_response.status_code == status.HTTP_200_OK
+        assert viewer_response.json()["can_edit"] is False
+        assert viewer_response.json()["can_restore"] is False
 
     def _create_filtering_dataset(self) -> tuple[Account, User]:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

@@ -23,11 +23,10 @@ class CustomerTask(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     account = models.ForeignKey(
         "customer_analytics.Account",
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="customer_tasks",
-        db_index=False,
     )
     name = models.CharField(max_length=400)
     description = models.TextField(null=True, blank=True)
@@ -80,7 +79,7 @@ class CustomerTask(TeamScopedRootMixin, UUIDModel):
 
 class CustomerTaskActivity(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    task = models.ForeignKey(CustomerTask, on_delete=models.CASCADE, related_name="activities", db_index=False)
+    task = models.ForeignKey(CustomerTask, on_delete=models.CASCADE, related_name="activities")
     actor = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,

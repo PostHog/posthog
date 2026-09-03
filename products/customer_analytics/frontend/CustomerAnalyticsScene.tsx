@@ -79,8 +79,14 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         AccessControlResourceType.CustomerAnalytics,
         AccessControlLevel.Editor
     )
-    const canViewAllCustomerTasks = userHasAccess(AccessControlResourceType.CustomerTask, AccessControlLevel.Viewer)
-    const canCreateCustomerTasks = userHasAccess(AccessControlResourceType.CustomerTask, AccessControlLevel.Editor)
+    const canViewAllCustomerTasks = userHasAccess(
+        AccessControlResourceType.CustomerAnalytics,
+        AccessControlLevel.Viewer
+    )
+    const canCreateCustomerTasks = userHasAccess(
+        AccessControlResourceType.CustomerAnalytics,
+        AccessControlLevel.Editor
+    )
 
     useOnMountEffect(() => {
         reportCustomerAnalyticsViewed()

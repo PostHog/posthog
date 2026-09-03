@@ -1240,6 +1240,7 @@ class CustomerTaskView:
     created_at: datetime
     updated_at: datetime
     can_edit: bool
+    can_restore: bool
 
 
 @stdlib_dataclass(frozen=True)

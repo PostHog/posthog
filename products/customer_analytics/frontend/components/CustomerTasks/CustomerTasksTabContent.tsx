@@ -4,13 +4,11 @@ import { customerTasksLogic } from './customerTasksLogic'
 import { CustomerTasksTable } from './CustomerTasksTable'
 export interface CustomerTasksTabContentProps {
     accountId: string
-    accountName?: string
     canCreate?: boolean
     canViewAll?: boolean
 }
 export function CustomerTasksTabContent({
     accountId,
-    accountName,
     canCreate = false,
     canViewAll = false,
 }: CustomerTasksTabContentProps): JSX.Element {
@@ -22,7 +20,6 @@ export function CustomerTasksTabContent({
             context="account"
             canCreate={canCreate}
             canViewAll={canViewAll}
-            accountName={accountName}
         />
     )
 }

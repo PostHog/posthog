@@ -15,6 +15,7 @@ export function CustomerTaskActionsMenu({ task, logic }: CustomerTaskActionsMenu
     const { archiveTask, restoreTask } = useActions(logic)
     const saving = Boolean(mutationKeys[task.id])
     const archived = Boolean(task.archived_at)
+    const canMutate = archived ? task.can_restore : task.can_edit
     const items: LemonMenuItems = [
         {
             items: [
@@ -33,7 +34,7 @@ export function CustomerTaskActionsMenu({ task, logic }: CustomerTaskActionsMenu
                 size="small"
                 icon={<IconEllipsis />}
                 loading={saving}
-                disabledReason={!task.can_edit ? 'You cannot edit this task' : saving ? 'Saving' : undefined}
+                disabledReason={!canMutate ? 'You cannot edit this task' : saving ? 'Saving' : undefined}
                 aria-label="Task actions"
                 data-attr="customer-task-actions"
             />
