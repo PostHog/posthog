@@ -2,23 +2,28 @@ import {
   mkdir,
   readdir,
   readFile,
+  rename,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { StoreSkillStub } from "@posthog/shared";
+import type { StoreSkillStub, TaskRunState } from "@posthog/shared";
 
 /**
  * The store stamps every stub's frontmatter with `metadata.source`. Only a
- * SKILL.md whose frontmatter carries it is treated as disposable: matching the
- * text anywhere in the file would let a real skill that mentions the store be
- * deleted on the next install.
+ * SKILL.md whose frontmatter carries it, as a key of the top-level `metadata`
+ * mapping, is treated as disposable: matching the text anywhere in the file,
+ * or anywhere indented, would let a real skill that mentions the store in a
+ * block-scalar description be deleted on the next install.
  */
-const STORE_SKILL_MARKER_RE =
-  /^\s+source:\s*['"]?posthog-skills-store['"]?\s*$/m;
+const STORE_SKILL_SOURCE = "posthog-skills-store";
 const FRONTMATTER_RE = /^---[^\n]*\n([\s\S]*?)\n---/;
+const METADATA_KEY_RE = /^metadata:\s*(#.*)?$/;
+const SOURCE_VALUE_RE = new RegExp(
+  `^source:\\s*['"]?${STORE_SKILL_SOURCE}['"]?\\s*(#.*)?$`,
+);
 
 // The shape half of the store's skill-name contract (skill_name_is_well_formed
 // in products/skills/backend/api/skill_services.py). A name is also a directory
@@ -51,6 +56,10 @@ export interface StoreSkillRootsOptions {
   claudeConfigDir?: string;
 }
 
+/**
+ * The user-level skill directories every supported harness lists: Claude Code
+ * reads its config dir, and Claude Code, Codex and Pi all read `~/.agents/skills`.
+ */
 export function getStoreSkillRoots(
   options: StoreSkillRootsOptions = {},
 ): string[] {
@@ -79,7 +88,7 @@ export function renderStoreSkillStub(stub: StoreSkillStub): string {
     `description: ${JSON.stringify(stub.description)}`,
     "metadata:",
     `  version: '${stub.version}'`,
-    "  source: posthog-skills-store",
+    `  source: ${STORE_SKILL_SOURCE}`,
     "---",
     "",
     "This skill lives in the PostHog skills store. This file is a pointer for discovery, not the skill itself.",
@@ -92,6 +101,72 @@ export function renderStoreSkillStub(stub: StoreSkillStub): string {
     `4. If the body references bundled files, fetch each one with \`${skillFileGet}\` and write it into this directory before you use it.`,
     "",
   ].join("\n");
+}
+
+export interface StoreSkillsLogger {
+  info(message: string, data?: unknown): void;
+  warn(message: string, data?: unknown): void;
+}
+
+export interface StoreSkillsSyncContext {
+  taskId: string;
+  runId: string;
+}
+
+/**
+ * Bring the skill roots in line with a run's `store_skills` and return how
+ * many stubs the harness will list. Shared by every agent server so a runtime
+ * cannot drift from the others. Never throws: a run without store skills is
+ * the normal case, and a broken root must not stop the session.
+ *
+ * A null run state says nothing about access, so stubs from an earlier
+ * session stay and still count: the harness lists them, so the pointer
+ * instructions must stay in the prompt too.
+ */
+export async function syncStoreSkills(
+  runState: TaskRunState | null | undefined,
+  context: StoreSkillsSyncContext,
+  logger: StoreSkillsLogger,
+  roots: string[] = getStoreSkillRoots(),
+): Promise<number> {
+  try {
+    if (runState === null || runState === undefined) {
+      const retained = await listStoreSkillStubs(roots);
+      if (retained.length > 0) {
+        logger.warn(
+          "Run context unavailable, keeping earlier skills store stubs",
+          { ...context, retained },
+        );
+      }
+      return retained.length;
+    }
+    const stubs = runState.store_skills ?? [];
+    if (stubs.length === 0) {
+      const cleanup = await removeStoreSkillStubs(roots);
+      if (cleanup.removed.length > 0 || cleanup.errors.length > 0) {
+        logger.info("Removed stale skills store stubs", {
+          ...context,
+          removed: cleanup.removed,
+          errors: cleanup.errors,
+        });
+      }
+      return 0;
+    }
+    const install = await installStoreSkillStubs(stubs, roots);
+    logger.info("Installed skills store stubs", {
+      ...context,
+      listed: stubs.length,
+      installed: install.installed,
+      collisions: install.collisions,
+      removed: install.removed,
+      rejected: install.rejected,
+      errors: install.errors,
+    });
+    return install.installed.length;
+  } catch (error) {
+    logger.warn("Skills store install failed", { ...context, error });
+    return 0;
+  }
 }
 
 /**
@@ -123,21 +198,17 @@ export async function installStoreSkillStubs(
           collided.add(skillName);
           continue;
         }
-        await rm(skillDir, { recursive: true, force: true });
-        await mkdir(skillDir, { recursive: true });
-        await writeFile(join(skillDir, "SKILL.md"), renderStoreSkillStub(stub));
+        await replaceStub(root, skillName, stub);
         written.add(skillName);
       } catch (error) {
         errors.push({ root, skillName, message: errorMessage(error) });
       }
     }
-    try {
-      for (const name of await pruneStaleStubs(root, skills)) {
-        removed.add(name);
-      }
-    } catch (error) {
-      errors.push({ root, skillName: null, message: errorMessage(error) });
+    const pruned = await pruneStaleStubs(root, skills);
+    for (const name of pruned.removed) {
+      removed.add(name);
     }
+    errors.push(...pruned.errors);
   }
 
   return {
@@ -159,13 +230,11 @@ export async function removeStoreSkillStubs(
   const removed = new Set<string>();
   const errors: StoreSkillsInstallError[] = [];
   for (const root of skillRoots) {
-    try {
-      for (const name of await pruneStaleStubs(root, new Map())) {
-        removed.add(name);
-      }
-    } catch (error) {
-      errors.push({ root, skillName: null, message: errorMessage(error) });
+    const pruned = await pruneStaleStubs(root, new Map());
+    for (const name of pruned.removed) {
+      removed.add(name);
     }
+    errors.push(...pruned.errors);
   }
   return { removed: [...removed].sort(), errors };
 }
@@ -226,20 +295,61 @@ function isWellFormedSkillName(name: string): boolean {
   );
 }
 
-/** Delete store stubs under `root` that are not in `keep`; return their names. */
+/**
+ * Stage the new stub beside its destination and rename it into place, so the
+ * skill directory is either the previous stub or the complete new one. A
+ * write that stops halfway would otherwise leave a markerless directory that
+ * `isReplaceable` keeps as somebody else's skill on every later session.
+ */
+async function replaceStub(
+  root: string,
+  skillName: string,
+  stub: StoreSkillStub,
+): Promise<void> {
+  const skillDir = join(root, skillName);
+  // Dot-prefixed, so a harness that scans the root for skills skips it while it is being written.
+  const stagingDir = join(root, `.${skillName}.store-stub-${process.pid}`);
+  try {
+    await rm(stagingDir, { recursive: true, force: true });
+    await mkdir(stagingDir, { recursive: true });
+    await writeFile(join(stagingDir, "SKILL.md"), renderStoreSkillStub(stub));
+    await rm(skillDir, { recursive: true, force: true });
+    await rename(stagingDir, skillDir);
+  } catch (error) {
+    await rm(stagingDir, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+/**
+ * Delete store stubs under `root` that are not in `keep`. A stub that cannot
+ * be removed is reported and the walk goes on, so one busy directory does not
+ * leave every later stale stub discoverable.
+ */
 async function pruneStaleStubs(
   root: string,
   keep: ReadonlyMap<string, unknown>,
-): Promise<string[]> {
+): Promise<Pick<StoreSkillsInstallResult, "removed" | "errors">> {
   const removed: string[] = [];
-  for (const name of await listStoreStubs(root)) {
-    if (keep.has(name)) {
-      continue;
-    }
-    await rm(join(root, name), { recursive: true, force: true });
-    removed.push(name);
+  const errors: StoreSkillsInstallError[] = [];
+  let stale: string[];
+  try {
+    stale = (await listStoreStubs(root)).filter((name) => !keep.has(name));
+  } catch (error) {
+    return {
+      removed,
+      errors: [{ root, skillName: null, message: errorMessage(error) }],
+    };
   }
-  return removed;
+  for (const name of stale) {
+    try {
+      await rm(join(root, name), { recursive: true, force: true });
+      removed.push(name);
+    } catch (error) {
+      errors.push({ root, skillName: name, message: errorMessage(error) });
+    }
+  }
+  return { removed, errors };
 }
 
 /** Names of the directories under `root` whose SKILL.md carries the store marker. */
@@ -285,9 +395,38 @@ function readSkillMd(skillDir: string): Promise<string | null> {
   );
 }
 
-function hasStoreMarker(skillMd: string): boolean {
+/**
+ * True when the frontmatter's top-level `metadata` mapping has
+ * `source: posthog-skills-store` as a direct key. Walks the block by
+ * indentation instead of parsing YAML: the two shapes the store writes and a
+ * hand-written skill can take are both plain block mappings, and a full parser
+ * would be a dependency just for this check.
+ */
+export function hasStoreMarker(skillMd: string): boolean {
   const frontmatter = FRONTMATTER_RE.exec(skillMd)?.[1];
-  return frontmatter !== undefined && STORE_SKILL_MARKER_RE.test(frontmatter);
+  if (frontmatter === undefined) {
+    return false;
+  }
+  const lines = frontmatter.split("\n");
+  const metadataIndex = lines.findIndex((line) => METADATA_KEY_RE.test(line));
+  if (metadataIndex === -1) {
+    return false;
+  }
+  let blockIndent: number | null = null;
+  for (const line of lines.slice(metadataIndex + 1)) {
+    if (line.trim().length === 0) {
+      continue;
+    }
+    const indent = line.length - line.trimStart().length;
+    if (indent === 0) {
+      return false;
+    }
+    blockIndent ??= indent;
+    if (indent === blockIndent && SOURCE_VALUE_RE.test(line.trim())) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function errorMessage(error: unknown): string {

@@ -1189,7 +1189,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # sandbox needs no extra request on its boot path, and best-effort: a store failure must not
     # stop the run, it only leaves the sandbox without store skills for this session.
     try:
-        store_skills = resolve_store_skills(team, actor_user or task.created_by, distinct_id=distinct_id, run_id=run_id)
+        store_skills = resolve_store_skills(team, actor_user or task.created_by, run_id=run_id)
     except Exception as e:
         log_with_activity_context("store_skills_resolve_failed", run_id=run_id, error=str(e))
         store_skills = None

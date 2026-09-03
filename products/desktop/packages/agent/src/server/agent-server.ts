@@ -136,13 +136,7 @@ import {
 import { createRtkSavingsNotification } from "./rtk-savings";
 import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import { jsonRpcRequestSchema, validateCommandParams } from "./schemas";
-import {
-  buildStoreSkillsInstructions,
-  getStoreSkillRoots,
-  installStoreSkillStubs,
-  listStoreSkillStubs,
-  removeStoreSkillStubs,
-} from "./store-skills";
+import { buildStoreSkillsInstructions, syncStoreSkills } from "./store-skills";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
 import { waitForFile } from "./wait-for-file";
 
@@ -561,6 +555,7 @@ export class AgentServer {
   private prewarmedRun = false;
   private prewarmedStartupTurnPending = false;
   private storeSkillsInstalledCount = 0;
+  private storeSkillsActivationResolved = false;
   private autoPublishStateResolved = false;
   private warmReasoningEffortResolved = false;
   private installedSkillBundles = new Set<string>();
@@ -1321,9 +1316,9 @@ export class AgentServer {
           // effort while the final composer selection uses another.
           // Resolve before buildDetectedPrContext so a warm auto-publish upgrade
           // also flips the detected-PR context to its push variant.
-          const autoPublishUpgrade = await this.resolveActivationSettings();
+          const activationContext = await this.resolveActivationSettings();
           const hostContext = [
-            ...(autoPublishUpgrade ? [autoPublishUpgrade] : []),
+            ...activationContext,
             ...(this.detectedPrUrl
               ? [this.buildDetectedPrContext(this.detectedPrUrl)]
               : []),
@@ -1606,6 +1601,11 @@ export class AgentServer {
           );
         }
 
+        // The backend refreshes the session when the acting user changes, and
+        // the store skills on disk are that user's. Resync them so the previous
+        // actor's skill names and descriptions do not outlive their turn.
+        await this.refreshStoreSkills("refresh_session");
+
         if (mcpServers.length === 0) {
           return { refreshed: true };
         }
@@ -1817,6 +1817,7 @@ export class AgentServer {
     this.nativeResume = null;
     this.preSessionEvents = [];
     this.prewarmedRun = false;
+    this.storeSkillsActivationResolved = false;
     this.prewarmedStartupTurnPending = false;
     this.autoPublishStateResolved = false;
     this.warmReasoningEffortResolved = false;
@@ -1916,6 +1917,13 @@ export class AgentServer {
     const inboxReportUrl = signalReportId
       ? `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/inbox/${signalReportId}`
       : null;
+
+    // Before the prompt: its skills-store section counts the stubs on disk.
+    await this.installStoreSkills(
+      payload.task_id,
+      payload.run_id,
+      preTaskRun?.state ?? null,
+    );
 
     const sessionSystemPrompt = this.buildSessionSystemPrompt(
       prUrl,
@@ -2100,11 +2108,6 @@ export class AgentServer {
       "session_dependencies",
       async () => {
         try {
-          await this.installStoreSkills(
-            payload.task_id,
-            payload.run_id,
-            preTaskRun?.state ?? null,
-          );
           await this.installSkillBundleArtifacts(
             payload.task_id,
             payload.run_id,
@@ -3819,57 +3822,41 @@ export class AgentServer {
    * worker resolves the list into the run state when it builds the run, so
    * this is filesystem work only and adds no request to session start. Skill
    * bodies stay in the store and cross the PostHog MCP only when a skill is
-   * invoked. Never throws: a run without store skills is the normal case.
+   * invoked.
    */
   private async installStoreSkills(
     taskId: string,
     runId: string,
     runState: TaskRunState | null,
   ): Promise<void> {
-    this.storeSkillsInstalledCount = 0;
-    const context = { taskId, runId };
-    const roots = getStoreSkillRoots();
-    try {
-      if (runState === null) {
-        // A missing run context says nothing about access, so stubs from an
-        // earlier session stay. The harness still lists them, so the pointer
-        // instructions must stay in the prompt too.
-        const retained = await listStoreSkillStubs(roots);
-        this.storeSkillsInstalledCount = retained.length;
-        if (retained.length > 0) {
-          this.logger.warn(
-            "Run context unavailable, keeping earlier skills store stubs",
-            { ...context, retained },
-          );
-        }
-        return;
-      }
-      const stubs = runState.store_skills ?? [];
-      if (stubs.length === 0) {
-        const cleanup = await removeStoreSkillStubs(roots);
-        if (cleanup.removed.length > 0 || cleanup.errors.length > 0) {
-          this.logger.info("Removed stale skills store stubs", {
-            ...context,
-            removed: cleanup.removed,
-            errors: cleanup.errors,
-          });
-        }
-        return;
-      }
-      const install = await installStoreSkillStubs(stubs, roots);
-      this.storeSkillsInstalledCount = install.installed.length;
-      this.logger.info("Installed skills store stubs", {
-        ...context,
-        listed: stubs.length,
-        installed: install.installed,
-        collisions: install.collisions,
-        removed: install.removed,
-        rejected: install.rejected,
-        errors: install.errors,
-      });
-    } catch (error) {
-      this.logger.warn("Skills store install failed", { ...context, error });
+    this.storeSkillsInstalledCount = await syncStoreSkills(
+      runState,
+      { taskId, runId },
+      this.logger,
+    );
+  }
+
+  /**
+   * Re-read the run and bring the stubs on disk in line with it. The worker
+   * rewrites `store_skills` when the acting user changes, after this session
+   * started, and refreshes the session right after.
+   */
+  private async refreshStoreSkills(reason: string): Promise<void> {
+    if (!this.session) {
+      return;
     }
+    const { task_id: taskId, run_id: runId } = this.session.payload;
+    let state: TaskRunState | undefined;
+    try {
+      state = (await this.posthogAPI.getTaskRun(taskId, runId))?.state;
+    } catch (error) {
+      this.logger.debug("Failed to fetch run state for skills store refresh", {
+        reason,
+        error,
+      });
+      return;
+    }
+    await this.installStoreSkills(taskId, runId, state ?? null);
   }
 
   private async waitForRepoReady(): Promise<void> {
@@ -4026,21 +4013,32 @@ export class AgentServer {
     );
   }
 
-  /** Apply settings from run state before the first turn when launch config is incomplete. */
-  private async resolveActivationSettings(): Promise<string | null> {
+  /**
+   * Apply settings from run state before the first turn when launch config is
+   * incomplete, and return the host-context blocks that prompt needs for them.
+   */
+  private async resolveActivationSettings(): Promise<string[]> {
     if (!this.session) {
-      return null;
+      return [];
     }
 
     const shouldResolveReasoning =
       this.prewarmedRun && !this.warmReasoningEffortResolved;
+    // A warm run's stubs were installed at prewarm time; the worker rewrites
+    // the list for the activating user before it forwards the first message.
+    const shouldResolveStoreSkills =
+      this.prewarmedRun && !this.storeSkillsActivationResolved;
     const shouldResolveAutoPublish =
       !this.autoPublishStateResolved &&
       this.config.autoPublish !== true &&
       this.config.createPr !== false &&
       !this.isAutomatedOrigin();
-    if (!shouldResolveReasoning && !shouldResolveAutoPublish) {
-      return null;
+    if (
+      !shouldResolveReasoning &&
+      !shouldResolveStoreSkills &&
+      !shouldResolveAutoPublish
+    ) {
+      return [];
     }
 
     let state: TaskRunState | undefined;
@@ -4054,13 +4052,29 @@ export class AgentServer {
       // Keep the settings unresolved so a later message retries. A transient
       // control-plane failure must not prevent the first prompt from running.
       this.logger.debug("Failed to fetch activation settings", { error });
-      return null;
+      return [];
     }
 
     if (shouldResolveReasoning) {
       await this.resolveWarmReasoningEffort(state);
     }
-    return this.resolveAutoPublishFromState(state);
+    const context: string[] = [];
+    if (shouldResolveStoreSkills) {
+      const { task_id: taskId, run_id: runId } = this.session.payload;
+      const previousCount = this.storeSkillsInstalledCount;
+      await this.installStoreSkills(taskId, runId, state ?? null);
+      this.storeSkillsActivationResolved = true;
+      if (previousCount === 0 && this.storeSkillsInstalledCount > 0) {
+        context.push(
+          buildStoreSkillsInstructions(this.storeSkillsInstalledCount).trim(),
+        );
+      }
+    }
+    const autoPublishUpgrade = this.resolveAutoPublishFromState(state);
+    if (autoPublishUpgrade) {
+      context.push(autoPublishUpgrade);
+    }
+    return context;
   }
 
   private async resolveWarmReasoningEffort(

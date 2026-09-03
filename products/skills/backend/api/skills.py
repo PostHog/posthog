@@ -43,6 +43,7 @@ from ..marketplace.adapters import (
     SANDBOX_SKILLS_FEATURE_FLAG,
     build_skill_bundle,
     load_skill_export,
+    sandbox_skills_flag_distinct_id,
 )
 from ..marketplace.credentials import (
     build_codex_install_command,
@@ -831,7 +832,7 @@ class LLMSkillViewSet(
         user = cast(User, request.user)
         flag_value = posthog_feature_flag_value(
             SANDBOX_SKILLS_FEATURE_FLAG,
-            user.distinct_id or str(user.uuid),
+            sandbox_skills_flag_distinct_id(user),
             organization_id=self.organization.id,
             team_id=self.team.id,
         )

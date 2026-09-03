@@ -516,8 +516,8 @@ class TestGetTaskProcessingContextActivity:
         org_id = str(test_task.team.organization_id)
         assert kwargs["groups"] == {"organization": org_id}
         assert kwargs["group_properties"] == {"organization": {"id": org_id}}
-        sandbox_args, _sandbox_kwargs = feature_enabled_mock.call_args_list[1]
-        assert sandbox_args[0] == SANDBOX_EVENT_INGEST_FEATURE_FLAG
+        evaluated_flags = [args[0] for args, _kwargs in feature_enabled_mock.call_args_list]
+        assert SANDBOX_EVENT_INGEST_FEATURE_FLAG in evaluated_flags
 
     @pytest.mark.django_db(transaction=True)
     def test_pi_runtime_enables_event_ingest_without_bypassing_persistent_upload_rollout(

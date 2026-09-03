@@ -46,6 +46,9 @@ unit-testable against the real `git` binary without booting the app
   agent renders one pointer `SKILL.md` per entry into `~/.claude/skills` and `~/.agents/skills`
   (`products/desktop/packages/agent/src/server/store-skills.ts`), skipping any name a bundled skill
   already uses. The stub file the agent writes must stay in step with `render_skill_stub_md`.
+  The list is the acting user's, so the worker writes it again when that user changes after the
+  session started (a warm run activated by its first message, a shared Slack task whose next
+  message comes from another member) and the agent re-reads the run and resyncs the stubs.
 - **Zip import** — `POST /api/projects/:team/llm_skills/import` (multipart `file` field, a spec
   skill `.zip`) → creates the skill (web-authenticated, `llm_skill:write`). The inverse of
   export: `parse_skill_zip` reads `SKILL.md` frontmatter + bundled files. Round-trips with export.

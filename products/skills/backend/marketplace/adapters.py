@@ -72,6 +72,17 @@ MAX_BUNDLE_BYTES = 5_000_000
 # run-state stamp the task worker writes for the sandbox agent.
 SANDBOX_SKILLS_FEATURE_FLAG = "skills-store-in-sandbox"
 
+
+def sandbox_skills_flag_distinct_id(user: User) -> str:
+    """The identity every consumer of ``SANDBOX_SKILLS_FEATURE_FLAG`` evaluates it with.
+
+    A person-targeted or percentage rollout hashes this value, so the bundle endpoint and the task
+    worker must agree on the fallback for a user with no ``distinct_id`` or they can disagree on
+    whether the store is on.
+    """
+    return user.distinct_id or str(user.uuid)
+
+
 # A heavy user can skip very many skills, so the walk keeps only a fixed-size sample of their names
 # plus a running count — never a list proportional to the skip total. The warning logs that sample
 # and count; the response header carries the count only.

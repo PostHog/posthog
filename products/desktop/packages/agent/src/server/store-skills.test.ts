@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { StoreSkillStub } from "@posthog/shared";
@@ -6,16 +13,48 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildStoreSkillsInstructions,
   getStoreSkillRoots,
+  hasStoreMarker,
   installStoreSkillStubs,
   listStoreSkillStubs,
   removeStoreSkillStubs,
   renderStoreSkillStub,
+  syncStoreSkills,
 } from "./store-skills";
+
+// Path prefixes whose removal or write must fail, to stand in for a busy directory or a full disk.
+const failingRemovals = new Set<string>();
+const failingWrites = new Set<string>();
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  const failFor = (prefixes: Set<string>, path: unknown): boolean =>
+    [...prefixes].some((prefix) => String(path).startsWith(prefix));
+  return {
+    ...actual,
+    rm: (
+      path: Parameters<typeof actual.rm>[0],
+      options?: Parameters<typeof actual.rm>[1],
+    ) =>
+      failFor(failingRemovals, path)
+        ? Promise.reject(new Error(`EBUSY: ${String(path)}`))
+        : actual.rm(path, options),
+    writeFile: (
+      path: Parameters<typeof actual.writeFile>[0],
+      data: Parameters<typeof actual.writeFile>[1],
+      options?: Parameters<typeof actual.writeFile>[2],
+    ) =>
+      failFor(failingWrites, path)
+        ? Promise.reject(new Error(`ENOSPC: ${String(path)}`))
+        : actual.writeFile(path, data, options),
+  };
+});
 
 const directories: string[] = [];
 
 afterEach(async () => {
   vi.unstubAllEnvs();
+  failingRemovals.clear();
+  failingWrites.clear();
   await Promise.all(
     directories
       .splice(0)
@@ -142,6 +181,12 @@ describe("store skills", () => {
       "release-notes",
       "---\nname: release-notes\n---\nStubs carry source: posthog-skills-store in their frontmatter.",
     );
+    // So is one whose frontmatter has the marker line indented under another key.
+    const describesStore = await writeSkill(
+      claudeRoot,
+      "store-guide",
+      "---\nname: store-guide\ndescription: |\n  Explains stubs whose frontmatter reads\n  source: posthog-skills-store\n---\nThe real skill.",
+    );
     const staleStub = await writeSkill(
       agentsRoot,
       "release-notes",
@@ -157,13 +202,24 @@ describe("store skills", () => {
         stub("querying-posthog-data"),
         stub("release-notes"),
         stub("half-written"),
+        stub("store-guide"),
       ],
       [claudeRoot, agentsRoot],
     );
 
     expect(result).toEqual({
-      installed: ["querying-posthog-data", "release-notes", "half-written"],
-      collisions: ["querying-posthog-data", "release-notes", "half-written"],
+      installed: [
+        "querying-posthog-data",
+        "release-notes",
+        "half-written",
+        "store-guide",
+      ],
+      collisions: [
+        "querying-posthog-data",
+        "release-notes",
+        "half-written",
+        "store-guide",
+      ],
       removed: [],
       rejected: 0,
       errors: [],
@@ -178,6 +234,9 @@ describe("store skills", () => {
     await expect(
       readFile(join(mentionsStore, "SKILL.md"), "utf-8"),
     ).resolves.toContain("Stubs carry");
+    await expect(
+      readFile(join(describesStore, "SKILL.md"), "utf-8"),
+    ).resolves.toContain("The real skill.");
     await expect(
       readFile(join(agentsRoot, "querying-posthog-data", "SKILL.md"), "utf-8"),
     ).resolves.toContain("source: posthog-skills-store");
@@ -304,6 +363,119 @@ describe("store skills", () => {
     expect(result.installed).toEqual([]);
     expect(result.rejected).toBe(1);
     await expect(exists(join(home, "escape", "SKILL.md"))).resolves.toBe(false);
+  });
+
+  it.each([
+    ["the stub the agent renders", renderStoreSkillStub(stub("a")), true],
+    [
+      "the stub the bundle endpoint renders",
+      "---\nname: a\ndescription: A skill.\nmetadata:\n  version: '3'\n  source: posthog-skills-store\n---\n\nBody.",
+      true,
+    ],
+    [
+      "a quoted source value",
+      "---\nname: a\nmetadata:\n  source: 'posthog-skills-store'\n---\nBody.",
+      true,
+    ],
+    [
+      "the marker line inside a block-scalar description",
+      "---\nname: a\ndescription: |\n  Stubs read\n  source: posthog-skills-store\nmetadata:\n  version: '1'\n---\nBody.",
+      false,
+    ],
+    [
+      "the marker nested below metadata",
+      "---\nname: a\nmetadata:\n  origin:\n    source: posthog-skills-store\n---\nBody.",
+      false,
+    ],
+    [
+      "a top-level source key",
+      "---\nname: a\nsource: posthog-skills-store\n---\nBody.",
+      false,
+    ],
+    ["no frontmatter", "source: posthog-skills-store\n", false],
+  ])("reads the store marker from %s", (_label, skillMd, expected) => {
+    expect(hasStoreMarker(skillMd)).toBe(expected);
+  });
+
+  it("keeps the previous stub when writing the replacement fails", async () => {
+    const home = await temporaryHome();
+    const [claudeRoot] = rootsFor(home);
+    const previous = await writeSkill(
+      claudeRoot,
+      "flaky",
+      renderStoreSkillStub(stub("flaky", 1)),
+    );
+    failingWrites.add(join(claudeRoot, ".flaky.store-stub-"));
+
+    const result = await installStoreSkillStubs(
+      [stub("flaky", 2)],
+      [claudeRoot],
+    );
+
+    expect(result.installed).toEqual([]);
+    expect(result.errors).toEqual([
+      {
+        root: claudeRoot,
+        skillName: "flaky",
+        message: expect.stringContaining("ENOSPC"),
+      },
+    ]);
+    await expect(
+      readFile(join(previous, "SKILL.md"), "utf-8"),
+    ).resolves.toContain("version: '1'");
+    // No staging directory is left behind for the harness to list.
+    await expect(readdir(claudeRoot)).resolves.toEqual(["flaky"]);
+    failingWrites.clear();
+    // The next session repairs it.
+    await expect(
+      installStoreSkillStubs([stub("flaky", 2)], [claudeRoot]),
+    ).resolves.toMatchObject({ installed: ["flaky"], errors: [] });
+  });
+
+  it("keeps pruning stale stubs after one cannot be removed", async () => {
+    const home = await temporaryHome();
+    const [claudeRoot] = rootsFor(home);
+    for (const name of ["busy", "stale"]) {
+      await writeSkill(claudeRoot, name, renderStoreSkillStub(stub(name)));
+    }
+    failingRemovals.add(join(claudeRoot, "busy"));
+
+    const result = await removeStoreSkillStubs([claudeRoot]);
+
+    expect(result.removed).toEqual(["stale"]);
+    expect(result.errors).toEqual([
+      {
+        root: claudeRoot,
+        skillName: "busy",
+        message: expect.stringContaining("EBUSY"),
+      },
+    ]);
+    await expect(exists(join(claudeRoot, "stale", "SKILL.md"))).resolves.toBe(
+      false,
+    );
+  });
+
+  it("counts what the harness will list: installed stubs, or the kept ones without run context", async () => {
+    const home = await temporaryHome();
+    const roots = rootsFor(home);
+    const logger = { info: vi.fn(), warn: vi.fn() };
+    const context = { taskId: "task", runId: "run" };
+
+    await expect(
+      syncStoreSkills(
+        { store_skills: [stub("one"), stub("two")] },
+        context,
+        logger,
+        roots,
+      ),
+    ).resolves.toBe(2);
+    await expect(syncStoreSkills(null, context, logger, roots)).resolves.toBe(
+      2,
+    );
+    await expect(syncStoreSkills({}, context, logger, roots)).resolves.toBe(0);
+    await expect(exists(join(roots[0], "one", "SKILL.md"))).resolves.toBe(
+      false,
+    );
   });
 
   it("adds a prompt section only when a stub was installed", () => {

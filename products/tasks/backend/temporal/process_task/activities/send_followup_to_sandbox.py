@@ -30,6 +30,7 @@ from products.tasks.backend.logic.services.connection_token import create_sandbo
 from products.tasks.backend.logic.services.peer_messages import mark_peer_message_outcome, peer_message_id_from_context
 from products.tasks.backend.logic.services.run_actor import slack_actor_state_updates, user_has_current_team_access
 from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
+from products.tasks.backend.logic.services.store_skills import refresh_store_skills_state
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_followup_denied_permission_stop, observe_followup_sandbox_stopped
 from products.tasks.backend.models import AgentPeerMessage, TaskRun
@@ -370,6 +371,10 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
                 TaskRun.update_state_atomic(task_run.id, updates=updates)
             except Exception:
                 logger.warning("send_followup_actor_stamp_failed", run_id=input.run_id, exc_info=True)
+            # The store skills in run state are the previous actor's; the MCP refresh below makes
+            # the sandbox re-read the run, so the new actor's list must be there first.
+            if actor_user is not None and current.get("slack_actor_user_id") != actor_user.id:
+                refresh_store_skills_state(task_run, actor_user, reason="slack_actor_change")
 
     auth_token = None
     if actor_user and actor_user.id:
