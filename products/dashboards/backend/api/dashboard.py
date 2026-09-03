@@ -1679,7 +1679,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
             new_data.pop("dashboards", None)
             new_tags = new_data.pop("tags", None)
             insight_serializer = InsightSerializer(data=new_data, context=self.context)
-            insight_serializer.is_valid()
+            if not insight_serializer.is_valid():
+                # `save()` on an invalid serializer is a 500 that names no tile. The copy fails
+                # whenever it inherits something invalid, such as a name that " (Copy)" pushes
+                # past the column limit, or a definition the insight write rules reject.
+                source = existing_tile.insight
+                reasons = "; ".join(
+                    f"{field}: {' '.join(str(message) for message in messages)}"
+                    for field, messages in insight_serializer.errors.items()
+                )
+                raise exceptions.ValidationError(
+                    f'Can\'t copy the insight "{source.name or source.derived_name or source.short_id}". {reasons}'
+                )
             insight_serializer.save()
             insight = cast(Insight, insight_serializer.instance)
 
