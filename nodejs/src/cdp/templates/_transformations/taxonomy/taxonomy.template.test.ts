@@ -24,6 +24,8 @@ describe('taxonomy.template', () => {
         ['User Logged In', 'userLoggedIn'],
         ['checkout-completed', 'checkoutCompleted'],
         ['userSignedUp', 'userSignedUp'],
+        ['APIResponse', 'apiResponse'],
+        ['api_response', 'apiResponse'],
     ])('converts %s to camelCase', async (input, expected) => {
         expect(await rename('camelCase', input)).toBe(expected)
     })
@@ -32,6 +34,7 @@ describe('taxonomy.template', () => {
         ['user_signed_up', 'UserSignedUp'],
         ['user logged in', 'UserLoggedIn'],
         ['checkout-completed', 'CheckoutCompleted'],
+        ['HTTPError', 'HttpError'],
     ])('converts %s to PascalCase', async (input, expected) => {
         expect(await rename('PascalCase', input)).toBe(expected)
     })
@@ -40,6 +43,9 @@ describe('taxonomy.template', () => {
         ['userSignedUp', 'user_signed_up'],
         ['User Logged In', 'user_logged_in'],
         ['checkout-completed', 'checkout_completed'],
+        ['URLChanged', 'url_changed'],
+        ['viewedFAQ', 'viewed_faq'],
+        ['caféOrder', 'café_order'],
     ])('converts %s to snake_case', async (input, expected) => {
         expect(await rename('snake_case', input)).toBe(expected)
     })
@@ -57,6 +63,10 @@ describe('taxonomy.template', () => {
         ['checkout_completed', 'checkout completed'],
     ])('converts %s to spaces', async (input, expected) => {
         expect(await rename('spaces', input)).toBe(expected)
+    })
+
+    it('leaves the name alone for a convention outside the list', async () => {
+        expect(await rename('spaces in between', 'user_signed_up')).toBe('user_signed_up')
     })
 
     it('leaves PostHog events and survey events untouched', async () => {
