@@ -152,6 +152,27 @@ describe('dashboardTemplatesLogic', () => {
         expect(listMock).toHaveBeenCalled()
     })
 
+    it('keeps the newest template list when an older request resolves last', async () => {
+        const listMock = api.dashboardTemplates.list as jest.Mock
+        const resolvers: ((page: { results: DashboardTemplateType[] }) => void)[] = []
+        listMock.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)))
+        const stale: Pick<DashboardTemplateType, 'id'> = { id: 'stale' }
+        const fresh: Pick<DashboardTemplateType, 'id'> = { id: 'fresh' }
+        const mounted = dashboardTemplatesLogic({ scope: 'default' })
+        logic = mounted
+        mounted.mount()
+
+        mounted.actions.getAllTemplates()
+        mounted.actions.getAllTemplates()
+        expect(resolvers).toHaveLength(2)
+
+        resolvers[1]({ results: [fresh as DashboardTemplateType] })
+        resolvers[0]({ results: [stale as DashboardTemplateType] })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(mounted.values.allTemplates.map((template) => template.id)).toEqual(['fresh'])
+    })
+
     it('reports nothing when the surface closes while the template list is still loading', async () => {
         const listMock = api.dashboardTemplates.list as jest.Mock
         let resolveList: (page: { results: DashboardTemplateType[] }) => void = () => {}
