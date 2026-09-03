@@ -373,6 +373,36 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
         self.assertEqual(taxonomy_warnings, [])
 
+    @parameterized.expand(
+        [
+            "$virt_traffic_type",
+            "$virt_traffic_category",
+            "$virt_is_bot",
+            "$virt_bot_name",
+            "$virt_bot_operator",
+        ]
+    )
+    def test_metadata_does_not_warn_for_virtual_property(self, prop: str):
+        # Virtual traffic properties are computed at query time and never stored as PropertyDefinition
+        # rows, so the validator must treat them as known — read_taxonomy lists the same set.
+        metadata = self._select(f"SELECT properties.{prop} FROM events WHERE properties.{prop} = 'x'")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(taxonomy_warnings, [])
+
+    def test_metadata_warns_for_unknown_virtual_property(self):
+        # A `$virt_`-prefixed name that is not a real virtual property (e.g. a typo) is still unknown,
+        # so the warning must state it, rather than the prefix silently passing validation.
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
+
+        metadata = self._select("SELECT properties.$virt_trafic_type FROM events")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(
+            [warning.message for warning in taxonomy_warnings],
+            ["Property '$virt_trafic_type' was not found in this project taxonomy."],
+        )
+
     def test_metadata_skips_suggestion_lookup_for_known_event(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 
