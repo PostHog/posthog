@@ -720,6 +720,7 @@ class SignalReport(UUIDModel):
                         task_id=task_id, run_id=None, product=product, type=run_type
                     ).model_dump_json(),
                     created_at=report_task.created_at,
+                    actor_kind=SignalActorKind.TASK,
                     task_id=report_task.task_id,
                 )
             )

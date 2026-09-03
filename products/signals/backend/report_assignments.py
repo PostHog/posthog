@@ -30,7 +30,9 @@ CLAIMABLE_REPORT_STATUSES = frozenset(
         SignalReport.Status.READY,
         SignalReport.Status.PENDING_INPUT,
         SignalReport.Status.POTENTIAL,
-        SignalReport.Status.SUPPRESSED,
+        SignalReport.Status.CANDIDATE,
+        SignalReport.Status.IN_PROGRESS,
+        SignalReport.Status.FAILED,
     }
 )
 

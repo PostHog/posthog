@@ -304,7 +304,7 @@ const inboxReportsList = (): ToolBase<
                 },
                 '/inbox'
             ),
-            "Before doing any work connected to a report, call inbox-reports-claim for that report. This records who is working on it for other people and agents. Read the report's work log via inbox-report-artefacts-list before acting. Attach the implementation pull request by calling inbox-reports-claim again with `pr_url`. Release only when abandoning ownership; resolving work does not require a pull request."
+            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. A later claim can replace the current owner.\nIf you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to attach it. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
         )
     },
 })
@@ -331,7 +331,7 @@ const inboxReportsRetrieve = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/inbox/${result.id}`),
-            'Before doing work on this report, call inbox-reports-claim. Read its artefacts first, then log useful notes and code references as you go. Call inbox-reports-claim again with `pr_url` after opening a pull request. Resolve with inbox-reports-set-state when work finishes without a pull request or webhook automation cannot observe the merge.'
+            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. A later claim can replace the current owner.\nIf you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to attach it. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
         )
     },
 })

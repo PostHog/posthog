@@ -33,7 +33,7 @@ Claiming upserts the current assignment. A new actor silently takes over an exis
 
 Claims do not expire. Expiration and heartbeats are deferred.
 
-Reports in `ready`, `pending_input`, `potential`, or `suppressed` may be claimed. Resolved reports remain terminal.
+Reports in `potential`, `candidate`, `in_progress`, `pending_input`, `ready`, or `failed` may be claimed. Suppressed and resolved reports remain terminal.
 
 ## Pull requests
 

@@ -309,7 +309,9 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
             ("ready", SignalReport.Status.READY),
             ("pending_input", SignalReport.Status.PENDING_INPUT),
             ("potential", SignalReport.Status.POTENTIAL),
-            ("suppressed", SignalReport.Status.SUPPRESSED),
+            ("candidate", SignalReport.Status.CANDIDATE),
+            ("in_progress", SignalReport.Status.IN_PROGRESS),
+            ("failed", SignalReport.Status.FAILED),
         ]
     )
     def test_claimable_report_statuses(self, _name: str, report_status: str):
@@ -322,6 +324,14 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
 
     def test_resolved_report_cannot_be_claimed(self):
         report = self._create_report(report_status=SignalReport.Status.RESOLVED)
+
+        response = self.client.post(self._claim_url(report), data={}, format="json")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert not SignalReportAssignment.all_teams.filter(report=report).exists()
+
+    def test_suppressed_report_cannot_be_claimed(self):
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
 
         response = self.client.post(self._claim_url(report), data={}, format="json")
 

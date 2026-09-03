@@ -2392,41 +2392,41 @@ class TestSignalReportLegacyTaskArtefactList(APIBaseTest):
         assert artefact["content"]["product"] == expected_product
         assert artefact["content"]["type"] == expected_type
 
-    def test_pre_attribution_rows_report_the_actor_their_columns_name(self):
-        # Rows written before `actor_kind` existed carry NULL in that column but still name their
-        # producer via created_by / task, so the read must not report all of them as system writes.
+    def test_pre_attribution_rows_are_reported_as_system(self):
+        # The old FK columns cannot prove which actor initiated a write: legacy system paths could
+        # persist either column as context. Keep the documented null-kind fallback deterministic.
         report = self._create_report()
         task = self._create_task()
-        legacy_rows = {
-            "task": SignalReportArtefact.objects.create(
+        legacy_rows = [
+            SignalReportArtefact.objects.create(
                 team=self.team,
                 report=report,
                 type=SignalReportArtefact.ArtefactType.NOTE,
                 content=json.dumps({"note": "task note"}),
                 task=task,
             ),
-            "user": SignalReportArtefact.objects.create(
+            SignalReportArtefact.objects.create(
                 team=self.team,
                 report=report,
                 type=SignalReportArtefact.ArtefactType.NOTE,
                 content=json.dumps({"note": "user note"}),
                 created_by=self.user,
             ),
-            "system": SignalReportArtefact.objects.create(
+            SignalReportArtefact.objects.create(
                 team=self.team,
                 report=report,
                 type=SignalReportArtefact.ArtefactType.NOTE,
                 content=json.dumps({"note": "system note"}),
             ),
-        }
+        ]
 
         response = self.client.get(self._artefacts_url(str(report.id)))
         assert response.status_code == status.HTTP_200_OK, response.json()
         actor_kind_by_id = {a["id"]: a["actor_kind"] for a in response.json()["results"]}
 
-        for expected_kind, row in legacy_rows.items():
+        for row in legacy_rows:
             assert row.actor_kind is None
-            assert actor_kind_by_id[str(row.id)] == expected_kind
+            assert actor_kind_by_id[str(row.id)] == "system"
 
     def test_real_task_run_artefact_wins_over_legacy_row(self):
         report = self._create_report()
