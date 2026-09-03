@@ -68,6 +68,23 @@ class LegalDocumentAdminForm(forms.ModelForm):
         return pdf
 
 
+# What a delete does depends on the row's status, and the signed case is the one
+# staff get wrong: `logic.delete_document` skips the PandaDoc void for signed rows,
+# and nothing restores the AI opt-out that a signed BAA applied.
+_SIGNED_DELETE_NOTE = (
+    "Deleting a signed document removes the PostHog record and the stored PDF. "
+    "It does not change the document in PandaDoc, because PandaDoc cannot void a completed document. "
+    "Delete or archive it in PandaDoc yourself. "
+    "For a BAA, the organization keeps AI data processing and AI training turned off after the delete. "
+    "An owner can turn them back on in organization settings."
+)
+
+_UNSIGNED_DELETE_NOTE = (
+    "Deleting a document that is out for signature voids its PandaDoc envelope. "
+    "PandaDoc tells the signer that the document is canceled, so the old signing link stops working."
+)
+
+
 @admin.register(LegalDocument)
 class LegalDocumentAdmin(admin.ModelAdmin):
     # FK to posthog.Organization — without this the add view renders a <select>
@@ -300,7 +317,23 @@ class LegalDocumentAdmin(admin.ModelAdmin):
                 "deployments, listed rows (if any) are read-only historical records and "
                 "the PandaDoc integration is disabled.",
             )
+        self._note_delete_behavior(request, object_id)
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
+
+    def delete_view(
+        self, request: HttpRequest, object_id: str, extra_context: dict[str, Any] | None = None
+    ) -> HttpResponse:
+        self._note_delete_behavior(request, object_id)
+        return super().delete_view(request, object_id, extra_context=extra_context)
+
+    def _note_delete_behavior(self, request: HttpRequest, object_id: str) -> None:
+        document = cast(LegalDocument | None, self.get_object(request, object_id))
+        if document is None:
+            return
+        if document.status == LegalDocument.Status.SIGNED:
+            messages.warning(request, _SIGNED_DELETE_NOTE)
+        else:
+            messages.info(request, _UNSIGNED_DELETE_NOTE)
 
     @admin.display(description="Organization", ordering="organization__name")
     def organization_link(self, document: LegalDocument) -> SafeString:

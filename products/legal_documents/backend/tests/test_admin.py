@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.contrib.admin import AdminSite
 from django.contrib.admin.widgets import AutocompleteSelect
+from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
@@ -378,6 +379,30 @@ class TestLegalDocumentAdminSave(APIBaseTest):
 
         mock_pandadoc_cls.return_value.send_document.assert_called_once()
         self.assertEqual(mock_pandadoc_cls.return_value.send_document.call_args.kwargs["document_id"], "doc_stranded")
+
+    @parameterized.expand(
+        [
+            (LegalDocument.Status.SIGNED, "cannot void a completed document"),
+            (LegalDocument.Status.SUBMITTED_FOR_SIGNATURE, "voids its PandaDoc envelope"),
+        ]
+    )
+    def test_delete_confirmation_explains_what_the_delete_does(self, status: str, expected_fragment: str) -> None:
+        document = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="BAA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+            status=status,
+            pandadoc_document_id="doc_123",
+        )
+        request = self.request_factory.get(f"/admin/posthog/legaldocument/{document.id}/delete/")
+        request.user = self.user
+        _attach_messages(request)
+
+        self.admin.delete_view(request, str(document.id))
+
+        self.assertIn(expected_fragment, " ".join(str(message) for message in get_messages(request)))
 
 
 class TestLegalDocumentAdminPermissions(APIBaseTest):
