@@ -169,7 +169,7 @@ tools:
             by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text
             search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers,
             `unclaimed`, and `assignee=me`. Claimed reports remain actionable and visible; use `unclaimed=true` to pick
-            work that has neither an owner nor an open or unknown PR. Some statuses are hidden by default (currently
+            work that has no owner and no draft, open, or unknown PR. Some statuses are hidden by default (currently
             suppressed, i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status. Do this when
             deduplicating against the full inbox state, and read each row's `status` (plus `dismissal_reason` /
             `dismissal_note` on dismissed rows) before acting. For picking up work, filter to `ready` — earlier statuses

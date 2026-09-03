@@ -1899,7 +1899,10 @@ class SignalReportViewSet(
                 type=OpenApiTypes.BOOL,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by whether the report has neither an owner nor an open or unknown PR.",
+                description=(
+                    "Filter by whether the report has no owner and no draft, open, or unknown PR. "
+                    "Resolved reports are never unclaimed."
+                ),
             ),
             OpenApiParameter(
                 name="assignee",

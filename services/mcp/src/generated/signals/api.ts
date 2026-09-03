@@ -124,7 +124,9 @@ export const SignalsReportsListQueryParams = () => zod.object({
     unclaimed: zod
         .boolean()
         .optional()
-        .describe('Filter by whether the report has neither an owner nor an open or unknown PR.'),
+        .describe(
+            'Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.'
+        ),
     use_priority_preference: zod
         .boolean()
         .optional()
