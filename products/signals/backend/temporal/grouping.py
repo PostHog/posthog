@@ -329,8 +329,9 @@ None of these are reasons to split:
 - The same fix touches several files, call sites, or components
 - The signals surface in different pages, views, or systems but share one root cause or one remedy
 - The signals describe different symptoms of the same underlying behaviour
+- The signals are separate defects in the same feature's logic: two accuracy gaps in one detector, two broken output formats of one exporter, two missing tables behind one product's queries. One engineer fixes both under one title.
 
-When you are unsure, name the single change that would resolve every signal in the group. If you can name it, they belong in one PR. If you cannot, they belong apart.
+When you are unsure, name the single change, or the single feature whose logic every signal lives in, that would resolve the group. If you can name it, they belong in one PR. Split only when the signals belong to different features or products, or when the new signal is too vague to tie to the group's fix.
 
 Respond with valid JSON only:
 {"pr_title": "...", "specific_enough": true/false, "reason": "..."}"""
