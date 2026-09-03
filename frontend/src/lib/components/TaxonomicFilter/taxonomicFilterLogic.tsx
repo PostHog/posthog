@@ -2447,6 +2447,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const wasQuickFilter = isQuickFilterItem(item)
                 const wasFromRecents = hasRecentContext(item)
                 const wasFromPinnedList = hasPinnedContext(item)
+                // The "not seen yet" row commits a key the project never sent. Without this the
+                // rescue is indistinguishable from picking a definition that already existed.
+                const wasNonCaptured = item.isNonCaptured === true
 
                 const isEventTab =
                     sourceGroupType === TaxonomicFilterGroupType.Events ||
@@ -2465,6 +2468,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     wasFromPinnedList,
                     wasFromRecents,
                     wasQuickFilter,
+                    wasNonCaptured,
                     hadSearchInput,
                     position: meta?.position,
                     query: values.searchQuery || undefined,

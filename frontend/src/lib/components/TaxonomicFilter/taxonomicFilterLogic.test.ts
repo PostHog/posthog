@@ -1517,6 +1517,32 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    describe('"not seen yet" selection telemetry', () => {
+        it.each([
+            ['a key the project never sent', { name: 'plan_tier', isNonCaptured: true }, true],
+            ['a definition that already exists', { name: 'plan_tier' }, false],
+        ])('reports wasNonCaptured for %s', (_name, item, expected) => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const selectionLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: `nonCapturedTelemetry-${String(expected)}`,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+                onChange: jest.fn(),
+            })
+            selectionLogic.mount()
+
+            const group = selectionLogic.values.taxonomicGroups.find(
+                (candidate) => candidate.type === TaxonomicFilterGroupType.EventProperties
+            )!
+            selectionLogic.actions.selectItem(group, 'plan_tier', item, { position: 0 })
+
+            const call = captureSpy.mock.calls.find(([event]) => event === 'taxonomic filter item selected')
+            expect(call?.[1]).toMatchObject({ wasNonCaptured: expected })
+
+            captureSpy.mockRestore()
+            selectionLogic.unmount()
+        })
+    })
+
     describe('error tracking issue property selection', () => {
         it('provides issue severity as a filter with value suggestions', () => {
             const issueLogic = taxonomicFilterLogic({
