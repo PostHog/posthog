@@ -17,12 +17,21 @@ if (empty(event.properties)) {
 }
 
 // $raw_user_agent is what capture and the Vercel source set. Read it after the aliases so an
-// explicitly populated one still wins.
-let ua := event.properties.$useragent
-    ?? event.properties['$user-agent']
-    ?? event.properties.$user_agent
-    ?? event.properties.$raw_user_agent
-if (empty(ua) or typeof(ua) != 'string') {
+// explicitly populated one still wins. Take the first candidate that holds a user agent rather
+// than the first non-null one, so an empty alias does not hide a populated one behind it.
+let candidates := [
+    event.properties.$useragent,
+    event.properties['$user-agent'],
+    event.properties.$user_agent,
+    event.properties.$raw_user_agent
+]
+let ua := ''
+for (let candidate in candidates) {
+    if (empty(ua) and typeof(candidate) == 'string') {
+        ua := candidate
+    }
+}
+if (empty(ua)) {
     return event
 }
 

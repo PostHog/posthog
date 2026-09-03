@@ -58,6 +58,17 @@ describe('user-agent.template', () => {
         expect(result.properties.$raw_user_agent).toBe(IPHONE_UA)
     })
 
+    it('skips an empty alias and reads the next populated one', async () => {
+        const globals = tester.createGlobals({
+            event: { properties: { $useragent: '', $raw_user_agent: IPHONE_UA } },
+        })
+
+        const result = await invoke({}, globals)
+
+        expect(result.properties.$device).toBe('iPhone')
+        expect(result.properties.$os).toBe('iOS')
+    })
+
     it('does not overwrite existing browser properties by default', async () => {
         const globals = tester.createGlobals({
             event: { properties: { $useragent: CHROME_UA, $browser: 'firefox' } },
