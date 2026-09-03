@@ -411,6 +411,35 @@ class TestExportStreamRetry:
         # Cursor only advances once the day finally completes.
         assert [s.from_date for s in manager.saved] == ["2024-01-02"]
 
+    def test_retries_day_when_stream_ends_in_a_non_event_line(self) -> None:
+        manager = FakeManager()
+        day = date(2024, 1, 1)
+        truncated = FakeResponse(lines=[self._line("i1"), b"terminated early"])
+        succeeding = FakeResponse(lines=[self._line("i1"), self._line("i2")])
+        with (
+            patch.object(mp, "_request", side_effect=[truncated, succeeding]) as mock_request,
+            patch.object(mp.time, "sleep") as mock_sleep,
+        ):
+            batches = list(
+                mp._iter_export(
+                    "us",
+                    "u",
+                    "s",
+                    "123",
+                    LOGGER,
+                    manager,  # type: ignore[arg-type]
+                    start_date=day,
+                    end_date=day,
+                    api_version=MIXPANEL_API_VERSION_V1,
+                )
+            )
+
+        rows = [row for batch in batches for row in batch]
+        assert [r["$insert_id"] for r in rows] == ["i1", "i2"]
+        assert mock_request.call_count == 2
+        mock_sleep.assert_called_once()
+        assert [s.from_date for s in manager.saved] == ["2024-01-02"]
+
     def test_gives_up_after_max_attempts(self) -> None:
         manager = FakeManager()
         day = date(2024, 1, 1)
