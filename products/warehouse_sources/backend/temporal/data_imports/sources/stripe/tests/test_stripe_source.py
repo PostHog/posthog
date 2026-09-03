@@ -1948,6 +1948,7 @@ class TestMeterEventSummaryFanout:
         summaries_per_meter: int = 1,
         resumable_source_manager: Any = None,
         items_by_subscription: dict[str, list[dict[str, Any]]] | None = None,
+        watermark: int | None = None,
     ) -> tuple[list[dict], list[tuple[str, dict]]]:
         requested: list[tuple[str, dict]] = []
 
@@ -1996,8 +1997,9 @@ class TestMeterEventSummaryFanout:
                 api_key="sk_test_123",
                 endpoint=BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME,
                 account_id=None,
-                db_incremental_field_last_value=None,
+                db_incremental_field_last_value=watermark,
                 db_incremental_field_earliest_value=None,
+                should_use_incremental_field=watermark is not None,
                 logger=MagicMock(),
                 resumable_source_manager=resumable_source_manager,
                 api_version=STRIPE_API_VERSION_ACACIA,
@@ -2089,6 +2091,18 @@ class TestMeterEventSummaryFanout:
             ]
         )
         assert [meter for meter, _ in requested] == ["mtr_a", "mtr_b"]
+
+    def test_a_window_with_no_whole_day_never_reaches_stripe(self):
+        # A watermark at or past the current day boundary (clock skew, or a table written by a
+        # different window) leaves no whole day to ask for. The sweep would otherwise page every
+        # subscription and send each of its meters a range that can hold nothing.
+        window = stripe_module._meter_summary_window(None)
+        rows, requested = self._run(
+            [self._subscription("sub_1", "cus_1", [{"recurring": {"meter": "mtr_a"}}])],
+            watermark=window.end_time + _DAY,
+        )
+        assert (rows, requested) == ([], [])
+        assert self.client.subscriptions.list.call_count == 0
 
     def test_request_asks_for_daily_buckets_of_the_subscription_customer(self):
         _, requested = self._run([self._subscription("sub_1", "cus_1", [{"recurring": {"meter": "mtr_a"}}])])

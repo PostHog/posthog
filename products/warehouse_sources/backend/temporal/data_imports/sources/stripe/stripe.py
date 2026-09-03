@@ -457,6 +457,11 @@ class _MeterSummaryWindow:
     start_time: int
     end_time: int
 
+    @property
+    def is_empty(self) -> bool:
+        """True when no whole day is left to ask for, so the sweep has nothing to fetch."""
+        return self.start_time >= self.end_time
+
 
 def _meter_summary_window(last_synced_start_time: Optional[Any], now: Optional[float] = None) -> _MeterSummaryWindow:
     """The day range this sweep reads, from the newest day the table already holds.
@@ -1069,13 +1074,10 @@ def get_rows(
         http_client=_tracked_stripe_http_client(),
     )
     default_params = {"limit": DEFAULT_LIMIT}
-    resources = _build_resources(
-        client,
-        logger=logger,
-        meter_summary_window=_meter_summary_window(
-            db_incremental_field_last_value if should_use_incremental_field else None
-        ),
+    meter_summary_window = _meter_summary_window(
+        db_incremental_field_last_value if should_use_incremental_field else None
     )
+    resources = _build_resources(client, logger=logger, meter_summary_window=meter_summary_window)
 
     batcher = Batcher(logger=logger, chunk_size=STRIPE_CHUNK_SIZE)
 
@@ -1086,6 +1088,12 @@ def get_rows(
         # nothing so the initial "sync" completes immediately, allowing the webhook source
         # manager to take over (it requires schema.initial_sync_complete=True before activating).
         logger.debug(f"Stripe: {endpoint} endpoint is webhook-only, skipping API list")
+        return
+
+    if endpoint == BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME and meter_summary_window.is_empty:
+        # The whole sweep exists to fill this window, so an empty one has nothing to ask for.
+        # Without this the sweep pages every subscription and sends a range that holds no day.
+        logger.debug("Stripe: no whole day to read for meter event summaries, skipping the sweep")
         return
 
     resource = resources.get(endpoint, None)
