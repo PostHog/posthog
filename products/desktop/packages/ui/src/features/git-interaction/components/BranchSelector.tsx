@@ -248,8 +248,9 @@ export function BranchSelector({
     localBusy && busyState?.busy
       ? BUSY_OPERATION_LABEL[busyState.operation]
       : null;
+  const triggerLoading = effectiveLoading && (!isCloudMode || !displayedBranch);
 
-  const displayText = effectiveLoading
+  const displayText = triggerLoading
     ? "Loading..."
     : busyOperationLabel && !displayedBranch
       ? busyOperationLabel
@@ -261,7 +262,7 @@ export function BranchSelector({
   const checkoutName = !isCloudMode && repoPath ? getFileName(repoPath) : null;
 
   const showSpinner =
-    effectiveLoading || (isCloudMode && open && cloudBranchesFetchingMore);
+    triggerLoading || (isCloudMode && open && cloudBranchesFetchingMore);
 
   const isDisabled = !!(disabled || !repoPath || localBusy);
   const disabledReason =
@@ -371,7 +372,7 @@ export function BranchSelector({
           ))
         }
         side="bottom"
-        open={hovered && !open && !effectiveLoading}
+        open={hovered && !open && !triggerLoading}
       >
         <ComboboxTrigger
           render={
