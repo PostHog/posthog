@@ -100,6 +100,7 @@ from products.customer_analytics.backend.logic import (
     announcements as _announcements_logic,
     channel_summaries as _channel_summaries_logic,
     custom_property_values as _custom_property_values_logic,
+    customer_tasks as _customer_tasks_logic,
     feature_requests as _feature_requests_logic,
     relationships as _relationships_logic,
 )
@@ -137,6 +138,10 @@ from products.customer_analytics.backend.models import (
     Announcement,
     CustomerJourney,
     CustomerProfileConfig,
+    CustomerTask,
+    CustomerTaskActivity,
+    CustomerTaskActivityType,
+    CustomerTaskStatus,
     CustomPropertyDefinition,
     CustomPropertySource,
     CustomPropertySyncRun,
@@ -4537,6 +4542,179 @@ def delete_account_relationship(
     except _relationships_logic.AccountRelationshipNotFound:
         return False
     return True
+
+
+def _to_customer_task_user_view(user: "User | None") -> contracts.CustomerTaskUserView | None:
+    if user is None:
+        return None
+    return contracts.CustomerTaskUserView(
+        id=user.id,
+        email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
+    )
+
+
+def _to_customer_task_view(task: CustomerTask, user_access_control: "UserAccessControl") -> contracts.CustomerTaskView:
+    account = (
+        contracts.CustomerTaskAccountView(id=task.account.id, name=task.account.name)
+        if task.account is not None
+        else None
+    )
+    return contracts.CustomerTaskView(
+        id=task.id,
+        account=account,
+        name=task.name,
+        description=task.description,
+        status=task.status,
+        assigned_to=_to_customer_task_user_view(task.assigned_to),
+        due_at=task.due_at,
+        completed_at=task.completed_at,
+        completed_by=_to_customer_task_user_view(task.completed_by),
+        created_by=_to_customer_task_user_view(task.created_by),
+        archived_at=task.archived_at,
+        created_at=task.created_at,
+        updated_at=task.updated_at,
+        can_edit=_customer_tasks_logic.can_edit_customer_task(task, user_access_control),
+    )
+
+
+def _to_customer_task_activity_view(activity: CustomerTaskActivity) -> contracts.CustomerTaskActivityView:
+    return contracts.CustomerTaskActivityView(
+        id=activity.id,
+        activity_type=activity.activity_type,
+        changes=[
+            contracts.CustomerTaskChange(
+                field=str(change.get("field", "")),
+                before=change.get("before"),
+                after=change.get("after"),
+            )
+            for change in activity.changes
+            if isinstance(change, dict)
+        ],
+        actor=_to_customer_task_user_view(activity.actor),
+        created_at=activity.created_at,
+    )
+
+
+CUSTOMER_TASK_ACTIVITY_TYPE_CHOICES = CustomerTaskActivityType.choices
+CUSTOMER_TASK_STATUS_CHOICES = CustomerTaskStatus.choices
+
+
+def list_customer_tasks(
+    *,
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    filters: contracts.CustomerTaskListFilters,
+    offset: int,
+    limit: int,
+) -> tuple[list[contracts.CustomerTaskView], int]:
+    tasks, count = _customer_tasks_logic.list_customer_tasks(
+        team_id=team_id,
+        user_access_control=user_access_control,
+        filters=filters,
+        offset=offset,
+        limit=limit,
+    )
+    return [_to_customer_task_view(task, user_access_control) for task in tasks], count
+
+
+def get_customer_task(
+    *, team_id: int, task_id: UUID | str, user_access_control: "UserAccessControl"
+) -> contracts.CustomerTaskView | None:
+    task = _customer_tasks_logic.get_customer_task(
+        team_id=team_id,
+        task_id=task_id,
+        user_access_control=user_access_control,
+    )
+    return _to_customer_task_view(task, user_access_control) if task is not None else None
+
+
+def create_customer_task(
+    *,
+    team: Team,
+    input: contracts.CreateCustomerTaskInput,
+    actor: "User | None",
+    user_access_control: "UserAccessControl",
+) -> contracts.CustomerTaskView:
+    task = _customer_tasks_logic.create_customer_task(
+        team=team,
+        input=input,
+        actor=actor,
+        user_access_control=user_access_control,
+    )
+    return _to_customer_task_view(task, user_access_control)
+
+
+def update_customer_task(
+    *,
+    team: Team,
+    task_id: UUID | str,
+    input: contracts.UpdateCustomerTaskInput,
+    actor: "User | None",
+    user_access_control: "UserAccessControl",
+) -> contracts.CustomerTaskView | None:
+    task = _customer_tasks_logic.update_customer_task(
+        team=team,
+        task_id=task_id,
+        input=input,
+        actor=actor,
+        user_access_control=user_access_control,
+    )
+    return _to_customer_task_view(task, user_access_control) if task is not None else None
+
+
+def archive_customer_task(
+    *,
+    team_id: int,
+    task_id: UUID | str,
+    actor: "User | None",
+    user_access_control: "UserAccessControl",
+) -> contracts.CustomerTaskView | None:
+    task = _customer_tasks_logic.archive_customer_task(
+        team_id=team_id,
+        task_id=task_id,
+        actor=actor,
+        user_access_control=user_access_control,
+    )
+    return _to_customer_task_view(task, user_access_control) if task is not None else None
+
+
+def restore_customer_task(
+    *,
+    team_id: int,
+    task_id: UUID | str,
+    actor: "User | None",
+    user_access_control: "UserAccessControl",
+) -> contracts.CustomerTaskView | None:
+    task = _customer_tasks_logic.restore_customer_task(
+        team_id=team_id,
+        task_id=task_id,
+        actor=actor,
+        user_access_control=user_access_control,
+    )
+    return _to_customer_task_view(task, user_access_control) if task is not None else None
+
+
+def list_customer_task_activities(
+    *,
+    team_id: int,
+    task_id: UUID | str,
+    user_access_control: "UserAccessControl",
+    offset: int,
+    limit: int,
+) -> tuple[list[contracts.CustomerTaskActivityView], int] | None:
+    result = _customer_tasks_logic.list_customer_task_activities(
+        team_id=team_id,
+        task_id=task_id,
+        user_access_control=user_access_control,
+        offset=offset,
+        limit=limit,
+    )
+    if result is None:
+        return None
+    activities, count = result
+    return [_to_customer_task_activity_view(activity) for activity in activities], count
 
 
 # --- EventStream ---

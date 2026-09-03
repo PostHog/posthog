@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime
+from typing import cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -97,39 +98,7 @@ def _validate_assignee(
     return assignee
 
 
-def _user_view(user: User | None) -> contracts.CustomerTaskUserView | None:
-    if user is None:
-        return None
-    return contracts.CustomerTaskUserView(
-        id=user.id, email=user.email, first_name=user.first_name, last_name=user.last_name
-    )
-
-
-def _task_view(task: CustomerTask, user_access_control: UserAccessControl) -> contracts.CustomerTaskView:
-    account = (
-        contracts.CustomerTaskAccountView(id=task.account.id, name=task.account.name)
-        if task.account is not None
-        else None
-    )
-    return contracts.CustomerTaskView(
-        id=task.id,
-        account=account,
-        name=task.name,
-        description=task.description,
-        status=task.status,
-        assigned_to=_user_view(task.assigned_to),
-        due_at=task.due_at,
-        completed_at=task.completed_at,
-        completed_by=_user_view(task.completed_by),
-        created_by=_user_view(task.created_by),
-        archived_at=task.archived_at,
-        created_at=task.created_at,
-        updated_at=task.updated_at,
-        can_edit=_can_edit(task, user_access_control),
-    )
-
-
-def _can_edit(task: CustomerTask, user_access_control: UserAccessControl) -> bool:
+def can_edit_customer_task(task: CustomerTask, user_access_control: UserAccessControl) -> bool:
     return task.assigned_to_id == user_access_control.user.id or user_access_control.check_access_level_for_resource(
         "customer_task", "editor"
     )
@@ -238,7 +207,7 @@ def list_customer_tasks(
     filters: contracts.CustomerTaskListFilters,
     offset: int,
     limit: int,
-) -> tuple[list[contracts.CustomerTaskView], int]:
+) -> tuple[list[CustomerTask], int]:
     queryset = _visible_task_queryset(team_id, user_access_control)
     if filters.search:
         queryset = queryset.filter(Q(name__icontains=filters.search) | Q(description__icontains=filters.search))
@@ -268,14 +237,13 @@ def list_customer_tasks(
     else:
         queryset = _apply_ordering(queryset, filters.ordering)
     count = queryset.count()
-    return [_task_view(task, user_access_control) for task in queryset[offset : offset + limit]], count
+    return list(queryset[offset : offset + limit]), count
 
 
 def get_customer_task(
     *, team_id: int, task_id: UUID | str, user_access_control: UserAccessControl
-) -> contracts.CustomerTaskView | None:
-    task = _task_by_id(_visible_task_queryset(team_id, user_access_control), task_id)
-    return _task_view(task, user_access_control) if task is not None else None
+) -> CustomerTask | None:
+    return _task_by_id(_visible_task_queryset(team_id, user_access_control), task_id)
 
 
 def _task_for_write(
@@ -290,7 +258,7 @@ def create_customer_task(
     input: contracts.CreateCustomerTaskInput,
     actor: User | None,
     user_access_control: UserAccessControl,
-) -> contracts.CustomerTaskView:
+) -> CustomerTask:
     account = _account_for_write(team.id, input.account_id, user_access_control)
     assignee = _validate_assignee(team=team, account=account, assignee_id=input.assigned_to_id)
     completed_at = timezone.now() if input.status == CustomerTaskStatus.COMPLETED else None
@@ -327,7 +295,7 @@ def create_customer_task(
                 after_due_at=task.due_at,
             ),
         )
-    return _task_view(task, user_access_control)
+    return task
 
 
 def update_customer_task(
@@ -337,7 +305,7 @@ def update_customer_task(
     input: contracts.UpdateCustomerTaskInput,
     actor: User | None,
     user_access_control: UserAccessControl,
-) -> contracts.CustomerTaskView | None:
+) -> CustomerTask | None:
     task = _task_for_write(team_id=team.id, task_id=task_id, user_access_control=user_access_control)
     if task is None:
         return None
@@ -361,7 +329,7 @@ def update_customer_task(
         or (input.status_provided and input.status != task.status)
     )
     if not semantic_change:
-        return _task_view(task, user_access_control)
+        return task
 
     account = _account_for_write(
         team.id, input.account_id if input.account_id_provided else task.account_id, user_access_control
@@ -369,12 +337,14 @@ def update_customer_task(
     assignee_id = input.assigned_to_id if input.assigned_to_id_provided else task.assigned_to_id
     assignee = _validate_assignee(team=team, account=account, assignee_id=assignee_id)
     requested_status = input.status if input.status_provided else task.status
+    if requested_status is None:
+        raise CustomerTaskInvalidTransition(task.status, "")
     if (
         input.status_provided
         and requested_status != task.status
         and requested_status not in _ALLOWED_TRANSITIONS[task.status]
     ):
-        raise CustomerTaskInvalidTransition(task.status, requested_status or "")
+        raise CustomerTaskInvalidTransition(task.status, requested_status)
 
     if requested_status == CustomerTaskStatus.COMPLETED and task.status != CustomerTaskStatus.COMPLETED:
         completed_at = timezone.now()
@@ -387,7 +357,8 @@ def update_customer_task(
         completed_by = task.completed_by
 
     task.account = account
-    task.name = input.name if input.name_provided else task.name
+    if input.name_provided:
+        task.name = cast(str, input.name)
     task.description = input.description if input.description_provided else task.description
     task.assigned_to = assignee
     task.due_at = input.due_at if input.due_at_provided else task.due_at
@@ -412,12 +383,12 @@ def update_customer_task(
         )
         if changes:
             _record_activity(task=task, activity_type=CustomerTaskActivityType.UPDATED, actor=actor, changes=changes)
-    return _task_view(task, user_access_control)
+    return task
 
 
 def archive_customer_task(
     *, team_id: int, task_id: UUID | str, actor: User | None, user_access_control: UserAccessControl
-) -> contracts.CustomerTaskView | None:
+) -> CustomerTask | None:
     task = _task_for_write(team_id=team_id, task_id=task_id, user_access_control=user_access_control)
     if task is None:
         return None
@@ -428,12 +399,12 @@ def archive_customer_task(
             task.archived_at = timezone.now()
             task.save(update_fields=["archived_at", "updated_at"])
             _record_activity(task=task, activity_type=CustomerTaskActivityType.ARCHIVED, actor=actor, changes=[])
-    return _task_view(task, user_access_control)
+    return task
 
 
 def restore_customer_task(
     *, team_id: int, task_id: UUID | str, actor: User | None, user_access_control: UserAccessControl
-) -> contracts.CustomerTaskView | None:
+) -> CustomerTask | None:
     task = _task_for_write(team_id=team_id, task_id=task_id, user_access_control=user_access_control)
     if task is None:
         return None
@@ -444,12 +415,12 @@ def restore_customer_task(
             task.archived_at = None
             task.save(update_fields=["archived_at", "updated_at"])
             _record_activity(task=task, activity_type=CustomerTaskActivityType.RESTORED, actor=actor, changes=[])
-    return _task_view(task, user_access_control)
+    return task
 
 
 def list_customer_task_activities(
     *, team_id: int, task_id: UUID | str, user_access_control: UserAccessControl, offset: int, limit: int
-) -> tuple[list[contracts.CustomerTaskActivityView], int] | None:
+) -> tuple[list[CustomerTaskActivity], int] | None:
     task = _task_for_write(team_id=team_id, task_id=task_id, user_access_control=user_access_control)
     if task is None or not can_access_customer_task_object(
         task=task, user_access_control=user_access_control, write=False
@@ -458,24 +429,7 @@ def list_customer_task_activities(
     queryset = CustomerTaskActivity.objects.for_team(team_id).filter(task_id=task.id).select_related("actor")
     count = queryset.count()
     activities = queryset.order_by("-created_at", "-id")[offset : offset + limit]
-    return [
-        contracts.CustomerTaskActivityView(
-            id=activity.id,
-            activity_type=activity.activity_type,
-            changes=[
-                contracts.CustomerTaskChange(
-                    field=str(change.get("field", "")),
-                    before=change.get("before"),
-                    after=change.get("after"),
-                )
-                for change in activity.changes
-                if isinstance(change, dict)
-            ],
-            actor=_user_view(activity.actor),
-            created_at=activity.created_at,
-        )
-        for activity in activities
-    ], count
+    return list(activities), count
 
 
 def can_access_customer_task_object(*, task: CustomerTask, user_access_control: UserAccessControl, write: bool) -> bool:

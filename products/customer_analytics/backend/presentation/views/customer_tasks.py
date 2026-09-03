@@ -11,13 +11,14 @@ from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission, TeamMemberAccessPermission
 
-from products.customer_analytics.backend.facade import contracts, tasks
+from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG
 
 _ORDERING_CHOICES = [
@@ -56,7 +57,7 @@ class CustomerTaskSerializer(serializers.Serializer):
     name = serializers.CharField(read_only=True, help_text="Task name.")
     description = serializers.CharField(read_only=True, allow_null=True, help_text="Task description, if any.")
     status = serializers.ChoiceField(
-        read_only=True, choices=tasks.CUSTOMER_TASK_STATUS_CHOICES, help_text="Task lifecycle status."
+        read_only=True, choices=api.CUSTOMER_TASK_STATUS_CHOICES, help_text="Task lifecycle status."
     )
     assigned_to = CustomerTaskUserSerializer(
         read_only=True, allow_null=True, help_text="Assigned project member, if any."
@@ -92,7 +93,7 @@ class CustomerTaskCreateSerializer(serializers.Serializer):
         required=False, allow_null=True, help_text="ISO 8601 deadline, or null for no deadline."
     )
     status = serializers.ChoiceField(
-        required=False, default="open", choices=tasks.CUSTOMER_TASK_STATUS_CHOICES, help_text="Initial task status."
+        required=False, default="open", choices=api.CUSTOMER_TASK_STATUS_CHOICES, help_text="Initial task status."
     )
 
     def validate_name(self, value: str) -> str:
@@ -130,7 +131,7 @@ class CustomerTaskUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         required=False,
         allow_null=False,
-        choices=tasks.CUSTOMER_TASK_STATUS_CHOICES,
+        choices=api.CUSTOMER_TASK_STATUS_CHOICES,
         help_text="Replacement task status.",
     )
 
@@ -162,7 +163,7 @@ class CustomerTaskActivitySerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="UUID of the activity.")
     activity_type = serializers.ChoiceField(
         read_only=True,
-        choices=tasks.CUSTOMER_TASK_ACTIVITY_TYPE_CHOICES,
+        choices=api.CUSTOMER_TASK_ACTIVITY_TYPE_CHOICES,
         help_text="Action that produced the activity.",
     )
     changes = CustomerTaskChangeSerializer(
@@ -203,7 +204,7 @@ class CustomerTaskListQuerySerializer(serializers.Serializer):
 
     def validate_statuses(self, value: str) -> tuple[str, ...]:
         values = tuple(part.strip() for part in value.split(","))
-        if not values or any(part not in dict(tasks.CUSTOMER_TASK_STATUS_CHOICES) for part in values):
+        if not values or any(part not in dict(api.CUSTOMER_TASK_STATUS_CHOICES) for part in values):
             raise serializers.ValidationError("statuses must contain only open, in_progress, completed, or canceled.")
         return values
 
@@ -252,9 +253,11 @@ def _paginated_response(
 class CustomerTaskPermission(BasePermission):
     message = "You do not have access to this customer task."
 
-    def has_permission(self, request: Request, view: CustomerTaskViewSet) -> bool:
-        if view.action == "create" and not view.user_access_control.check_access_level_for_resource(
-            "customer_task", "editor"
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        customer_task_view = cast(CustomerTaskViewSet, view)
+        if (
+            customer_task_view.action == "create"
+            and not customer_task_view.user_access_control.check_access_level_for_resource("customer_task", "editor")
         ):
             self.message = "You need editor access to Customer Tasks to create a task."
             return False
@@ -286,7 +289,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         data = request.validated_query_data
-        page, count = tasks.list_customer_tasks(
+        page, count = api.list_customer_tasks(
             team_id=self.team_id,
             user_access_control=self.user_access_control,
             filters=contracts.CustomerTaskListFilters(
@@ -307,7 +310,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(responses={200: CustomerTaskSerializer, 404: OpenApiResponse(description="Task not found.")})
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        task = tasks.get_customer_task(
+        task = api.get_customer_task(
             team_id=self.team_id, task_id=self.kwargs["pk"], user_access_control=self.user_access_control
         )
         if task is None:
@@ -318,7 +321,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = CustomerTaskCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        task = tasks.create_customer_task(
+        task = api.create_customer_task(
             team=self.team,
             input=contracts.CreateCustomerTaskInput(**serializer.validated_data),
             actor=cast(User, request.user),
@@ -333,7 +336,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not request.data:
             raise ValidationError({"detail": "Change at least one task field."})
         data = serializer.validated_data
-        task = tasks.update_customer_task(
+        task = api.update_customer_task(
             team=self.team,
             task_id=self.kwargs["pk"],
             input=contracts.UpdateCustomerTaskInput(
@@ -359,7 +362,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(request=None, responses={200: CustomerTaskSerializer})
     @action(detail=True, methods=["post"])
     def archive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        task = tasks.archive_customer_task(
+        task = api.archive_customer_task(
             team_id=self.team_id,
             task_id=self.kwargs["pk"],
             actor=cast(User, request.user),
@@ -372,7 +375,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(request=None, responses={200: CustomerTaskSerializer})
     @action(detail=True, methods=["post"])
     def restore(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        task = tasks.restore_customer_task(
+        task = api.restore_customer_task(
             team_id=self.team_id,
             task_id=self.kwargs["pk"],
             actor=cast(User, request.user),
@@ -391,7 +394,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(query_serializer=CustomerTaskActivityQuerySerializer)
     def activities(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         data = request.validated_query_data
-        result = tasks.list_customer_task_activities(
+        result = api.list_customer_task_activities(
             team_id=self.team_id,
             task_id=self.kwargs["pk"],
             user_access_control=self.user_access_control,
@@ -403,7 +406,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         page, count = result
         return _paginated_response(request, page, count, data["limit"], data["offset"], CustomerTaskActivitySerializer)
 
-    def handle_exception(self, exc: Exception) -> Response | None:
+    def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, contracts.CustomerTaskAccountNotFound):
             return Response({"detail": "Account not found."}, status=status.HTTP_404_NOT_FOUND)
         if isinstance(exc, contracts.CustomerTaskAssigneeInvalid):

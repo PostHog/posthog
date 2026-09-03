@@ -362,7 +362,7 @@ class CustomerTaskAPI(APIBaseTest):
     def test_list_applies_ordering_limit_and_offset(self) -> None:
         self._create_filtering_dataset()
 
-        response = self.client.get(self.url, {"ordering": "-name", "limit": 2, "offset": 1})
+        response = self.client.get(self.url, {"ordering": "-name", "limit": "2", "offset": "1"})
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == 4
