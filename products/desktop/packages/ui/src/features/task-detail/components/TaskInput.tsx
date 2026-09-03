@@ -19,6 +19,7 @@ import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ButtonGroup } from "@posthog/quill";
 import {
+  type AgentActionAttribution,
   type AgentRuntime,
   ANALYTICS_EVENTS,
   adapterForModelId,
@@ -155,6 +156,8 @@ interface TaskInputProps {
   initialModel?: string;
   initialMode?: string;
   reportAssociation?: TaskInputReportAssociation;
+  agentActionAttribution?: AgentActionAttribution;
+  agentActionRequestId?: string;
   /** Optional channel CONTEXT.md, appended to the initial prompt as background. */
   channelContext?: string;
   /** Repo-relative context wiki page used instead of injecting the legacy body. */
@@ -226,6 +229,8 @@ export function TaskInput({
   initialModel,
   initialMode,
   reportAssociation,
+  agentActionAttribution,
+  agentActionRequestId,
   channelContext,
   channelContextPath,
   channelContextBlocked = false,
@@ -1078,6 +1083,8 @@ export function TaskInput({
     sandboxEnvironmentId: cloudIds.sandboxEnvironmentId,
     customImageId: cloudIds.customImageId,
     signalReportId: activeReportAssociation?.reportId,
+    agentActionAttribution,
+    agentActionRequestId,
     channelContext: includeChannelContext ? channelContext : undefined,
     channelContextPath: includeChannelContext ? channelContextPath : undefined,
     channelName,

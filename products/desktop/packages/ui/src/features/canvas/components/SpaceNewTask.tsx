@@ -168,6 +168,8 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
           initialModel={view.initialModel}
           initialMode={view.initialMode}
           reportAssociation={view.reportAssociation}
+          agentActionAttribution={view.agentActionAttribution}
+          agentActionRequestId={view.agentActionRequestId}
           suggestions={CHANNEL_TASK_SUGGESTIONS}
           onSuggestionSelect={(label) =>
             track(ANALYTICS_EVENTS.CHANNEL_ACTION, {

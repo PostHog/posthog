@@ -30,7 +30,10 @@ interface TaskInputPrefill {
   initialMode?: string;
   folderRunEnvironment?: "local" | "cloud";
   reportAssociation?: TaskInputReportAssociation;
-  agentActionAttribution?: AgentActionAttribution;
+  agentAction?: {
+    requestId: string;
+    attribution: AgentActionAttribution;
+  };
 }
 
 interface PrefillStoreState {
@@ -44,47 +47,44 @@ interface PrefillStoreState {
    * that landed in between is left alone.
    */
   consumePrompt: (requestId: string) => void;
-  takeAgentActionAttribution: () => AgentActionAttribution | undefined;
+  consumeAgentAction: (requestId: string) => void;
 }
 
 // Holds transient state used to prefill the TaskInput screen when navigation
 // is triggered with options (e.g. deep links, "discuss in new task" flows).
 // Lives outside the URL because the values are large/structured and don't
 // belong in a hash fragment.
-export const useTaskInputPrefillStore = create<PrefillStoreState>(
-  (set, get) => ({
-    prefill: {},
-    setPrefill: (prefill) => set({ prefill }),
-    clearReportAssociation: () =>
-      set((s) => ({
-        prefill: {
-          ...s.prefill,
-          reportAssociation: undefined,
-          initialCloudRepository: undefined,
-        },
-      })),
-    consumePrompt: (requestId) =>
-      set((s) =>
-        s.prefill.requestId === requestId
-          ? {
-              prefill: {
-                ...s.prefill,
-                initialPrompt: undefined,
-                initialContent: undefined,
-                recoveredFromKey: undefined,
-                requestId: undefined,
-              },
-            }
-          : s,
-      ),
-    takeAgentActionAttribution: () => {
-      const attribution = get().prefill.agentActionAttribution;
-      if (attribution) {
-        set((s) => ({
-          prefill: { ...s.prefill, agentActionAttribution: undefined },
-        }));
-      }
-      return attribution;
-    },
-  }),
-);
+export const useTaskInputPrefillStore = create<PrefillStoreState>((set) => ({
+  prefill: {},
+  setPrefill: (prefill) => set({ prefill }),
+  clearReportAssociation: () =>
+    set((s) => ({
+      prefill: {
+        ...s.prefill,
+        reportAssociation: undefined,
+        initialCloudRepository: undefined,
+      },
+    })),
+  consumePrompt: (requestId) =>
+    set((s) =>
+      s.prefill.requestId === requestId
+        ? {
+            prefill: {
+              ...s.prefill,
+              initialPrompt: undefined,
+              initialContent: undefined,
+              recoveredFromKey: undefined,
+              requestId: undefined,
+            },
+          }
+        : s,
+    ),
+  consumeAgentAction: (requestId) =>
+    set((s) =>
+      s.prefill.agentAction?.requestId === requestId
+        ? {
+            prefill: { ...s.prefill, agentAction: undefined },
+          }
+        : s,
+    ),
+}));

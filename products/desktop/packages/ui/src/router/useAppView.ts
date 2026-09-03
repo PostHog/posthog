@@ -41,6 +41,7 @@ export interface AppView {
   folderRunEnvironment?: "local" | "cloud";
   reportAssociation?: TaskInputReportAssociation;
   agentActionAttribution?: AgentActionAttribution;
+  agentActionRequestId?: string;
 }
 
 type Match = { fullPath: string; params: Record<string, string | undefined> };
@@ -162,7 +163,8 @@ export function useAppView(): AppView {
         initialMode: prefill.initialMode,
         folderRunEnvironment: prefill.folderRunEnvironment,
         reportAssociation: prefill.reportAssociation,
-        agentActionAttribution: prefill.agentActionAttribution,
+        agentActionAttribution: prefill.agentAction?.attribution,
+        agentActionRequestId: prefill.agentAction?.requestId,
         taskInputRequestId: prefill.requestId,
       };
     }

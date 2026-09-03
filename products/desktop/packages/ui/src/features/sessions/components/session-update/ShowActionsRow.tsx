@@ -5,10 +5,13 @@ import type { AgentActionAttribution } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { ToolViewProps } from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
 import { useSessionTaskId } from "@posthog/ui/features/sessions/useSessionTaskId";
+import { useInView } from "@posthog/ui/primitives/hooks/useInView";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
+
+const shownActionIds = new Set<string>();
 
 function actionAttribution(
   sourceTaskId: string,
@@ -31,19 +34,30 @@ function actionAttribution(
 export function ShowActionsRow({ toolCall }: ToolViewProps) {
   const trpc = useHostTRPC();
   const sourceTaskId = useSessionTaskId();
+  const [rowRef, inView] = useInView<HTMLDivElement>({
+    rootMargin: "0px",
+    once: true,
+  });
   const buttons = useMemo(
     () => readShowActions(toolCall.rawInput),
     [toolCall.rawInput],
   );
   useEffect(() => {
-    if (!sourceTaskId) return;
+    if (!sourceTaskId || !inView) return;
     buttons.forEach(({ action }, actionIndex) => {
+      const attribution = actionAttribution(
+        sourceTaskId,
+        toolCall.toolCallId,
+        actionIndex,
+      );
+      if (shownActionIds.has(attribution.action_id)) return;
+      shownActionIds.add(attribution.action_id);
       track(ANALYTICS_EVENTS.AGENT_ACTION_SHOWN, {
-        ...actionAttribution(sourceTaskId, toolCall.toolCallId, actionIndex),
+        ...attribution,
         action_kind: action.kind,
       });
     });
-  }, [buttons, sourceTaskId, toolCall.toolCallId]);
+  }, [buttons, inView, sourceTaskId, toolCall.toolCallId]);
   // A click that opens nothing is the failure this tool exists to avoid. One
   // handler covers both ways it happens: the call rejecting leaves `opened`
   // undefined, and the host finding no handler for the link answers false.
@@ -66,7 +80,7 @@ export function ShowActionsRow({ toolCall }: ToolViewProps) {
   // No surrounding card: the buttons sit in the conversation, which already
   // frames them. A box around them would draw a second frame around nothing.
   return (
-    <div className="flex flex-wrap gap-2">
+    <div ref={rowRef} className="flex flex-wrap gap-2">
       {buttons.map(({ label, action }, index) => {
         const attribution = actionAttribution(
           sourceTaskId,
