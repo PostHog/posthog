@@ -40186,6 +40186,7 @@
                 "pipeline_destinations",
                 "pipeline_transformations",
                 "platform_and_support",
+                "posthog_ai_onboarding",
                 "product_analytics",
                 "product_tours",
                 "pulse",
