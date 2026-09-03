@@ -1680,6 +1680,40 @@ class TestFindTaskRun(TestCase):
         )
         self.assertEqual(find_task_run(pr_url=pr_url), active_run)
 
+    def test_pr_url_match_ignores_stale_reviewhog_claim(self):
+        # A ReviewHog run only holds a verified_pr_urls claim when an earlier branch match
+        # bound it wrongly, so the claim must not keep the PR's later events off the run
+        # that authored it.
+        pr_url = "https://github.com/posthog/posthog/pull/451"
+        head_branch = "posthog-self-driving/fix-thing-abc123"
+        implementation_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            branch="master",
+            state={"self_driving_head_branch": head_branch},
+        )
+        review_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Review task",
+            description="Review the implementation",
+            origin_product=Task.OriginProduct.REVIEW_HOG,
+            repository="posthog/posthog",
+        )
+        TaskRun.objects.create(
+            task=review_task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            branch=head_branch,
+            state={"verified_pr_urls": [pr_url]},
+            output={"pr_url": pr_url},
+        )
+
+        result = find_task_run(pr_url=pr_url, branch=head_branch, repository="posthog/posthog")
+
+        self.assertEqual(result, implementation_run)
+
     def test_team_scope_excludes_runs_from_other_teams(self):
         # team_ids comes from the delivery's installation. Every leg has to honour it, both
         # so another customer's run can't be matched and so the scan rides the team_id index.

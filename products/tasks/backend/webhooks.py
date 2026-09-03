@@ -79,6 +79,12 @@ def find_task_run(
         logger.info("github_webhook_task_run_lookup_unscoped", pr_url=pr_url, branch=branch, repository=repository)
 
     candidates = TaskRun.objects.filter(team_id__in=team_ids) if team_ids else TaskRun.objects.all()
+    # ReviewHog runs check out the PR head branch to review it, but they never author a PR, so no
+    # leg below may return one. The exclusion belongs here rather than on each leg: a stale
+    # ``verified_pr_urls`` claim, left on a ReviewHog run by an earlier wrong branch match, would
+    # otherwise keep every later event for that PR on the reviewing run. Dropping the claim falls
+    # through to the legs below, which resolve the run that authored the PR.
+    candidates = candidates.exclude(task__origin_product=Task.OriginProduct.REVIEW_HOG)
 
     if pr_url:
         # A resumed wizard run inherits its predecessor's head branch, so a terminal
@@ -133,16 +139,13 @@ def find_task_run(
 
         # Wizard runs are excluded here: their `branch` column holds the checkout (base)
         # branch, so a same-repo PR whose head ref equals the base (e.g. "main") would
-        # otherwise claim the run before the dedicated leg below is consulted. ReviewHog
-        # runs are excluded too: they check out the PR head branch to review it but never
-        # author PRs, so they must never be a webhook target.
+        # otherwise claim the run before the dedicated leg below is consulted.
         task_run = (
             candidates.filter(
                 _run_repository_filter(repository),
                 branch=branch,
                 state__wizard_head_branch__isnull=True,
             )
-            .exclude(task__origin_product=Task.OriginProduct.REVIEW_HOG)
             .order_by("-created_at", "-id")
             .select_related(*TASK_RUN_SELECT_RELATED)
             .first()
@@ -160,7 +163,6 @@ def find_task_run(
                 output__head_branches__contains=[head_branch],
                 state__wizard_head_branch__isnull=True,
             )
-            .exclude(task__origin_product=Task.OriginProduct.REVIEW_HOG)
             .order_by("-created_at", "-id")
             .select_related(*TASK_RUN_SELECT_RELATED)
             .first()
