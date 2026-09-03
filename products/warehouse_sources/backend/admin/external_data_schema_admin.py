@@ -9,10 +9,6 @@ from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 
-from asgiref.sync import async_to_sync
-from temporalio.client import Client
-from temporalio.common import WorkflowIDReusePolicy
-
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
@@ -20,6 +16,13 @@ from products.data_warehouse.backend.facade.api import (
     pause_external_data_schedule,
     sync_external_data_job_workflow,
     unpause_external_data_schedule,
+)
+from products.warehouse_sources.backend.ad_hoc_sync import (
+    SchedulePauseError,
+    WorkflowStartError,
+    is_schedule_paused as _is_schedule_paused,
+    start_external_data_workflow as _start_external_data_workflow,
+    trigger_ad_hoc_sync,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -32,32 +35,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 # sync if a new format / mode is ever added.
 PARTITION_FORMAT_CHOICES: tuple[str, ...] = get_args(PartitionFormat)
 PARTITION_MODE_CHOICES: tuple[str, ...] = get_args(PartitionMode)
-
-
-@async_to_sync
-async def _start_external_data_workflow(client: Client, workflow_id: str, inputs: ExternalDataWorkflowInputs) -> None:
-    await client.start_workflow(
-        "external-data-job",
-        inputs,
-        id=workflow_id,
-        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-    )
-
-
-@async_to_sync
-async def _is_schedule_paused(client: Client, schedule_id: str) -> bool:
-    """Best-effort check whether the per-schema Temporal schedule is currently paused.
-
-    Returns False if the schedule does not exist or describe fails — the caller
-    treats that as 'no schedule to pause' and proceeds without pausing.
-    """
-    handle = client.get_schedule_handle(schedule_id)
-    try:
-        desc = await handle.describe()
-    except Exception:
-        return False
-    return bool(desc.schedule.state.paused)
 
 
 def _change_url(schema_id) -> str:
@@ -410,66 +387,23 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             messages.error(request, f"Failed to connect to Temporal: {e}.")
             return redirect(_change_url(schema_id))
 
-        was_paused = _is_schedule_paused(client, str(schema.id))
-        admin_paused_now = False
-        if not was_paused:
-            try:
-                pause_external_data_schedule(str(schema.id))
-                admin_paused_now = True
-            except Exception as e:
-                messages.error(request, f"Failed to pause schedule before sync: {e}.")
-                return redirect(_change_url(schema_id))
-
-        # Single save: stage reset_pipeline (only when ticked) + the auto-unpause
-        # marker. reset_pipeline goes on sync_type_config rather than the workflow
-        # input — the pipeline pops it after the first reset; on the input it
-        # would re-fire on every activity retry and wipe progress.
-        update_fields: list[str] = []
-        if reset_pipeline:
-            schema.sync_type_config["reset_pipeline"] = True
-            update_fields.append("sync_type_config")
-            # A streaming CDC schema no-ops a normal reset — CDCExtractionWorkflow owns it and the
-            # per-schema run raises CDCHandledExternally. Flip it back to snapshot so this run does a
-            # full re-snapshot, mirroring ExternalDataSchemaViewSet.reset. The job below is created
-            # billable=False, and on completion set_initial_sync_complete transitions it back to
-            # streaming, so ongoing CDC stays billable. The save must precede the workflow start so
-            # the source reloads cdc_mode="snapshot" instead of racing on stale "streaming".
-            if schema.is_cdc and schema.cdc_mode == "streaming":
-                schema.sync_type_config["cdc_mode"] = "snapshot"
-                schema.sync_type_config.pop("cdc_last_log_position", None)
-                schema.sync_type_config.pop("cdc_deferred_runs", None)
-                schema.initial_sync_complete = False
-                update_fields.append("initial_sync_complete")
-        if admin_paused_now:
-            schema.sync_type_config["admin_unpause_schedule_after_run"] = True
-            if "sync_type_config" not in update_fields:
-                update_fields.append("sync_type_config")
-        if update_fields:
-            schema.save(update_fields=update_fields)
-
-        inputs = ExternalDataWorkflowInputs(
-            team_id=schema.team_id,
-            external_data_source_id=schema.source.id,
-            external_data_schema_id=schema.id,
-            billable=billable,
-            reset_pipeline=None,
-        )
-        workflow_id = f"{schema.id}-admin-resync-{int(time.time())}"
         try:
-            _start_external_data_workflow(client, workflow_id, inputs)
-        except Exception as e:
-            # Best-effort rollback of the pause we just did so the schedule doesn't
-            # stay paused forever after a failed workflow start.
-            if admin_paused_now:
-                try:
-                    unpause_external_data_schedule(str(schema.id))
-                    schema.sync_type_config.pop("admin_unpause_schedule_after_run", None)
-                    schema.save(update_fields=["sync_type_config"])
-                except Exception:
-                    pass
+            trigger = trigger_ad_hoc_sync(
+                client,
+                schema,
+                billable=billable,
+                reset_pipeline=reset_pipeline,
+                workflow_id_prefix="admin-resync",
+            )
+        except SchedulePauseError as e:
+            messages.error(request, f"Failed to pause schedule before sync: {e}.")
+            return redirect(_change_url(schema_id))
+        except WorkflowStartError as e:
             messages.error(request, f"Failed to trigger sync: {e}")
             return redirect(_change_url(schema_id))
 
+        workflow_id = trigger.workflow_id
+        admin_paused_now = trigger.schedule_paused_now
         billable_label = "billable" if billable else "non-billable"
         action_label = "resync (with reset)" if reset_pipeline else "sync"
         pause_note = (
