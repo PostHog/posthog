@@ -187,7 +187,7 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
         allTemplates: [
             [] as DashboardTemplateType[],
             {
-                getAllTemplates: async () => {
+                getAllTemplates: async (_, breakpoint) => {
                     const logicProps = props as DashboardTemplatesLogicProps
                     const featuredOnly = logicProps.listQuery?.is_featured === true
                     // Curated featured list (empty dashboards) must ignore `templateFilter` synced from the URL via
@@ -211,16 +211,20 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                         listScope = undefined
                     }
 
+                    const ordering = values.templateNameOrdering
                     const params: DashboardTemplateListParams = {
                         scope: listScope,
                         search: useSearch ? values.templateFilter : undefined,
                         // Search results are relevance-ranked; omit ordering (see API `dangerously_get_queryset`).
-                        ordering: useSearch ? undefined : values.templateNameOrdering || undefined,
+                        ordering: useSearch ? undefined : ordering || undefined,
                         ...logicProps.listQuery,
                     }
                     const page = await api.dashboardTemplates.list(params)
+                    // The modal or the /dashboard scene can close while the request is in flight.
+                    // The breakpoint drops the response, because the store path is gone by then.
+                    breakpoint()
                     if (!useSearch && listScope === undefined) {
-                        return sortTemplatesTeamScopeBeforeOfficial(page.results, values.templateNameOrdering)
+                        return sortTemplatesTeamScopeBeforeOfficial(page.results, ordering)
                     }
                     return page.results
                 },

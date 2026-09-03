@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -149,5 +150,21 @@ describe('dashboardTemplatesLogic', () => {
         await expectLogic(mounted).toFinishAllListeners()
 
         expect(listMock).toHaveBeenCalled()
+    })
+
+    it('reports nothing when the surface closes while the template list is still loading', async () => {
+        const listMock = api.dashboardTemplates.list as jest.Mock
+        let resolveList: (page: { results: DashboardTemplateType[] }) => void = () => {}
+        listMock.mockImplementation(() => new Promise((resolve) => (resolveList = resolve)))
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+        const mounted = dashboardTemplatesLogic({ scope: 'default' })
+        mounted.mount()
+        mounted.actions.getAllTemplates()
+
+        mounted.unmount()
+        resolveList({ results: [] })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(captureException).not.toHaveBeenCalled()
     })
 })
