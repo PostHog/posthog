@@ -18,7 +18,6 @@ from posthog.temporal.ai.slack_app.activities.task_creation import (
     _INITIATOR_PLACEHOLDER,
     _THREAD_CONTEXT_TAG,
     _THREAD_CONTEXT_UPDATE_TAG,
-    _artifact_delivery_state_updates,
     _build_posthog_code_task_description,
     _format_author_token,
     _indent_body,
@@ -26,6 +25,8 @@ from posthog.temporal.ai.slack_app.activities.task_creation import (
     derive_mention_workflow_id,
 )
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
+
+from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates
 
 
 def test_format_author_token_builds_labeled_mention():
@@ -93,7 +94,7 @@ def test_artifact_delivery_mode_offers_only_what_delivery_accepts(granted_scopes
     # missing one still gets charts while dropping to message mode.
     integration = Integration(kind="slack", config={"scope": granted_scopes})
 
-    assert _artifact_delivery_state_updates(integration) == {
+    assert slack_artifact_delivery_state_updates(integration) == {
         "slack_artifact_delivery": expected_mode,
         "slack_chart_delivery": True,
     }
