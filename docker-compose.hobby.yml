@@ -169,6 +169,10 @@ services:
             # Blank sends no CSP reports. Point it at this instance's own /report/ endpoint to
             # collect them yourself.
             CSP_REPORT_ENDPOINT: ${CSP_REPORT_ENDPOINT:-}
+            # The /report/ endpoint forwards CSP violations here. Without this, it falls back to
+            # localhost:8010 (a dev-only host port mapping), which nothing serves in this stack,
+            # so any CSP report submitted to /report/ fails with a 502.
+            CAPTURE_INTERNAL_URL: 'http://capture:3000'
             DEPLOYMENT: 'hobby'
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
