@@ -1,10 +1,11 @@
 import re
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any, Optional
 
 import requests
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
@@ -33,14 +34,14 @@ class GainsightCsHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class GainsightCsResumeConfig:
     # Row index of the next page to request. The Read API pages with limit/offset in the POST body,
     # so an offset is all that's needed to pick a sync back up.
     offset: int = 0
 
 
-@dataclasses.dataclass(frozen=True)
+@frozen
 class GainsightCsField:
     name: str
     data_type: str

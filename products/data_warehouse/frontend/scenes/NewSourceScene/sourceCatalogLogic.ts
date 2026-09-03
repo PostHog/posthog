@@ -611,6 +611,7 @@ export interface sourceCatalogLogicMeta {
                       | 'FullStory'
                       | 'FusionAuth'
                       | 'G2'
+                      | 'GainsightCs'
                       | 'GainsightPx'
                       | 'Gcore'
                       | 'GcpApigee'

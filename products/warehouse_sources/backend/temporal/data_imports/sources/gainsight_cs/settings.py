@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -24,7 +24,7 @@ DATE_DATA_TYPES = frozenset({"DATE", "DATETIME"})
 OBJECT_NAME_PATTERN = r"^[A-Za-z0-9_]+$"
 
 
-@dataclass
+@frozen
 class GainsightCsObjectConfig:
     name: str
     # The object's API name, as shown on the Gainsight Data Management page.
@@ -38,7 +38,7 @@ class GainsightCsObjectConfig:
     # skipping rows, which is the failure mode that doesn't announce itself.
     supports_incremental: bool = False
     supports_append: bool = False
-    incremental_fields: list[IncrementalField] = field(default_factory=list)
+    incremental_fields: tuple[IncrementalField, ...] = ()
 
 
 # Standard objects, keyed by the schema name PostHog shows in the picker. Every object name here is
@@ -96,5 +96,5 @@ GAINSIGHT_CS_OBJECTS: dict[str, GainsightCsObjectConfig] = {
 ENDPOINTS = tuple(GAINSIGHT_CS_OBJECTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: config.incremental_fields for name, config in GAINSIGHT_CS_OBJECTS.items()
+    name: list(config.incremental_fields) for name, config in GAINSIGHT_CS_OBJECTS.items()
 }
