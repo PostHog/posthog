@@ -142,8 +142,8 @@ def install_memory_probe_handler() -> None:
 
     MUST be called post-fork from inside each worker (see posthog/asgi.py and posthog/wsgi.py):
     signal handlers can only be registered from the main thread, and the handler has to live
-    in the worker that serves requests, not the idle Nginx Unit prototype the workers fork
-    from. Registering post-fork also means it isn't clobbered by any signal reset Unit does
+    in the worker that serves requests, not the idle parent the workers come from.
+    Registering post-fork also means it isn't clobbered by any signal reset the server does
     during worker init.
 
     Inert until armed: with the flag unset (default) nothing is registered at all, and even

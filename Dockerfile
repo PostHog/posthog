@@ -272,55 +272,17 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-# NOTE: v1.32 is running bullseye, v1.33+ is running bookworm
-FROM unit:1.34.2-python3.13
+# Same digest as the posthog-build stage, so the interpreter that runs the app matches the one
+# its wheels were built against.
+FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
-# Unit embeds libpython instead of launching the python3 CLI, so PEP 538 C-locale
+# Granian embeds libpython instead of launching the python3 CLI, so PEP 538 C-locale
 # coercion never runs and open() defaults to ASCII under the container's bare locale.
 # Force UTF-8 so file reads with non-ASCII bytes don't raise UnicodeDecodeError.
 ENV PYTHONUTF8 1
 ENV LANG C.UTF-8
-ARG UNIT_GIT_TAG=1.35.0
-ARG UNIT_GIT_REF=28404105810f53c570523c3e70006ad0ca210e58
-
-# Build Unit from the upstream 1.35.0 release ref to ensure the Django 5 ASGI fix is present even when Docker tags lag.
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    "build-essential" \
-    "git" \
-    "libpcre2-dev" \
-    "zlib1g-dev" \
-    && \
-    git clone --depth 1 --branch "$UNIT_GIT_TAG" https://github.com/nginx/unit.git /tmp/unit && \
-    cd /tmp/unit && \
-    test "$(git rev-parse HEAD)" = "$UNIT_GIT_REF" && \
-    NCPU="$(getconf _NPROCESSORS_ONLN)" && \
-    DEB_HOST_MULTIARCH="$(gcc -print-multiarch)" && \
-    CONFIGURE_ARGS="--prefix=/usr \
-        --statedir=/var/lib/unit \
-        --control=unix:/var/run/control.unit.sock \
-        --runstatedir=/var/run \
-        --pid=/var/run/unit.pid \
-        --logdir=/var/log \
-        --log=/var/log/unit.log \
-        --tmpdir=/var/tmp \
-        --user=unit \
-        --group=unit \
-        --openssl \
-        --libdir=/usr/lib/$DEB_HOST_MULTIARCH \
-        --modulesdir=/usr/lib/unit/modules" && \
-    ./configure $CONFIGURE_ARGS && \
-    make -j "$NCPU" unitd && \
-    install -pm755 build/sbin/unitd /usr/sbin/unitd && \
-    make clean && \
-    ./configure $CONFIGURE_ARGS && \
-    ./configure python --config=/usr/local/bin/python3-config && \
-    make -j "$NCPU" python3-install && \
-    rm -rf /tmp/unit && \
-    apt-get purge -y --auto-remove "build-essential" "git" "libpcre2-dev" "zlib1g-dev" && \
-    rm -rf /var/lib/apt/lists/*
 
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
@@ -329,7 +291,7 @@ RUN apt-get update && \
 # libxmlsec1-openssl provides the OpenSSL crypto backend that libxmlsec1-dev used to pull in.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
-    "gettext-base" \
+    "ca-certificates" \
     "git" \
     "libpq5" \
     "libxmlsec1=1.2.37-2" \
@@ -351,7 +313,11 @@ RUN apt-get update && \
 # command shells out to `npx prettier` to regenerate a checked-in file; it is not run in this image.
 ENV NODE_VERSION 24.13.0
 
-RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
+# curl/gnupg/xz-utils are needed only to fetch and verify the tarball, so they are purged in the
+# same layer rather than left in the runtime image.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends "curl" "gnupg" "xz-utils" \
+    && ARCH= && dpkgArch="$(dpkg --print-architecture)" \
     && case "${dpkgArch##*-}" in \
     amd64) ARCH='x64';; \
     ppc64el) ARCH='ppc64le';; \
@@ -388,6 +354,8 @@ RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
     && ln -s /usr/local/bin/node /usr/local/bin/nodejs \
     && node --version \
     && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/include/node \
+    && apt-get purge -y --auto-remove "curl" "gnupg" "xz-utils" \
+    && rm -rf /var/lib/apt/lists/* \
     && rm -rf /tmp/*
 
 # Install and use a non-root user.
@@ -469,7 +437,7 @@ EXPOSE 8000
 
 # Expose the port from which we serve OpenMetrics data.
 EXPOSE 8001
-COPY unit.json.tpl /docker-entrypoint.d/unit.json.tpl
+# Root is needed only so bin/docker-server can drop the app to nobody with setpriv.
 # nosemgrep: dockerfile.security.last-user-is-root.last-user-is-root
 USER root
 CMD ["./bin/docker"]

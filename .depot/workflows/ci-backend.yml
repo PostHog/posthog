@@ -336,7 +336,7 @@ jobs:
                         - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
-                        - bin/unit_metrics.py
+                        - bin/granian_metrics.py
                         - pyproject.toml
                         - uv.lock
                         - requirements.txt
@@ -416,7 +416,7 @@ jobs:
                         - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
-                        - bin/unit_metrics.py
+                        - bin/granian_metrics.py
                         - pyproject.toml
                         - uv.lock
                         - requirements.txt

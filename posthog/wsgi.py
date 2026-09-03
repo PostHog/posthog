@@ -59,9 +59,9 @@ finally:
     gc.enable()
 
 
-# A web worker logs `web_worker_started` once, here at the end of boot. Nginx Unit recycles a
-# worker after NGINX_UNIT_REQUEST_LIMIT requests, and the kernel respawns one whenever a worker
-# is OOM-killed (SIGKILL is uncatchable, so the kill itself can't be logged from inside the
+# A web worker logs `web_worker_started` once, here at the end of boot. Granian recycles a
+# worker once it passes GRANIAN_WORKERS_MAX_RSS, and respawns one whenever a worker is
+# OOM-killed (SIGKILL is uncatchable, so the kill itself can't be logged from inside the
 # worker). Either way the replacement boots and emits this line — so a burst of these on a pod
 # is the in-app fingerprint of worker churn / OOM kills, queryable in PostHog even though the
 # kill leaves no other application-level trace. Best-effort: never break worker startup.
@@ -78,7 +78,7 @@ def _log_web_worker_started() -> None:
             "web_worker_started",
             pid=os.getpid(),
             rss_mb=round(rss_mb, 1) if rss_mb is not None else None,
-            request_limit=os.getenv("NGINX_UNIT_REQUEST_LIMIT"),
+            max_rss_mb=os.getenv("GRANIAN_WORKERS_MAX_RSS"),
             pod=os.getenv("K8S_POD_NAME") or os.getenv("HOSTNAME"),
         )
     except Exception:
@@ -87,7 +87,7 @@ def _log_web_worker_started() -> None:
 
 _log_web_worker_started()
 
-# Nginx Unit forks workers from a prototype process that imported this module, so
+# A server that forks workers from a parent process that imported this module means
 # the query_cache RedisCluster must be discovered post-fork: a client built here at
 # import time would be inherited -- sockets and all -- by every worker. Defer the
 # prewarm to the first request so discovery runs in the worker; the factory also

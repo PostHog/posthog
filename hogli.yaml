@@ -635,11 +635,7 @@ docker:
         hidden: true
     docker:server:
         bin_script: docker-server
-        description: Run dual-mode server (Granian/Unit) with Prometheus metrics support
-        hidden: true
-    docker:server-unit:
-        bin_script: docker-server-unit
-        description: Run NGINX Unit application server with configurable workers
+        description: Run the Granian application server with Prometheus metrics support
         hidden: true
     docker:worker-beat:
         bin_script: docker-worker-beat
@@ -971,11 +967,6 @@ tools:
     tool:turbo:
         bin_script: turbo
         description: Turborepo wrapper with automatic dependency installation
-    tool:unit-metrics:
-        bin_script: unit_metrics.py
-        description: WSGI app that aggregates Prometheus metrics from NGINX Unit status
-            endpoint
-        hidden: true
     tool:create-ch-migration:
         cmd: python manage.py create_ch_migration
         description: Generate new ClickHouse migration scaffold
