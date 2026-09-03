@@ -1164,6 +1164,7 @@ export interface MCPServerTemplateApi {
     /** The vendor's brand domain (e.g. 'linear.app'), resolved to an icon at render time via the logo.dev proxy endpoint. Empty when no brand icon is known. */
     readonly icon_domain: string
     category?: MCPServerCategoryEnumApi
+    is_coming_soon?: boolean
 }
 
 export interface PaginatedMCPServerTemplateListApi {

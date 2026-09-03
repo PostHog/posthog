@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCard } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -48,7 +48,10 @@ export function ServerCard({ server }: Props): JSX.Element {
             <div className="flex gap-3 flex-row items-center">
                 <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={40} />
                 <div className="flex-1 min-w-0">
-                    <h3 className="mb-0 truncate">{server.name}</h3>
+                    <div className="flex items-center gap-2">
+                        <h3 className="mb-0 truncate">{server.name}</h3>
+                        {server.is_coming_soon && <LemonTag type="muted">Coming soon</LemonTag>}
+                    </div>
                     {server.description && (
                         <p className="text-sm text-secondary mt-1 mb-0 line-clamp-2">{server.description}</p>
                     )}
@@ -69,10 +72,10 @@ export function ServerCard({ server }: Props): JSX.Element {
                         size="small"
                         type="primary"
                         onClick={handleConnect}
-                        disabledReason={restrictedReason}
+                        disabledReason={server.is_coming_soon ? 'This MCP server is coming soon.' : restrictedReason}
                         stopPropagation
                     >
-                        Connect
+                        {server.is_coming_soon ? 'Coming soon' : 'Connect'}
                     </LemonButton>
                 )}
             </div>

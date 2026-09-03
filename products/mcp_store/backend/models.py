@@ -172,6 +172,7 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     oauth_scope_allowlist = models.JSONField(null=True, blank=True, default=None)
     oauth_credentials_source = models.CharField(max_length=64, blank=True, default="", db_default="")
     oauth_credentials = EncryptedJSONField(default=dict, blank=True)
+    is_coming_soon = models.BooleanField(default=False, db_default=False)
     is_active = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs) -> None:

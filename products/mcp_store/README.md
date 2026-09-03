@@ -158,7 +158,7 @@ To show brand icons on a self-hosted instance, create a logo.dev account, genera
 
 OAuth catalog entries can set `oauth_scope_allowlist` to limit registration and authorization to reviewed scopes. Without an allowlist, the client requests every scope advertised by the server. Shared clients derive their token endpoint authentication method from discovered metadata unless `oauth_credentials.token_endpoint_auth_method` overrides it.
 
-Slack uses the existing `SLACK_APP_CLIENT_ID` and `SLACK_APP_CLIENT_SECRET` instance settings. Its catalog entry remains suspended until the production Slack app supports MCP and its regional callbacks are live. After the suspension is removed, catalog sync activates Slack only when both settings exist and the shared-client probe passes. Each Desktop user still completes a separate OAuth grant for the catalog's reviewed MCP scopes.
+Slack uses the existing `SLACK_APP_CLIENT_ID` and `SLACK_APP_CLIENT_SECRET` instance settings. It appears as coming soon until the production Slack app supports MCP and its regional callbacks are live. Coming-soon templates remain inactive and cannot be installed. After that state is removed, catalog sync activates Slack only when both settings exist and the shared-client probe passes. Each Desktop user still completes a separate OAuth grant for the catalog's reviewed MCP scopes.
 
 ## Operator runbook: activating a manually provisioned shared-creds server
 

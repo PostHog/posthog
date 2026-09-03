@@ -77,7 +77,7 @@ export const TEMPLATE_SERVER_ID_PREFIX = 'template:'
 
 /** A real registry row, or a catalog template synthesized client-side (no
  * `created_by` until an install or admin toggle materializes the row). */
-export type GatewayServerEntry = MCPGatewayServerApi
+export type GatewayServerEntry = MCPGatewayServerApi & { is_coming_soon?: boolean }
 
 export function isTemplateOnlyServer(server: Pick<GatewayServerEntry, 'id'>): boolean {
     return server.id.startsWith(TEMPLATE_SERVER_ID_PREFIX)
@@ -100,6 +100,7 @@ function templateAsGatewayServer(template: MCPServerTemplateApi, enabled: boolea
         icon_key: template.icon_key,
         icon_domain: template.icon_domain,
         docs_url: template.docs_url ?? '',
+        is_coming_soon: template.is_coming_soon,
         template_id: template.id,
         tool_count: 0,
         connections: [],

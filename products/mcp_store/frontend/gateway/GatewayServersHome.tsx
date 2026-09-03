@@ -156,14 +156,17 @@ export function GatewayServerCard({
     const canReconnect = Boolean(connection && (server.auth_type === 'oauth' || needsReconnect))
     const connecting = connectingServerId === server.id
     const disabled = !server.is_team_enabled
+    const comingSoon = recommended && server.is_coming_soon === true
     const canConnectIndividual = !connection
-    const connectionDisabledReason = server.is_revoked_for_you
-        ? 'Ask an admin to restore your access to this server.'
-        : recommended && disabled
-          ? 'Catalog servers are turned off for this team. An admin can enable them in Team settings.'
-          : disabled
-            ? 'This server is turned off for the team.'
-            : undefined
+    const connectionDisabledReason = comingSoon
+        ? 'This MCP server is coming soon.'
+        : server.is_revoked_for_you
+          ? 'Ask an admin to restore your access to this server.'
+          : recommended && disabled
+            ? 'Catalog servers are turned off for this team. An admin can enable them in Team settings.'
+            : disabled
+              ? 'This server is turned off for the team.'
+              : undefined
     const openServer = (): void => {
         if (onOpenServer) {
             onOpenServer(server.id)
@@ -175,7 +178,7 @@ export function GatewayServerCard({
     return (
         <div
             className={`border rounded p-3 flex items-center gap-3 bg-surface-primary hover:border-accent transition-colors ${
-                disabled ? 'opacity-60' : ''
+                disabled || comingSoon ? 'opacity-60' : ''
             } ${recommended ? '' : 'cursor-pointer'}`}
             role={recommended ? undefined : 'button'}
             tabIndex={recommended ? undefined : 0}
@@ -202,6 +205,7 @@ export function GatewayServerCard({
                     {connection?.needs_reauth && <LemonTag type="danger">Needs reauth</LemonTag>}
                     {connection && !connection.is_enabled && <LemonTag type="muted">Off for you</LemonTag>}
                     {server.is_revoked_for_you && <LemonTag type="danger">Access revoked</LemonTag>}
+                    {comingSoon && <LemonTag type="muted">Coming soon</LemonTag>}
                     {disabled && (
                         <Tooltip
                             title={
@@ -242,7 +246,7 @@ export function GatewayServerCard({
                             disabledReason={connectionDisabledReason}
                             stopPropagation
                         >
-                            Connect
+                            {comingSoon ? 'Coming soon' : 'Connect'}
                         </LemonButton>
                     )
                 ) : (

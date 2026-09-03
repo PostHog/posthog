@@ -1,1 +1,1 @@
-0030_add_mcp_template_oauth_credentials_source
+0031_add_mcp_template_is_coming_soon

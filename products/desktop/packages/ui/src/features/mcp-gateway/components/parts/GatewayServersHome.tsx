@@ -395,9 +395,11 @@ function RecommendedTemplateCard({
   connecting: boolean;
   onConnect: () => void;
 }) {
+  const comingSoon = template.is_coming_soon === true;
+
   return (
     <div
-      className={`relative rounded-md border border-gray-5 bg-gray-2 ${disabled ? "opacity-60" : ""}`}
+      className={`relative rounded-md border border-gray-5 bg-gray-2 ${disabled || comingSoon ? "opacity-60" : ""}`}
     >
       <div className="grid w-full grid-cols-[36px_1fr] items-center gap-3 rounded-md p-4 pr-[132px]">
         <ServerIcon
@@ -415,6 +417,11 @@ function RecommendedTemplateCard({
                 Off
               </Badge>
             )}
+            {comingSoon && (
+              <Badge color="gray" variant="soft" size="1">
+                Coming soon
+              </Badge>
+            )}
           </Flex>
           <Text
             color="gray"
@@ -427,7 +434,7 @@ function RecommendedTemplateCard({
           >
             {template.description || template.url}
           </Text>
-          {disabled && (
+          {disabled && !comingSoon && (
             <Text color="gray" className="text-xs">
               Disabled — enable it in Team settings
             </Text>
@@ -435,7 +442,11 @@ function RecommendedTemplateCard({
         </Flex>
       </div>
       <div className="absolute top-4 right-4">
-        {disabled ? null : connecting ? (
+        {comingSoon ? (
+          <Button variant="soft" color="gray" size="1" disabled>
+            Coming soon
+          </Button>
+        ) : disabled ? null : connecting ? (
           <Button variant="solid" size="1" disabled>
             <Spinner size="1" /> Authorizing…
           </Button>

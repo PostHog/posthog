@@ -32,6 +32,7 @@ def _entry(
     docs_url: str = "",
     oauth_scope_allowlist: tuple[str, ...] | None = None,
     oauth_credentials_source: OAuthCredentialsSource | None = None,
+    is_coming_soon: bool = False,
     disabled: bool = False,
 ) -> CatalogEntry:
     return CatalogEntry(
@@ -44,6 +45,7 @@ def _entry(
         docs_url=docs_url,
         oauth_scope_allowlist=oauth_scope_allowlist,
         oauth_credentials_source=oauth_credentials_source,
+        is_coming_soon=is_coming_soon,
         disabled=disabled,
     )
 
@@ -80,6 +82,7 @@ class TestCatalogEntries(SimpleTestCase):
             if entry.oauth_credentials_source is not None:
                 assert entry.auth_type == "oauth", entry.url
                 assert entry.oauth_credentials_source in SUPPORTED_OAUTH_CREDENTIAL_SOURCES, entry.url
+            assert not (entry.is_coming_soon and entry.disabled), entry.url
 
 
 class TestSyncMCPCatalog(TestCase):
@@ -307,6 +310,16 @@ class TestSyncMCPCatalog(TestCase):
         probe_mock.assert_not_called()
         template.refresh_from_db()
         assert counts.updated == 1
+        assert template.is_active is False
+
+    def test_coming_soon_entry_is_visible_but_not_activated_or_probed(self):
+        with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server") as probe_mock:
+            counts = sync_mcp_catalog(entries=[_entry(is_coming_soon=True)])
+
+        probe_mock.assert_not_called()
+        template = MCPServerTemplate.objects.get(url=_entry().url)
+        assert counts.created == 1
+        assert template.is_coming_soon is True
         assert template.is_active is False
 
     def test_warns_on_active_row_missing_from_catalog(self):

@@ -185,15 +185,17 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_list_servers_returns_active_templates(self):
         active_a = self._create_active_template()
         active_b = self._create_active_template()
-        self._create_active_template(is_active=False)
+        inactive = self._create_active_template(is_active=False)
+        coming_soon = self._create_active_template(is_active=False, is_coming_soon=True)
 
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")
         assert response.status_code == status.HTTP_200_OK
         names = {s["name"] for s in response.json()["results"]}
         assert {active_a.name, active_b.name}.issubset(names)
-        # Inactive templates must not be in the listing (check by name not presence of hidden)
-        inactive_names = set(MCPServerTemplate.objects.filter(is_active=False).values_list("name", flat=True))
-        assert inactive_names.isdisjoint(names)
+        assert coming_soon.name in names
+        assert inactive.name not in names
+        coming_soon_result = next(server for server in response.json()["results"] if server["name"] == coming_soon.name)
+        assert coming_soon_result["is_coming_soon"] is True
 
     def test_list_servers_entries_match_serializer_schema(self):
         self._create_active_template()
@@ -208,6 +210,7 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "icon_key",
             "icon_domain",
             "category",
+            "is_coming_soon",
         }
         results = response.json()["results"]
         assert len(results) >= 1
@@ -3995,6 +3998,19 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             format="json",
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_install_template_rejects_coming_soon_template(self):
+        template = self._template(is_active=False, is_coming_soon=True)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+            data={"template_id": str(template.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "This MCP server is coming soon."
+        assert not MCPServerInstallation.objects.filter(template=template).exists()
 
     def test_install_template_shared_creds_without_oauth_metadata_returns_400(self):
         # Shared-creds templates require admin-seeded metadata. (DCR templates

@@ -282,6 +282,7 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
                         )}
                         {installation?.needs_reauth && <LemonTag type="danger">Reconnect required</LemonTag>}
                         {installation?.pending_oauth && <LemonTag type="warning">Pending OAuth</LemonTag>}
+                        {template?.is_coming_soon && <LemonTag type="muted">Coming soon</LemonTag>}
                         {authType && <LemonSnack>{authType === 'oauth' ? 'OAuth' : 'API key'}</LemonSnack>}
                     </div>
                     {description && <p className="text-secondary mt-2 mb-0">{description}</p>}
@@ -296,9 +297,11 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
                         <LemonButton
                             type="primary"
                             onClick={() => installTemplate({ templateId: template.id })}
-                            disabledReason={restrictedReason}
+                            disabledReason={
+                                template.is_coming_soon ? 'This MCP server is coming soon.' : restrictedReason
+                            }
                         >
-                            Connect
+                            {template.is_coming_soon ? 'Coming soon' : 'Connect'}
                         </LemonButton>
                     ) : installation?.needs_reauth ? (
                         <LemonButton

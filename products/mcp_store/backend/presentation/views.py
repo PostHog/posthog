@@ -238,14 +238,25 @@ class MCPServerTemplateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MCPServerTemplate
-        fields = ["id", "name", "url", "docs_url", "description", "auth_type", "icon_key", "icon_domain", "category"]
+        fields = [
+            "id",
+            "name",
+            "url",
+            "docs_url",
+            "description",
+            "auth_type",
+            "icon_key",
+            "icon_domain",
+            "category",
+            "is_coming_soon",
+        ]
 
 
 class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     """Lists curated MCP server templates that users can install with one click.
 
-    Templates are seeded by PostHog operators and carry shared, encrypted
-    OAuth client credentials. Inactive templates are hidden from the catalog.
+    Active templates are installable. Coming-soon templates are visible but not
+    installable, while other inactive templates remain hidden.
     """
 
     scope_object = "project"
@@ -256,7 +267,7 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
         responses={200: OpenApiResponse(response=MCPServerTemplateSerializer(many=True))},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        queryset = MCPServerTemplate.objects.filter(is_active=True).order_by("name")
+        queryset = MCPServerTemplate.objects.filter(Q(is_active=True) | Q(is_coming_soon=True)).order_by("name")
         serializer = MCPServerTemplateSerializer(queryset, many=True)
         return Response({"results": serializer.data})
 
@@ -1381,9 +1392,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         self._require_admin_for_shared_scope(scope)
         self._validate_gateway_options(data)
 
-        try:
-            template = MCPServerTemplate.objects.get(id=template_id, is_active=True)
-        except MCPServerTemplate.DoesNotExist:
+        template = MCPServerTemplate.objects.filter(id=template_id).first()
+        if template is not None and template.is_coming_soon:
+            return Response({"detail": "This MCP server is coming soon."}, status=status.HTTP_400_BAD_REQUEST)
+        if template is None or not template.is_active:
             return Response({"detail": "Template not found"}, status=status.HTTP_404_NOT_FOUND)
         self._require_server_enabled_for_team(template.url)
 
@@ -1882,9 +1894,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         installation: MCPServerInstallation | None = None,
         web_return_path: str = "",
     ) -> HttpResponse:
-        try:
-            template = MCPServerTemplate.objects.get(id=template_id, is_active=True)
-        except MCPServerTemplate.DoesNotExist:
+        template = MCPServerTemplate.objects.filter(id=template_id).first()
+        if template is not None and template.is_coming_soon:
+            return Response({"detail": "This MCP server is coming soon."}, status=status.HTTP_400_BAD_REQUEST)
+        if template is None or not template.is_active:
             return Response({"detail": "Template not found"}, status=status.HTTP_404_NOT_FOUND)
         self._require_server_enabled_for_team(template.url)
 

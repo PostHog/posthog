@@ -10,12 +10,14 @@ Semantics, chosen so the sync can run unattended at every app startup:
 - The sync normally preserves operational state: ``is_active`` after creation,
   ``oauth_credentials`` (operator-provisioned shared client creds), or ``oauth_metadata``
   once set. Rows absent from the catalog (admin-added or removed entries) are left alone.
-  Two fail-closed exceptions deactivate active rows: an ``auth_type`` flip, or a catalog
-  entry marked ``disabled``. Entries with a catalog-managed credential source also follow
+  Three fail-closed exceptions deactivate active rows: an ``auth_type`` flip, a catalog
+  entry marked ``disabled``, or one marked ``is_coming_soon``. Entries with a catalog-managed credential source also follow
   that source: sync probes and activates them when configured, and deactivates them when
   their required settings are absent.
 - **Activation gate**: a newly created entry is probed live (``probe.probe_mcp_server``)
-  and born active only when the probe passes for the auth model the catalog declares —
+  and born active only when the probe passes for the auth model the catalog declares.
+  Coming-soon entries skip probing and remain inactive while still appearing in the catalog.
+  Otherwise,
   DCR OAuth servers must complete a real client registration and serve an authorization
   page; API-key servers must complete the MCP handshake without credentials. An API-key
   server that auth-walls the handshake (the common case) yields no MCP evidence, so it
@@ -52,6 +54,7 @@ _CONTENT_FIELDS = (
     "docs_url",
     "oauth_scope_allowlist",
     "oauth_credentials_source",
+    "is_coming_soon",
 )
 
 
@@ -138,10 +141,11 @@ def _create_template(entry: CatalogEntry, skip_probe: bool, counts: SyncCounts) 
         docs_url=entry.docs_url,
         oauth_scope_allowlist=_entry_field_value(entry, "oauth_scope_allowlist"),
         oauth_credentials_source=entry.oauth_credentials_source or "",
+        is_coming_soon=entry.is_coming_soon,
         is_active=False,
     )
     counts.created += 1
-    if skip_probe or entry.disabled:
+    if skip_probe or entry.disabled or entry.is_coming_soon:
         return
 
     probe = _probe_entry(entry)
@@ -161,10 +165,14 @@ def _update_template(template: MCPServerTemplate, entry: CatalogEntry, skip_prob
     changed = [f for f in _CONTENT_FIELDS if getattr(template, f) != _entry_field_value(entry, f)]
     for f in changed:
         setattr(template, f, _entry_field_value(entry, f))
-    if entry.disabled and template.is_active:
+    if (entry.disabled or entry.is_coming_soon) and template.is_active:
         template.is_active = False
         changed.append("is_active")
-        logger.warning("mcp_catalog_sync.deactivated_disabled_entry", url=entry.url)
+        logger.warning(
+            "mcp_catalog_sync.deactivated_unavailable_entry",
+            url=entry.url,
+            reason="disabled" if entry.disabled else "coming_soon",
+        )
     elif "auth_type" in changed and template.is_active:
         # The row was vetted and activated under the old auth model — e.g. an
         # oauth→api_key flip would route new installs through the API-key branch

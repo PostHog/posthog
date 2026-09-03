@@ -15162,6 +15162,7 @@ export namespace Schemas {
          */
         icon_domain: string;
         category?: MCPServerCategoryEnum | undefined;
+        is_coming_soon?: boolean | undefined;
     };
     /**
      * A conversion goal counted from an action.
