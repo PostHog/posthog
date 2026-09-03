@@ -527,31 +527,44 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self.columns = columns
         self.column_order = list(columns.keys())
 
-    def _describe_settings(self) -> list[dict[str, str | int]]:
-        """Settings for the introspection DESCRIBE, the most complete schema first.
+    def _supports_wider_schema_inference(self) -> bool:
+        # ClickHouse refuses the `union` mode for a format that cannot read a subset of the
+        # columns, such as headerless CSV, so the wider inference applies to JSON alone.
+        return self.format == DataWarehouseTable.TableFormat.JSON
 
-        The `union` mode reads all files, so ClickHouse rejects the table when two files disagree
-        on the type of a column. Evolving JSON does this, and such a table is describable today
-        from the types in one file. Thus the caller uses the second entry when the first fails,
-        which keeps the table usable instead of making it unreadable.
-        """
-        base: dict[str, str | int] = {**DISABLE_HIVE_PARTITIONING_SETTINGS}
+    def _default_describe_settings(self) -> dict[str, str | int]:
+        settings: dict[str, str | int] = {**DISABLE_HIVE_PARTITIONING_SETTINGS}
         if self._is_csv_format() and self.csv_allow_double_quotes is not None:
-            base["format_csv_allow_double_quotes"] = 1 if self.csv_allow_double_quotes else 0
+            settings["format_csv_allow_double_quotes"] = 1 if self.csv_allow_double_quotes else 0
+        return settings
 
-        if self.format != DataWarehouseTable.TableFormat.JSON:
-            return [base]
-        return [{**base, **JSON_SCHEMA_INFERENCE_SETTINGS}, base]
+    def _wider_describe_settings(self) -> dict[str, str | int]:
+        if not self._supports_wider_schema_inference():
+            return self._default_describe_settings()
+        return {**self._default_describe_settings(), **JSON_SCHEMA_INFERENCE_SETTINGS}
 
     def _describe_columns(
         self,
-        s3_table_func: str,
-        placeholder_context: HogQLContext,
-        describe_settings: dict[str, str | int],
+        wider_inference: bool,
         cluster_attempts: int,
         capture_errors: bool,
     ) -> list[tuple[str, ...]]:
         logger = structlog.get_logger(__name__)
+        # The settings are built here rather than taken as a parameter, because a parameter that
+        # reaches the sync_execute call below trips the clickhouse-fstring-param-audit semgrep rule.
+        describe_settings = self._wider_describe_settings() if wider_inference else self._default_describe_settings()
+        placeholder_context = HogQLContext(team_id=self.team.pk)
+        s3_table_func = build_function_call(
+            url=self.url_pattern,
+            queryable_folder=self.queryable_folder,
+            format="Delta"  # Use deltaLake() to get table schema for evolved tables
+            if self.format == "DeltaS3Wrapper"
+            else self.format,
+            access_key=self.credential.access_key if self.credential else None,
+            access_secret=self.credential.access_secret if self.credential else None,
+            context=placeholder_context,
+            table_size_mib=0,  # Use the non-cluster s3 table function for chdb
+        )
         try:
             # chdb hangs in CI during tests
             if TEST:
@@ -609,29 +622,19 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         safe_expose_ch_error: bool = True,
     ) -> DataWarehouseTableIntrospectedColumns:
         result: list[tuple[str, ...]] | None = None
-        placeholder_context = HogQLContext(team_id=self.team.pk)
-        s3_table_func = build_function_call(
-            url=self.url_pattern,
-            queryable_folder=self.queryable_folder,
-            format="Delta"  # Use deltaLake() to get table schema for evolved tables
-            if self.format == "DeltaS3Wrapper"
-            else self.format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
-            context=placeholder_context,
-            table_size_mib=0,  # Use the non-cluster s3 table function for chdb
-        )
         logger = structlog.get_logger(__name__)
 
-        describe_attempts = self._describe_settings()
-        for attempt, describe_settings in enumerate(describe_attempts):
-            has_fallback = attempt < len(describe_attempts) - 1
+        # The wider inference goes first, because it is the one that finds every key. ClickHouse's
+        # defaults are the fallback, because the `union` mode rejects a table whose files disagree
+        # on the type of a column. Evolving JSON does this, and such a table describes today from
+        # the types in one file, so it must stay describable.
+        attempts = [True, False] if self._supports_wider_schema_inference() else [False]
+        for attempt, wider_inference in enumerate(attempts):
+            has_fallback = attempt < len(attempts) - 1
             try:
                 result = self._describe_columns(
-                    s3_table_func,
-                    placeholder_context,
-                    describe_settings,
-                    # A failure of the widest settings is expected for some tables, so they get one
+                    wider_inference,
+                    # A failure of the wider inference is expected for some tables, so it gets one
                     # try and the settings that must work keep the retries.
                     cluster_attempts=1 if has_fallback else 5,
                     capture_errors=not has_fallback,
