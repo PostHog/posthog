@@ -1157,7 +1157,9 @@ def csp_report_endpoint(**params: str) -> str:
     return f"{endpoint}{separator}{urlencode(params)}"
 
 
-REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame"
+# The full path, matched exactly. Django sends every unmatched path to the app catch-all, so a
+# prefix match would also hand the app document this policy and stop it from starting.
+REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame/index.html"
 
 
 class CSPMiddleware:
@@ -1177,7 +1179,7 @@ class CSPMiddleware:
             response.headers["Content-Security-Policy"] = "default-src 'none'"
             return response
 
-        if request.path.startswith(REPLAY_PLAYER_FRAME_PATH):
+        if request.path == REPLAY_PLAYER_FRAME_PATH:
             # rrweb's own iframe is on about:blank, and a frame on a local scheme inherits its
             # parent's policy wholesale. Mounting rrweb inside this document rather than the app's
             # makes this policy the one a recorded page is judged against.

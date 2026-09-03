@@ -1910,8 +1910,17 @@ class TestCSPMiddleware(APIBaseTest):
         assert response["Content-Security-Policy"] == "default-src 'none'"
         assert "Content-Security-Policy-Report-Only" not in response
 
-    def test_html_response_gets_report_only_csp(self):
-        response = self.client.get("/")
+    @parameterized.expand(
+        [
+            ("app_root", "/"),
+            # No route serves this path, so the app catch-all answers it. It must keep the app
+            # policy, because the frame policy is enforced and its script-src 'none' stops the app
+            # from starting.
+            ("path_under_the_replay_frame_prefix", "/replay_player_frame"),
+        ]
+    )
+    def test_html_response_gets_report_only_csp(self, _name, path):
+        response = self.client.get(path)
         assert response.status_code == 200
         assert "Content-Security-Policy-Report-Only" in response
         assert "Content-Security-Policy" not in response
