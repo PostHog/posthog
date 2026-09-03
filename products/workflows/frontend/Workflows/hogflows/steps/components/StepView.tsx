@@ -143,7 +143,7 @@ export function StepView({
                 onClick={() => setSelectedNodeId(action.id)}
                 data-attr="workflow-linear-step"
                 aria-pressed={isSelected}
-                className="!h-auto !items-stretch !justify-start !rounded !border-2 !bg-surface-primary !p-0 hover:!bg-surface-secondary"
+                className="!relative !h-auto !items-stretch !justify-start !rounded !border-2 !bg-surface-primary !p-0 hover:!bg-surface-secondary"
                 style={{
                     borderColor: isAnimationTarget ? 'var(--success)' : selectedColor,
                     boxShadow: `0px 2px 0px 0px ${colorLight}`,
@@ -169,7 +169,9 @@ export function StepView({
                     </span>
                     {shouldShowMetricsSummary && <StepViewMetrics action={action} layout="list" />}
                     {hasValidationError || hasValidationWarning ? (
-                        <LemonBadge status="warning" size="small" content="!" />
+                        <span className="absolute right-2 top-2">
+                            <LemonBadge status="warning" size="small" content="!" />
+                        </span>
                     ) : null}
                 </div>
             </LemonButton>
