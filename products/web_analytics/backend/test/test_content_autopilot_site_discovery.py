@@ -101,7 +101,7 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
         ]
     )
     @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
-    def test_records_a_sitemap_redirect_only_when_it_stays_on_the_site(
+    def test_keeps_a_redirected_sitemap_url_on_the_profile_origin(
         self, _name: str, redirect_target: str, stays_on_site: bool, fetch_public_url: MagicMock
     ) -> None:
         def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
@@ -116,9 +116,8 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
         result = discover_site("https://example.com")
 
         self.assertEqual(result["sitemap_detected"], stays_on_site)
-        self.assertEqual(
-            result["source_urls"], [redirect_target] if stays_on_site else ["https://example.com/sitemap.xml"]
-        )
+        self.assertEqual(result["source_urls"], ["https://example.com/sitemap.xml"])
+        self.assertEqual(result["domain"], "https://example.com")
 
     @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
     def test_caps_the_requests_one_discovery_sends(self, fetch_public_url: MagicMock) -> None:

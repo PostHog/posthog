@@ -198,7 +198,9 @@ def _verified_sitemaps(candidates: list[str], *, deadline: float, budget: _Reque
         except PublicUrlFetchError:
             continue
         if _is_sitemap(fetched.text):
-            verified.append(fetched.url)
+            # Record the candidate, not the redirect target: every candidate is already
+            # same-origin with the profile domain, which is what profile creation accepts.
+            verified.append(candidate)
     return list(dict.fromkeys(verified))
 
 

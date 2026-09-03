@@ -11,7 +11,7 @@ from posthog.rate_limit import ContentAutopilotDiscoveryBurstRateThrottle
 
 from products.web_analytics.backend.models import ContentAutopilotProposal, ContentAutopilotRun
 from products.web_analytics.backend.presentation.views.content_autopilot import CONTENT_AUTOPILOT_FEATURE_FLAG
-from products.web_analytics.backend.public_url_fetch import PublicUrlFetchError
+from products.web_analytics.backend.public_url_fetch import FetchedPublicUrl, PublicUrlFetchError
 from products.web_analytics.backend.test.content_autopilot_test_utils import (
     create_content_autopilot_profile,
     create_content_autopilot_proposal,
@@ -142,6 +142,37 @@ class TestContentAutopilotAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["source_urls"], ["https://example.com/sitemap.xml"])
+
+    @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
+    def test_discovered_defaults_create_a_profile_when_the_sitemap_redirects(self, fetch_public_url: MagicMock) -> None:
+        def response_for(url: str, **_kwargs: object) -> FetchedPublicUrl:
+            if url == "https://example.com/sitemap.xml":
+                return FetchedPublicUrl(
+                    status_code=301,
+                    headers={"location": "https://www.example.com/sitemap.xml"},
+                    body=b"",
+                )
+            if url == "https://www.example.com/sitemap.xml":
+                return FetchedPublicUrl(status_code=200, headers={}, body=b"<urlset />")
+            return FetchedPublicUrl(status_code=404, headers={}, body=b"")
+
+        fetch_public_url.side_effect = response_for
+
+        discovered = self.client.post(
+            self._profiles_url("discover/"),
+            {"domain": "https://example.com"},
+            format="json",
+        )
+        created = self.client.post(
+            self._profiles_url(),
+            {**discovered.json(), "brand_rules": ["Use sentence case"]},
+            format="json",
+        )
+
+        self.assertEqual(discovered.status_code, status.HTTP_200_OK, discovered.json())
+        self.assertTrue(discovered.json()["sitemap_detected"])
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.json())
+        self.assertEqual(created.json()["source_urls"], ["https://example.com/sitemap.xml"])
 
     @patch("products.web_analytics.backend.presentation.views.content_autopilot.discover_site")
     def test_discover_returns_a_validation_error_for_a_typed_fetch_failure(self, discover_site: MagicMock) -> None:
