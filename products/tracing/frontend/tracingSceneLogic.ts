@@ -16,6 +16,7 @@ import type { AggregatedSpanRow, DateRange, SpanTreeNode } from '../../../fronte
 import type { UniversalFiltersGroup } from '../../../frontend/src/types'
 import type { TracingDurationHistogramData, VisibleDurationRange } from './durationBuckets'
 import type { TracingLatencyHeatmapData } from './durationBuckets'
+import type { TraceIdentity } from './traceIdentity'
 import { tracingDataLogic } from './tracingDataLogic'
 import type { TracingSparklineData, VisibleSpanTimeRange } from './tracingDataLogic'
 import {
@@ -95,6 +96,7 @@ export interface tracingSceneLogicValues {
     isLoadingFullTrace: boolean // tracingViewerLogic
     isTraceOpen: boolean // tracingViewerLogic
     openTraceSpans: Span[] // tracingViewerLogic
+    traceIdentity: TraceIdentity // tracingViewerLogic
     selectedSpanId: string | null // tracingViewerLogic
     selectedTraceId: string | null // tracingViewerLogic
     selectedTraceTs: string | null // tracingViewerLogic
@@ -295,6 +297,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'selectedTraceTs',
                 'isTraceOpen',
                 'openTraceSpans',
+                'traceIdentity',
                 'isLoadingFullTrace',
                 'canLoadMoreTraceSpans',
                 'compareFlameSpanName',

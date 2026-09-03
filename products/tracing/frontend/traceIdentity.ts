@@ -3,29 +3,24 @@
 
 // The per-span precedence and the convention key lists are shared with Logs, because both
 // products resolve the same SDK-emitted attribute keys (posthogDistinctId, sessionId, ...).
-import { getDistinctIdWithKey, getSessionIdWithKey, type SessionIdMatch } from 'products/logs/frontend/utils'
+import { type AttributeIdentityMatch, getDistinctIdWithKey, getSessionIdWithKey } from 'products/logs/frontend/utils'
 
 import type { Span } from './types'
 
 export interface TraceIdentity {
     /** Each is null when no span carries the key, or when the spans disagree on its value. */
-    distinctId: string | null
-    sessionId: string | null
+    readonly distinctId: string | null
+    readonly sessionId: string | null
 }
 
-export const EMPTY_TRACE_IDENTITY: TraceIdentity = { distinctId: null, sessionId: null }
+// Shared by every caller that resolves nothing, so it must stay immutable.
+export const EMPTY_TRACE_IDENTITY: TraceIdentity = Object.freeze({ distinctId: null, sessionId: null })
 
-type SpanResolver = (span: Span, configuredKeys: string[] | undefined) => SessionIdMatch | null
-
-function singleValueAcrossSpans(
-    spans: Span[],
-    configuredKeys: string[] | undefined,
-    resolve: SpanResolver
-): string | null {
+function singleValueAcrossSpans(spans: Span[], resolve: (span: Span) => AttributeIdentityMatch | null): string | null {
     let resolved: string | null = null
 
     for (const span of spans) {
-        const value = resolve(span, configuredKeys)?.value
+        const value = resolve(span)?.value
         if (!value) {
             continue
         }
@@ -47,11 +42,11 @@ export function resolveTraceIdentity(
     configuredSessionIdKeys: string[] | undefined
 ): TraceIdentity {
     return {
-        distinctId: singleValueAcrossSpans(spans, configuredDistinctIdKeys, (span, keys) =>
-            getDistinctIdWithKey(span.attributes, span.resource_attributes, keys)
+        distinctId: singleValueAcrossSpans(spans, (span) =>
+            getDistinctIdWithKey(span.attributes, span.resource_attributes, configuredDistinctIdKeys)
         ),
-        sessionId: singleValueAcrossSpans(spans, configuredSessionIdKeys, (span, keys) =>
-            getSessionIdWithKey(span.attributes, span.resource_attributes, keys)
+        sessionId: singleValueAcrossSpans(spans, (span) =>
+            getSessionIdWithKey(span.attributes, span.resource_attributes, configuredSessionIdKeys)
         ),
     }
 }
