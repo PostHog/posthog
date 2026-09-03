@@ -9,6 +9,7 @@ from django.db.models import QuerySet
 import structlog
 
 from posthog.cdp.filters import compile_filters_bytecode
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
@@ -164,8 +165,17 @@ def update_alert(
     return get_alert(team_id, alert.id)
 
 
-def _destination_key(channel_type: str, integration_id: Any, config: dict[str, Any]) -> tuple[str, Any, Any]:
-    return (channel_type, integration_id, config.get("channel"))
+@frozen
+class _DestinationKey:
+    """Identity of a destination row: same channel on the same integration means the same row."""
+
+    channel_type: str
+    integration_id: int | None
+    channel: str | None
+
+
+def _destination_key(channel_type: str, integration_id: Any, config: dict[str, Any]) -> _DestinationKey:
+    return _DestinationKey(channel_type=channel_type, integration_id=integration_id, channel=config.get("channel"))
 
 
 def _reconcile_destinations(alert: ErrorTrackingAlert, destinations: list[dict[str, Any]]) -> None:
