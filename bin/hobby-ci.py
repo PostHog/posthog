@@ -834,8 +834,13 @@ runcmd:
         if env_result["exit_code"] != 0:
             return False, f"Failed to configure CSP_REPORT_ENDPOINT: {env_result['stderr'][:500]}"
 
-        print(f"⏳ Waiting for the served policy to advertise it (timeout {timeout_seconds}s)...", flush=True)
-        deadline = time.time() + timeout_seconds
+        # `docker-compose up -d web` recreates the container, which reruns the hobby entrypoint's
+        # full migration sequence from scratch. That takes minutes, not seconds, so this wait needs
+        # its own longer budget rather than the short poll timeout the caller uses for an
+        # already-running service.
+        restart_timeout_seconds = max(timeout_seconds, 300)
+        print(f"⏳ Waiting for the served policy to advertise it (timeout {restart_timeout_seconds}s)...", flush=True)
+        deadline = time.time() + restart_timeout_seconds
         attempt = 0
         last_policy = ""
         while time.time() < deadline:
@@ -849,14 +854,17 @@ runcmd:
                 if f"report-uri {csp_report_endpoint}" in last_policy:
                     print(f"✅ Served policy advertises this install after {attempt} poll(s)", flush=True)
                     break
-                print(f"   Poll {attempt}: policy does not name this install yet", flush=True)
+                print(
+                    f"   Poll {attempt}: policy does not name this install yet (HTTP {page_resp.status_code})",
+                    flush=True,
+                )
             except Exception as e:
                 print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
             time.sleep(poll_interval)
         else:
             return (
                 False,
-                f"Served policy did not advertise the configured endpoint within {timeout_seconds}s "
+                f"Served policy did not advertise the configured endpoint within {restart_timeout_seconds}s "
                 f"({attempt} polls): {last_policy[:200]}",
             )
 
