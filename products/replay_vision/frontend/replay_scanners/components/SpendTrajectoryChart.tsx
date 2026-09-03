@@ -17,7 +17,6 @@ const LABEL_CLEARANCE = 12
 // A reference line closer than this to the baseline reads as part of the axis.
 const AXIS_CLEARANCE = 10
 const ABOVE = -6
-const BELOW = 11
 
 interface SpendTrajectoryChartProps {
     quota: VisionQuotaApi
@@ -182,23 +181,23 @@ function SpendTrajectoryChartInner({
         (limitY === null || Math.abs(freeY - limitY) >= LABEL_CLEARANCE) &&
         BASE - freeY >= AXIS_CLEARANCE
 
-    // Labels prefer sitting above their anchor; flip below when a reference line runs through that spot.
+    // Labels sit above their anchor. Below a point is the filled area and the rising curve, so a label
+    // blocked by a reference line climbs past it instead of dropping into the fill.
     const referenceYs = [limitY, freeY].filter((y): y is number => y !== null)
     const labelY = (anchorY: number): number => {
-        const above = Math.max(anchorY + ABOVE, 10)
-        if (
-            referenceYs.every((y) => Math.abs(above - y) >= LABEL_CLEARANCE && Math.abs(anchorY - y) >= LABEL_CLEARANCE)
-        ) {
-            return above
+        let candidate = anchorY + ABOVE
+        // Lowest line first, so a label pushed past one is then tested against the next one up.
+        for (const reference of [...referenceYs].sort((a, b) => b - a)) {
+            if (Math.abs(candidate - reference) < LABEL_CLEARANCE) {
+                candidate = reference - LABEL_CLEARANCE
+            }
         }
-        return Math.min(anchorY + BELOW, BASE - 4)
+        return Math.max(candidate, 10)
     }
-    // Today's label sits upper-left or lower-right; the left one is clearer, so it wins unless the point hugs the axis.
+    // Today's label sits left of its dot unless the point hugs the axis, where it would run off the edge.
     const todayLabelLeft = today.x >= 60
     const todayLabelX = todayLabelLeft ? today.x - 9 : today.x + 9
-    const belowY = Math.min(today.y + BELOW, BASE - 4)
-    const rightSideY = referenceYs.every((y) => Math.abs(belowY - y) >= LABEL_CLEARANCE) ? belowY : today.y - 16
-    const todayLabelY = todayLabelLeft ? labelY(today.y) : rightSideY
+    const todayLabelY = labelY(today.y)
     const endLabelY = labelY(end.y)
     const crossingLabelRight = crossing !== null && crossing.x + 90 <= WIDTH - PAD_X
 
