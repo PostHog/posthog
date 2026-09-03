@@ -288,6 +288,10 @@ def _cleared(targets: list[CohortDeleteTarget]) -> set[CohortKey]:
     A deletion bounded at version V still has rows if and only if some row sits below V, which is
     true if and only if the cohort's lowest surviving version is below V. A cohort with no rows at
     all never appears in the lookup, so it clears whatever its bound.
+
+    `sign` is deliberately not filtered. A membership the reader treats as removed (`sign = -1`)
+    is still a row the sweep has to delete, and counting it here can only hold a cohort back for
+    another run, never clear one whose rows are still present.
     """
     lowest: dict[CohortKey, int] = {}
     for chunk in chunked(targets, COHORT_DELETION_CHUNK_SIZE):
