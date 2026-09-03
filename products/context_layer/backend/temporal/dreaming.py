@@ -81,14 +81,23 @@ def _fetch_dream_candidates() -> list[str]:
     # Least-recently-dreamt first (never-dreamt before that): when more orgs are
     # due than the cap, the cap rotates through the fleet instead of permanently
     # starving whoever sorts last.
-    for config in ContextLayerConfig.objects.filter(dreaming_paused=False).order_by(
-        F("last_dream_started_at").asc(nulls_first=True), "created_at"
+    for config in (
+        ContextLayerConfig.objects.filter(dreaming_paused=False)
+        .select_related("created_by")
+        .order_by(F("last_dream_started_at").asc(nulls_first=True), "created_at")
     ):
         if config.last_dream_started_at is not None and config.last_dream_started_at.date() >= today:
             continue
+        # The flag is user-targeted (dogfood targets the enabling user's
+        # email), and the enable route gated the org with the requesting
+        # user's identity. Evaluating as the organization id never matches a
+        # user-targeted flag, so the lane would starve silently.
+        enabling_distinct_id = config.created_by.distinct_id if config.created_by else None
+        if not enabling_distinct_id:
+            continue
         organization_id = str(config.organization_id)
         if not context_layer_facade.is_context_layer_enabled(
-            organization_id=organization_id, distinct_id=organization_id
+            organization_id=organization_id, distinct_id=enabling_distinct_id
         ):
             continue
         candidates.append(organization_id)
@@ -106,7 +115,9 @@ def _fetch_dream_candidates() -> list[str]:
 @activity.defn
 async def fetch_dream_candidates() -> list[str]:
     """Organizations due a dream tonight: wiki exists, lane not paused, no
-    dream started today, and the flag still on."""
+    dream started today, and the flag still on for the user who enabled the
+    wiki (the flag is user-targeted, so the lane evaluates it with that
+    user's identity)."""
     return await sync_to_async(_fetch_dream_candidates, thread_sensitive=False)()
 
 
