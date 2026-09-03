@@ -370,7 +370,7 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
     )
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-4">
             <OverviewPanel title="Top configured categories" subtitle="from the categories you defined" fill>
                 <RankedTermList
                     ranked={fixedRanked}
@@ -408,7 +408,16 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
 }
 
 function CreditLimitOverview({ scannerId }: { scannerId: string }): JSX.Element {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { creditLimitStats } = useValues(scannerOverviewLogic({ scannerId }))
+    // An unloaded scanner is not a scanner without a limit, so it waits rather than claiming one way.
+    if (!scanner) {
+        return (
+            <OverviewPanel title="Spend against limit" fill>
+                <PanelEmpty loading message="" />
+            </OverviewPanel>
+        )
+    }
     if (!creditLimitStats) {
         return (
             <OverviewPanel title="Spend against limit" disabled fill>
@@ -508,7 +517,7 @@ function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element |
             : undefined
     const keywordSubtitle = totalSucceeded > 0 ? `from ${summaries(totalSucceeded)}` : undefined
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-4">
             <OverviewPanel title="Top friction points" subtitle={frictionSubtitle} fill>
                 <RankedTermList
                     ranked={frictionRanked}
@@ -597,7 +606,7 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
     let body: JSX.Element
     if (scannerType === 'scorer') {
         body = (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-4">
                 {/* min-w-0 lets the canvas charts shrink inside their grid tracks instead of overflowing */}
                 <div className="min-w-0">
                     <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
@@ -618,7 +627,7 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
         body = (
             <div className="space-y-4">
                 <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-4">
                     {typeOverview && <div className="min-w-0">{typeOverview}</div>}
                     <div className="min-w-0">
                         <ImpactOverview scannerId={scannerId} />
@@ -629,10 +638,10 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
     }
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="@container flex flex-col gap-4">
             <ScannerOverviewFilters scannerId={scannerId} />
             {body}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-4">
                 <SelfDrivingOverview scannerId={scannerId} />
                 <CreditLimitOverview scannerId={scannerId} />
             </div>
