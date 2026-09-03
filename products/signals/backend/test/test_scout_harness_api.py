@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -327,6 +328,7 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
 
 # Patch target: the helper is hot-imported into the view module, so patch it there, not at source.
 _FETCH_REPORT_IDS = "products.signals.backend.temporal.signal_queries.fetch_report_ids_for_source_ids"
+_RUN_TOKEN_COSTS_QUERY = "products.signals.backend.scout_harness.run_costs.get_local_task_run_token_costs"
 
 
 class TestScoutHarnessEmissionReportsAPI(APIBaseTest):
@@ -493,6 +495,37 @@ class TestScoutHarnessEmissionReportsBatchAPI(APIBaseTest):
             response = self.client.post(self._url(), data={"run_ids": [str(run.id), str(other_run.id)]}, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert [row["finding_id"] for row in response.json()] == ["mine"]
+
+
+class TestScoutHarnessRunTokenCostsAPI(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/token-costs/"
+
+    def test_staff_reads_the_cost_of_every_requested_run(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        priced = _make_run(self.team)
+        unpriced = _make_run(self.team)
+        with patch(_RUN_TOKEN_COSTS_QUERY, return_value={str(priced.task_run_id): Decimal("1.25")}):
+            response = self.client.post(
+                self._url(), data={"run_ids": [str(priced.id), str(unpriced.id)]}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["available"] is True
+        costs = {row["run_id"]: row["token_cost_usd"] for row in body["costs"]}
+        # A run with no generations attributed reports null, not 0 — the number the roster showed
+        # for every scout run while the read was keyed on the desktop `ai_product`.
+        assert costs == {str(priced.id): 1.25, str(unpriced.id): None}
+
+    def test_non_staff_is_refused(self) -> None:
+        # Fleet spend is an internal operating number, and the generations sit in a project other
+        # than the one in the path.
+        run = _make_run(self.team)
+        with patch(_RUN_TOKEN_COSTS_QUERY) as query:
+            response = self.client.post(self._url(), data={"run_ids": [str(run.id)]}, format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        query.assert_not_called()
 
 
 class TestScoutHarnessRecentEmissionsAPI(APIBaseTest):
