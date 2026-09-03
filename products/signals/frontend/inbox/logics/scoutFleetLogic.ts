@@ -12,10 +12,11 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, shouldReportApiFailure } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { reconcileById } from 'lib/utils/objects'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -761,6 +762,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         // Cost is a staff-only annotation on a tooltip, so a blip degrades to no
                         // number rather than reporting a failure the reader can do nothing about.
                         if (error instanceof ApiError) {
+                            // Recovering here skips the gate `initKea` applies to loader failures, so
+                            // reapply it: a refused or unreachable read is expected, but a backend
+                            // fault must still reach error tracking instead of reading as success.
+                            if (shouldReportApiFailure(error)) {
+                                posthog.captureException(error)
+                            }
                             // A full fleet spans several batches, so keep the ones that answered and
                             // leave the rest on their last known number. Dropping the whole load
                             // would blank every tooltip over one failed batch.

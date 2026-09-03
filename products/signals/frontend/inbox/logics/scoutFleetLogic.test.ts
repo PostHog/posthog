@@ -887,6 +887,23 @@ describe('scoutFleetLogic', () => {
             expect(logic.values.scoutRunCosts.get('run-0')).toBe(4.03)
         })
 
+        // Recovering in the loader skips the gate `initKea` applies to loader failures, so the
+        // loader reapplies it. A backend fault must still leave a client-side exception behind, and
+        // a gateway blip must not, since filing those buries the crashes worth seeing.
+        it.each([
+            ['a backend fault, which reaches error tracking', 500, true],
+            ['a gateway blip, which does not', 503, false],
+        ])('recovers from %s', async (_name: string, status: number, reported: boolean) => {
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([makeRun({ run_id: 'run-priced' })])
+            mockSignalsScoutRunsTokenCosts.mockRejectedValue(new ApiError('nope', status))
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+
+            expect(jest.mocked(posthog.captureException).mock.calls.length > 0).toBe(reported)
+        })
+
         it('never asks for costs on behalf of a non-staff user', async () => {
             mockSignalsScoutRunsRecentPerScout.mockResolvedValue([makeRun({ run_id: 'run-priced' })])
             await mountAsStaff(false)
