@@ -34,7 +34,15 @@ from posthog.event_usage import alias_invite_id, report_user_joined_organization
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper, reject_plus_addressed_email, validate_display_name
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
-from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
+from posthog.models import (
+    InviteExpiredException,
+    Organization,
+    OrganizationDomain,
+    OrganizationInvite,
+    OrganizationMembership,
+    Team,
+    User,
+)
 from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -384,6 +392,46 @@ def _get_pending_invite_for_email(email: str) -> Optional[OrganizationInvite]:
     return next((i for i in invites if not i.is_expired()), None)
 
 
+def _get_recently_expired_invite_for_email(email: str) -> Optional[OrganizationInvite]:
+    """Return an invite that lapsed inside the last validity window, if the address can still use it.
+
+    Scope is deliberately narrow. An older lapsed invite stays lapsed, so expiry keeps working
+    as revocation. Delegation invites are excluded because the delegator's onboarding state
+    points at the original row, and that flow has its own resend path.
+    """
+    lapsed = (
+        OrganizationInvite.objects.filter(
+            target_email__iexact=email,
+            created_at__lte=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+            created_at__gt=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY * 2),
+            is_setup_delegation=False,
+        )
+        .select_related("organization")
+        .order_by("-created_at")
+        .first()
+    )
+    if lapsed is None:
+        return None
+    if OrganizationMembership.objects.filter(
+        organization_id=lapsed.organization_id, user__email__iexact=email
+    ).exists():
+        return None
+    return lapsed
+
+
+def _reissue_invite(lapsed: OrganizationInvite) -> OrganizationInvite:
+    """Copy a lapsed invite into a fresh row, which gives the invitee a link that still works."""
+    return OrganizationInvite.objects.create(
+        organization_id=lapsed.organization_id,
+        target_email=lapsed.target_email,
+        first_name=lapsed.first_name,
+        created_by_id=lapsed.created_by_id,
+        level=lapsed.level,
+        message=lapsed.message,
+        private_project_access=lapsed.private_project_access,
+    )
+
+
 class SignupEmailPrecheckViewset(generics.GenericAPIView):
     serializer_class = SignupEmailPrecheckSerializer
     permission_classes = (permissions.AllowAny,)
@@ -408,7 +456,10 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
                 },
                 status=status.HTTP_409_CONFLICT,
             )
-        invite = _get_pending_invite_for_email(email)
+        # A lapsed invite counts too. The banner is the only place that offers a resend, so
+        # without this the person whose link timed out is pushed into making their own
+        # organization instead.
+        invite = _get_pending_invite_for_email(email) or _get_recently_expired_invite_for_email(email)
         pending_invite: Optional[PendingInvitePayload] = None
         if invite is not None:
             # We deliberately do NOT return the invite UUID here. The signup form shows a
@@ -427,12 +478,13 @@ class SignupResendInviteSerializer(serializers.Serializer):
 
 
 class SignupResendInviteViewset(generics.GenericAPIView):
-    """Re-send the existing invite email for a given address, if one exists.
+    """Re-send the invite email for a given address, if one exists.
 
     Pairs with the precheck nudge banner: a user who landed on /signup with a pending invite
-    can ask PostHog to re-deliver the original invite email. Returns the same shape whether
-    or not an invite exists, but precheck has already disclosed the existence — this endpoint
-    just makes the round-trip via email easier.
+    can ask PostHog to re-deliver the invite email. An invite that lapsed inside the last
+    validity window is reissued first, because mailing the dead link helps nobody. `sent`
+    reports whether an email actually went out, so the form can stop claiming success it
+    cannot back up.
     """
 
     serializer_class = SignupResendInviteSerializer
@@ -444,11 +496,20 @@ class SignupResendInviteViewset(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
         invite = _get_pending_invite_for_email(email)
-        if invite is not None and is_email_available():
-            from posthog.tasks.email import send_invite
+        if invite is None:
+            lapsed = _get_recently_expired_invite_for_email(email)
+            # Re-sending the lapsed invite would mail a link that is already dead, so hand the
+            # invitee a fresh row instead.
+            invite = _reissue_invite(lapsed) if lapsed is not None else None
+        if invite is None or not is_email_available():
+            return response.Response({"sent": False}, status=status.HTTP_200_OK)
 
-            send_invite.apply_async(kwargs={"invite_id": str(invite.id)})
-        return response.Response({"sent": invite is not None}, status=status.HTTP_200_OK)
+        from posthog.tasks.email import send_invite
+
+        # Each attempt needs its own delivery key. Without one the campaign key repeats and the
+        # MessagingRecord guard drops every email after the first.
+        send_invite.apply_async(kwargs={"invite_id": str(invite.id), "delivery_key": uuid_module.uuid4().hex})
+        return response.Response({"sent": True}, status=status.HTTP_200_OK)
 
 
 class SignupViewset(generics.CreateAPIView):

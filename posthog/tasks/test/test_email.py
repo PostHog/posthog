@@ -106,6 +106,22 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
+    def test_send_invite_delivery_key_changes_the_campaign_key(self, MockEmailMessage: MagicMock) -> None:
+        # Two sends under one campaign key deliver once, because `_send_email` skips a recipient
+        # whose MessagingRecord already has `sent_at`. A resend must therefore carry its own key.
+        mock_email_messages(MockEmailMessage)
+
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        invite = OrganizationInvite.objects.create(organization=org, created_by=user, target_email="test@posthog.com")
+
+        send_invite(invite.id)
+        first_campaign_key = MockEmailMessage.call_args.kwargs["campaign_key"]
+        send_invite(invite.id, delivery_key="second-attempt")
+        second_campaign_key = MockEmailMessage.call_args.kwargs["campaign_key"]
+
+        assert first_campaign_key == f"invite_email_{invite.id}"
+        assert second_campaign_key == f"invite_email_{invite.id}_second-attempt"
+
     def test_send_invite_delegation_uses_dedicated_template_and_subject(self, MockEmailMessage: MagicMock) -> None:
         """Delegation invites route to the delegation_invite template with a custom subject."""
         mocked_email_messages = mock_email_messages(MockEmailMessage)

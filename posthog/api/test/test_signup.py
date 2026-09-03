@@ -3226,7 +3226,8 @@ class TestSignupPrecheckPendingInvite(APIBaseTest):
     @parameterized.expand(
         [
             ("active_invite", "alice@acme.com", 0, "alice@acme.com", True),
-            ("expired_invite", "alice@acme.com", INVITE_DAYS_VALIDITY + 5, "alice@acme.com", False),
+            ("recently_expired_invite", "alice@acme.com", INVITE_DAYS_VALIDITY + 1, "alice@acme.com", True),
+            ("long_expired_invite", "alice@acme.com", INVITE_DAYS_VALIDITY * 2 + 1, "alice@acme.com", False),
             ("case_insensitive_match", "alice@acme.com", 0, "Alice@Acme.COM", True),
             ("no_invite_for_email", "alice@acme.com", 0, "stranger@nowhere.com", False),
         ]
@@ -3242,6 +3243,11 @@ class TestSignupPrecheckPendingInvite(APIBaseTest):
             )
         else:
             self.assertIsNone(response.json()["pending_invite"])
+
+    def test_precheck_does_not_reissue_a_lapsed_invite(self):
+        self._create_invite("alice@acme.com", days_old=INVITE_DAYS_VALIDITY + 1)
+        self.client.post("/api/signup/precheck", {"email": "alice@acme.com"})
+        self.assertEqual(OrganizationInvite.objects.filter(target_email="alice@acme.com").count(), 1)
 
     def test_precheck_response_does_not_expose_invite_id_or_token(self):
         self._create_invite("alice@acme.com")
@@ -3316,7 +3322,39 @@ class TestSignupResendInvite(APIBaseTest):
         response = self.client.post("/api/signup/resend-invite", {"email": "alice@acme.com"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"sent": True})
-        mock_send.assert_called_once_with(kwargs={"invite_id": str(invite.id)})
+        mock_send.assert_called_once()
+        self.assertEqual(mock_send.call_args.kwargs["kwargs"]["invite_id"], str(invite.id))
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_invite.apply_async")
+    def test_resend_invite_gives_every_attempt_its_own_delivery_key(self, mock_send, _mock_email_available):
+        self._create_invite("alice@acme.com")
+        self.client.post("/api/signup/resend-invite", {"email": "alice@acme.com"})
+        self.client.post("/api/signup/resend-invite", {"email": "alice@acme.com"})
+        delivery_keys = [call.kwargs["kwargs"]["delivery_key"] for call in mock_send.call_args_list]
+        self.assertEqual(len(delivery_keys), 2)
+        self.assertNotEqual(delivery_keys[0], delivery_keys[1])
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_invite.apply_async")
+    def test_resend_invite_reissues_a_recently_expired_invite(self, mock_send, _mock_email_available):
+        expired = self._create_invite("alice@acme.com", days_old=INVITE_DAYS_VALIDITY + 1)
+        response = self.client.post("/api/signup/resend-invite", {"email": "alice@acme.com"})
+        self.assertEqual(response.json(), {"sent": True})
+        reissued_id = mock_send.call_args.kwargs["kwargs"]["invite_id"]
+        self.assertNotEqual(reissued_id, str(expired.id))
+        reissued = OrganizationInvite.objects.get(id=reissued_id)
+        self.assertEqual(reissued.organization_id, expired.organization_id)
+        self.assertEqual(reissued.created_by_id, expired.created_by_id)
+        self.assertFalse(reissued.is_expired())
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_invite.apply_async")
+    def test_resend_invite_does_not_reissue_for_an_existing_member(self, mock_send, _mock_email_available):
+        self._create_invite(self.user.email, days_old=INVITE_DAYS_VALIDITY + 1)
+        response = self.client.post("/api/signup/resend-invite", {"email": self.user.email})
+        self.assertEqual(response.json(), {"sent": False})
+        mock_send.assert_not_called()
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_invite.apply_async")
@@ -3328,8 +3366,8 @@ class TestSignupResendInvite(APIBaseTest):
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_invite.apply_async")
-    def test_resend_invite_ignores_expired_invite(self, mock_send, _mock_email_available):
-        self._create_invite("alice@acme.com", days_old=INVITE_DAYS_VALIDITY + 5)
+    def test_resend_invite_ignores_long_expired_invite(self, mock_send, _mock_email_available):
+        self._create_invite("alice@acme.com", days_old=INVITE_DAYS_VALIDITY * 2 + 1)
         response = self.client.post("/api/signup/resend-invite", {"email": "alice@acme.com"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"sent": False})
@@ -3340,8 +3378,8 @@ class TestSignupResendInvite(APIBaseTest):
     def test_resend_invite_skips_dispatch_when_email_disabled(self, mock_send, _mock_email_available):
         self._create_invite("alice@acme.com")
         response = self.client.post("/api/signup/resend-invite", {"email": "alice@acme.com"})
-        # Status reflects that an invite exists, but no email goes out.
-        self.assertEqual(response.json(), {"sent": True})
+        # No email can go out, so the form must not claim one did.
+        self.assertEqual(response.json(), {"sent": False})
         mock_send.assert_not_called()
 
     @patch("posthog.api.signup.is_email_available", return_value=True)

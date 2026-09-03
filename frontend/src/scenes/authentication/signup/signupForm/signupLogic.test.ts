@@ -133,6 +133,19 @@ describe('signupLogic — pending invite banner', () => {
         expect(logic.values.isPendingInviteResending).toBe(false)
     })
 
+    it('keeps the resent state off when the backend sent no email', async () => {
+        useMocks({
+            post: {
+                '/api/signup/resend-invite': () => [200, { sent: false }],
+            },
+        })
+        logic.actions.setPendingInvite({ organization_name: 'Acme Corp' })
+        logic.actions.resendPendingInvite('alice@acme.com')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.pendingInviteResent).toBe(false)
+        expect(logic.values.isPendingInviteResending).toBe(false)
+    })
+
     it('clears the resent state when a new invite banner is shown', async () => {
         logic.actions.setPendingInvite({ organization_name: 'Acme Corp' })
         logic.actions.setPendingInviteResent(true)

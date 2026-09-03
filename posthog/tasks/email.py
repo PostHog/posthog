@@ -346,8 +346,14 @@ def should_send_pipeline_error_notification(
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_invite(invite_id: str) -> None:
-    campaign_key: str = f"invite_email_{invite_id}"
+def send_invite(invite_id: str, delivery_key: str | None = None) -> None:
+    # The campaign key gates delivery: `_send_email` skips a recipient whose MessagingRecord for
+    # that key already has `sent_at`. A key built from the invite id alone therefore lets one
+    # invite mail exactly once. Callers that want a deliberate second email pass their own
+    # `delivery_key`; a Celery retry keeps the key it was enqueued with, so retries stay idempotent.
+    campaign_key: str = (
+        f"invite_email_{invite_id}" if delivery_key is None else f"invite_email_{invite_id}_{delivery_key}"
+    )
     invite = OrganizationInvite.objects.select_related("created_by", "organization").filter(id=invite_id).first()
     if invite is None:
         # Invite can be deleted (cancelled/accepted) before the worker picks up the task.
