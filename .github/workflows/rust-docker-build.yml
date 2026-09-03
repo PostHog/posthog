@@ -2,7 +2,7 @@ name: Build and deploy rust container images
 
 # Production build + deploy for Rust services on master.
 # Uses selective builds: only images affected by changed files are built and deployed.
-# workflow_dispatch always builds all images (escape hatch).
+# workflow_dispatch builds all images unless image-filter names a subset (escape hatch).
 #
 # Image list: .github/rust-images.yml
 # Build steps: .github/workflows/_rust-build-images.yml
@@ -10,6 +10,12 @@ name: Build and deploy rust container images
 
 on:
     workflow_dispatch:
+        inputs:
+            image-filter:
+                description: 'Comma-separated image names to build and deploy (empty = all)'
+                required: false
+                type: string
+                default: ''
     push:
         paths:
             - 'rust/**'
@@ -94,7 +100,7 @@ jobs:
         with:
             # Only the canonical deploy repo pushes prod images on master; PRs still push for validation.
             push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
-            image-filter: ${{ needs.affected.outputs.image-filter || '' }}
+            image-filter: ${{ needs.affected.outputs.image-filter || inputs.image-filter || '' }}
             tag-rules: |
                 type=ref,event=pr
                 type=ref,event=branch
@@ -258,3 +264,177 @@ jobs:
                         "labels": [],
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
+
+    ordered_image_alias:
+        name: publish ordered image aliases
+        needs: build-images
+        # Freight cadence v2 sorts releases by this tag, so every deployable rust image
+        # gets one. Mirrors the posthog_build alias job in container-images-cd.yml,
+        # against ghcr instead of ECR. Best effort: a missing alias delays Freight for
+        # that build and never fails the deploy.
+        if: ${{ needs.build-images.result == 'success' && needs.build-images.outputs.digests != '' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == 'refs/heads/master' }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        continue-on-error: true
+        permissions:
+            contents: read
+            packages: write
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Compute ordered release tag
+              id: ordered-release
+              timeout-minutes: 2
+              shell: bash
+              env:
+                  ORDERED_RELEASE_TAG_REGEX: ^r[0-9]{12}-[0-9a-f]{6}$
+              run: |
+                  set -uo pipefail
+
+                  if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+                      fetch_status=0
+                      timeout --kill-after=10s 90s git fetch \
+                          --no-tags \
+                          --prune \
+                          --no-recurse-submodules \
+                          --unshallow \
+                          --filter=tree:0 \
+                          origin \
+                          "+${GITHUB_REF}:refs/remotes/origin/${GITHUB_REF_NAME}" || fetch_status=$?
+                      if [ "$fetch_status" -ne 0 ]; then
+                          echo "::warning title=Ordered release tag skipped::Source history could not be fetched (status $fetch_status)."
+                          exit 0
+                      fi
+                  fi
+
+                  if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" != "false" ]; then
+                      echo "::warning title=Ordered release tag skipped::Complete source history is unavailable."
+                      exit 0
+                  fi
+
+                  if ! head_revision="$(git rev-parse HEAD)" || [ "$head_revision" != "$GITHUB_SHA" ]; then
+                      echo "::warning title=Ordered release tag skipped::The checked-out revision does not match GITHUB_SHA."
+                      exit 0
+                  fi
+
+                  if ! position="$(git rev-list --first-parent --count "$GITHUB_SHA")"; then
+                      echo "::warning title=Ordered release tag skipped::The source position could not be computed."
+                      exit 0
+                  fi
+
+                  if ! [[ "$position" =~ ^[1-9][0-9]{0,11}$ ]]; then
+                      echo "::warning title=Ordered release tag skipped::The source position is out of range."
+                      exit 0
+                  fi
+
+                  if ! printf -v tag 'r%012d-%.6s' "$position" "$GITHUB_SHA"; then
+                      echo "::warning title=Ordered release tag skipped::The source position could not be formatted."
+                      exit 0
+                  fi
+
+                  if ! [[ "$tag" =~ $ORDERED_RELEASE_TAG_REGEX ]]; then
+                      echo "::warning title=Ordered release tag skipped::${tag} does not match the required format."
+                      exit 0
+                  fi
+
+                  echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+            - name: Warn when ordered image alias tag is unavailable
+              if: ${{ steps.ordered-release.outputs.tag == '' }}
+              shell: bash
+              run: echo "::warning title=Ordered image alias tag unavailable::Ordered image alias publication was skipped because no ordered release tag was generated."
+
+            - name: Set up Docker Buildx for ordered image aliases
+              if: ${{ steps.ordered-release.outputs.tag != '' }}
+              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+            - name: Login to ghcr.io
+              if: ${{ steps.ordered-release.outputs.tag != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Publish and reconcile ordered image aliases
+              if: ${{ steps.ordered-release.outputs.tag != '' }}
+              timeout-minutes: 8
+              shell: bash
+              env:
+                  DIGESTS: ${{ needs.build-images.outputs.digests }}
+                  ORDERED_ALIAS: ${{ steps.ordered-release.outputs.tag }}
+                  REGISTRY: ghcr.io/posthog/posthog
+              # Same reconciliation as PostHog/shared-actions container-image-metadata: read
+              # the alias before publishing, accept it when it already resolves to this
+              # build, and never move it when it resolves elsewhere. Kargo caches the alias
+              # as immutable, and a rebuild at the same commit can yield a new index digest.
+              run: |
+                  set -uo pipefail
+                  # jq errors inside the process substitution below never reach the loop,
+                  # so reject a malformed digest map here instead of exiting clean with no work.
+                  if ! jq -e 'type == "object"' <<<"$DIGESTS" >/dev/null 2>&1; then
+                      echo "::error title=Ordered image alias input invalid::The build digests output is not a JSON object."
+                      exit 1
+                  fi
+
+                  inspect_digest() {
+                      local output
+                      output="$(timeout --kill-after=10s 20s docker buildx imagetools inspect \
+                          --format '{{json .Manifest.Digest}}' "$1" 2>/dev/null)" || return $?
+                      [[ "$output" =~ ^\"(sha256:[0-9a-f]{64})\"$ ]] || return 65
+                      printf '%s\n' "${BASH_REMATCH[1]}"
+                  }
+
+                  # present-at-expected-digest | integrity-mismatch | absent | unknown
+                  classify_alias() {
+                      local target="$1" source="$2" expected="$3" observed
+                      if observed="$(inspect_digest "$target")" || observed="$(inspect_digest "$target")"; then
+                          if [ "$observed" = "$expected" ]; then echo present-at-expected-digest; else echo integrity-mismatch; fi
+                      elif inspect_digest "$source" >/dev/null; then
+                          echo absent
+                      else
+                          echo unknown
+                      fi
+                  }
+
+                  failures=0
+                  while IFS=$'\t' read -r image digest; do
+                      if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                          echo "::warning title=Ordered image alias skipped::${image}: no digest was resolved for this build."
+                          continue
+                      fi
+                      source_image="${REGISTRY}/${image}@${digest}"
+                      target_image="${REGISTRY}/${image}:${ORDERED_ALIAS}"
+                      state="$(classify_alias "$target_image" "$source_image" "$digest")"
+                      if [ "$state" = "absent" ]; then
+                          # --prefer-index=false re-tags the existing index by digest, so the
+                          # alias resolves to the same digest and keeps its annotations.
+                          timeout --kill-after=10s 35s docker buildx imagetools create \
+                              --prefer-index=false \
+                              --tag "$target_image" \
+                              "$source_image" >&2 || echo "::warning::${image}: alias publication client exited $?"
+                          state="$(classify_alias "$target_image" "$source_image" "$digest")"
+                      fi
+                      case "$state" in
+                          present-at-expected-digest)
+                              echo "::notice title=Ordered image alias present::${image}:${ORDERED_ALIAS} resolves to ${digest}."
+                              ;;
+                          integrity-mismatch)
+                              echo "::error title=Ordered image alias integrity mismatch::${image}:${ORDERED_ALIAS} resolves to a different digest; left untouched."
+                              failures=$((failures + 1))
+                              ;;
+                          absent)
+                              echo "::warning title=Ordered image alias absent::${image}:${ORDERED_ALIAS} is absent after publication."
+                              failures=$((failures + 1))
+                              ;;
+                          *)
+                              echo "::error title=Ordered image alias read-back unavailable::${image}:${ORDERED_ALIAS} could not be read back from ghcr."
+                              failures=$((failures + 1))
+                              ;;
+                      esac
+                  done < <(echo "$DIGESTS" | jq -r 'to_entries[] | "\(.key)\t\(.value)"')
+                  if [ "$failures" -gt 0 ]; then
+                      exit 1
+                  fi
