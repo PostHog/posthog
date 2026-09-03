@@ -74,13 +74,8 @@ describe('read-data-schema input', () => {
             { query: { kind: 'action_properties', action_id: 42 } },
         ],
         [
-            'a page size written as a string',
-            { query: { kind: 'events', limit: '50' } },
-            { query: { kind: 'events', limit: 50, offset: 0 } },
-        ],
-        [
-            'a page size above the maximum',
-            { query: { kind: 'events', limit: 1000 } },
+            'an over-sized page size written as a string',
+            { query: { kind: 'events', limit: '1000' } },
             { query: { kind: 'events', limit: 500, offset: 0 } },
         ],
         [
@@ -89,7 +84,7 @@ describe('read-data-schema input', () => {
             { query: { kind: 'event_property_values', event_name: 'purchase', property_name: 'plan' } },
         ],
         [
-            'an ambiguous kind resolved by the fields',
+            'a kind this tool does not have, resolved by the fields',
             { query: { kind: 'properties', entity: 'person' } },
             { query: { kind: 'entity_properties', entity: 'person' } },
         ],
@@ -113,10 +108,7 @@ describe('read-data-schema input', () => {
 
     it.each([
         ['a search term the events read cannot honor', { kind: 'events', search: 'purchase' }],
-        [
-            'a property name the event_properties read ignores',
-            { kind: 'event_properties', event_name: 'a', property_name: 'b' },
-        ],
+        ['a kind this tool does not have and no field to fall back on', { kind: 'actions' }],
         ['a subject this tool does not read', { table: 'stripe_invoices' }],
         ['a multi-event list no single read can answer', { kind: 'event_properties', event_names: ['a', 'b'] }],
     ])('still rejects %s', (_name, input) => {
