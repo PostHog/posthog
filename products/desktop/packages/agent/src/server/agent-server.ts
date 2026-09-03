@@ -134,7 +134,7 @@ import {
   type ExistingPrCheckoutResult,
 } from "./pr-checkout";
 import { createRtkSavingsNotification } from "./rtk-savings";
-import { RunUsageAccumulator } from "./run-usage";
+import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import { jsonRpcRequestSchema, validateCommandParams } from "./schemas";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
 import { waitForFile } from "./wait-for-file";
@@ -1847,6 +1847,7 @@ export class AgentServer {
       preTask?.repositories ??
       (preTask?.repository ? [preTask.repository] : []);
 
+    seedRunUsage(this.runUsage, preTaskRun?.state.token_usage);
     this.prewarmedRun = preTaskRun?.state.prewarmed === true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
 
@@ -5499,13 +5500,13 @@ ${commonInstructions}
     if (!this.runUsage.add(usage)) return;
     const payload = this.session?.payload;
     if (!payload) return;
-    void this.posthogAPI
-      .updateTaskRun(payload.task_id, payload.run_id, {
-        state: { token_usage: this.runUsage.snapshot() },
-      })
-      .catch((error) => {
-        this.logger.warn("Failed to report run token usage", error);
-      });
+    reportRunUsage(
+      this.runUsage,
+      this.posthogAPI,
+      payload.task_id,
+      payload.run_id,
+      this.logger,
+    );
   }
 
   private handleAcpTransportMessage(message: unknown): void {
