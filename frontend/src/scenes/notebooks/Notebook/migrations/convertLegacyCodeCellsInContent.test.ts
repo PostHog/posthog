@@ -51,12 +51,16 @@ describe('convertLegacyCodeCellsInContent', () => {
         expect(componentProps(convertMarkdown(markdown))).toEqual(expected)
     })
 
-    it('gives a cell without a persisted nodeId a durable one', () => {
-        const [cell] = componentProps(convertMarkdown(`<Python code="print(1)" />`))
+    it('gives a cell without a persisted nodeId the same durable id on every migration', () => {
+        const markdown = `<Python code="print(1)" />`
+        const [cell] = componentProps(convertMarkdown(markdown))
 
         expect(cell.tagName).toBe('PythonV2')
         expect(typeof cell.props.nodeId).toBe('string')
         expect(cell.props.nodeId).not.toBe('')
+        // Nothing saves the migrated markdown until the author edits, so two loads (or two clients)
+        // must mint the same id. A random one orphans a run dispatched under the previous load.
+        expect(componentProps(convertMarkdown(markdown))[0].props.nodeId).toBe(cell.props.nodeId)
     })
 
     it('leaves the markdown byte-identical when there is no legacy cell', () => {

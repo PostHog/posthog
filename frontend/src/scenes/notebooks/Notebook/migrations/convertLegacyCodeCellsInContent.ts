@@ -2,7 +2,6 @@ import { JSONContent } from '@tiptap/core'
 
 import { parseMarkdownNotebook, serializeMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { NotebookBlockNode, NotebookComponentProps } from 'lib/components/MarkdownNotebook/types'
-import { uuid } from 'lib/utils/dom'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 
 // The removed code cells (in-browser-kernel Python, DuckDB SQL, HogQL SQL) and the sandbox-kernel
@@ -38,7 +37,11 @@ function convertLegacyCodeCell(node: NotebookBlockNode): NotebookBlockNode {
     // until its author rewrites the reference. Rewriting it here is not possible, because a scalar
     // placeholder and a dataframe placeholder need different SQLV2 constructs.
     const props: NotebookComponentProps = {
-        nodeId: typeof node.props.nodeId === 'string' && node.props.nodeId ? node.props.nodeId : uuid(),
+        // A cell that never ran has no persisted id, so the parser's block id stands in, the same
+        // fallback the run button and the run status already use. It has to be stable, because
+        // nothing saves the migrated markdown until the author edits the notebook: a random id
+        // would differ on every load and orphan a run dispatched under the previous one.
+        nodeId: typeof node.props.nodeId === 'string' && node.props.nodeId ? node.props.nodeId : node.id,
         code: typeof node.props.code === 'string' ? node.props.code : '',
         showFilters: true,
     }
