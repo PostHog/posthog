@@ -40,7 +40,7 @@ logger = structlog.get_logger(__name__)
 
 def _renderings_for(model_output: AnyScannerOutput) -> list[tuple[str, str]]:
     document = model_output.embedding_document()
-    return [document] if document else []
+    return [(document.rendering, document.text)] if document else []
 
 
 def _result_metadata(model_output: AnyScannerOutput) -> dict[str, Any]:

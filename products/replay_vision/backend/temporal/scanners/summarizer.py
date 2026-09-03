@@ -8,6 +8,7 @@ from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.scanners.base import (
     BaseScanner,
     BaseScannerOutput,
+    EmbeddingDocument,
     MissionStep,
     Segment,
     SignalFinding,
@@ -46,9 +47,9 @@ class SummarizerOutput(BaseScannerOutput, frozen=True):
     summary: str = ""
     summary_segments: list[Segment] = Field(default_factory=list)
 
-    def embedding_document(self) -> tuple[str, str] | None:
+    def embedding_document(self) -> EmbeddingDocument | None:
         text = summary_embedding_text(self)
-        return ("summary", text) if text else None
+        return EmbeddingDocument(rendering="summary", text=text) if text else None
 
 
 def summary_embedding_text(output: SummarizerOutput) -> str:
