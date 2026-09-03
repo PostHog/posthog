@@ -64738,6 +64738,11 @@ export namespace Schemas {
       email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
     }
 
+    export interface TeamFeatureFlagPolicyConfig {
+      /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
+      require_tags?: boolean;
+    }
+
     /**
      * A project and its settings, including the settings that live on its passthrough Team.
      *
@@ -65546,6 +65551,7 @@ export namespace Schemas {
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
       workflows_config?: TeamWorkflowsConfig;
+      feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       base_currency?: BaseCurrencyEnum;
       /**
          * Enables capturing clicks that had no effect (rage-click detection).
@@ -67703,6 +67709,7 @@ export namespace Schemas {
          * @nullable
          */
       require_evaluation_contexts?: boolean | null;
+      feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       /** @nullable */
       capture_dead_clicks?: boolean | null;
       /**
@@ -69948,6 +69955,7 @@ export namespace Schemas {
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
       workflows_config?: TeamWorkflowsConfig;
+      feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       base_currency?: BaseCurrencyEnum;
       /**
          * Enables capturing clicks that had no effect (rage-click detection).
@@ -85699,6 +85707,7 @@ export namespace Schemas {
          * @nullable
          */
       require_evaluation_contexts?: boolean | null;
+      feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       /** @nullable */
       capture_dead_clicks?: boolean | null;
       /**
