@@ -10,6 +10,7 @@ import temporalio.workflow
 from temporalio.exceptions import CancelledError, ChildWorkflowError, WorkflowAlreadyStartedError
 
 from posthog.temporal.data_modeling.activities import (
+    DuckgresShadowEligibilityInputs,
     FailMaterializationInputs,
     MaterializeViewResult,
     PrepareQueryableTableResult,
@@ -121,6 +122,12 @@ class TestQualityGateBranching:
         assert started[-2:] == ["stage_queryable_files_activity", "quality_block_materialization_activity"]
         assert "publish_queryable_table_activity" not in started
         assert "succeed_materialization_activity" not in started
+        assert execute_activity.await_args_list[0].args[1] == DuckgresShadowEligibilityInputs(
+            team_id=7,
+            dag_id="dag-1",
+            node_id="node-1",
+        )
+        assert execute_activity.await_args_list[0].args[0].__name__ == "check_duckgres_shadow_eligibility_activity"
 
     async def test_account_staging_starts_an_isolated_child_workflow(self):
         materialize_result = dataclasses.replace(
@@ -251,6 +258,8 @@ class TestQualityGateBranching:
         start_child.assert_not_awaited()
         assert result.quality_blocking_failures is None
         assert result.quality_audited is False
+        assert execute_activity.await_args_list[0].args[1] == 7
+        assert execute_activity.await_args_list[0].args[0].__name__ == "check_duckgres_shadow_enabled_activity"
 
     async def test_an_audit_that_reached_no_verdict_leaves_the_node_to_the_sweep(self):
         # Returning zero here would publish and also claim the node was audited, so the DAG's
