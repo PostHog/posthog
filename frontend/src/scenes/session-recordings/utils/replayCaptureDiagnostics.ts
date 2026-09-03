@@ -4,6 +4,9 @@ export type DiagnosisVerdict =
     | 'captured'
     | 'ad_blocked'
     | 'disabled'
+    | 'recorder_not_started'
+    | 'recorder_loading'
+    | 'config_pending'
     | 'trigger_pending'
     | 'sampled_out'
     | 'buffering_empty'
@@ -13,6 +16,11 @@ export type DiagnosisVerdict =
 export interface SuggestedAction {
     label: string
     to?: string
+}
+
+export interface DiagnosisContext {
+    /** Every `$recording_status` the session reported, not only the one on this event. */
+    sessionRecordingStatuses?: string[]
 }
 
 export interface ReplayCaptureDiagnosis {
@@ -72,6 +80,34 @@ const pickSignals = (properties: Record<string, any>): Record<string, unknown> =
     return out
 }
 
+// posthog-js loads the recorder as a separate chunk. Until that chunk takes over, the SDK
+// reports `disabled`, so the first events of a page load say `disabled` on a session that
+// records fine. Only a session that reported nothing else can be read as replay being off.
+const STATUSES_BEYOND_DISABLED = [
+    'active',
+    'buffering',
+    'rrweb_error',
+    'missing_config',
+    'awaiting_config',
+    'pending_config',
+    'lazy_loading',
+]
+
+const parseRemoteConfigEnabled = (value: unknown): boolean | null => {
+    let config = value
+    if (typeof config === 'string') {
+        try {
+            config = JSON.parse(config)
+        } catch {
+            return null
+        }
+    }
+    if (config && typeof config === 'object' && typeof (config as Record<string, unknown>).enabled === 'boolean') {
+        return (config as Record<string, boolean>).enabled
+    }
+    return null
+}
+
 const toNumber = (value: unknown): number | null => {
     if (typeof value === 'number') {
         return value
@@ -82,12 +118,35 @@ const toNumber = (value: unknown): number | null => {
     return null
 }
 
-export function diagnoseReplayCapture(eventProperties: Record<string, any> | null | undefined): ReplayCaptureDiagnosis {
+export function diagnoseReplayCapture(
+    eventProperties: Record<string, any> | null | undefined,
+    context?: DiagnosisContext
+): ReplayCaptureDiagnosis {
     const properties = eventProperties ?? {}
+    const eventStatus = properties['$recording_status']
+    const sessionStatuses = context?.sessionRecordingStatuses ?? []
+    // The session got at least this far, even if this one event was captured before it did.
+    const statusReachedLater =
+        eventStatus === 'disabled' ? STATUSES_BEYOND_DISABLED.find((s) => sessionStatuses.includes(s)) : undefined
+
+    const diagnosis = diagnoseSignals(properties, statusReachedLater ?? eventStatus)
+    if (!statusReachedLater) {
+        return diagnosis
+    }
+    return {
+        ...diagnosis,
+        reasons: [
+            `This event was captured before the recorder started. Later in the session the SDK reported ${statusReachedLater}.`,
+            ...diagnosis.reasons,
+        ],
+    }
+}
+
+function diagnoseSignals(properties: Record<string, any>, recordingStatus: unknown): ReplayCaptureDiagnosis {
     const rawSignals = pickSignals(properties)
 
     const hasRecording = properties['$has_recording']
-    const recordingStatus = properties['$recording_status']
+    const replayEnabledRemotely = parseRemoteConfigEnabled(properties['$session_recording_remote_config'])
     const startReason = properties['$session_recording_start_reason']
     const urlTrigger = properties['$sdk_debug_replay_url_trigger_status']
     const eventTrigger = properties['$sdk_debug_replay_event_trigger_status']
@@ -132,32 +191,61 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
         }
     }
 
-    if (recordingStatus === 'disabled') {
-        return {
-            verdict: 'disabled',
-            headline: 'Session recording was disabled for this session',
-            reasons: [
-                'The SDK reported `$recording_status = disabled` at the time this event was captured.',
-                'Recording may be turned off in project settings, or explicitly disabled at runtime via the SDK.',
-            ],
-            rawSignals,
-            suggestedActions: [settingsAction, troubleshootingAction],
-        }
-    }
-
     // A reported rrweb error is the unambiguous signal that the recorder failed. The recorder is
     // started during buffering — before sampling/triggers resolve — so the attach flags alone
     // can't tell a real failure apart from a normal sampled-out or torn-down session.
-    if (rrwebError) {
+    if (rrwebError || recordingStatus === 'rrweb_error') {
         return {
             verdict: 'recorder_error',
             headline: 'The recorder failed to start',
             reasons: [
                 'The SDK started the rrweb recorder for this session but it reported an error, so no snapshots were produced.',
-                `rrweb reported: ${typeof rrwebError === 'string' ? rrwebError : JSON.stringify(rrwebError)}.`,
+                ...(rrwebError
+                    ? [`rrweb reported: ${typeof rrwebError === 'string' ? rrwebError : JSON.stringify(rrwebError)}.`]
+                    : []),
             ],
             rawSignals,
             suggestedActions: [troubleshootingAction],
+        }
+    }
+
+    if (recordingStatus === 'missing_config') {
+        return {
+            verdict: 'config_pending',
+            headline: 'The SDK could not load its replay config',
+            reasons: [
+                'The SDK asked PostHog for fresh replay config, the request failed, and recording stays off until the page reloads.',
+                'A blocked or failing request to the PostHog config endpoint is the usual cause. Check for ad blockers, a content security policy, or a reverse proxy that does not forward it.',
+            ],
+            rawSignals,
+            suggestedActions: [troubleshootingAction],
+        }
+    }
+
+    // Older SDKs call `awaiting_config` `pending_config`.
+    if (recordingStatus === 'awaiting_config' || recordingStatus === 'pending_config') {
+        return {
+            verdict: 'config_pending',
+            headline: 'The SDK was still waiting for its replay config',
+            reasons: [
+                'The SDK had asked PostHog for fresh replay config and had not received it yet, so the recorder had not started.',
+                'Recording starts once the config arrives. A session that ends first produces no replay.',
+            ],
+            rawSignals,
+            suggestedActions: [troubleshootingAction],
+        }
+    }
+
+    if (replayEnabledRemotely === false) {
+        return {
+            verdict: 'disabled',
+            headline: 'Session recording is turned off for this project',
+            reasons: [
+                'PostHog told the SDK that replay is off, so the recorder never started.',
+                'Turn replay on in replay settings to capture new sessions.',
+            ],
+            rawSignals,
+            suggestedActions: [settingsAction, troubleshootingAction],
         }
     }
 
@@ -194,6 +282,19 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
         }
     }
 
+    if (recordingStatus === 'lazy_loading') {
+        return {
+            verdict: 'recorder_loading',
+            headline: 'The recorder was still loading when the session ended',
+            reasons: [
+                'PostHog loads the recorder as a separate file after the SDK starts. This session ended before that file took over, so no snapshots were captured.',
+                'Short visits and slow networks hit this most. It is not a settings problem, and the same visitor usually records fine on a longer page view.',
+            ],
+            rawSignals,
+            suggestedActions: [troubleshootingAction],
+        }
+    }
+
     if (recordingStatus === 'buffering' && bufferLength === 0 && (flushedSize === null || flushedSize === 0)) {
         return {
             verdict: 'buffering_empty',
@@ -201,6 +302,22 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
             reasons: [
                 'The SDK was buffering but the internal buffer was empty and nothing has been flushed yet.',
                 'This can happen if the page navigated or closed before the recorder produced its first snapshot, or if a minimum-duration config was not met.',
+            ],
+            rawSignals,
+            suggestedActions: [settingsAction, troubleshootingAction],
+        }
+    }
+
+    if (recordingStatus === 'disabled') {
+        return {
+            verdict: 'recorder_not_started',
+            headline: 'The recorder was not running for this session',
+            reasons: [
+                'The SDK reports this state both when replay is turned off and before the recorder has loaded, so it does not on its own mean replay is off.',
+                replayEnabledRemotely === true
+                    ? 'Replay is on for this project, so look at the SDK setup on the page rather than project settings.'
+                    : 'Check that replay is on in project settings.',
+                'On the page, check that disable_session_recording is not set, that the visitor has not opted out, and that nothing blocks the recorder file.',
             ],
             rawSignals,
             suggestedActions: [settingsAction, troubleshootingAction],

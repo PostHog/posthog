@@ -49,7 +49,20 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
             ).toBeInTheDocument()
         })
 
-        it('renders disabled headline', () => {
+        it('renders disabled headline when remote config says replay is off', () => {
+            render(
+                <ReplayCaptureDiagnosticsPanel
+                    eventProperties={{
+                        $recording_status: 'disabled',
+                        $session_recording_remote_config: { enabled: false },
+                    }}
+                />
+            )
+
+            expect(screen.getByText('Session recording is turned off for this project')).toBeInTheDocument()
+        })
+
+        it('renders recorder_not_started headline for a bare disabled snapshot', () => {
             render(
                 <ReplayCaptureDiagnosticsPanel
                     eventProperties={{
@@ -58,10 +71,22 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
                 />
             )
 
-            expect(screen.getByText('Session recording was disabled for this session')).toBeInTheDocument()
+            expect(screen.getByText('The recorder was not running for this session')).toBeInTheDocument()
         })
 
-        it('renders sampled in as unknown (sampled means recording started)', () => {
+        it('renders recorder_loading headline', () => {
+            render(
+                <ReplayCaptureDiagnosticsPanel
+                    eventProperties={{
+                        $recording_status: 'lazy_loading',
+                    }}
+                />
+            )
+
+            expect(screen.getByText('The recorder was still loading when the session ended')).toBeInTheDocument()
+        })
+
+        it('renders a status posthog-js never emits as unknown', () => {
             render(
                 <ReplayCaptureDiagnosticsPanel
                     eventProperties={{
@@ -91,6 +116,7 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
                 <ReplayCaptureDiagnosticsPanel
                     eventProperties={{
                         $recording_status: 'disabled',
+                        $session_recording_remote_config: { enabled: false },
                     }}
                 />
             )
@@ -147,7 +173,8 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
         it('shows loading state when properties are loading', () => {
             mockedUseValues.mockReturnValue({
                 sessionEventProperties: null,
-                sessionEventPropertiesLoading: true,
+                sessionRecordingStatuses: [],
+                captureDiagnosticsLoading: true,
             })
 
             render(<ReplayCaptureDiagnosticsPanel sessionId="session-123" />)
@@ -158,18 +185,32 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
         it('renders diagnosis when properties are loaded', () => {
             mockedUseValues.mockReturnValue({
                 sessionEventProperties: { $recording_status: 'disabled' },
-                sessionEventPropertiesLoading: false,
+                sessionRecordingStatuses: ['disabled'],
+                captureDiagnosticsLoading: false,
             })
 
             render(<ReplayCaptureDiagnosticsPanel sessionId="session-123" />)
 
-            expect(screen.getByText('Session recording was disabled for this session')).toBeInTheDocument()
+            expect(screen.getByText('The recorder was not running for this session')).toBeInTheDocument()
+        })
+
+        it('re-reads a disabled latest event against the rest of the session', () => {
+            mockedUseValues.mockReturnValue({
+                sessionEventProperties: { $recording_status: 'disabled' },
+                sessionRecordingStatuses: ['disabled', 'lazy_loading'],
+                captureDiagnosticsLoading: false,
+            })
+
+            render(<ReplayCaptureDiagnosticsPanel sessionId="session-456" />)
+
+            expect(screen.getByText('The recorder was still loading when the session ended')).toBeInTheDocument()
         })
 
         it('renders nothing when properties are null after loading', () => {
             mockedUseValues.mockReturnValue({
                 sessionEventProperties: null,
-                sessionEventPropertiesLoading: false,
+                sessionRecordingStatuses: [],
+                captureDiagnosticsLoading: false,
             })
 
             const { container } = render(<ReplayCaptureDiagnosticsPanel sessionId="session-123" />)
@@ -177,10 +218,11 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
             expect(container.innerHTML).toBe('')
         })
 
-        it('renders sampled in as unknown from loaded properties', () => {
+        it('renders a status posthog-js never emits as unknown from loaded properties', () => {
             mockedUseValues.mockReturnValue({
                 sessionEventProperties: { $recording_status: 'sampled' },
-                sessionEventPropertiesLoading: false,
+                sessionRecordingStatuses: ['sampled'],
+                captureDiagnosticsLoading: false,
             })
 
             render(<ReplayCaptureDiagnosticsPanel sessionId="session-789" />)

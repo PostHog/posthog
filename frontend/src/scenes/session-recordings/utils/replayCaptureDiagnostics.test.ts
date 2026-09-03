@@ -16,7 +16,7 @@ describe('diagnoseReplayCapture', () => {
         {
             name: '$has_recording=false does not short-circuit — falls through to other rules',
             properties: { $has_recording: false, $recording_status: 'disabled' },
-            expected: 'disabled',
+            expected: 'recorder_not_started',
         },
         {
             name: 'ad blocker prevented script load',
@@ -24,9 +24,49 @@ describe('diagnoseReplayCapture', () => {
             expected: 'ad_blocked',
         },
         {
-            name: 'recording explicitly disabled',
+            name: 'a disabled snapshot alone is not read as replay being off',
             properties: { $recording_status: 'disabled' },
+            expected: 'recorder_not_started',
+        },
+        {
+            name: 'remote config proves replay is off for the project',
+            properties: { $recording_status: 'disabled', $session_recording_remote_config: { enabled: false } },
             expected: 'disabled',
+        },
+        {
+            name: 'remote config arrives as a JSON string',
+            properties: { $recording_status: 'disabled', $session_recording_remote_config: '{"enabled": false}' },
+            expected: 'disabled',
+        },
+        {
+            name: 'replay on for the project means a disabled snapshot is not a settings problem',
+            properties: { $recording_status: 'disabled', $session_recording_remote_config: { enabled: true } },
+            expected: 'recorder_not_started',
+        },
+        {
+            name: 'recorder chunk still loading',
+            properties: { $recording_status: 'lazy_loading' },
+            expected: 'recorder_loading',
+        },
+        {
+            name: 'waiting on fresh remote config',
+            properties: { $recording_status: 'awaiting_config' },
+            expected: 'config_pending',
+        },
+        {
+            name: 'older SDKs name the waiting state pending_config',
+            properties: { $recording_status: 'pending_config' },
+            expected: 'config_pending',
+        },
+        {
+            name: 'remote config could not be loaded',
+            properties: { $recording_status: 'missing_config' },
+            expected: 'config_pending',
+        },
+        {
+            name: 'rrweb_error status without an error message',
+            properties: { $recording_status: 'rrweb_error' },
+            expected: 'recorder_error',
         },
         {
             name: 'URL trigger is pending and nothing matched',
@@ -60,7 +100,7 @@ describe('diagnoseReplayCapture', () => {
             expected: 'captured',
         },
         {
-            name: 'sampled status means sampled in — not sampled out',
+            name: 'a status posthog-js never emits → unknown',
             properties: { $recording_status: 'sampled' },
             expected: 'unknown',
         },
@@ -148,9 +188,18 @@ describe('diagnoseReplayCapture', () => {
             expected: 'ad_blocked',
         },
         {
-            name: 'disabled takes priority over sampled when both present',
+            name: 'sampling outranks a disabled snapshot that proves nothing',
             properties: {
                 $recording_status: 'disabled',
+                $session_recording_start_reason: 'sampled_out',
+            },
+            expected: 'sampled_out',
+        },
+        {
+            name: 'replay being off for the project outranks sampling',
+            properties: {
+                $recording_status: 'disabled',
+                $session_recording_remote_config: { enabled: false },
                 $session_recording_start_reason: 'sampled_out',
             },
             expected: 'disabled',
@@ -205,13 +254,6 @@ describe('diagnoseReplayCapture', () => {
             expected: 'unknown',
         },
         {
-            name: 'paused recording status → unknown',
-            properties: {
-                $recording_status: 'paused',
-            },
-            expected: 'unknown',
-        },
-        {
             name: 'string-valued buffer length "0" is coerced for buffering_empty',
             properties: {
                 $recording_status: 'buffering',
@@ -237,6 +279,30 @@ describe('diagnoseReplayCapture', () => {
         expect(result.reasons.length).toBeGreaterThan(0)
     })
 
+    it.each([
+        ['lazy_loading', 'recorder_loading'],
+        ['buffering', 'unknown'],
+    ])('a disabled event is re-read against the %s the session reached', (sessionStatus, expected) => {
+        const properties = { $recording_status: 'disabled' }
+
+        expect(diagnoseReplayCapture(properties).verdict).toBe('recorder_not_started')
+
+        const result = diagnoseReplayCapture(properties, {
+            sessionRecordingStatuses: ['disabled', sessionStatus],
+        })
+        expect(result.verdict).toBe(expected)
+        expect(result.reasons[0]).toContain(sessionStatus)
+    })
+
+    it('keeps the disabled verdict when the whole session agrees', () => {
+        const result = diagnoseReplayCapture(
+            { $recording_status: 'disabled', $session_recording_remote_config: { enabled: false } },
+            { sessionRecordingStatuses: ['disabled'] }
+        )
+        expect(result.verdict).toBe('disabled')
+        expect(result.reasons[0]).not.toContain('Later in the session')
+    })
+
     it('includes relevant raw signals in the result', () => {
         const result = diagnoseReplayCapture({
             $recording_status: 'active',
@@ -250,7 +316,10 @@ describe('diagnoseReplayCapture', () => {
     })
 
     it('includes settings action for disabled verdict', () => {
-        const result = diagnoseReplayCapture({ $recording_status: 'disabled' })
+        const result = diagnoseReplayCapture({
+            $recording_status: 'disabled',
+            $session_recording_remote_config: { enabled: false },
+        })
         const labels = result.suggestedActions.map((a) => a.label)
         expect(labels).toContain('Open replay settings')
         expect(labels).toContain('Read troubleshooting docs')

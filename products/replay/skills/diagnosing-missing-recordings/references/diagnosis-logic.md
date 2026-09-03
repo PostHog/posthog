@@ -3,6 +3,11 @@
 This describes the priority-ordered logic for interpreting diagnostic signals.
 Evaluate conditions top-to-bottom - the first match is the verdict.
 
+Evaluate them against the whole session, not one event. `$recording_status` is a per-event
+snapshot: posthog-js reports `disabled` until the lazily loaded recorder takes over, so the
+first events of every page load carry it. "In statuses" below means the value appears
+anywhere in the session's `groupUniqArray(properties.$recording_status)`.
+
 ## Contents
 
 - Decision tree
@@ -17,8 +22,14 @@ $has_recording == true?
 $sdk_debug_recording_script_not_loaded == true?
   → AD_BLOCKED: recorder script failed to load (ad blocker, CSP, network error)
 
-$recording_status == 'disabled'?
-  → DISABLED: replay turned off in project settings or SDK config
+'rrweb_error' in statuses OR $sdk_debug_replay_rrweb_error is set?
+  → RECORDER_ERROR: the recorder started and threw
+
+'missing_config' / 'awaiting_config' / 'pending_config' in statuses?
+  → CONFIG_PENDING: the SDK is waiting for, or failed to load, replay config
+
+$session_recording_remote_config.enabled == false?
+  → DISABLED: replay turned off for the project
 
 Any trigger status is 'trigger_pending' AND none is 'trigger_matched'?
   → TRIGGER_PENDING: recording gated on trigger that never fired
@@ -26,14 +37,17 @@ Any trigger status is 'trigger_pending' AND none is 'trigger_matched'?
 $session_recording_start_reason == 'sampled_out'?
   → SAMPLED_OUT: excluded by configured sample rate
 
-$recording_status == 'buffering' AND buffer_length == 0 AND flushed_size == 0 (or null)?
+'lazy_loading' is the furthest status the session reached?
+  → RECORDER_LOADING: the session ended before the recorder file took over
+
+'buffering' reached AND buffer_length == 0 AND flushed_size == 0 (or null)?
   → BUFFERING_EMPTY: SDK initialized but produced no snapshots
 
-$recording_status == 'sampled' OR ($recording_status == 'active' AND flushed_size > 0)?
-  → CAPTURED: SDK was actively recording and flushed data (recording should exist, may be processing or deleted by retention)
+'disabled' is the ONLY status the session reported?
+  → RECORDER_NOT_STARTED: the recorder never ran, and the cause is on the page
 
-$recording_status == 'paused'?
-  → PAUSED: recording is temporarily paused for this session
+$recording_status == 'active' AND flushed_size > 0?
+  → CAPTURED: SDK was actively recording and flushed data (recording should exist, may be processing or deleted by retention)
 
 Buffer length climbs across the session's events AND flushed_size stays at 0?
   → FLUSH_BLOCKED: snapshots produced but ingestion endpoint blocked
@@ -66,11 +80,33 @@ Typical causes:
 
 ### DISABLED
 
-Recording is explicitly turned off. Check:
+Replay is turned off for the project. `$session_recording_remote_config.enabled` is `false`,
+which is the only proof of this. Fix it in Settings > Session replay.
 
-- Project settings (Settings > Session replay)
+### RECORDER_NOT_STARTED
+
+`disabled` is the only status the session reported, but replay is on for the project (or the
+remote config is absent, so nothing proves it is off). The recorder never ran, and the cause
+is on the page. Check:
+
 - SDK initialization config (`session_recording: { enabled: false }`)
 - Runtime SDK calls (`posthog.set_config({ disable_session_recording: true })`)
+- Consent or opt-out state for the visitor
+- Anything blocking the recorder file
+
+### RECORDER_LOADING
+
+The recorder file was still loading when the session ended, so no snapshots were captured.
+Short visits and slow networks hit this most. It is not a settings problem, and the same
+visitor usually records fine on a longer page view. Only worth acting on when it is the
+common shape across a project rather than one session.
+
+### CONFIG_PENDING
+
+The SDK asked PostHog for fresh replay config and started recording only once it arrived.
+`missing_config` means the request failed and recording stays off until the page reloads.
+Check for anything blocking the PostHog config request, including ad blockers, a content
+security policy, or a reverse proxy that does not forward it.
 
 ### TRIGGER_PENDING
 
@@ -93,22 +129,13 @@ Common causes:
 - Minimum duration threshold not met
 - Page navigated away before buffer was flushed
 
-### PAUSED
-
-Recording is temporarily paused for this session.
-This can happen when:
-
-- The SDK's `pause()` method was called programmatically
-- A consent mechanism paused recording pending user opt-in
-- The session exceeded a configured maximum duration
-
 ### FLUSH_BLOCKED
 
 The SDK is producing snapshots but they're not reaching PostHog.
 Distinct from AD_BLOCKED (which is the script itself failing to load) —
 here the script loaded and is working, but the `POST /s/` upload is being blocked.
 Detecting this requires looking at the trend of buffer/flush signals across multiple
-events in the session (see [example 3 in examples.md](./examples.md)).
+events in the session (see [example 4 in examples.md](./examples.md)).
 Typical causes:
 
 - Ad blocker blocking the ingestion endpoint (different from blocking the script)

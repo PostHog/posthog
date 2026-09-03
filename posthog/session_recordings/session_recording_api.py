@@ -96,7 +96,7 @@ from posthog.session_recordings.openai_client import get_openai_client
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import (
     SessionReplayEvents,
-    get_latest_session_event_properties,
+    get_session_capture_diagnostics,
 )
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
@@ -1025,16 +1025,21 @@ class SessionRecordingViewSet(
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True, url_path="capture_diagnostics")
     def capture_diagnostics(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        """Latest event properties for the recording's session, for the capture diagnostics panel."""
+        """Recording-diagnostic signals for the recording's session, for the capture diagnostics panel."""
         recording = self.get_object()
         try:
-            properties = get_latest_session_event_properties(str(recording.session_id), self.team)
+            diagnostics = get_session_capture_diagnostics(str(recording.session_id), self.team)
         except Exception as e:
             # This panel is supplementary - a ClickHouse blip shouldn't 500 the whole endpoint,
             # it should just render empty like a session with no matching event would.
             capture_exception(e)
-            properties = None
-        return Response({"properties": properties})
+            diagnostics = None
+        return Response(
+            {
+                "properties": diagnostics.properties if diagnostics else None,
+                "recording_statuses": diagnostics.recording_statuses if diagnostics else [],
+            }
+        )
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
