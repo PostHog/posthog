@@ -605,13 +605,59 @@ class TestJobWiring:
         EventProperty.objects.create(team=team, project_id=team.project_id, event="$pageview", property="$initial_os")
         return team
 
-    def run_job(self, **config: Any) -> dict[str, int]:
+    def run_job(self, instance: Any = None, **config: Any) -> dict[str, int]:
         result = ops.eventproperty_cleanup_job.execute_in_process(
             run_config={"skip_paying_orgs": False, **config},
             resources={"cluster": MagicMock(), "persons_database_url": "postgresql://unused/never-opened"},
+            instance=instance,
         )
         assert result.success
         return result.output_for_node("collect_and_vacuum_op")
+
+    def mode_result(self, instance: Any, **config: Any) -> Any:
+        result = ops.eventproperty_cleanup_job.execute_in_process(
+            run_config={"skip_paying_orgs": False, **config},
+            resources={"cluster": MagicMock(), "persons_database_url": "postgresql://unused/never-opened"},
+            instance=instance,
+        )
+        assert result.success
+        return result.output_for_node("run_pollution_op")
+
+    def test_a_live_run_records_a_resume_point_and_the_next_run_starts_above_it(self):
+        # The ops wiring is what the unit tests cannot reach: every other job test pins team_ids,
+        # which skips the range walk entirely and so never records anything.
+        team = self.seed_team()
+        with dagster.DagsterInstance.ephemeral() as instance:
+            first = self.mode_result(instance, dry_run=False, vacuum=False)
+            recorded = read_cursor(instance, "pollution")
+
+            assert first.units == 1
+            assert first.rows_deleted == 1
+            assert recorded > 0
+            assert EventProperty.objects.filter(team=team).count() == 0
+
+            # Everything at or below the recorded point is skipped, so a second pass finds nothing.
+            second = self.mode_result(instance, dry_run=False, vacuum=False)
+            assert second.units == 0
+            assert read_cursor(instance, "pollution") == recorded
+
+    def test_a_dry_run_leaves_the_resume_point_untouched(self):
+        self.seed_team()
+        with dagster.DagsterInstance.ephemeral() as instance:
+            result = self.mode_result(instance)
+
+            assert result.units == 1
+            assert result.rows_deleted == 0
+            assert read_cursor(instance, "pollution") == 0
+
+    def test_retention_never_records_a_resume_point(self):
+        # A retention unit can end early with rows for its other event names still eligible, so
+        # recording its range would skip them for good.
+        self.seed_team()
+        with dagster.DagsterInstance.ephemeral() as instance:
+            self.run_job(instance=instance, dry_run=False, vacuum=False, retention_days=180)
+
+            assert read_cursor(instance, "retention") == 0
 
     def test_default_config_is_a_dry_run_that_deletes_nothing(self):
         team = self.seed_team()

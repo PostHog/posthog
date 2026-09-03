@@ -281,10 +281,13 @@ def run_units(
 
 
 def _resume_point(context: dagster.OpExecutionContext, config: EventPropertyCleanupConfig, mode: str) -> int:
-    """Where this mode's discovery starts. An explicit override wins over the recorded point."""
+    """Where this mode's discovery starts. An explicit override wins over the recorded point.
+
+    Only modes that record a resume point resume from one; see `_chunk_recorder`.
+    """
     if config.start_after_team_id is not None:
         return max(config.start_after_team_id, 0)
-    if not config.resume:
+    if not config.resume or mode != "pollution":
         return 0
     start = read_cursor(context.instance, mode)
     if start:
@@ -295,8 +298,15 @@ def _resume_point(context: dagster.OpExecutionContext, config: EventPropertyClea
 def _chunk_recorder(
     context: dagster.OpExecutionContext, config: EventPropertyCleanupConfig, mode: str
 ) -> Callable[[int], None] | None:
-    """A dry run discovers without deleting, so it must not advance the resume point."""
-    if config.dry_run:
+    """A range may only be recorded when finishing it means its rows are gone.
+
+    Pollution qualifies: its predicate is constant across a unit, so a short batch means the unit
+    is exhausted. Retention does not. One retention unit covers a set of event names, and the
+    per-row re-check can end a batch early while rows for the other names in the set are still
+    eligible (see `RETENTION_DELETE`). Recording that range would skip those rows for good, so
+    retention re-walks instead.
+    """
+    if config.dry_run or mode != "pollution":
         return None
     return lambda team_id: record_cursor(context, mode, team_id)
 
