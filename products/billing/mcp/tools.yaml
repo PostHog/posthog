@@ -171,6 +171,14 @@ tools:
                     "type,team" will fail with a 400 error.
             interval:
                 description: Time bucket size, one of "day" or "week". Default "day".
+            top_projects:
+                description: >
+                    Maximum number of projects to return, ranked by total spend, when breakdowns includes "team". The
+                    projects beyond it are folded into one "All other projects (N)" series rather than dropped, so the
+                    totals still add up to the real bill. Ignored without a team breakdown. Omit it to get every
+                    project, which is the default and the right choice for most questions. Set it only when an
+                    organization has enough projects that the full response is unwieldy, and say so in your answer,
+                    because a limited response names only the largest spenders.
         feature_flag: billing-mcp-read-tools
         url_prefix: /organization/billing/spend
         response:
@@ -237,6 +245,26 @@ tools:
                     "type,team" will fail with a 400 error.
             interval:
                 description: Time bucket size, one of "day" or "week". Default "day".
+            top_projects:
+                description: >
+                    Maximum number of projects to return, ranked by total, when breakdowns includes "team". The
+                    projects beyond it are folded into one "All other projects (N)" series rather than dropped, so
+                    totals still reconcile. Ignored without a team breakdown. Omit it to get every project, which is
+                    the default and the right choice for most questions. Set it only when an organization has enough
+                    projects that the full response is unwieldy, and say so in your answer, because a limited response
+                    names only the largest projects.
+            page_size:
+                description: >
+                    Return at most this many series, ranked by total, with a `next` cursor in the
+                    response for the page after. Prefer this over asking for everything at once on a
+                    large organization: a paged request stays well inside the size this endpoint
+                    refuses oversized breakdowns at, and combining it with a single-product
+                    `usage_types` filter is the cheapest way to walk a lot of data. Requires a
+                    project breakdown.
+            after:
+                description: >
+                    The `next` cursor from the previous page. Opaque - do not construct one. Omit it
+                    for the first page, and stop when a response comes back with `next` null.
         feature_flag: billing-mcp-read-tools
         url_prefix: /organization/billing/usage
         response:

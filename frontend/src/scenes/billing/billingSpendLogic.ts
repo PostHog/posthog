@@ -1,5 +1,6 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -15,6 +16,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { toParams } from 'lib/utils/url'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Params } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { DateMappingOption, OrganizationType } from '~/types'
 
@@ -23,12 +25,21 @@ import {
     buildSpendTrackingProperties,
     calculateBillingPeriodMarkers,
     filterSpendUsageTypes,
+    selectionCoversEveryProject,
     syncBillingSearchParams,
     updateBillingSearchParams,
 } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { BillingPeriodMarker } from './BillingPeriodMarkers'
-import type { BillingFilters } from './types'
+import {
+    ACTIONABLE_BILLING_ERROR_CODES,
+    fitsOneRequest,
+    getBillingUsageError,
+    isDayOrCoarser,
+} from './billingUsageLogic'
+import type { BillingUsageError } from './billingUsageLogic'
+import { DEFAULT_TOP_PROJECTS } from './constants'
+import type { BillingChartType, BillingFilters } from './types'
 import type { BillingUsageInteractionProps } from './types'
 
 export enum BillingSpendResponseBreakdownType {
@@ -49,7 +60,6 @@ export interface BillingSpendResponse {
         breakdown_type: BillingSpendResponseBreakdownType | null
         breakdown_value: string | string[] | null
     }>
-    team_id_options?: number[]
     next?: string
 }
 
@@ -58,6 +68,7 @@ export const DEFAULT_BILLING_SPEND_FILTERS: BillingFilters = {
     team_ids: [],
     breakdowns: ['type'],
     interval: 'day',
+    top_projects: DEFAULT_TOP_PROJECTS,
 }
 
 export const DEFAULT_BILLING_SPEND_DATE_FROM = dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD')
@@ -79,18 +90,25 @@ export interface billingSpendLogicValues {
     currentOrganization: OrganizationType | null // billingLogic
     isHobby: boolean // preflightLogic
     billingPeriodMarkers: BillingPeriodMarker[]
+    billingSpendError: BillingUsageError | null
     billingSpendResponse: BillingSpendResponse | null
     billingSpendResponseLoading: boolean
+    canStackSeries: boolean
+    chartType: BillingChartType | null
     dateFrom: string
     dateOptions: DateMappingOption[]
-    dateTo: string
+    dateTo: string | null
     dates: string[]
+    defaultChartType: BillingChartType
+    effectiveChartType: BillingChartType
+    effectiveTeamIds: number[] | undefined
     emptySeriesIDs: number[]
     excludeEmptySeries: boolean
     filters: {
         breakdowns?: ('team' | 'type')[] | undefined
         interval?: 'day' | 'month' | 'week' | undefined
         team_ids?: number[] | undefined
+        top_projects?: number | null | undefined
         usage_types?: string[] | undefined
     }
     finalHiddenSeries: number[]
@@ -106,6 +124,10 @@ export interface billingSpendLogicValues {
     }[]
     showEmptyState: boolean
     showSeries: boolean
+    spendChartExportUrl: string
+    spendExportUrl: string
+    teamIdOptions: number[]
+    teamIdOptionsLoading: boolean
     teamOptions: {
         key: string
         label: string
@@ -118,7 +140,7 @@ export interface billingSpendLogicActions {
     reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => {
         properties: BillingUsageInteractionProps
     } // eventUsageLogic
-    loadBillingSpend: () => any
+    loadBillingSpend: (_: void) => void
     loadBillingSpendFailure: (
         error: string,
         errorObject?: any
@@ -128,13 +150,38 @@ export interface billingSpendLogicActions {
     }
     loadBillingSpendSuccess: (
         billingSpendResponse: BillingSpendResponse | null,
-        payload?: any
+        payload?: void
     ) => {
         billingSpendResponse: BillingSpendResponse | null
+        payload?: void
+    }
+    loadTeamIdOptions: () => any
+    loadTeamIdOptionsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadTeamIdOptionsSuccess: (
+        teamIdOptions: number[],
+        payload?: any
+    ) => {
+        teamIdOptions: number[]
         payload?: any
     }
     resetFilters: () => {
         value: true
+    }
+    setBillingSpendError: (error: BillingUsageError | null) => {
+        error: BillingUsageError | null
+    }
+    setChartType: (
+        chartType: BillingChartType | null,
+        shouldDebounce?: boolean
+    ) => {
+        chartType: BillingChartType | null
+        shouldDebounce: boolean
     }
     setDateRange: (
         dateFrom: string | null,
@@ -159,6 +206,9 @@ export interface billingSpendLogicActions {
         filters: Partial<BillingFilters>
         shouldDebounce: boolean
     }
+    setHiddenSeries: (ids: number[]) => {
+        ids: number[]
+    }
     toggleAllSeries: () => {
         value: true
     }
@@ -174,6 +224,43 @@ export interface billingSpendLogicActions {
 export interface billingSpendLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        effectiveTeamIds: (
+            filters: {
+                breakdowns?: ('team' | 'type')[] | undefined
+                interval?: 'day' | 'month' | 'week' | undefined
+                team_ids?: number[] | undefined
+                top_projects?: number | null | undefined
+                usage_types?: string[] | undefined
+            },
+            teamOptions: {
+                key: string
+                label: string
+            }[]
+        ) => number[] | undefined
+        spendExportUrl: (
+            filters: {
+                breakdowns?: ('team' | 'type')[] | undefined
+                interval?: 'day' | 'month' | 'week' | undefined
+                team_ids?: number[] | undefined
+                top_projects?: number | null | undefined
+                usage_types?: string[] | undefined
+            },
+            dateFrom: string,
+            dateTo: string | null,
+            effectiveTeamIds: number[] | undefined
+        ) => string
+        spendChartExportUrl: (
+            filters: {
+                breakdowns?: ('team' | 'type')[] | undefined
+                interval?: 'day' | 'month' | 'week' | undefined
+                team_ids?: number[] | undefined
+                top_projects?: number | null | undefined
+                usage_types?: string[] | undefined
+            },
+            dateFrom: string,
+            dateTo: string | null,
+            effectiveTeamIds: number[] | undefined
+        ) => string
         series: (billingSpendResponse: BillingSpendResponse | null) => {
             breakdown_type: BillingSpendResponseBreakdownType | null
             breakdown_value: string | string[] | null
@@ -187,7 +274,7 @@ export interface billingSpendLogicMeta {
         billingPeriodMarkers: (
             billingPeriodUTC: BillingPeriod,
             dateFrom: string,
-            dateTo: string
+            dateTo: string | null
         ) => BillingPeriodMarker[]
         emptySeriesIDs: (
             series: {
@@ -199,6 +286,18 @@ export interface billingSpendLogicMeta {
                 label: string
             }[]
         ) => number[]
+        defaultChartType: (filters: {
+            breakdowns?: ('team' | 'type')[] | undefined
+            interval?: 'day' | 'month' | 'week' | undefined
+            team_ids?: number[] | undefined
+            top_projects?: number | null | undefined
+            usage_types?: string[] | undefined
+        }) => BillingChartType
+        effectiveChartType: (
+            chartType: BillingChartType | null,
+            defaultChartType: BillingChartType,
+            canStackSeries: boolean
+        ) => BillingChartType
         finalHiddenSeries: (
             userHiddenSeries: number[],
             excludeEmptySeries: boolean,
@@ -220,12 +319,13 @@ export interface billingSpendLogicMeta {
             breakdowns?: ('team' | 'type')[] | undefined
             interval?: 'day' | 'month' | 'week' | undefined
             team_ids?: number[] | undefined
+            top_projects?: number | null | undefined
             usage_types?: string[] | undefined
         }) => string
-        headingTooltip: (dateTo: string) => string | null
+        headingTooltip: (dateTo: string | null) => string | null
         teamOptions: (
             currentOrganization: OrganizationType | null,
-            billingSpendResponse: BillingSpendResponse | null
+            teamIdOptions: any
         ) => {
             key: string
             label: string
@@ -239,6 +339,28 @@ export type billingSpendLogicType = MakeLogicType<
     BillingSpendLogicProps,
     billingSpendLogicMeta
 >
+
+/** The export URL for the page's filters, with or without the chart's project cap. */
+function spendExportUrlFor(
+    filters: BillingFilters,
+    dateFrom: string,
+    dateTo: string | null,
+    effectiveTeamIds: number[] | undefined,
+    withChartCap: boolean
+): string {
+    const params = {
+        ...(filters.usage_types?.length ? { usage_types: JSON.stringify(filters.usage_types) } : {}),
+        ...(effectiveTeamIds?.length ? { team_ids: JSON.stringify(effectiveTeamIds) } : {}),
+        ...(filters.breakdowns?.length ? { breakdowns: JSON.stringify(filters.breakdowns) } : {}),
+        start_date: dateFrom,
+        end_date: dateTo || DEFAULT_BILLING_SPEND_DATE_TO,
+        ...(filters.interval ? { interval: filters.interval } : {}),
+        ...(withChartCap && filters.breakdowns?.includes('team') && filters.top_projects
+            ? { top_projects: filters.top_projects }
+            : {}),
+    }
+    return `/api/billing/spend/export/?${toParams(params)}`
+}
 
 export const billingSpendLogic = kea<billingSpendLogicType>([
     path(['scenes', 'billing', 'billingSpendLogic']),
@@ -263,21 +385,58 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             dateTo,
             shouldDebounce,
         }),
+        setHiddenSeries: (ids: number[]) => ({ ids }),
         toggleSeries: (id: number) => ({ id }),
         toggleAllSeries: true,
+        setChartType: (chartType: BillingChartType | null, shouldDebounce: boolean = true) => ({
+            chartType,
+            shouldDebounce,
+        }),
         setExcludeEmptySeries: (exclude: boolean, shouldDebounce: boolean = true) => ({ exclude, shouldDebounce }),
+        setBillingSpendError: (error: BillingUsageError | null) => ({ error }),
         toggleBreakdown: (dimension: 'type' | 'team') => ({ dimension }),
         resetFilters: true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
+        teamIdOptions: [
+            [] as number[],
+            {
+                // The project filter's options, loaded once and apart from the chart, so a chart
+                // that fails or has not answered leaves the filter as it was. Billing reads them
+                // from every report the organization has filed, cached for a day on its side.
+                loadTeamIdOptions: async (): Promise<number[]> => {
+                    try {
+                        const response = await api.get('api/billing/usage/team_options/')
+                        return response?.team_id_options ?? []
+                    } catch {
+                        return []
+                    }
+                },
+            },
+        ],
         billingSpendResponse: [
             null as BillingSpendResponse | null,
             {
-                loadBillingSpend: async () => {
+                loadBillingSpend: async (_: void, breakpoint: BreakPointFunction) => {
+                    // Three things load on arrival: afterMount, urlToAction once it has read the
+                    // filters out of the URL, and the subscriptions that fire when billing settles
+                    // whether this is a hobby plan and whether the person may see spend. The
+                    // breakpoint keeps only the last call, so one request goes out and it carries
+                    // the filters that ended up in effect.
+                    //
+                    // Before the try below, deliberately: a breakpoint reports itself by throwing,
+                    // and catching that as a failure would show the person an error toast.
+                    await breakpoint(1)
                     if (!values.canViewUsageAndSpend || values.isHobby) {
                         return null
                     }
-                    const { usage_types, team_ids, breakdowns, interval } = values.filters
+                    const { usage_types, breakdowns, interval, top_projects } = values.filters
+                    // Selecting every project is not a filter, and sending it as one puts a
+                    // few thousand characters of project ids in the query string.
+                    const team_ids = values.effectiveTeamIds
+                    // Only meaningful with a project breakdown - there is nothing to rank
+                    // otherwise, and sending it would just be noise.
+                    const breakingDownByTeam = !!breakdowns?.includes('team')
                     const params = {
                         ...(usage_types && usage_types.length > 0 ? { usage_types: JSON.stringify(usage_types) } : {}),
                         ...(team_ids && team_ids.length > 0 ? { team_ids: JSON.stringify(team_ids) } : {}),
@@ -286,18 +445,39 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                             values.dateFrom || dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
                         end_date: values.dateTo || dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
                         ...(interval ? { interval } : {}),
+                        ...(breakingDownByTeam && top_projects ? { top_projects } : {}),
                     }
+                    actions.setBillingSpendError(null)
                     try {
+                        // One request whatever the breakdown. Billing ranks and folds the projects
+                        // itself when there is a cap, and reads every project on every product in
+                        // one pass when there is not, so nothing is asked per product or per page.
+                        // Past what it can hold it refuses with guidance, which the catch below shows.
                         return await api.get(`api/billing/spend/?${toParams(params)}`)
                     } catch (error) {
-                        lemonToast.error('Failed to load billing spend, please try again or contact support.')
-                        throw error
+                        // An actionable error names something the person can change, so it is
+                        // shown in the page rather than as a toast that says contact support.
+                        const spendError = getBillingUsageError(error)
+                        const isActionable = !!spendError && ACTIONABLE_BILLING_ERROR_CODES.includes(spendError.code)
+                        actions.setBillingSpendError(isActionable ? spendError : null)
+                        if (!isActionable) {
+                            lemonToast.error('Failed to load billing spend, please try again or contact support.')
+                            throw error
+                        }
+                        return null
                     }
                 },
             },
         ],
     })),
     reducers(({ props }) => ({
+        billingSpendError: [
+            null as BillingUsageError | null,
+            {
+                setBillingSpendError: (_: BillingUsageError | null, { error }: { error: BillingUsageError | null }) =>
+                    error,
+            },
+        ],
         filters: [
             { ...(props.initialFilters || DEFAULT_BILLING_SPEND_FILTERS) },
             {
@@ -319,10 +499,14 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 resetFilters: () => props.dateFrom || DEFAULT_BILLING_SPEND_DATE_FROM,
             },
         ],
+        // Null means the range has no end yet: "This year" and its kind carry only a start, and
+        // the picker recognises its own preset only while the end stays empty. With the end filled
+        // in, every such preset would read back as "No date range override". The request supplies
+        // the end when it is sent.
         dateTo: [
-            props.dateTo || DEFAULT_BILLING_SPEND_DATE_TO,
+            (props.dateTo || DEFAULT_BILLING_SPEND_DATE_TO) as string | null,
             {
-                setDateRange: (_, { dateTo }) => dateTo || props.dateTo || DEFAULT_BILLING_SPEND_DATE_TO,
+                setDateRange: (_, { dateTo }) => dateTo,
                 resetFilters: () => props.dateTo || DEFAULT_BILLING_SPEND_DATE_TO,
             },
         ],
@@ -331,6 +515,15 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             {
                 toggleSeries: (state: number[], { id }: { id: number }) =>
                     state.includes(id) ? state.filter((i) => i !== id) : [...state, id],
+                setHiddenSeries: (_: number[], { ids }: { ids: number[] }) => ids,
+            },
+        ],
+        // null means "whatever the default is for this view", so the default can change with
+        // the breakdown without overwriting a choice the person made.
+        chartType: [
+            null as BillingChartType | null,
+            {
+                setChartType: (_, { chartType }: { chartType: BillingChartType | null }) => chartType,
             },
         ],
         excludeEmptySeries: [
@@ -342,6 +535,34 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         ],
     })),
     selectors({
+        effectiveTeamIds: [
+            (s) => [s.filters, s.teamOptions],
+            (filters: BillingFilters, teamOptions: { key: string }[]): number[] | undefined =>
+                selectionCoversEveryProject(filters.team_ids, teamOptions) ? undefined : filters.team_ids,
+        ],
+        spendExportUrl: [
+            (s) => [s.filters, s.dateFrom, s.dateTo, s.effectiveTeamIds],
+            (
+                filters: BillingFilters,
+                dateFrom: string,
+                dateTo: string | null,
+                effectiveTeamIds: number[] | undefined
+            ): string =>
+                // Every project in the period: the page's filters without the chart's project cap,
+                // which is how the chart is drawn and not part of the data.
+                spendExportUrlFor(filters, dateFrom, dateTo, effectiveTeamIds, false),
+        ],
+        spendChartExportUrl: [
+            (s) => [s.filters, s.dateFrom, s.dateTo, s.effectiveTeamIds],
+            (
+                filters: BillingFilters,
+                dateFrom: string,
+                dateTo: string | null,
+                effectiveTeamIds: number[] | undefined
+            ): string =>
+                // The chart's series as billing built them, cap and folded row included.
+                spendExportUrlFor(filters, dateFrom, dateTo, effectiveTeamIds, true),
+        ],
         series: [
             (s) => [s.billingSpendResponse],
             (response: BillingSpendResponse | null) => {
@@ -376,7 +597,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                         currentBillingPeriodEnd?.subtract(1, 'month').format('YYYY-MM-DD') || '',
                     ],
                 }
-                const dayAndMonthOptions = dateMapping.filter((o) => o.defaultInterval !== 'hour')
+                const dayAndMonthOptions = dateMapping.filter(isDayOrCoarser).filter(fitsOneRequest)
                 return [currentBillingPeriodOption, previousBillingPeriodOption, ...dayAndMonthOptions]
             },
         ],
@@ -385,7 +606,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             (
                 currentPeriod: import('~/types').BillingPeriod,
                 dateFrom: string,
-                dateTo: string
+                dateTo: string | null
             ): BillingPeriodMarker[] => {
                 return calculateBillingPeriodMarkers(currentPeriod, dateFrom, dateTo)
             },
@@ -396,6 +617,30 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 series
                     .filter((item) => item.data.reduce((a: number, b: number) => a + b, 0) === 0)
                     .map((item) => item.id),
+        ],
+        canStackSeries: [
+            () => [],
+            // Spend is dollars in every breakdown, so the series can always be stacked.
+            (): boolean => true,
+        ],
+        defaultChartType: [
+            (s) => [s.filters],
+            // A stacked bar shows the bill and the projects it is made of, so it is the default with
+            // a project breakdown. Without one there is nothing to compose, so a line reads better.
+            (filters: BillingFilters): BillingChartType => (filters.breakdowns?.includes('team') ? 'bar' : 'line'),
+        ],
+        effectiveChartType: [
+            (s) => [s.chartType, s.defaultChartType, s.canStackSeries],
+            // A URL can name a chart type the data cannot support, so the guard is here as
+            // well as on the control.
+            (
+                chartType: BillingChartType | null,
+                defaultChartType: BillingChartType,
+                canStackSeries: boolean
+            ): BillingChartType => {
+                const wanted = chartType ?? defaultChartType
+                return wanted === 'bar' && !canStackSeries ? 'line' : wanted
+            },
         ],
         finalHiddenSeries: [
             (s) => [s.userHiddenSeries, s.excludeEmptySeries, s.emptySeriesIDs],
@@ -442,24 +687,22 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         ],
         headingTooltip: [
             (s) => [s.dateTo],
-            (dateTo: string): string | null => {
-                if (!dayjs(dateTo).isBefore(dayjs(), 'day')) {
+            (dateTo: string | null): string | null => {
+                if (!dateTo || !dayjs(dateTo).isBefore(dayjs(), 'day')) {
                     return 'Spend is reported on a daily basis so the figures for the current day (UTC) are not available.'
                 }
                 return null
             },
         ],
         teamOptions: [
-            (s) => [s.currentOrganization, s.billingSpendResponse],
-            (currentOrganization: OrganizationType | null, billingSpendResponse: BillingSpendResponse | null) => {
+            (s) => [s.currentOrganization, s.teamIdOptions],
+            (currentOrganization: OrganizationType | null, teamIdOptions: number[]) => {
                 const liveTeams = currentOrganization?.teams || []
                 const liveTeamIds = liveTeams.map((team) => team.id)
                 const liveOptions = sortBy(
                     liveTeams.map((team) => ({ key: String(team.id), label: team.name })),
                     'label'
                 )
-
-                const teamIdOptions = billingSpendResponse?.team_id_options || []
 
                 const deletedTeamIds = difference(teamIdOptions, liveTeamIds)
                 const deletedOptions = sortBy(deletedTeamIds).map((teamId: number) => ({
@@ -495,7 +738,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 updateBillingSearchParams(
                     params,
                     'team_ids',
-                    values.filters.team_ids,
+                    values.effectiveTeamIds,
                     DEFAULT_BILLING_SPEND_FILTERS.team_ids
                 )
                 updateBillingSearchParams(
@@ -519,10 +762,17 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 updateBillingSearchParams(
                     params,
                     'date_to',
-                    values.dateTo,
+                    values.dateTo ?? DEFAULT_BILLING_SPEND_DATE_TO,
                     dayjs().subtract(1, 'day').format('YYYY-MM-DD')
                 )
+                updateBillingSearchParams(
+                    params,
+                    'top_projects',
+                    values.filters.top_projects,
+                    DEFAULT_BILLING_SPEND_FILTERS.top_projects
+                )
                 updateBillingSearchParams(params, 'exclude_empty', values.excludeEmptySeries, false)
+                updateBillingSearchParams(params, 'chart', values.chartType, null)
                 return params
             })
         }
@@ -530,6 +780,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         return {
             setFilters: () => buildURL(),
             setDateRange: () => buildURL(),
+            setChartType: () => buildURL(),
             setExcludeEmptySeries: () => buildURL(),
             toggleBreakdown: () => buildURL(),
             resetFilters: () => buildURL(),
@@ -559,6 +810,15 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             if (params.interval && params.interval !== values.filters.interval) {
                 filtersFromUrl.interval = params.interval
             }
+            if (params.top_projects !== undefined) {
+                // An explicit empty value means "all projects", which is a real choice and
+                // distinct from the parameter being absent.
+                const topProjectsFromUrl =
+                    params.top_projects === '' || params.top_projects === null ? null : Number(params.top_projects)
+                if (topProjectsFromUrl !== values.filters.top_projects && !Number.isNaN(topProjectsFromUrl)) {
+                    filtersFromUrl.top_projects = topProjectsFromUrl
+                }
+            }
 
             if (Object.keys(filtersFromUrl).length > 0) {
                 actions.setFilters(filtersFromUrl, false)
@@ -571,13 +831,20 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 actions.setDateRange(params.date_from || null, params.date_to || null, false)
             }
 
+            if (params.chart !== undefined && params.chart !== values.chartType) {
+                actions.setChartType(params.chart === 'bar' ? 'bar' : 'line', false)
+            }
+
             if (params.exclude_empty !== undefined && params.exclude_empty !== values.excludeEmptySeries) {
                 actions.setExcludeEmptySeries(Boolean(params.exclude_empty), false)
             }
         }
 
+        // Scoped to this section rather than '*'. The usage and spend pages write the same
+        // query parameter names - usage_types, breakdowns, date_from, top_projects, chart - so on
+        // '*' each logic would read the other page's filter changes as its own and refetch.
         return {
-            '*': urlToAction,
+            [urls.organizationBillingSection('spend')]: urlToAction,
         }
     }),
 
@@ -606,16 +873,13 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 ? series.filter((s) => s.data.reduce((a, b) => a + b, 0) > 0)
                 : series
             const ids = potentiallyVisible.map((s) => s.id)
-            const isAllVisible = ids.length > 0 && ids.every((id) => !userHiddenSeries.includes(id))
+            const hidden = new Set(userHiddenSeries)
+            const isAllVisible = ids.length > 0 && ids.every((id) => !hidden.has(id))
             actions.reportBillingSpendInteraction(buildSpendTrackingProperties('series_toggled', values))
 
-            if (isAllVisible) {
-                // Hide all series
-                ids.forEach((id) => actions.toggleSeries(id))
-            } else {
-                // Show all series
-                userHiddenSeries.forEach((id) => actions.toggleSeries(id))
-            }
+            // One action for every series. A dispatch per series would re-run every reducer and
+            // re-render the whole table once per series.
+            actions.setHiddenSeries(isAllVisible ? Array.from(new Set([...userHiddenSeries, ...ids])) : [])
         },
         toggleBreakdown: async (_payload, breakpoint) => {
             await breakpoint(200)
@@ -636,6 +900,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         },
     })),
     afterMount((logic: billingSpendLogicType) => {
+        logic.actions.loadTeamIdOptions()
         logic.actions.loadBillingSpend()
     }),
 ])

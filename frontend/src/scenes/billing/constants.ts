@@ -1,3 +1,37 @@
+/**
+ * How many projects a breakdown by project shows individually before the rest are folded
+ * into one "all other projects" series. Shared by the usage and spend dashboards so the two
+ * behave the same way.
+ *
+ * The billing service applies no cap a caller did not ask for, so this is the only default: a
+ * chart-friendly number of series, with the rest folded into one so the totals still reconcile.
+ */
+export const DEFAULT_TOP_PROJECTS = 20
+
+export const TOP_PROJECTS_OPTIONS = [10, 20, 50, 100]
+
+/**
+ * Rows per page in the usage and spend breakdown tables.
+ *
+ * Every row carries a checkbox, a colour swatch and one cell per day in the range, so the table
+ * is wide as well as long. Rendering every row at once is unusable for an organization with
+ * thousands of projects. The pagination control hides itself when everything fits on one page,
+ * so smaller organizations see no change.
+ */
+export const BILLING_TABLE_PAGE_SIZE = 100
+
+/**
+ * Most series the usage and spend charts will draw.
+ *
+ * A table paginates; a line chart cannot. Past a few dozen lines the chart stops being readable
+ * and starts being slow, and breaking usage down by project on a large organization produces
+ * thousands of series. Above this the chart draws the largest and says how many it left out.
+ *
+ * Fifty because breaking down by usage type alone tops out at thirty series, so that view is
+ * never truncated. The cap only bites once projects are in the breakdown.
+ */
+export const MAX_CHARTED_BILLING_SERIES = 50
+
 // Labels mirror ee/billing/billing_types.py::USAGE_TYPE_OPTIONS.
 // Values are sent to the `billing` repo as `usage_types`; keep in sync with `billing/billing/types/usage.py::SupportedUsageType`.
 export const SPEND_TYPES = [

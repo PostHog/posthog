@@ -1,18 +1,24 @@
+import io
+import re
+import csv
 import json
-from collections.abc import Callable, Sequence
-from typing import Any, Optional, cast
+import zlib
+from collections.abc import AsyncIterator, Callable, Iterator, Sequence
+from typing import Any, NoReturn, Optional, cast
 from zoneinfo import ZoneInfo
 
-from django.http import HttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
+from django.utils.cache import patch_vary_headers
 
 import requests
 import structlog
 import posthoganalytics
+from asgiref.sync import sync_to_async
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
 from rest_framework import permissions, serializers, status, viewsets
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -33,7 +39,7 @@ from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 
-from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_manager import BillingManager, http_session
 from ee.billing.billing_types import USAGE_TYPE_VALUES
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
@@ -44,6 +50,69 @@ BILLING_SERVICE_JWT_AUD = "posthog:license-key"
 OWNER_ONLY_BILLING_FLAG = "owner-only-billing"
 MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG = "member-billing-usage-spend-read-access"
 BILLING_LIMIT_TODAYS_USAGE_FLAG = "billing-limit-todays-usage"
+
+
+class BillingQueryTimeout(APIException):
+    """The billing service did not answer a usage or spend query in time.
+
+    A 400 rather than a 502 or 504, because the person can fix it by asking for less: fewer
+    projects, a shorter range, or an export. The detail is shown to them, so it says what to
+    change.
+    """
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "usage_query_timeout"
+    default_detail = (
+        "This request took too long to complete. Select fewer projects, choose a shorter date "
+        "range, or export the data instead."
+    )
+
+
+class BillingQueryTooLarge(APIException):
+    """Billing refused a breakdown as more than it will hold for one request."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "usage_breakdown_too_large"
+    default_detail = (
+        "This breakdown is too large to load at once. Select fewer projects or products, choose a "
+        "shorter date range or a coarser interval, or export the data instead."
+    )
+
+
+class BillingDateRangeTooLong(APIException):
+    """Billing serves at most a year per request."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "usage_date_range_too_long"
+    default_detail = "The date range is longer than a year. Choose a range of at most a year."
+
+
+class BillingQueryRejected(APIException):
+    """Billing refused the request for a reason the page has no guidance for."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "billing_query_rejected"
+    default_detail = "Billing could not answer this request. Adjust the filters and try again."
+
+
+class BillingServiceError(APIException):
+    """Billing failed or answered in a shape the proxy does not recognise."""
+
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_code = "billing_service_error"
+    default_detail = "Billing could not answer this request. Try again in a moment."
+
+
+# Billing's guidance codes on the usage and spend endpoints, each with the page's own sentence.
+# Billing's own text is never returned to the browser: it is written for API callers, and an
+# unexpected body could carry internal detail.
+BILLING_GUIDANCE_ERRORS: dict[str, type[APIException]] = {
+    BillingQueryTimeout.default_code: BillingQueryTimeout,
+    BillingQueryTooLarge.default_code: BillingQueryTooLarge,
+    BillingDateRangeTooLong.default_code: BillingDateRangeTooLong,
+}
+
+
 BILLING_LIMIT_TODAYS_USAGE_KEYS = ("posthog_code_credits",)
 
 
@@ -296,6 +365,35 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         ),
     )
     interval = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    top_projects = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=200,
+        help_text=(
+            "With a project breakdown, return only this many highest-usage projects and fold "
+            "the rest into a single 'all other projects' series, so the totals still reconcile. "
+            "Omit it to get every project."
+        ),
+    )
+    page_size = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=1000,
+        help_text=(
+            "Return at most this many series, ranked by total, with a `next` cursor for the "
+            "page after. A caller that pages never approaches the size this endpoint refuses "
+            "oversized breakdowns at. Requires a project breakdown."
+        ),
+    )
+    after = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=512,
+        help_text="The `next` cursor from the previous page. Opaque. Ignored without page_size.",
+    )
 
     def _parse_date(self, date_str: Optional[str], field_name: str) -> Optional[str]:
         """Shared date parsing logic into YYYY-MM-DD format. Handles relative dates too."""
@@ -398,6 +496,127 @@ class BillingPeriodResponseSerializer(serializers.Serializer):
 
 
 @extend_schema(tags=["billing"])
+def _gzip_stream(chunks: Iterator[bytes]) -> Iterator[bytes]:
+    """One gzip stream for the whole file, flushed after every chunk.
+
+    Django's gzip middleware compresses an asynchronous body one chunk at a time, each as its
+    own gzip member, and a browser stops reading at the end of the first member. Compressing
+    here as a single stream, with a sync flush after each chunk so every chunk goes out as soon
+    as it is read, and setting Content-Encoding on the response makes the middleware leave it
+    alone. Compressing is safe against BREACH here: the body is usage numbers and project names,
+    with no CSRF token or other secret reflected in it.
+    """
+    compressor = zlib.compressobj(6, zlib.DEFLATED, 16 + zlib.MAX_WBITS)
+    for chunk in chunks:
+        data = compressor.compress(chunk) + compressor.flush(zlib.Z_SYNC_FLUSH)
+        if data:
+            yield data
+    yield compressor.flush()
+
+
+async def _stream_chunks(upstream: requests.Response, chunks: Iterator[bytes]) -> AsyncIterator[bytes]:
+    """Hand the file to the ASGI server one chunk at a time.
+
+    Django 5 consumes a synchronous iterator in full before an ASGI server sends anything -
+    StreamingHttpResponse.__aiter__ calls sync_to_async(list) on it - so a large export would
+    arrive all at once at the end. Pulling each chunk on a worker thread keeps the body
+    asynchronous, and it goes out as billing produces it. The upstream response is closed when
+    the consumer stops, which is also what happens when the browser cancels the download.
+    """
+    iterator = iter(chunks)
+
+    def pull() -> bytes | None:
+        return next(iterator, None)
+
+    try:
+        while True:
+            chunk = await sync_to_async(pull, thread_sensitive=False)()
+            if chunk is None:
+                return
+            yield chunk
+    finally:
+        upstream.close()
+
+
+def _rewrite_csv_labels(chunks: Iterator[bytes], teams_map: dict[int, str]) -> Iterator[bytes]:
+    """Put project names into an exported CSV as it streams through, in place of ids.
+
+    Billing has no project names, so its Project column carries the id, and the name goes in
+    here. The Project ID column beside it keeps the id: names are not unique inside an
+    organization. Sending billing an id-to-name map instead would put every project's name in
+    the request, and an export usually asks for every project.
+
+    Rows are rewritten one line at a time so the response keeps streaming. Fields are parsed and
+    written with the csv module rather than string-replaced, because project names contain
+    commas and quotes.
+    """
+    names = {str(team_id): name for team_id, name in teams_map.items()}
+    pending = b""
+
+    def rewrite(line: str) -> str:
+        row = next(csv.reader([line]), None)
+        if not row or len(row) < 3:
+            return line
+        project, team_id = row[1], row[2]
+        # Only a Project cell that is a bare id gets a name. The header, a row with no project, the
+        # folded "all other projects" row, and an id PostHog has no name for (a project deleted since
+        # the usage was recorded) pass through unchanged.
+        if project != team_id or team_id not in names:
+            return line
+        name = names[team_id]
+        # A spreadsheet runs a cell starting with =, +, -, @, a tab or a carriage return as a
+        # formula, and project names are typed by users; a leading quote keeps the cell text.
+        row[1] = f"'{name}" if name and name[0] in ("=", "+", "-", "@", "\t", "\r") else name
+        buffer = io.StringIO()
+        csv.writer(buffer, lineterminator="").writerow(row)
+        return buffer.getvalue()
+
+    for chunk in chunks:
+        pending += chunk
+        *lines, pending = pending.split(b"\n")
+        for line in lines:
+            yield rewrite(line.decode("utf-8")).encode("utf-8") + b"\n"
+    if pending:
+        yield rewrite(pending.decode("utf-8")).encode("utf-8")
+
+
+def _resolve_team_labels(results: Any, teams_map: dict[int, str]) -> None:
+    """Put project names into the series labels, in place.
+
+    Billing keys usage by project id, so its labels carry the id: "134::Events". The name goes
+    in here rather than being sent to billing as an id-to-name map, which for an organization
+    with several hundred projects is about 16KB of query string on every request. The id comes
+    back in breakdown_value, so the label is rebuilt from that rather than parsed. A series whose
+    id has no name, the folded "all other projects" series or a deleted project, keeps the label
+    billing produced.
+    """
+    if not isinstance(results, list):
+        return
+
+    names = {str(team_id): name for team_id, name in teams_map.items()}
+    for series in results:
+        if not isinstance(series, dict):
+            continue
+        breakdown_value = series.get("breakdown_value")
+        label = series.get("label")
+        if not isinstance(label, str):
+            continue
+
+        if series.get("breakdown_type") == "multiple" and isinstance(breakdown_value, list):
+            if len(breakdown_value) != 2:
+                continue
+            name = names.get(str(breakdown_value[1]))
+            # Only the project part is replaced. The product part after the first separator may contain
+            # separators of its own.
+            _, separator, remainder = label.partition("::")
+            if name and separator:
+                series["label"] = f"{name}{separator}{remainder}"
+        elif series.get("breakdown_type") == "team" and breakdown_value is not None:
+            name = names.get(str(breakdown_value))
+            if name:
+                series["label"] = name
+
+
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
     pagination_class = None
@@ -631,12 +850,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 detail_object = e.args[2]
                 if not isinstance(detail_object, dict):
                     raise
+                # Billing puts its message under `detail`. The page shows it as guidance only when `detail`
+                # is a string, so the message is passed through flat rather than as the whole body.
+                detail = detail_object.get("error_message") or detail_object.get("detail") or detail_object
                 return Response(
-                    {
-                        "statusText": e.args[0],
-                        "detail": detail_object.get("error_message", detail_object),
-                        "code": detail_object.get("code"),
-                    },
+                    {"statusText": e.args[0], "detail": detail, "code": detail_object.get("code")},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             else:
@@ -758,7 +976,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         license = License(key=serializer.validated_data["license"])
         ip_address = get_trusted_client_ip(request)
-        res = requests.get(
+        res = http_session.get(
             f"{BILLING_SERVICE_URL}/api/billing",
             headers=BillingManager(license, ip_address=ip_address).get_auth_headers(organization),
         )
@@ -815,12 +1033,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 detail_object = e.args[2]
                 if not isinstance(detail_object, dict):
                     raise
+                # Billing puts its message under `detail`. The page shows it as guidance only when `detail`
+                # is a string, so the message is passed through flat rather than as the whole body.
+                detail = detail_object.get("error_message") or detail_object.get("detail") or detail_object
                 return Response(
-                    {
-                        "statusText": e.args[0],
-                        "detail": detail_object.get("error_message", detail_object),
-                        "code": detail_object.get("code"),
-                    },
+                    {"statusText": e.args[0], "detail": detail, "code": detail_object.get("code")},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             else:
@@ -882,6 +1099,31 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def usage(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         return self._usage_or_spend_response(request, self.get_billing_manager().get_usage_data)
 
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="usage/team_options",
+        permission_classes=[permissions.IsAuthenticated, HasBillingUsageSpendReadAccess],
+    )
+    def usage_team_options(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        """The project ids the project filter offers, loaded apart from the charts.
+
+        Scoped the way the charts are: a member without billing access sees only the projects
+        they can see.
+        """
+        organization = self._get_org_required()
+        scoped_team_ids = self._scoped_team_ids_for_usage_spend_request(request, organization, {})
+        try:
+            res = self.get_billing_manager().get_usage_team_options(organization)
+        except Exception as e:  # noqa: BLE001 - a failure here empties the filter and must not fail the page
+            logger.warning("billing_team_options_unavailable", organization_id=str(organization.id), error=str(e)[:200])
+            res = {}
+        options = res.get("team_id_options") or [] if isinstance(res, dict) else []
+        if scoped_team_ids is not None:
+            scoped_team_id_set = set(scoped_team_ids)
+            options = [team_id for team_id in options if team_id in scoped_team_id_set]
+        return Response({"team_id_options": options}, status=status.HTTP_200_OK)
+
     @extend_schema(parameters=[BillingUsageRequestSerializer])
     @action(
         methods=["GET"],
@@ -893,6 +1135,75 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """Endpoint to fetch spend data (proxy to billing service)."""
         return self._usage_or_spend_response(request, self.get_billing_manager().get_spend_data)
+
+    @extend_schema(parameters=[BillingUsageRequestSerializer])
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="usage/export",
+        permission_classes=[permissions.IsAuthenticated, HasBillingUsageSpendReadAccess],
+    )
+    def usage_export(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
+        """Download the usage breakdown as CSV, honouring the requested project cap."""
+        return self._csv_export_response(request, self.get_billing_manager().get_usage_csv, "posthog_usage.csv")
+
+    @extend_schema(parameters=[BillingUsageRequestSerializer])
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="spend/export",
+        permission_classes=[permissions.IsAuthenticated, HasBillingUsageSpendReadAccess],
+    )
+    def spend_export(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
+        """Download the spend breakdown as CSV, honouring the requested project cap."""
+        return self._csv_export_response(request, self.get_billing_manager().get_spend_csv, "posthog_spend.csv")
+
+    def _csv_export_response(
+        self,
+        request: Request,
+        csv_getter: Callable[[Organization, dict[str, Any]], Any],
+        fallback_filename: str,
+    ) -> StreamingHttpResponse:
+        """Pass an export through to the billing service and stream the file back.
+
+        The project cap is forwarded as sent, so the file matches what the person is looking at.
+        Omitting it asks for every project.
+        """
+        organization = self._get_org_required()
+        serializer = BillingUsageRequestSerializer(data=request.GET)
+        serializer.is_valid(raise_exception=True)
+        self._check_requested_team_ids_belong_to_org(organization, serializer.validated_data.get("team_ids"))
+
+        params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
+        # The same narrowing as the interactive endpoints: a member who can only see some projects
+        # must not export the others.
+        scoped_team_ids = self._scoped_team_ids_for_usage_spend_request(request, organization, params_to_pass)
+        if scoped_team_ids is not None:
+            params_to_pass["team_ids"] = json.dumps(scoped_team_ids)
+        # No teams_map: the names go into the file as it streams back, in _rewrite_csv_labels.
+        teams_map = self._get_teams_map(organization, scoped_team_ids)
+
+        try:
+            upstream = csv_getter(organization, params_to_pass)
+        except requests.Timeout:
+            raise BillingQueryTimeout()
+        except APIException:
+            raise
+        except Exception as e:
+            self._raise_billing_error(e, organization)
+        lines = _rewrite_csv_labels(upstream.iter_content(chunk_size=8192), teams_map)
+        accepts_gzip = "gzip" in request.META.get("HTTP_ACCEPT_ENCODING", "").lower()
+        response = StreamingHttpResponse(
+            _stream_chunks(upstream, _gzip_stream(lines) if accepts_gzip else lines),
+            content_type=upstream.headers.get("Content-Type", "text/csv"),
+        )
+        if accepts_gzip:
+            response["Content-Encoding"] = "gzip"
+        patch_vary_headers(response, ("Accept-Encoding",))
+        response["Content-Disposition"] = upstream.headers.get(
+            "Content-Disposition", f'attachment; filename="{fallback_filename}"'
+        )
+        return response
 
     def _usage_or_spend_response(
         self,
@@ -908,37 +1219,66 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
             scoped_team_ids = self._scoped_team_ids_for_usage_spend_request(request, organization, params_to_pass)
             teams_map = self._get_teams_map(organization, scoped_team_ids)
-            params_to_pass["teams_map"] = teams_map
 
             if scoped_team_ids is not None:
                 params_to_pass["team_ids"] = json.dumps(scoped_team_ids)
 
             res = billing_data_getter(organization, params_to_pass)
-            if scoped_team_ids is not None and isinstance(res, dict) and "team_id_options" in res:
-                scoped_team_id_set = set(scoped_team_ids)
-                res["team_id_options"] = [
-                    team_id for team_id in (res.get("team_id_options") or []) if team_id in scoped_team_id_set
-                ]
+            if isinstance(res, dict):
+                _resolve_team_labels(res.get("results"), teams_map)
+                if scoped_team_ids is not None and "team_id_options" in res:
+                    # Billing still lists every project here for older callers; a member sees only theirs.
+                    scoped_team_id_set = set(scoped_team_ids)
+                    res["team_id_options"] = [
+                        team_id for team_id in (res.get("team_id_options") or []) if team_id in scoped_team_id_set
+                    ]
             return Response(res, status=status.HTTP_200_OK)
+        except requests.Timeout:
+            # See BillingQueryTimeout: the person is told what to change, not shown a 500.
+            logger.warning(
+                "billing_timeseries_timeout",
+                organization_id=str(organization.id),
+                breakdowns=params_to_pass.get("breakdowns"),
+                team_ids_count=len(self._parse_team_ids(params_to_pass.get("team_ids"))),
+            )
+            raise BillingQueryTimeout()
+        except APIException:
+            raise
         except Exception as e:
-            if len(e.args) > 2:
-                detail_object = e.args[2]
-                if not isinstance(detail_object, dict):
-                    raise
-                if detail_object.get("code") == "permission_denied":
-                    # billing evaluates the same permission from its own cache, so flag rollout
-                    # windows can still return a downstream permission denial.
-                    raise PermissionDenied(HasBillingUsageSpendReadAccess.message)
-                return Response(
-                    {
-                        "statusText": e.args[0],
-                        "detail": detail_object.get("error_message", detail_object),
-                        "code": detail_object.get("code"),
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            else:
-                raise
+            self._raise_billing_error(e, organization)
+
+    @staticmethod
+    def _raise_billing_error(error: Exception, organization: Organization) -> NoReturn:
+        """Raise the named exception for an error billing returned on a usage, spend or export request.
+
+        handle_billing_service_error raises with the status in its message and the parsed body as
+        the third argument. A guidance code maps to its named exception, whose text the page owns;
+        anything else is a 400 or a 502 with a fixed message. Billing's body goes to the log and
+        nowhere else. An exception of any other shape is not billing's answer and is re-raised as
+        it is.
+        """
+        status_match = re.search(r"status code: (\d+)", str(error.args[0]) if error.args else "")
+        if not status_match:
+            raise error
+        upstream_status = int(status_match.group(1))
+        body = error.args[2] if len(error.args) > 2 else None
+        code = body.get("code") if isinstance(body, dict) else None
+        logger.warning(
+            "billing_query_error",
+            organization_id=str(organization.id),
+            upstream_status=upstream_status,
+            code=code,
+            body=str(body)[:500],
+        )
+        if code == "permission_denied":
+            # Billing evaluates the same permission from its own cache, so flag rollout windows
+            # can still return a downstream permission denial.
+            raise PermissionDenied(HasBillingUsageSpendReadAccess.message) from error
+        if code in BILLING_GUIDANCE_ERRORS:
+            raise BILLING_GUIDANCE_ERRORS[code]() from error
+        if 400 <= upstream_status < 500:
+            raise BillingQueryRejected() from error
+        raise BillingServiceError() from error
 
     def _scoped_team_ids_for_usage_spend_request(
         self, request: Request, organization: Organization, params_to_pass: dict[str, Any]

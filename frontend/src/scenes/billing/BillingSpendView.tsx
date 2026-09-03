@@ -2,28 +2,30 @@ import './BillingUsage.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+import { IconChevronDown, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonMenu, LemonInput } from '@posthog/lemon-ui'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
-import { AccessControlLevel, AccessControlResourceType, ExporterFormat } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { buildBillingCsv, currencyFormatter, getSpendTypeOptions } from './billing-utils'
+import { billingErrorGuidance, currencyFormatter, getSpendTypeOptions } from './billing-utils'
+import { BillingChart } from './BillingChart'
 import { BillingDataTable } from './BillingDataTable'
 import { BillingEarlyAccessBanner } from './BillingEarlyAccessBanner'
 import { BillingEmptyState } from './BillingEmptyState'
-import { BillingLineGraph } from './BillingLineGraph'
 import { billingLogic } from './billingLogic'
 import { BillingNoAccess } from './BillingNoAccess'
 import { billingSpendLogic } from './billingSpendLogic'
+import { TOP_PROJECTS_OPTIONS } from './constants'
+import type { BillingChartType } from './types'
 
 export function BillingSpendView(): JSX.Element {
     const { minimumUsageSpendReadAccessLevel } = useValues(billingLogic)
@@ -39,6 +41,11 @@ export function BillingSpendView(): JSX.Element {
         dateFrom,
         dateTo,
         billingSpendResponseLoading,
+        billingSpendError,
+        spendExportUrl,
+        spendChartExportUrl,
+        effectiveChartType,
+        canStackSeries,
         dateOptions,
         excludeEmptySeries,
         finalHiddenSeries,
@@ -47,12 +54,13 @@ export function BillingSpendView(): JSX.Element {
         showSeries,
         showEmptyState,
         teamOptions,
+        teamIdOptionsLoading,
         billingPeriodMarkers,
     } = useValues(logic)
-    const { startExport } = useActions(exportsLogic)
     const {
         setFilters,
         setDateRange,
+        setChartType,
         toggleSeries,
         toggleAllSeries,
         setExcludeEmptySeries,
@@ -70,22 +78,8 @@ export function BillingSpendView(): JSX.Element {
         AccessControlLevel.Editor
     )
 
-    const onExportCsv = (): void => {
-        const csv = buildBillingCsv({
-            series,
-            dates,
-            hiddenSeries: finalHiddenSeries,
-            options: { decimals: 2 },
-        })
-        const filename = `posthog_spend_${dateFrom}_${dateTo}_${filters.interval || 'day'}.csv`
-        startExport({
-            export_format: ExporterFormat.CSV,
-            export_context: {
-                localData: csv,
-                filename,
-            },
-        })
-    }
+    // The server assembles and streams the file for every breakdown. The file carries the page's
+    // filters, not the series ticked in the table.
 
     return (
         <div className="space-y-4">
@@ -111,20 +105,23 @@ export function BillingSpendView(): JSX.Element {
                     {/* Projects */}
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Projects</LemonLabel>
-                        <LemonInputSelect
-                            mode="multiple"
-                            displayMode="count"
-                            bulkActions="select-and-clear-all"
-                            className="w-50 h-10"
-                            value={(filters.team_ids || []).map(String)}
-                            onChange={(value: string[]) =>
-                                setFilters({ team_ids: value.map(Number).filter((n: number) => !isNaN(n)) })
-                            }
-                            placeholder="All projects"
-                            options={teamOptions}
-                            loading={billingSpendResponseLoading}
-                            allowCustomValues={false}
-                        />
+                        {teamIdOptionsLoading ? (
+                            <LemonInput className="w-50 h-10" placeholder="Loading projects…" disabled />
+                        ) : (
+                            <LemonInputSelect
+                                mode="multiple"
+                                displayMode="count"
+                                bulkActions="select-and-clear-all"
+                                className="w-50 h-10"
+                                value={(filters.team_ids || []).map(String)}
+                                onChange={(value: string[]) =>
+                                    setFilters({ team_ids: value.map(Number).filter((n: number) => !isNaN(n)) })
+                                }
+                                placeholder="All projects"
+                                options={teamOptions}
+                                allowCustomValues={false}
+                            />
+                        )}
                     </div>
 
                     {/* Breakdowns */}
@@ -140,6 +137,58 @@ export function BillingSpendView(): JSX.Element {
                                 label="Project"
                                 checked={filters.breakdowns?.includes('team')}
                                 onChange={() => toggleBreakdown('team')}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Top N projects. Only meaningful while breaking down by project. It is what lets an
+                        organization with hundreds of projects chart the breakdown. */}
+                    {filters.breakdowns?.includes('team') && (
+                        <div className="flex flex-col gap-1">
+                            <LemonLabel>Show projects</LemonLabel>
+                            <div className="bg-bg-light rounded-md">
+                                <LemonSelect
+                                    className="h-10.5 flex items-center"
+                                    size="small"
+                                    value={filters.top_projects ?? null}
+                                    onChange={(value: number | null) => setFilters({ top_projects: value })}
+                                    options={[
+                                        ...TOP_PROJECTS_OPTIONS.map((count) => ({
+                                            value: count,
+                                            label: `Top ${count}`,
+                                        })),
+                                        {
+                                            value: null,
+                                            label: 'All',
+                                            tooltip: 'Showing every project can be too large to load as a chart.',
+                                        },
+                                    ]}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Line or stacked bar. A stack shows the total and its parts, which is what a project
+                        breakdown is usually asked for, but it only means anything when every series shares a
+                        unit, so the option is disabled when they do not. */}
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel>Chart</LemonLabel>
+                        <div className="bg-bg-light rounded-md">
+                            <LemonSelect
+                                className="h-10.5 flex items-center"
+                                size="small"
+                                value={effectiveChartType}
+                                onChange={(value: BillingChartType) => setChartType(value)}
+                                options={[
+                                    { value: 'line' as const, label: 'Line' },
+                                    {
+                                        value: 'bar' as const,
+                                        label: 'Stacked bar',
+                                        disabledReason: canStackSeries
+                                            ? undefined
+                                            : 'Stacking needs every series in the same unit. Pick a single product to stack by project.',
+                                    },
+                                ]}
                             />
                         </div>
                     </div>
@@ -195,22 +244,44 @@ export function BillingSpendView(): JSX.Element {
                             <LemonButton type="secondary" size="medium" onClick={resetFilters}>
                                 Clear filters
                             </LemonButton>
-                            {showSeries && (
+                            {/* Not gated on the chart having loaded: the file is built on the server from the same
+                                filters, and it is what the guidance offers when the chart times out or is too large.
+                                Two files, because the chart's cap is not a filter: "every project" is the data for the
+                                period, "the chart's series" is what is drawn. */}
+                            <LemonMenu
+                                items={[
+                                    {
+                                        label: 'Every project in this period',
+                                        onClick: () => window.location.assign(spendExportUrl),
+                                    },
+                                    filters.breakdowns?.includes('team') && filters.top_projects
+                                        ? {
+                                              label: `The chart's series (top ${filters.top_projects} and the rest folded)`,
+                                              onClick: () => window.location.assign(spendChartExportUrl),
+                                          }
+                                        : null,
+                                ]}
+                                placement="bottom-end"
+                            >
                                 <LemonButton
                                     type="secondary"
                                     size="medium"
-                                    onClick={onExportCsv}
+                                    sideIcon={<IconChevronDown />}
                                     disabledReason={exportAccessControlDisabledReason ?? undefined}
                                 >
                                     Export CSV
                                 </LemonButton>
-                            )}
+                            </LemonMenu>
                         </div>
                     </div>
                 </div>
 
+                {billingSpendError && (
+                    <LemonBanner type="warning">{billingErrorGuidance(billingSpendError)}</LemonBanner>
+                )}
+
                 {showSeries && (
-                    <BillingLineGraph
+                    <BillingChart
                         series={series}
                         dates={dates}
                         isLoading={billingSpendResponseLoading}
@@ -219,6 +290,8 @@ export function BillingSpendView(): JSX.Element {
                         showLegend={false}
                         interval={filters.interval}
                         billingPeriodMarkers={billingPeriodMarkers}
+                        chartType={effectiveChartType}
+                        cumulativeLabel="Cumulative spend"
                     />
                 )}
                 {showEmptyState && (
