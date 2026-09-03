@@ -183,17 +183,32 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 # validated against this set where it is stored, and `resolve_scopes` intersects against it
 # again at mint time, so a stale or hand-edited grant cannot widen a token.
 #
-# Every entry is an artifact-shaped write whose delete is a recoverable soft-delete, which is
-# what makes an unattended agent holding it acceptable. Kept out on purpose:
-# `hog_function:write` and batch exports, because a destination is arbitrary egress;
-# `feature_flag:write`, `experiment:write` and `survey:write`, because they change what
-# end users see in production; `cohort:write` and `action:write` until a scout needs them;
-# and anything organization, user, member, or role shaped.
+# Every entry is an artifact-shaped write, which is what makes an unattended agent holding one
+# acceptable at all. Kept out on purpose: `hog_function:write` and batch exports, because a
+# destination is arbitrary egress; `feature_flag:write`, `experiment:write` and `survey:write`,
+# because they change what end users see in production; `cohort:write` and `action:write` until
+# a scout needs them; and anything organization, user, member, or role shaped.
 #
-# NOTE: like `SCOUT_USER_WRITE_SCOPES`, these scopes are object-level rather than tool-level,
-# and they are project-wide. `dashboard:write` exposes update and delete of every dashboard in
-# the scout's project, not only the ones the scout created. That is the risk a person accepts
-# when they grant it, so any surface that offers the grant has to say so plainly.
+# These scopes are object-level rather than tool-level, so each one carries update and delete of
+# every matching object the token can reach, not only the objects the scout created. The reach
+# is not the same for all four, and any surface that offers a grant has to say so plainly:
+#
+#   dashboard:write   Every dashboard in the scout's project. Delete is a recoverable
+#                     soft-delete.
+#   insight:write     Every saved insight in the scout's project. Delete is a recoverable
+#                     soft-delete.
+#   annotation:write  Every annotation in the scout's project, AND every organization-scoped
+#                     annotation in the organization, including ones a sibling project owns
+#                     (see `_filter_queryset_by_parents_lookups` in the annotations viewset).
+#                     An update can also move an organization annotation to the scout's team.
+#   alert:write       Every insight alert in the scout's project. Delete is PERMANENT: the
+#                     viewset has no soft-delete, so it removes the alert and its check
+#                     history for good.
+#
+# The last two exceed the "recoverable, project-scoped" bar the other two meet. They stay in
+# the v1 set that #94263 puts to the team, because narrowing the set is that decision to make,
+# not a default to assume. Whoever confirms the set has to accept those two reaches, or drop
+# the scopes.
 SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
     {
         "dashboard:write",
@@ -279,8 +294,21 @@ def scout_scope_posture(
     """
     return {
         "preset": preset,
-        "extra_write_scopes": sorted(set(extra_write_scopes) & SCOUT_GRANTABLE_WRITE_SCOPES),
+        "extra_write_scopes": _grantable_write_scopes(list(extra_write_scopes)),
     }
+
+
+def _grantable_write_scopes(raw: object) -> list[str]:
+    """Intersect a stored grant with the allowlist, tolerating any shape JSON can hold.
+
+    A grant reaches this function straight from a JSON column, so it can be any JSON type and
+    its entries can be objects or lists. Non-string entries are dropped before the set is
+    built, because an unhashable entry makes `set(raw)` raise and aborts the run that a
+    malformed grant is supposed to degrade safely.
+    """
+    if not isinstance(raw, list):
+        return []
+    return sorted({scope for scope in raw if isinstance(scope, str)} & SCOUT_GRANTABLE_WRITE_SCOPES)
 
 
 def _read_scout_posture(posture: Mapping[str, Any]) -> tuple[McpScopePreset, list[str]]:
@@ -298,9 +326,7 @@ def _read_scout_posture(posture: Mapping[str, Any]) -> tuple[McpScopePreset, lis
     preset = posture.get("preset")
     if preset not in SCOUT_SCOPE_PRESETS:
         return "read_only", []
-    raw = posture.get("extra_write_scopes")
-    granted = set(raw) & SCOUT_GRANTABLE_WRITE_SCOPES if isinstance(raw, list) else set()
-    return cast(McpScopePreset, preset), sorted(granted)
+    return cast(McpScopePreset, preset), _grantable_write_scopes(posture.get("extra_write_scopes"))
 
 
 def resolve_scopes(

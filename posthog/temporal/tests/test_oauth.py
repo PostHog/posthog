@@ -178,10 +178,21 @@ class TestResolveScopes(SimpleTestCase):
         assert set(result) == set(resolve_scopes("read_only"))
         assert not has_write_scopes(posture)
 
-    def test_scout_posture_with_non_list_grants_keeps_the_preset(self) -> None:
-        posture = cast(ScoutScopePosture, {"preset": "signals_scout", "extra_write_scopes": "dashboard:write"})
-        result = resolve_scopes(posture)
-        assert set(result) == set(resolve_scopes("signals_scout"))
+    @parameterized.expand(
+        [
+            ("grant_is_not_a_list", "dashboard:write", set()),
+            # An entry JSON allows but a set cannot hold. Building the set before filtering
+            # raises TypeError, which aborts the run instead of degrading to the ungranted
+            # posture the way a malformed grant is meant to.
+            ("entry_is_an_object", [{"scope": "dashboard:write"}], set()),
+            ("entry_is_a_list", [["insight:write"], "dashboard:write"], {"dashboard:write"}),
+        ]
+    )
+    def test_scout_posture_tolerates_malformed_grant_entries(
+        self, _name: str, raw: object, expected_extra: set[str]
+    ) -> None:
+        posture = cast(ScoutScopePosture, {"preset": "signals_scout", "extra_write_scopes": raw})
+        assert set(resolve_scopes(posture)) == set(resolve_scopes("signals_scout")) | expected_extra
 
     def test_scout_scope_posture_drops_ungrantable_scopes(self) -> None:
         # The build-time gate. What this returns is both the mint request and the record of
