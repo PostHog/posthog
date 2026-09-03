@@ -126,7 +126,10 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: build-images
-        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master'
+        # !cancelled() stops the skipped 'affected' job from cascading a skip through
+        # build-images into this job on workflow_dispatch; the result check keeps the
+        # fail-closed behaviour a bare success() gave.
+        if: ${{ !cancelled() && needs.build-images.result == 'success' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master' }}
         strategy:
             # fail-fast false so one missing digest doesn't cancel other deploys
             fail-fast: false
@@ -272,7 +275,7 @@ jobs:
         # gets one. Mirrors the posthog_build alias job in container-images-cd.yml,
         # against ghcr instead of ECR. Best effort: a missing alias delays Freight for
         # that build and never fails the deploy.
-        if: ${{ needs.build-images.result == 'success' && needs.build-images.outputs.digests != '' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == 'refs/heads/master' }}
+        if: ${{ !cancelled() && needs.build-images.result == 'success' && needs.build-images.outputs.digests != '' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == 'refs/heads/master' }}
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         continue-on-error: true
