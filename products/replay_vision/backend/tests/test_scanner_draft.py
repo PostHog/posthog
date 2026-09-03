@@ -1226,6 +1226,27 @@ class TestDraftV2(_VisionAPITestCase):
         # The rationale describes the filter the model picked, so it has to say the filter changed.
         assert "scans the pages instead" in draft.rationale
 
+    def test_the_fallback_keeps_the_audience_the_goal_named(self):
+        # A cohort says who the goal is about, so it does not go stale the way an event does.
+        # Dropping it alongside the dead event would scan the pages for everybody, spending credits
+        # on sessions the goal never asked about.
+        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
+        cohort = Cohort.objects.create(team=self.team, name="Billing power users")
+
+        draft = self._drafted_with(
+            _draft_v2(
+                filter_pages=["/billing"],
+                filter_events=["billing_limit_set"],
+                filter_cohorts=["Billing power users"],
+            ),
+            self._estimate_by_query(lambda query: bool(query.events)),
+        )
+
+        assert draft.query is not None
+        assert "events" not in draft.query
+        assert {"type": "cohort", "key": "id", "value": cohort.id, "operator": "in"} in draft.query["properties"]
+        assert any(p.get("key") == "visited_page" for p in draft.query["properties"])
+
     def test_a_draft_with_no_pages_to_fall_back_to_is_left_alone(self):
         # Widening to every session would scan a product the goal never asked about, which is worse
         # than a filter the review page already refuses to save.

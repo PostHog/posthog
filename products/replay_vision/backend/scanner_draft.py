@@ -1516,19 +1516,27 @@ def draft_scanner_from_goal_v2(
 
 
 def _pages_only(query: dict[str, Any] | None) -> dict[str, Any] | None:
-    """The draft's page filter on its own, or None when the draft has no page filter.
+    """The draft's page and cohort filters, without its events and actions. None when the draft has
+    no page filter to fall back to.
+
+    Cohorts stay because a cohort says who the goal is about, not what the product still emits.
+    Dropping one would scan those pages for everybody, spending credits on sessions the goal never
+    asked about. When the cohort is itself what matched nothing, the caller's re-estimate comes back
+    zero again and the original draft is kept.
 
     Keeps `filter_test_accounts`, because dropping it would widen the scan to internal traffic while
     trying to make the filter match.
     """
     if not query:
         return None
-    pages = [p for p in query.get("properties") or [] if p.get("key") == "visited_page"]
+    properties = query.get("properties") or []
+    pages = [p for p in properties if p.get("key") == "visited_page"]
     if not pages:
         return None
+    cohorts = [p for p in properties if p.get("type") == "cohort"]
     return {
         "kind": "RecordingsQuery",
-        "properties": pages,
+        "properties": [*pages, *cohorts],
         "filter_test_accounts": query.get("filter_test_accounts", True),
     }
 
