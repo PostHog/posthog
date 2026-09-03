@@ -120,6 +120,7 @@ from products.customer_analytics.backend.facade.team_extension import TeamCustom
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.logs.backend.models import TeamLogsConfig
+from products.tracing.backend.facade.team_extension import TeamTracingConfig
 from products.web_analytics.backend.hogql_queries.custom_bot_definitions import (
     MAX_CUSTOM_BOT_DEFINITIONS,
     assert_patterns_compile as assert_custom_bot_patterns_compile,
@@ -129,6 +130,14 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
+
+
+def _validate_unique_attribute_keys(value: list[str]) -> list[str]:
+    # The child CharField already trims whitespace and rejects blanks; only
+    # cross-item uniqueness needs checking here.
+    if len(set(value)) != len(value):
+        raise serializers.ValidationError("Attribute keys must be unique.")
+    return value
 
 
 class TeamLogsConfigSerializer(serializers.ModelSerializer):
@@ -194,21 +203,14 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
             "logs_pattern_message_keys",
         ]
 
-    def _validate_unique_keys(self, value: list[str]) -> list[str]:
-        # The child CharField already trims whitespace and rejects blanks; only
-        # cross-item uniqueness needs checking here.
-        if len(set(value)) != len(value):
-            raise serializers.ValidationError("Attribute keys must be unique.")
-        return value
-
     def validate_logs_distinct_id_attribute_keys(self, value: list[str]) -> list[str]:
-        return self._validate_unique_keys(value)
+        return _validate_unique_attribute_keys(value)
 
     def validate_logs_session_id_attribute_keys(self, value: list[str]) -> list[str]:
-        return self._validate_unique_keys(value)
+        return _validate_unique_attribute_keys(value)
 
     def validate_logs_pattern_message_keys(self, value: list[str]) -> list[str]:
-        return self._validate_unique_keys(value)
+        return _validate_unique_attribute_keys(value)
 
     def update(self, instance: TeamLogsConfig, validated_data: dict) -> TeamLogsConfig:
         # Keep the legacy single-key column in sync so pre-plural readers stay coherent.
@@ -216,6 +218,66 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         if keys:
             validated_data["logs_distinct_id_attribute_key"] = keys[0]
         return super().update(instance, validated_data)
+
+
+class TeamTracingConfigSerializer(serializers.ModelSerializer):
+    tracing_distinct_id_attribute_keys = serializers.ListField(
+        # trim_whitespace is the DRF default, but the uniqueness validator below
+        # depends on it — spell it out so it can't drift silently.
+        child=serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True),
+        allow_empty=False,
+        max_length=10,
+        help_text=(
+            "Span or resource attribute keys whose values should match a person's distinct_id — "
+            "a span links to a person when any of these attributes holds one of their distinct "
+            "IDs. Defaults to ['posthogDistinctId'], the key the posthog-js / "
+            "posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if "
+            "your pipeline emits the person identifier under different attributes."
+        ),
+    )
+    tracing_session_id_attribute_keys = serializers.ListField(
+        # trim_whitespace is the DRF default, but the uniqueness validator below
+        # depends on it — spell it out so it can't drift silently.
+        child=serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True),
+        allow_empty=False,
+        max_length=10,
+        help_text=(
+            "Ordered list of span or resource attribute keys whose values hold the PostHog "
+            "session ID. Detection checks keys in order, then falls back to common session ID "
+            "attribute conventions; the first key with a value wins. Defaults to ['sessionId'], "
+            "the key the posthog-js / posthog-react-native SDKs attach to the OTel signals they "
+            "emit. Add keys only if your pipeline emits the session ID under different attributes."
+        ),
+    )
+
+    class Meta:
+        model = TeamTracingConfig
+        fields = [
+            "tracing_distinct_id_attribute_keys",
+            "tracing_session_id_attribute_keys",
+        ]
+
+    def validate_tracing_distinct_id_attribute_keys(self, value: list[str]) -> list[str]:
+        return _validate_unique_attribute_keys(value)
+
+    def validate_tracing_session_id_attribute_keys(self, value: list[str]) -> list[str]:
+        return _validate_unique_attribute_keys(value)
+
+
+def handle_tracing_config(request: request.Request, team: Team) -> response.Response:
+    """Shared handler for the tracing_config action — exposed under both the team/environment
+    and project routers so the canonical /api/projects/ URL resolves alongside the legacy
+    /api/environments/ alias. Both endpoints operate on the env-scoped TeamTracingConfig
+    keyed by team_id."""
+    config = get_or_create_team_extension(team, TeamTracingConfig)
+
+    if request.method == "PATCH":
+        serializer = TeamTracingConfigSerializer(config, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return response.Response(serializer.data)
+
+    return response.Response(TeamTracingConfigSerializer(config).data)
 
 
 def handle_experiments_config(request: request.Request, team: Team) -> response.Response:
@@ -2508,6 +2570,29 @@ class TeamViewSet(
         """Manage logs product configuration for this environment. Members can read;
         writing requires project admin, matching the admin-only settings UI."""
         return handle_logs_config(request, self.get_object())
+
+    @extend_schema(
+        methods=["GET"],
+        request=None,
+        responses={200: TeamTracingConfigSerializer},
+        extensions={"x-product": "tracing"},
+    )
+    @extend_schema(
+        methods=["PATCH"],
+        request=TeamTracingConfigSerializer,
+        responses={200: TeamTracingConfigSerializer},
+        extensions={"x-product": "tracing"},
+    )
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberStrictManagementPermission],
+        url_path="tracing_config",
+    )
+    def tracing_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage tracing product configuration for this environment. Members can read;
+        writing requires project admin, matching the admin-only settings UI."""
+        return handle_tracing_config(request, self.get_object())
 
     @action(
         methods=["GET", "PATCH"],
