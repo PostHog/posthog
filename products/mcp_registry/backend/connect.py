@@ -34,36 +34,50 @@ small curated seed in KNOWN_CONNECT_OVERRIDES.
 
 import re
 from typing import Any
+from urllib.parse import urlparse
 
-from products.mcp_registry.backend.linking import normalize_name
 from products.mcp_registry.backend.models import MCPRegistryServer
 
-# Stripe Projects partner providers (developer preview), keyed by normalized server
-# name and valued with the provider slug `stripe projects service add` expects. The
-# CLI provisions from Stripe's own curated provider list, so a mis-attached entry can
-# at worst show these steps on the wrong server row, never provision the wrong vendor.
-# Partner list: https://docs.stripe.com/stripe-projects
+# Stripe Projects partner providers (developer preview), keyed by the vendor's
+# verified domain and valued with the provider slug `stripe projects service add`
+# expects. Domain, not name: the official registry validates reverse-DNS namespace
+# ownership (com.vercel/* requires owning vercel.com) while display names are
+# freely squattable, and the live index does contain third-party repackages named
+# exactly "vercel". Partner list: https://docs.stripe.com/stripe-projects
 STRIPE_PROJECTS_PROVIDERS: dict[str, str] = {
-    "chroma": "chroma",
-    "clerk": "clerk",
-    "kernel": "kernel",
-    "klaviyo": "klaviyo",
-    "neon": "neon",
-    "planetscale": "planetscale",
-    "posthog": "posthog",
-    "railway": "railway",
-    "runloop": "runloop",
-    "supabase": "supabase",
-    "turso": "turso",
-    "vercel": "vercel",
+    "clerk.com": "clerk",
+    "klaviyo.com": "klaviyo",
+    "neon.tech": "neon",
+    "onkernel.com": "kernel",
+    "planetscale.com": "planetscale",
+    "posthog.com": "posthog",
+    "railway.app": "railway",
+    "railway.com": "railway",
+    "runloop.ai": "runloop",
+    "supabase.com": "supabase",
+    "trychroma.com": "chroma",
+    "turso.tech": "turso",
+    "vercel.com": "vercel",
 }
 
 
+def _domain_matches(host: str, domain: str) -> bool:
+    return host == domain or host.endswith(f".{domain}")
+
+
 def _stripe_projects_provider(server: MCPRegistryServer) -> str | None:
-    segment = server.registry_name.rsplit("/", 1)[-1] if server.registry_name else ""
-    for candidate in (server.display_name, segment):
-        provider = STRIPE_PROJECTS_PROVIDERS.get(normalize_name(candidate))
-        if provider:
+    """Resolve a server to a Stripe Projects provider via vendor-owned signals only:
+    the reverse-DNS registry namespace and the hosted remote's domain."""
+    hosts: list[str] = []
+    if server.registry_name and "/" in server.registry_name:
+        namespace = server.registry_name.split("/", 1)[0]
+        hosts.append(".".join(reversed(namespace.lower().split("."))))
+    if server.canonical_url:
+        parsed_host = urlparse(server.canonical_url).hostname
+        if parsed_host:
+            hosts.append(parsed_host.lower())
+    for domain, provider in STRIPE_PROJECTS_PROVIDERS.items():
+        if any(_domain_matches(host, domain) for host in hosts):
             return provider
     return None
 

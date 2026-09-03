@@ -48,13 +48,21 @@ class TestConnectInstructions(SimpleTestCase):
         actors = [step["actor"] for step in instructions["methods"][0]["steps"]]
         assert actors == ["agent", "human"]
 
-    def test_stripe_projects_partner_gets_agent_provisioning_first(self) -> None:
-        server = _server(
-            registry_name="com.vercel/mcp",
-            display_name="Vercel",
-            liveness="alive_auth",
-            auth_method="oauth",
-        )
+    @parameterized.expand(
+        [
+            ("verified_namespace", {"registry_name": "com.vercel/vercel-mcp", "display_name": "vercel-mcp"}),
+            (
+                "vendor_domain_remote",
+                {
+                    "registry_name": "io.example/deploy",
+                    "display_name": "Deploy tools",
+                    "canonical_url": "https://mcp.vercel.com/",
+                },
+            ),
+        ]
+    )
+    def test_stripe_projects_partner_gets_agent_provisioning_first(self, _name: str, fields: dict) -> None:
+        server = _server(liveness="alive_auth", auth_method="oauth", **fields)
 
         instructions = build_connect_instructions(server)
 
@@ -65,10 +73,12 @@ class TestConnectInstructions(SimpleTestCase):
         # The standard OAuth path stays available as the fallback method.
         assert instructions["methods"][1]["method"] == "remote_oauth"
 
-    def test_similar_names_do_not_match_stripe_projects_partners(self) -> None:
+    def test_name_squatting_does_not_match_stripe_projects_partners(self) -> None:
+        # Real case from the live index: a third-party repackage named exactly "vercel"
+        # under an unverified namespace must not inherit provisioning steps.
         server = _server(
-            registry_name="io.example/vercel-deploy-helper",
-            display_name="Vercel Deploy Helper",
+            registry_name="com.pulsemcp/vercel",
+            display_name="vercel",
             liveness="alive_auth",
             auth_method="oauth",
         )
