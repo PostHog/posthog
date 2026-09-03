@@ -2,27 +2,20 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    PersonsBulkDeleteCreateBody,
-    PersonsCohortsRetrieveQueryParams,
-    PersonsDeletePropertyCreateBody,
-    PersonsDeletePropertyCreateParams,
-    PersonsListQueryParams,
-    PersonsRetrieveParams,
-    PersonsUpdatePropertyCreateBody,
-    PersonsUpdatePropertyCreateParams,
-    PersonsValuesRetrieveQueryParams,
-} from '@/generated/persons/api'
+import * as orvalSchemas from '@/generated/persons/api'
 import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const PersonsBulkDeleteSchema = PersonsBulkDeleteCreateBody
+const PersonsBulkDeleteSchema = () => {
+    const PersonsBulkDeleteCreateBody = orvalSchemas.PersonsBulkDeleteCreateBody()
+    return PersonsBulkDeleteCreateBody
+}
 
-const personsBulkDelete = (): ToolBase<typeof PersonsBulkDeleteSchema, unknown> => ({
+const personsBulkDelete = (): ToolBase<ReturnType<typeof PersonsBulkDeleteSchema>, unknown> => ({
     name: 'persons-bulk-delete',
-    schema: PersonsBulkDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof PersonsBulkDeleteSchema>) => {
+    schema: PersonsBulkDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PersonsBulkDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.ids !== undefined) {
@@ -49,12 +42,15 @@ const personsBulkDelete = (): ToolBase<typeof PersonsBulkDeleteSchema, unknown> 
     },
 })
 
-const PersonsCohortsRetrieveSchema = PersonsCohortsRetrieveQueryParams.omit({ format: true })
+const PersonsCohortsRetrieveSchema = () => {
+    const PersonsCohortsRetrieveQueryParams = orvalSchemas.PersonsCohortsRetrieveQueryParams()
+    return PersonsCohortsRetrieveQueryParams.omit({ format: true })
+}
 
-const personsCohortsRetrieve = (): ToolBase<typeof PersonsCohortsRetrieveSchema, unknown> => ({
+const personsCohortsRetrieve = (): ToolBase<ReturnType<typeof PersonsCohortsRetrieveSchema>, unknown> => ({
     name: 'persons-cohorts-retrieve',
-    schema: PersonsCohortsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof PersonsCohortsRetrieveSchema>) => {
+    schema: PersonsCohortsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PersonsCohortsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
@@ -67,15 +63,21 @@ const personsCohortsRetrieve = (): ToolBase<typeof PersonsCohortsRetrieveSchema,
     },
 })
 
-const PersonsListSchema = PersonsListQueryParams.omit({ format: true, properties: true }).extend({
-    limit: z.preprocess(castStringToInt, PersonsListQueryParams.shape['limit']).optional(),
-    offset: z.preprocess(castStringToInt, PersonsListQueryParams.shape['offset']).optional(),
-})
+const PersonsListSchema = () => {
+    const PersonsListQueryParams = orvalSchemas.PersonsListQueryParams()
+    return PersonsListQueryParams.omit({ format: true, properties: true }).extend({
+        limit: z.preprocess(castStringToInt, PersonsListQueryParams.shape['limit']).optional(),
+        offset: z.preprocess(castStringToInt, PersonsListQueryParams.shape['offset']).optional(),
+    })
+}
 
-const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schemas.PaginatedPersonRecordList>> => ({
+const personsList = (): ToolBase<
+    ReturnType<typeof PersonsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedPersonRecordList>
+> => ({
     name: 'persons-list',
-    schema: PersonsListSchema,
-    handler: async (context: Context, params: z.infer<typeof PersonsListSchema>) => {
+    schema: PersonsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PersonsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedPersonRecordList>({
             method: 'GET',
@@ -109,15 +111,19 @@ const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schema
     },
 })
 
-const PersonsPropertyDeleteSchema = PersonsDeletePropertyCreateParams.omit({ project_id: true })
-    .extend(PersonsDeletePropertyCreateBody.shape)
-    .omit({ $unset: true })
-    .extend({ unset: PersonsDeletePropertyCreateBody.shape['$unset'] })
+const PersonsPropertyDeleteSchema = () => {
+    const PersonsDeletePropertyCreateBody = orvalSchemas.PersonsDeletePropertyCreateBody()
+    const PersonsDeletePropertyCreateParams = orvalSchemas.PersonsDeletePropertyCreateParams()
+    return PersonsDeletePropertyCreateParams.omit({ project_id: true })
+        .extend(PersonsDeletePropertyCreateBody.shape)
+        .omit({ $unset: true })
+        .extend({ unset: PersonsDeletePropertyCreateBody.shape['$unset'] })
+}
 
-const personsPropertyDelete = (): ToolBase<typeof PersonsPropertyDeleteSchema, unknown> => ({
+const personsPropertyDelete = (): ToolBase<ReturnType<typeof PersonsPropertyDeleteSchema>, unknown> => ({
     name: 'persons-property-delete',
-    schema: PersonsPropertyDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof PersonsPropertyDeleteSchema>) => {
+    schema: PersonsPropertyDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PersonsPropertyDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.unset !== undefined) {
@@ -132,14 +138,16 @@ const personsPropertyDelete = (): ToolBase<typeof PersonsPropertyDeleteSchema, u
     },
 })
 
-const PersonsPropertySetSchema = PersonsUpdatePropertyCreateParams.omit({ project_id: true }).extend(
-    PersonsUpdatePropertyCreateBody.shape
-)
+const PersonsPropertySetSchema = () => {
+    const PersonsUpdatePropertyCreateBody = orvalSchemas.PersonsUpdatePropertyCreateBody()
+    const PersonsUpdatePropertyCreateParams = orvalSchemas.PersonsUpdatePropertyCreateParams()
+    return PersonsUpdatePropertyCreateParams.omit({ project_id: true }).extend(PersonsUpdatePropertyCreateBody.shape)
+}
 
-const personsPropertySet = (): ToolBase<typeof PersonsPropertySetSchema, unknown> => ({
+const personsPropertySet = (): ToolBase<ReturnType<typeof PersonsPropertySetSchema>, unknown> => ({
     name: 'persons-property-set',
-    schema: PersonsPropertySetSchema,
-    handler: async (context: Context, params: z.infer<typeof PersonsPropertySetSchema>) => {
+    schema: PersonsPropertySetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PersonsPropertySetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.key !== undefined) {
@@ -157,12 +165,18 @@ const personsPropertySet = (): ToolBase<typeof PersonsPropertySetSchema, unknown
     },
 })
 
-const PersonsRetrieveSchema = PersonsRetrieveParams.omit({ project_id: true })
+const PersonsRetrieveSchema = () => {
+    const PersonsRetrieveParams = orvalSchemas.PersonsRetrieveParams()
+    return PersonsRetrieveParams.omit({ project_id: true })
+}
 
-const personsRetrieve = (): ToolBase<typeof PersonsRetrieveSchema, WithPostHogUrl<Schemas.PersonRecord>> => ({
+const personsRetrieve = (): ToolBase<
+    ReturnType<typeof PersonsRetrieveSchema>,
+    WithPostHogUrl<Schemas.PersonRecord>
+> => ({
     name: 'persons-retrieve',
-    schema: PersonsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof PersonsRetrieveSchema>) => {
+    schema: PersonsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PersonsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PersonRecord>({
             method: 'GET',
@@ -181,12 +195,15 @@ const personsRetrieve = (): ToolBase<typeof PersonsRetrieveSchema, WithPostHogUr
     },
 })
 
-const PersonsValuesRetrieveSchema = PersonsValuesRetrieveQueryParams.omit({ format: true })
+const PersonsValuesRetrieveSchema = () => {
+    const PersonsValuesRetrieveQueryParams = orvalSchemas.PersonsValuesRetrieveQueryParams()
+    return PersonsValuesRetrieveQueryParams.omit({ format: true })
+}
 
-const personsValuesRetrieve = (): ToolBase<typeof PersonsValuesRetrieveSchema, unknown> => ({
+const personsValuesRetrieve = (): ToolBase<ReturnType<typeof PersonsValuesRetrieveSchema>, unknown> => ({
     name: 'persons-values-retrieve',
-    schema: PersonsValuesRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof PersonsValuesRetrieveSchema>) => {
+    schema: PersonsValuesRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PersonsValuesRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',

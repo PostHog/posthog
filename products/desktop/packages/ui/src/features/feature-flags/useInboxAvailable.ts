@@ -1,7 +1,7 @@
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
 
-export function isInboxAvailable(
+function isInboxAvailable(
   channelReportsEnabled: boolean,
   reportsInboxEnabled: boolean,
 ): boolean {

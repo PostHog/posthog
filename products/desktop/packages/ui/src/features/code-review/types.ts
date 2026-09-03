@@ -6,10 +6,7 @@ import type {
 
 export type {
   AnnotationMetadata,
-  CommentMetadata,
   DiffOptions,
-  DraftCommentMetadata,
-  HunkRevertMetadata,
   PrCommentMetadata,
 } from "@posthog/core/code-review/types";
 

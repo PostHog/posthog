@@ -1,1 +1,1 @@
-0107_signalreportartefact_channel_index
+0111_signalreport_signals_researched

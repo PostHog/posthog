@@ -19,8 +19,8 @@ export interface GridDimensions {
   rows: number;
 }
 
-export const ZOOM_MIN = 0.5;
-export const ZOOM_MAX = 1.5;
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 1.5;
 export const ZOOM_STEP = 0.1;
 
 // Reserved cell value for the Brainrot video slot instead of a task. Real task
@@ -33,7 +33,7 @@ export function isBrainrotCell(value: string | null): boolean {
 
 // Reserved prefix for canvas cells. Canvas and task ids are UUIDs, so this
 // cannot collide with either kind of real id.
-export const CANVAS_CELL_PREFIX = "__canvas__:";
+const CANVAS_CELL_PREFIX = "__canvas__:";
 
 export function isCanvasCell(value: string | null): value is string {
   return value?.startsWith(CANVAS_CELL_PREFIX) ?? false;
@@ -50,7 +50,7 @@ export function getCanvasCellId(value: string | null): string | null {
 
 // Reserved prefix for standalone terminal cells. Never collides with a task id
 // (uuids) or with BRAINROT_CELL ("__brainrot__").
-export const TERMINAL_CELL_PREFIX = "__terminal__:";
+const TERMINAL_CELL_PREFIX = "__terminal__:";
 
 export function isTerminalCell(value: string | null): value is string {
   return value?.startsWith(TERMINAL_CELL_PREFIX) ?? false;
@@ -220,6 +220,31 @@ export function reflowCells(
   return next;
 }
 
+export function resizeCellsForLayout(
+  cells: readonly (string | null)[],
+  from: LayoutPreset,
+  to: LayoutPreset,
+  occupiedCellIndices?: readonly number[],
+): (string | null)[] {
+  const newCount = getCellCount(to);
+  const isShrinking = newCount < getCellCount(from);
+  if (!occupiedCellIndices || !isShrinking) {
+    return reflowCells(cells, from, to);
+  }
+
+  const occupiedCells = occupiedCellIndices
+    .map((index) => cells[index])
+    .filter((cell): cell is string => cell != null);
+  return resizeCells(occupiedCells, newCount);
+}
+
 export function clampZoom(value: number): number {
   return Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value)) * 10) / 10;
+}
+
+// Composer draft key for a tile creating its own task. Deliberately outside the
+// "task-input" namespace: those ids drive the sidebar's unsent-draft dot, which
+// must not light up for a draft that lives in the grid.
+export function getCellSessionId(authScope: string, cellIndex: number): string {
+  return `cc-cell-${authScope}-${cellIndex}`;
 }

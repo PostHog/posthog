@@ -1,32 +1,26 @@
 {% extends "email/base.html" %}
-
 {% block heading %}{{ title }}{% endblock %}
-
 {% block section %}
-
-{# nosemgrep: python.flask.security.xss.audit.template-unescaped-with-safe.template-unescaped-with-safe #}
-{{ rendered_html|safe }}
-
-{% if charts %}
-<div class="report-charts">
-    {% for chart in charts %}
-        <img class="insight-image mb" src="{{ chart.image_url }}" alt="{{ chart.title|default:'Chart' }}" />
-    {% endfor %}
-</div>
-{% endif %}
-
-<div class="mb mt text-center">
-    <a class="button primary" href="{{ subscription_url }}">Manage subscription</a>
-</div>
-
-<p class="text-center">
-    Was this report useful?
-    <a href="{{ feedback_positive_url }}">👍 Yes</a> ·
-    <a href="{{ feedback_negative_url }}">👎 No</a>
-</p>
-
-<p class="text-center text-muted">
-    <a href="{{ unsubscribe_url }}">Unsubscribe from this report</a>
-</p>
-
+    {# nosemgrep: python.flask.security.xss.audit.template-unescaped-with-safe.template-unescaped-with-safe #}
+    {{ rendered_html|safe }}
+    {% if charts %}
+        <div class="report-charts">
+            {% for chart in charts %}
+                <img class="insight-image mb"
+                     src="{{ chart.image_url }}"
+                     alt="{{ chart.title|default:'Chart' }}" />
+            {% endfor %}
+        </div>
+    {% endif %}
+    <div class="mb mt text-center">
+        <a class="button primary" href="{{ subscription_url }}">Manage subscription</a>
+    </div>
+    <p class="text-center">
+        Was this report useful?
+        <a href="{{ feedback_positive_url }}">👍 Yes</a> ·
+        <a href="{{ feedback_negative_url }}">👎 No</a>
+    </p>
+    <p class="text-center text-muted">
+        <a href="{{ unsubscribe_url }}">Unsubscribe from this report</a>
+    </p>
 {% endblock %}

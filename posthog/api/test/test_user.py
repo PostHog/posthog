@@ -1,3 +1,4 @@
+import re
 import uuid
 import datetime
 from datetime import timedelta
@@ -10,7 +11,6 @@ from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
 
-from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
 from django.db import connection
@@ -25,10 +25,11 @@ from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
-from posthog.api.email_verification import email_verification_code_verifier, email_verification_token_generator
+from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
 from posthog.api.user import UserSerializer
 from posthog.constants import AvailableFeature
+from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
@@ -51,6 +52,13 @@ def create_user(email: str, password: str, organization: Organization):
     with real world scenarios.
     """
     return User.objects.create_and_join(organization, email, password)
+
+
+def issue_verification_code(user: User, target_email: str | None = None) -> str:
+    """Issue a code for `user` and capture it at the send boundary instead of reading the email."""
+    with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
+        email_verification_code_verifier.send_code(user, target_email=target_email)
+    return mock_send.call_args[0][1]
 
 
 class TestUserAPI(APIBaseTest):
@@ -817,15 +825,16 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
-    @patch("posthog.api.email_verification.send_email_verification")
+    @patch("posthog.api.email_verification.send_email_verification_code")
     def test_notifications_sent_when_user_email_is_changed_and_email_available(
         self,
-        mock_send_email_verification,
+        mock_send_code,
         mock_send_email_change_emails,
         mock_is_email_available,
     ):
-        """Test that when a user updates their email, they receive a verification email before the switch actually happens."""
+        """Test that when a user updates their email, they receive a verification code before the switch actually happens."""
         self.user.email = "alpha@example.com"
+        self.user.is_email_verified = True
         self.user.save()
         with self.is_cloud(True):
             with freeze_time("2020-01-01T21:37:00+00:00"):
@@ -845,13 +854,12 @@ class TestUserAPI(APIBaseTest):
             assert self.user.pending_email == "beta@example.com"
 
             mock_is_email_available.assert_called_once()
-            mock_send_email_verification.assert_called_once()
+            mock_send_code.assert_called_once_with(self.user.pk, ANY, "beta@example.com")
 
-            token = email_verification_token_generator.make_token(self.user)
             with freeze_time("2020-01-01T21:37:00+00:00"):
                 response = self.client.post(
                     f"/api/users/verify_email/",
-                    {"uuid": self.user.uuid, "token": token},
+                    {"uuid": self.user.uuid, "code": mock_send_code.call_args[0][1]},
                 )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -931,6 +939,7 @@ class TestUserAPI(APIBaseTest):
     )
     def test_verified_email_change_removes_social_auth_connections(self, _, social_auths: list[tuple[str, str]]):
         self.user.email = "alpha@example.com"
+        self.user.is_email_verified = True
         self.user.save()
 
         social_auth_ids = [
@@ -945,7 +954,7 @@ class TestUserAPI(APIBaseTest):
         with (
             patch("posthog.api.user.is_email_available", return_value=True) as mock_is_email_available,
             patch("posthog.tasks.email.send_email_change_emails.delay") as mock_send_email_change_emails,
-            patch("posthog.api.email_verification.send_email_verification") as mock_send_email_verification,
+            patch("posthog.api.email_verification.send_email_verification_code") as mock_send_code,
         ):
             with self.is_cloud(True):
                 response = self.client.patch(
@@ -957,12 +966,11 @@ class TestUserAPI(APIBaseTest):
 
             assert response.status_code == status.HTTP_200_OK
             mock_is_email_available.assert_called_once()
-            mock_send_email_verification.assert_called_once()
+            mock_send_code.assert_called_once()
 
-            token = email_verification_token_generator.make_token(self.user)
             response = self.client.post(
                 "/api/users/verify_email/",
-                {"uuid": self.user.uuid, "token": token},
+                {"uuid": self.user.uuid, "code": mock_send_code.call_args[0][1]},
             )
             assert response.status_code == status.HTTP_200_OK
 
@@ -1013,10 +1021,10 @@ class TestUserAPI(APIBaseTest):
         mock_send_email_change_emails.assert_not_called()
 
     @patch("posthog.api.user.is_email_available", return_value=True)
-    @patch("posthog.api.user.EmailVerifier.send_verification_email")
+    @patch("posthog.api.email_verification.send_email_verification_code")
     def test_email_change_allowed_between_two_sso_enforced_domains_of_same_org(
         self,
-        mock_send_email_verification,
+        mock_send_code,
         mock_is_email_available,
     ):
         self.user.email = "alice@example.com"
@@ -1041,7 +1049,7 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
         assert self.user.pending_email == "alice@example.org"
-        mock_send_email_verification.assert_called_once()
+        mock_send_code.assert_called_once()
 
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
@@ -1089,11 +1097,8 @@ class TestUserAPI(APIBaseTest):
             uid="google-sub-1",
         )
 
-        token = email_verification_token_generator.make_token(self.user)
-        response = self.client.post(
-            "/api/users/verify_email/",
-            {"uuid": self.user.uuid, "token": token},
-        )
+        code = issue_verification_code(self.user)
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
 
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
@@ -1103,15 +1108,16 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.api.user.login")
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     def test_email_change_verification_skips_auto_login_for_sso_enforced_domain(self, _, mock_login):
+        self.user.is_email_verified = True
         self.user.pending_email = "alice@example.com"
         self.user.save()
+        code = issue_verification_code(self.user)
 
         with patch(
             "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
             side_effect=lambda email, organization=None: "google-oauth2" if email == "alice@example.com" else None,
         ):
-            token = email_verification_token_generator.make_token(self.user)
-            response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+            response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["requires_sso"] is True
@@ -1126,13 +1132,13 @@ class TestUserAPI(APIBaseTest):
         self.user.email = "alice@example.com"
         self.user.pending_email = None
         self.user.save()
+        code = issue_verification_code(self.user)
 
         with patch(
             "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
             side_effect=lambda email, organization=None: "google-oauth2" if email == "alice@example.com" else None,
         ):
-            token = email_verification_token_generator.make_token(self.user)
-            response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+            response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["requires_sso"] is True
@@ -1152,8 +1158,8 @@ class TestUserAPI(APIBaseTest):
             domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
         )
 
-        token = email_verification_token_generator.make_token(self.user)
-        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+        code = issue_verification_code(self.user)
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["requires_login"] is True
@@ -2852,16 +2858,10 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertEqual(mail.outbox[0].body, "")  # no plain-text version support yet
 
         html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
-        self.validate_basic_html(
-            html_message,
-            "https://my.posthog.net",
-            preheader="Please follow the link inside to verify your account.",
-        )
-        link_index = html_message.find("https://my.posthog.net/verify_email")
-        reset_link = html_message[link_index : html_message.find('"', link_index)]
-        token = reset_link.replace("https://my.posthog.net/verify_email/", "").replace(f"{self.user.uuid}/", "")
+        code = re.search(r"(\d{6}) is your code\.", html_message).group(1)  # type: ignore[union-attr]
+        self.validate_basic_html(html_message, "https://my.posthog.net", preheader=f"{code} is your code.")
 
-        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # check is_email_verified is changed to True
@@ -2885,14 +2885,7 @@ class TestEmailVerificationAPI(APIBaseTest):
             properties={"$set": ANY},
         )
 
-        mock_capture.assert_any_call(
-            event="verification email sent",
-            distinct_id=self.user.distinct_id,
-            groups={
-                "organization": str(self.team.organization_id),
-            },
-        )
-        self.assertEqual(mock_capture.call_count, 3)
+        self.assertEqual(mock_capture.call_count, 2)
 
     def test_cant_verify_if_email_is_not_configured(self):
         set_instance_setting("EMAIL_HOST", "")
@@ -2931,14 +2924,9 @@ class TestEmailVerificationAPI(APIBaseTest):
         # Three emails should be sent, fourth should not
         self.assertEqual(len(mail.outbox), 6)
 
-    # Token validation
+    # Code validation
 
-    def test_can_validate_email_verification_token(self):
-        token = email_verification_token_generator.make_token(self.user)
-        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_cant_validate_email_verification_token_without_a_token(self):
+    def test_cant_verify_email_without_a_code(self):
         response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -2947,88 +2935,23 @@ class TestEmailVerificationAPI(APIBaseTest):
                 "type": "validation_error",
                 "code": "required",
                 "detail": "This field is required.",
-                "attr": "token",
+                "attr": "code",
             },
         )
 
-    def test_invalid_verification_token_returns_error(self):
-        valid_token = default_token_generator.make_token(self.user)
-
-        with freeze_time(timezone.now() - datetime.timedelta(seconds=86_401)):
-            # tokens expire after one day
-            expired_token = default_token_generator.make_token(self.user)
-
-        for token in [
-            valid_token[:-1],
-            "not_even_trying",
-            self.user.uuid,
-            expired_token,
-        ]:
-            response = self.client.post(
-                f"/api/users/verify_email/",
-                {"uuid": self.user.uuid, "token": token},
-            )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "invalid_token",
-                    "detail": "This verification token is invalid or has expired.",
-                    "attr": "token",
-                },
-            )
-
-    def test_reused_token_reports_already_verified_without_a_session(self):
-        token = email_verification_token_generator.make_token(self.user)
-        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # A second use (double click, or the link prefetched by an email scanner) reports success
-        # for the already-verified address, but must not hand out a session: the spent token no
-        # longer proves anything.
-        self.client.logout()
-        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True, "requires_login": True})
-        assert self.client.session.get("_auth_user_id") is None
-
-    def test_already_verified_user_gets_success_even_with_a_bad_token(self):
+    def test_already_verified_user_gets_success_even_with_a_wrong_code(self):
         self.user.is_email_verified = True
         self.user.save()
 
-        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": "garbage"})
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "code": "000000"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"success": True, "requires_login": True})
         assert self.client.session.get("_auth_user_id") is None
 
-    def test_email_verification_logs_in_user(self):
-        token = email_verification_token_generator.make_token(self.user)
-
-        self.client.logout()
-        assert self.client.get("/api/users/@me/").status_code == 401
-        session_user_id = self.client.session.get("_auth_user_id")
-        assert session_user_id is None
-
-        # NOTE: Posting sets the session user id but doesn't log in the test client hence we just check the session id
-        self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
-        session_user_id = self.client.session.get("_auth_user_id")
-        assert session_user_id == str(self.user.id)
-
-    def test_email_verification_logs_in_correctuser(self):
-        other_token = email_verification_token_generator.make_token(self.other_user)
-        self.client.logout()
-        assert self.client.session.get("_auth_user_id") is None
-
-        # NOTE: The user id in path should basically be ignored
-        self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "token": other_token})
-        session_user_id = self.client.session.get("_auth_user_id")
-        assert session_user_id == str(self.other_user.id)
-
     def test_email_verification_does_not_apply_to_current_logged_in_user(self):
-        other_token = email_verification_token_generator.make_token(self.other_user)
+        other_code = issue_verification_code(self.other_user)
 
-        res = self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "token": other_token})
+        res = self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "code": other_code})
         assert res.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
         self.other_user.refresh_from_db()
@@ -3037,39 +2960,20 @@ class TestEmailVerificationAPI(APIBaseTest):
         assert not self.user.is_email_verified
         assert self.other_user.is_email_verified
 
-    def test_email_verification_fails_if_using_other_accounts_token(self):
-        token = email_verification_token_generator.make_token(self.user)
-        other_token = email_verification_token_generator.make_token(self.other_user)
+    def test_email_verification_fails_if_using_other_accounts_code(self):
+        code = issue_verification_code(self.user)
+        other_code = issue_verification_code(self.other_user)
         self.client.logout()
 
         assert (
-            self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "token": token}).status_code
+            self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "code": code}).status_code
             == status.HTTP_400_BAD_REQUEST
         )
 
         assert (
-            self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": other_token}).status_code
+            self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "code": other_code}).status_code
             == status.HTTP_400_BAD_REQUEST
         )
-
-    def test_does_not_apply_pending_email_for_old_tokens(self):
-        self.client.logout()
-
-        token = email_verification_token_generator.make_token(self.user)
-        self.user.pending_email = "new@posthog.com"
-        self.user.save()
-
-        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert self.user.email != "new@posthog.com"
-        assert self.user.pending_email == "new@posthog.com"
-
-        token = email_verification_token_generator.make_token(self.user)
-        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
-        assert response.status_code == status.HTTP_200_OK
-        self.user.refresh_from_db()
-        assert self.user.email == "new@posthog.com"
-        assert self.user.pending_email is None
 
     def test_email_verification_does_not_log_in_user_with_2fa_totp(self):
         # If the user has a TOTP device configured, verifying their email must
@@ -3077,13 +2981,13 @@ class TestEmailVerificationAPI(APIBaseTest):
         # attacker with access to the email inbox could bypass 2FA entirely.
         TOTPDevice.objects.create(user=self.user, name="default", confirmed=True)
 
-        token = email_verification_token_generator.make_token(self.user)
+        code = issue_verification_code(self.user)
         self.client.logout()
         assert self.client.session.get("_auth_user_id") is None
 
-        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"success": True, "token": token, "requires_2fa": True}
+        assert response.json() == {"success": True, "requires_2fa": True}
 
         # Email should still be marked verified, but the session must remain unauthenticated.
         self.user.refresh_from_db()
@@ -3111,7 +3015,8 @@ class TestEmailVerificationAPI(APIBaseTest):
 
     def test_can_request_verification_for_pending_email_change(self):
         # An already-verified user who initiated an email change still needs to
-        # verify the new address — re-requesting the verification link must work.
+        # verify the new address, so re-requesting the code must work.
+        set_instance_setting("EMAIL_HOST", "localhost")
         self.user.is_email_verified = True
         self.user.pending_email = "new-address@posthog.com"
         self.user.save()
@@ -3123,7 +3028,6 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertEqual(mail.outbox[0].to, ["new-address@posthog.com"])
 
 
-@pytest.mark.disable_mock_email_code_verification
 class TestEmailVerificationCodeAPI(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
@@ -3264,20 +3168,9 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         self.assertEqual(response.json(), {"success": True, "requires_login": True})
         assert self.client.session.get("_auth_user_id") is None
 
-    def test_code_send_failure_falls_back_to_link_email(self):
-        with patch(
-            "posthog.api.email_verification.send_email_verification_code",
-            side_effect=Exception("template missing"),
-        ):
-            with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
-                response = self.client.post("/api/users/request_email_verification/", {"uuid": self.user.uuid})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        assert len(mail.outbox) == 1
-        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
-        assert f"https://my.posthog.net/verify_email/{self.user.uuid}/" in html_message
-
-    def test_email_change_code_goes_to_the_pending_address_and_completes_the_swap(self):
-        self.user.is_email_verified = True
+    @parameterized.expand([("verified", True), ("legacy_never_verified", None)])
+    def test_email_change_code_goes_to_the_pending_address_and_completes_the_swap(self, _name, is_email_verified):
+        self.user.is_email_verified = is_email_verified
         self.user.pending_email = "new-address@posthog.com"
         self.user.save()
 
@@ -3309,6 +3202,8 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
     def test_unverified_user_with_staged_change_verifies_only_the_account_address(self):
         # A signup code for an unverified user must go to the account address and prove that one,
         # even if a change to another address is staged: the staged address is itself unproven.
+        # False means an unverified signup; None (a legacy account) is trusted as verified.
+        self.user.is_email_verified = False
         self.user.pending_email = "staged@posthog.com"
         self.user.save()
 
@@ -3323,6 +3218,18 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.is_email_verified
         assert self.user.email != "staged@posthog.com"
+
+    def test_codes_for_different_addresses_in_the_same_second_do_not_collide(self):
+        # Two email changes in the same second must not derive the same code. The code binds to the
+        # address it authorizes. So a code mailed to an address the user owns cannot verify a
+        # different staged address.
+        issued_at = 1_700_000_000
+        code_owned = code_based_verification_token_generator.make_code(self.user, issued_at, "attacker@owns.example")
+        code_victim = code_based_verification_token_generator.make_code(self.user, issued_at, "victim@corp.example")
+        assert code_owned != code_victim
+        assert not code_based_verification_token_generator.check_code(
+            self.user, code_owned, issued_at, "victim@corp.example"
+        )
 
     def test_code_dies_when_a_different_pending_address_is_staged(self):
         self.user.is_email_verified = True

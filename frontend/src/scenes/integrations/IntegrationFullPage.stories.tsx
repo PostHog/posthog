@@ -9,7 +9,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { mockIntegration } from '~/test/mocks'
 import { Realm } from '~/types'
 
-import { Slack } from './definitions'
+import { GitHub, Slack } from './definitions'
 import { IntegrationFullPage } from './IntegrationFullPage'
 
 const meta: Meta<typeof IntegrationFullPage> = {
@@ -41,6 +41,41 @@ export const NotConnected: Story = {
 
 export const Connected: Story = {
     decorators: [mswDecorator({ get: { '/api/environments/:id/integrations': { results: [mockIntegration] } } })],
+}
+
+// An instance without Slack configured shows staff the instructions button instead of the connect
+// button. That branch ignores ``centered``, so it relies on the page for its centered layout.
+export const SlackNotConfigured: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    realm: Realm.Cloud,
+                    slack_service: { available: false, client_id: null },
+                },
+                '/api/environments/:id/integrations': { results: [] },
+            },
+        }),
+    ],
+}
+
+// GitHub puts a helper paragraph next to its connect button, which stretches the section wider
+// than the button. Without the centered layout the button sits at that width's left edge.
+export const GithubNotConnected: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:id/integrations': { results: [] },
+                '/api/projects/:id/integrations/github/available_installations/': {
+                    installations: [],
+                    personal_github_connected: false,
+                },
+                '/api/users/@me/integrations/github/install_requests/': { results: [], install_url: null },
+            },
+        }),
+    ],
+    render: () => <IntegrationFullPage definition={GitHub} SettingsSection={GitHub.SettingsSection} />,
 }
 
 const memberTeam = { ...MOCK_DEFAULT_TEAM, effective_membership_level: OrganizationMembershipLevel.Member }

@@ -33,7 +33,7 @@ interface CommandContext {
   askSideQuestion?: (question: string) => boolean;
 }
 
-export interface CodeCommandInsertContext {
+interface CodeCommandInsertContext {
   editor: Editor;
   chipId: string;
   sessionId: string;

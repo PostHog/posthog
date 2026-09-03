@@ -163,6 +163,20 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
             "if your pipeline emits the session ID under different attributes."
         ),
     )
+    logs_pattern_message_keys = serializers.ListField(
+        child=serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True),
+        allow_empty=True,
+        max_length=10,
+        help_text=(
+            "Ordered list of top-level JSON keys whose value is the message text that log "
+            "patterns are derived from. Keys are matched literally at the top level of the log "
+            "body; a dot in a key is part of the key name, not a path into nested objects. "
+            "Selection checks keys in order; the first key whose value is a non-empty string "
+            "wins. Defaults to ['message', 'msg', 'event']. An empty list "
+            "turns message extraction off, so JSON log bodies group by their key set instead. "
+            "The stored log body is never changed by this setting."
+        ),
+    )
 
     class Meta:
         model = TeamLogsConfig
@@ -170,6 +184,7 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
             "logs_distinct_id_attribute_key",
             "logs_distinct_id_attribute_keys",
             "logs_session_id_attribute_keys",
+            "logs_pattern_message_keys",
         ]
 
     def _validate_unique_keys(self, value: list[str]) -> list[str]:
@@ -183,6 +198,9 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         return self._validate_unique_keys(value)
 
     def validate_logs_session_id_attribute_keys(self, value: list[str]) -> list[str]:
+        return self._validate_unique_keys(value)
+
+    def validate_logs_pattern_message_keys(self, value: list[str]) -> list[str]:
         return self._validate_unique_keys(value)
 
     def update(self, instance: TeamLogsConfig, validated_data: dict) -> TeamLogsConfig:
@@ -1025,11 +1043,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         read_only=True,
         help_text=(
             "The team's events data retention window in months (plan-derived, synced from billing). When retention "
-            "enforcement is active for the team, queries do not return events older than this many months."
+            "enforcement is active for the team, queries do not return events older than this many months. "
+            "Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog "
+            "support can change it unless your organization is on the enterprise plan. Background and discussion: "
+            "https://github.com/PostHog/posthog/issues/17031"
         ),
     )
     events_retention_enforced = serializers.SerializerMethodField(
-        help_text="Whether events data retention is currently enforced for this team (cohort/flag gated)."
+        help_text=(
+            "Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: "
+            "neither you nor PostHog support can turn enforcement off, and the retention window itself only "
+            "changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031"
+        )
     )
 
     class Meta:

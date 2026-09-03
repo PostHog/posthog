@@ -1,14 +1,14 @@
-import {
-  type BaseImageChoice,
-  type EnvironmentSetupPlan,
-  withImageName,
+import type {
+  BaseImageChoice,
+  EnvironmentSetupPlan,
 } from "@posthog/core/settings/environmentSetup";
-import { Button, Input, Label, Text } from "@posthog/quill";
+import { Button, Label, Text } from "@posthog/quill";
 import type { SandboxCustomImage } from "@posthog/shared/domain-types";
 import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
 import { StepBody } from "@posthog/ui/features/settings/sections/environments/setup/StepBody";
+import { StepFieldError } from "@posthog/ui/features/settings/sections/environments/setup/StepFieldError";
+import { ImageNameField } from "@posthog/ui/features/settings/sections/environments/setup/steps/ImageNameField";
 import { RadioCards } from "@posthog/ui/primitives/RadioCards";
-import { useId } from "react";
 
 interface BaseImageStepProps {
   plan: EnvironmentSetupPlan;
@@ -22,6 +22,7 @@ interface BaseImageStepProps {
   onBuildNewImage?: () => void;
   /** Why leaving now is not offered, e.g. unsaved changes. */
   buildNewDisabledReason?: string | null;
+  error: string | null;
 }
 
 /** Where sessions start from: the standard image, one you have, or a new one. */
@@ -31,8 +32,8 @@ export function BaseImageStep({
   onChange,
   onBuildNewImage,
   buildNewDisabledReason,
+  error,
 }: BaseImageStepProps) {
-  const nameId = useId();
   const ready = images.filter((image) => image.status === "ready");
   const linksOut = onBuildNewImage !== undefined;
 
@@ -110,27 +111,20 @@ export function BaseImageStep({
               onChange({ ...plan, existingImageId })
             }
           />
+          {error && <StepFieldError>{error}</StepFieldError>}
         </div>
       )}
 
       {plan.baseImage === "new" && (
         <div className="flex max-w-[520px] flex-col gap-2 border-(--gray-4) border-t border-dashed pt-4">
-          <Label htmlFor={nameId} className="font-medium text-[12.5px]">
-            Image name
-          </Label>
-          <Input
-            id={nameId}
-            className="h-8 text-[12.5px]"
-            value={plan.imageName}
-            placeholder="e.g. Playwright + Node 22"
-            data-attr="environment-setup-image-name"
-            onChange={(event) =>
-              onChange(withImageName(plan, event.target.value))
-            }
+          <ImageNameField
+            plan={plan}
+            onChange={onChange}
+            error={error}
+            label="Image name"
+            dataAttr="environment-setup-image-name"
+            randomNameDataAttr="environment-setup-image-random-name"
           />
-          <Text className="text-(--gray-10) text-[11.5px]">
-            Shown wherever an environment picks its base image.
-          </Text>
         </div>
       )}
     </StepBody>

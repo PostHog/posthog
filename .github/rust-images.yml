@@ -71,6 +71,11 @@
 - image: cohort-seeder
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
+  # Frame pointers and unwind tables so the profiler can walk seeder stacks on
+  # aarch64, including native dependency frames (see rust/Dockerfile). The scan
+  # hot path is CPU-bound, so a profile that cannot unwind it is unreadable.
+  extra_rustflags: -C force-frame-pointers=yes -C force-unwind-tables=yes
+  extra_cflags: -fno-omit-frame-pointer -fasynchronous-unwind-tables
 
 - image: cohort-stream-processor
   dockerfile: ./rust/Dockerfile

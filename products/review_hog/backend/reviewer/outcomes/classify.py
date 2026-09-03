@@ -62,6 +62,7 @@ from products.review_hog.backend.reviewer.outcomes.github_fetch import fetch_com
 from products.review_hog.backend.reviewer.outcomes.judge import judge_finding
 from products.review_hog.backend.reviewer.outcomes.line_proximity import parse_compare_files, touched_near
 from products.review_hog.backend.reviewer.persistence import load_findings_bundle
+from products.review_hog.backend.reviewer.telemetry import review_routing_properties
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 
@@ -401,6 +402,7 @@ async def _emit_and_mark(
                 "classification_method": oc.method,
                 "reviewed_head": oc.reviewed_head,
                 "final_head": oc.final_head,
+                **review_routing_properties(report),
             },
         )
     if flush is not None:

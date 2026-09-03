@@ -959,9 +959,10 @@ impl<'a> HogVM<'a> {
         self.push_stack(result)
     }
 
-    /// `Eq`/`NotEq` core. The default path is the legacy structural equality every existing
-    /// shared-crate consumer relies on. Only when the context opts into coercing comparisons (the
-    /// realtime-cohort evaluator) does a temporal pair compare by epoch seconds to match ClickHouse
+    /// `Eq`/`NotEq` core. Both paths apply structural equality with numeric unification, so
+    /// `1 == 1.0` holds for every shared-crate consumer (see [`PartialEq for Num`](crate::Num)).
+    /// The flag gates only what sits on top: when the context opts into coercing comparisons (the
+    /// realtime-cohort evaluator), a temporal pair compares by epoch seconds to match ClickHouse
     /// (`is_date_exact`); every non-temporal pair is unchanged either way.
     ///
     /// "Temporal pair" is [`temporal_seconds_pair`] — the same predicate [`compare_values`] uses for
@@ -1572,7 +1573,7 @@ fn op_telemetry_name(op: &Operation) -> String {
         }
         name.push(c.to_ascii_uppercase());
     }
-    format!("{}/{}", op.clone() as u8, name)
+    format!("{}/{}", *op as u8, name)
 }
 
 fn next_type_name(next: &JsonValue) -> String {

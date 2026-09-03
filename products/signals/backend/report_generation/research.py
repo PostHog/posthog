@@ -20,6 +20,7 @@ from products.signals.backend.artefact_schemas import (
 
 # Dependency-light on purpose (see its module docstring): safe to import here without dragging
 # `posthog.schema` onto the research path.
+from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
 
 # Deferred: importing temporal.types here runs the signals temporal package __init__, which
@@ -803,7 +804,7 @@ async def run_multi_turn_research(
         output_fn=output_fn,
         origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
         signal_report_id=signal_report_id,
-        ai_stage="research",
+        ai_stage=AI_STAGE_RESEARCH,
         internal=True,
     )
 

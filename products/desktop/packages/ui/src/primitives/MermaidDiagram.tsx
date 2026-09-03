@@ -7,6 +7,23 @@ import { useEffect, useId, useState } from "react";
 let mermaidModule: Promise<Mermaid> | null = null;
 let initializedDarkMode: boolean | null = null;
 
+// Rendering runs dagre layout and builds thousands of SVG nodes on the main
+// thread, so a session that is reopened reuses its diagrams instead.
+const RENDER_CACHE_MAX = 50;
+const renderCache = new Map<string, string>();
+
+function renderCacheKey(code: string, isDarkMode: boolean): string {
+  return `${isDarkMode ? "dark" : "light"}\n${code}`;
+}
+
+function rememberRender(key: string, svg: string): void {
+  if (renderCache.size >= RENDER_CACHE_MAX) {
+    const oldest = renderCache.keys().next().value;
+    if (oldest !== undefined) renderCache.delete(oldest);
+  }
+  renderCache.set(key, svg);
+}
+
 function loadMermaid(): Promise<Mermaid> {
   mermaidModule ??= import("mermaid").then((module) => module.default);
   return mermaidModule;
@@ -48,6 +65,7 @@ async function renderDiagram(
     initializedDarkMode = isDarkMode;
   }
   const { svg } = await mermaid.render(id, code);
+  rememberRender(renderCacheKey(code, isDarkMode), svg);
   return svg;
 }
 
@@ -64,9 +82,17 @@ interface MermaidDiagramProps {
 export function MermaidDiagram({ code, className }: MermaidDiagramProps) {
   const isDarkMode = useThemeStore((s) => s.isDarkMode);
   const diagramId = `mermaid-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
-  const [state, setState] = useState<DiagramState>({ status: "loading" });
+  const [state, setState] = useState<DiagramState>(() => {
+    const svg = renderCache.get(renderCacheKey(code, isDarkMode));
+    return svg ? { status: "ready", svg } : { status: "loading" };
+  });
 
   useEffect(() => {
+    const cached = renderCache.get(renderCacheKey(code, isDarkMode));
+    if (cached) {
+      setState({ status: "ready", svg: cached });
+      return;
+    }
     let cancelled = false;
     renderDiagram(diagramId, code, isDarkMode)
       .then((svg) => {

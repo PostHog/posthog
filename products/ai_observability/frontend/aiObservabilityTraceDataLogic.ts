@@ -834,22 +834,27 @@ export interface TraceTreeNode {
 
 export interface EnrichedTraceTreeNode extends TraceTreeNode {
     children?: EnrichedTraceTreeNode[]
-    displayTotalCost: number
+    displayTotalCost: number | null
     displayLatency: number
     displayUsage: string | null
     attachedFeedback: LLMTraceEvent[]
 }
 
 export interface SpanAggregation {
-    totalCost: number
+    // Null when no descendant reported a cost. A sum over nothing known is not
+    // zero, the same distinction extractTotalCost draws for a single event.
+    totalCost: number | null
     totalLatency: number
     inputTokens: number
     outputTokens: number
     hasGenerationChildren: boolean
 }
 
-function extractTotalCost(event: LLMTraceEvent): number {
-    return event.properties.$ai_total_cost_usd || 0
+// Null, not 0, when the event carries no cost. A generation whose provider never
+// reported usage has no cost to show, and $0.00 would read as a free call.
+export function extractTotalCost(event: LLMTraceEvent): number | null {
+    const totalCost = event.properties.$ai_total_cost_usd
+    return typeof totalCost === 'number' ? totalCost : null
 }
 
 function extractLatency(event: LLMTraceEvent): number {
@@ -871,14 +876,17 @@ function aggregateSpanMetrics(node: TraceTreeNode): SpanAggregation {
     const event = node.event
     let hasGenerationChildren = false
 
-    // Use direct values if available, otherwise start with 0 for aggregation
-    let totalCost = event.properties.$ai_total_cost_usd ?? 0
+    // Cost starts from the event's own known cost, or null when it has none, so
+    // a span whose children all went unpriced stays unknown instead of summing
+    // to zero. The first known cost promotes it. extractTotalCost is the single
+    // arbiter of "known" here, as it is for the tree rows.
+    let totalCost: number | null = extractTotalCost(event)
     let totalLatency = event.properties.$ai_latency ?? 0
     let inputTokens = event.properties.$ai_input_tokens ?? 0
     let outputTokens = event.properties.$ai_output_tokens ?? 0
 
     // Only aggregate from children if parent doesn't have direct values
-    const shouldAggregateCost = event.properties.$ai_total_cost_usd === undefined
+    const shouldAggregateCost = totalCost === null
     const shouldAggregateLatency = event.properties.$ai_latency === undefined
     const shouldAggregateInputTokens = event.properties.$ai_input_tokens === undefined
     const shouldAggregateOutputTokens = event.properties.$ai_output_tokens === undefined
@@ -892,8 +900,8 @@ function aggregateSpanMetrics(node: TraceTreeNode): SpanAggregation {
             // Use aggregated metrics if child has children, otherwise use direct metrics
             if (child.children && child.children.length > 0) {
                 const childAgg = aggregateSpanMetrics(child)
-                if (shouldAggregateCost) {
-                    totalCost += childAgg.totalCost
+                if (shouldAggregateCost && childAgg.totalCost !== null) {
+                    totalCost = (totalCost ?? 0) + childAgg.totalCost
                 }
                 if (shouldAggregateLatency) {
                     totalLatency += childAgg.totalLatency
@@ -909,8 +917,9 @@ function aggregateSpanMetrics(node: TraceTreeNode): SpanAggregation {
                 }
             } else {
                 // Child has no children, use its direct metrics
-                if (shouldAggregateCost) {
-                    totalCost += child.event.properties.$ai_total_cost_usd || 0
+                const childCost = extractTotalCost(child.event)
+                if (shouldAggregateCost && childCost !== null) {
+                    totalCost = (totalCost ?? 0) + childCost
                 }
                 if (shouldAggregateLatency) {
                     totalLatency += child.event.properties.$ai_latency || 0

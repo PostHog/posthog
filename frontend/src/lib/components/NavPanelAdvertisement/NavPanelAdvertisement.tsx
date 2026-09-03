@@ -1,13 +1,14 @@
 import { useValues } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { CampaignPayload, isCampaignPayload } from './navPanelAdShared'
-import { NavPanelCampaignAd } from './NavPanelCampaignAd'
+import { BroadcastPayload, isBroadcastPayload } from './navPanelAdShared'
+import { NavPanelBroadcastAd } from './NavPanelBroadcastAd'
 import { NavPanelProductPushAd } from './NavPanelProductPushAd'
 import { navPanelProductPushLogic } from './navPanelProductPushLogic'
 
@@ -17,15 +18,16 @@ export function NavPanelAdvertisement(): JSX.Element | null {
     const { isCloudOrDev } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
 
-    const campaignFlagPayload = getFeatureFlagPayload('nav-panel-campaign') as CampaignPayload | undefined
+    const broadcastPayload = getFeatureFlagPayload(FEATURE_FLAGS.NAV_PANEL_BROADCAST) as BroadcastPayload | undefined
 
     if (isLayoutNavCollapsed) {
         return null
     }
 
-    // Campaign flag payload takes priority over product recommendations, but campaigns promote cloud features so are not shown on hobby
-    if (isCloudOrDev && isCampaignPayload(campaignFlagPayload)) {
-        return <NavPanelCampaignAd campaign={campaignFlagPayload} />
+    // A hand-authored broadcast outranks the scheduler, so a deliberate message is never preempted
+    // by an automated push. Both cards promote cloud features, so neither is shown on hobby.
+    if (isCloudOrDev && isBroadcastPayload(broadcastPayload)) {
+        return <NavPanelBroadcastAd broadcast={broadcastPayload} />
     }
 
     // The org-wide product push campaign, driven by the growth backend. Respects the

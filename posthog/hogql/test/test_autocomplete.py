@@ -183,6 +183,42 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert len(results.suggestions) == 1
         assert results.suggestions[0].label == "some_event_value"
 
+    def test_autocomplete_events_properties_omits_person_property_setters(self):
+        self._create_properties()
+        for name in ("$set", "$set_once"):
+            PropertyDefinition.objects.create(
+                team=self.team,
+                name=name,
+                property_type="String",
+                type=PropertyDefinition.Type.EVENT,
+            )
+
+        query = "select properties. from events"
+        results = self._select(query=query, start=18, end=18)
+        assert [suggestion.label for suggestion in results.suggestions] == ["some_event_value"]
+
+    @parameterized.expand(
+        [
+            ("event_properties", "event", 23, ["$browser"]),
+            ("other_properties_bag", "inputs", 24, ["$browser", "$set", "$set_once"]),
+        ]
+    )
+    def test_autocomplete_hog_globals_omit_person_property_setters(
+        self, _name: str, root: str, cursor: int, expected: list[str]
+    ):
+        database = Database.create_for(team=self.team)
+
+        autocomplete = HogQLAutocomplete(
+            kind="HogQLAutocomplete",
+            query=f"print({root}.properties.)",
+            language=HogLanguage.HOG,
+            globals={root: {"properties": {"$browser": "Chrome", "$set": {}, "$set_once": {}}}},
+            startPosition=cursor,
+            endPosition=cursor,
+        )
+        results = get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
+        assert [suggestion.label for suggestion in results.suggestions] == expected
+
     def test_autocomplete_persons_properties(self):
         self._create_properties()
 
