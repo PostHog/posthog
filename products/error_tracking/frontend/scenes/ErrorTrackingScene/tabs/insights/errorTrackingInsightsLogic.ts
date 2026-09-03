@@ -301,7 +301,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                     )
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
-                        query: buildComparisonTotalsQuery(window.currentStartBucket, values.timezone),
+                        query: buildComparisonTotalsQuery(window.currentStart, values.timezone),
                         filters: {
                             dateRange: { date_from: window.dateFrom, date_to: window.dateTo },
                             filterTestAccounts: values.filterTestAccounts,

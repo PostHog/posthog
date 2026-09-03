@@ -188,13 +188,15 @@ describe('timeBuckets', () => {
             }
         )
 
-        it('rolls an hour-level range from now and steps the prior window back equally', () => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:30:00Z'))
+        it('rolls an hour-level range from now and steps the prior window back by its exact length', () => {
+            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:37:00Z'))
             try {
-                // "-1h" resolves to the trailing hour; prior window is the hour before that.
-                const window = buildComparisonWindow('-1h', null, 'UTC', 'minute')
-                expect(window.currentStartBucket).toBe('2026-06-18 11:30:00')
-                expect(dayjs(window.dateFrom).toISOString()).toBe('2026-06-18T10:29:00.000Z')
+                // "-1h" resolves to the trailing hour; prior window is the hour before that, not the
+                // hour before the bucket it starts in.
+                const window = buildComparisonWindow('-1h', null, 'UTC', 'hour')
+                expect(window.currentStart).toBe('2026-06-18 11:37:00')
+                expect(window.currentStartBucket).toBe('2026-06-18 11:00:00')
+                expect(dayjs(window.dateFrom).toISOString()).toBe('2026-06-18T10:37:00.000Z')
             } finally {
                 jest.useRealTimers()
             }
@@ -205,7 +207,7 @@ describe('timeBuckets', () => {
             try {
                 const window = buildComparisonWindow('-7d', null, 'UTC', 'day')
                 expect(window.currentStartBucket).toBe('2026-06-11 00:00:00')
-                // doubled window: prior 8 day-buckets before the cutoff
+                // prior window is as long as the selected one: seven days plus today's elapsed 12h
                 expect(dayjs(window.dateFrom).format('YYYY-MM-DD')).toBe('2026-06-03')
             } finally {
                 jest.useRealTimers()

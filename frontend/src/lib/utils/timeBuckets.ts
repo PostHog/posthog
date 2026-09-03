@@ -186,13 +186,15 @@ export interface ComparisonWindow {
      *  a datetime resolves exclusively, so handing back a resolved instant would make a query built
      *  on this window cover a different last day than one built on the raw range. */
     dateTo: string | null
+    /** The selected period's exact start, as a project-timezone wall clock, to split raw timestamps on. */
+    currentStart: string
     /** Bucket key the doubled window splits on. Buckets at or after it are the selected period. */
     currentStartBucket: string
 }
 
-// Extend the resolved window back by an equal number of `interval` buckets, so one query returns both
-// the selected period and the period before it for a period-over-period comparison.
-// `currentStartBucket` is formatted to match ClickHouse dateTrunc's DateTime output, so a caller can
+// Extend the resolved window back by the selected period's exact length, so one query returns both the
+// selected period and the period before it for a period-over-period comparison. `currentStart` and
+// `currentStartBucket` are formatted to match ClickHouse dateTrunc's DateTime output, so a caller can
 // split the returned rows on a plain string compare.
 export function buildComparisonWindow(
     dateFrom: string | null,
@@ -201,14 +203,12 @@ export function buildComparisonWindow(
     interval: IntervalType
 ): ComparisonWindow {
     const { start, end } = resolveWindow(dateFrom, dateTo, timezone)
-    // The selected period covers the inclusive buckets [start, end], which is one more than
-    // end.diff(start). Step the prior window back by that same count so the two halves of the
-    // comparison span an equal number of buckets.
-    const selectedBuckets = Math.max(1, end.diff(start, interval) + 1)
-    const priorStart = start.subtract(selectedBuckets, interval)
+    // A date-only end bound covers its whole day, so the period runs to the end of that day.
+    const periodEnd = dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateTo) ? end.endOf('day') : end
     return {
-        dateFrom: priorStart.toISOString(),
+        dateFrom: start.subtract(periodEnd.diff(start)).toISOString(),
         dateTo,
+        currentStart: start.format(BUCKET_FORMAT),
         currentStartBucket: startOfBucket(start, interval).format(BUCKET_FORMAT),
     }
 }

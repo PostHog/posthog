@@ -675,7 +675,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     // interval-aligned (buildComparisonWindow truncates to the bucket start), so comparing the raw
                     // `timestamp` against toDateTime(bucket, tz) lands on the same instant as the KPI
                     // tiles' dateTrunc bucket-string split — keeping this count consistent with them.
-                    // (For rolling sub-day ranges the two halves can differ by up to one interval, the
+                    // (For rolling sub-day ranges the two halves can differ by up to two intervals, the
                     // same bounded skew the KPI tiles already carry; splitting on the raw start instead
                     // would equalize the halves but desync Users from the other tiles, so don't.)
                     const curStart = `toDateTime('${kpiWindow.currentStartBucket}', '${timezone}')`

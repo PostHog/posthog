@@ -46,14 +46,14 @@ function bucketExpr(interval: IntervalType): string {
 /**
  * Headline totals for the selected period and the equal-length period before it.
  *
- * Runs over the doubled window and splits on `currentStartBucket`, so both halves come back from one
+ * Runs over the doubled window and splits on `currentStart`, so both halves come back from one
  * scan. Distinct counts have to be measured over the whole period rather than summed from the series
  * query: a person, session, or release active on more than one day would otherwise be counted once
  * per day. Column order is the contract `parseComparisonTotals` reads.
  */
-export function buildComparisonTotalsQuery(currentStartBucket: string, timezone: string): string {
-    const current = `timestamp >= toDateTime('${currentStartBucket}', '${timezone}')`
-    const previous = `timestamp < toDateTime('${currentStartBucket}', '${timezone}')`
+export function buildComparisonTotalsQuery(currentStart: string, timezone: string): string {
+    const current = `timestamp >= toDateTime('${currentStart}', '${timezone}')`
+    const previous = `timestamp < toDateTime('${currentStart}', '${timezone}')`
     const exception = "event = '$exception'"
     const session = 'notEmpty($session_id)'
     return `
