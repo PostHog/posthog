@@ -2,7 +2,7 @@ import datetime as dt
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import ClickhouseTestMixin, _create_event
+from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from posthog.models import Team
 
@@ -57,6 +57,9 @@ class TestRecentActionSessions(ClickhouseTestMixin):
         # report the team's whole session count and read as the liveliest action in the briefing.
         stepless = Action.objects.create(team=team, name="Never finished", steps_json=[])
         _event(team, "checkout completed", "s1", _NOW - dt.timedelta(hours=2))
+        # This path returns before it queries, and `_create_event` only writes its batch when a
+        # query runs. Without the flush the event stays pending and fails the next test's teardown.
+        flush_persons_and_events()
 
         assert recent_action_sessions(team=team, action_ids=[stepless.id]) == {}
 
