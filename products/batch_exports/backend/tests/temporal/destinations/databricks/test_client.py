@@ -8,6 +8,7 @@ import dataclasses
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from databricks.sdk.errors import InternalError
 from databricks.sql.exc import OperationalError, RequestError, ServerOperationError
 
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
@@ -270,6 +271,21 @@ class TestConnect:
                 pass
 
         assert mock_sql_connect.sql_connect.call_count == 1
+
+    async def test_reports_sdk_error_as_connection_error(
+        self, client: DatabricksClient, fast_backoff, mock_sql_connect: MockDatabricksSqlConnect
+    ):
+        client.connect_max_attempts = 2
+        mock_sql_connect.sql_connect.side_effect = InternalError("unexpected response from the OIDC endpoint")
+
+        with (
+            patch.object(client, "_check_host_reachable", new=AsyncMock()),
+            pytest.raises(DatabricksConnectionError, match="Failed to connect to Databricks"),
+        ):
+            async with client.connect():
+                pass
+
+        assert mock_sql_connect.sql_connect.call_count == 2
 
 
 class TestQueryBuilders:
