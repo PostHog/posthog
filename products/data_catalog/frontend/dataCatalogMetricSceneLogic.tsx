@@ -101,7 +101,9 @@ export interface dataCatalogMetricSceneLogicActions {
     deleteMetric: () => {
         value: true
     }
-    loadMetric: () => any
+    loadMetric: () => {
+        value: true
+    }
     loadMetricFailure: (
         error: string,
         errorObject?: any
@@ -205,6 +207,9 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
     path((key) => ['products', 'data_catalog', 'frontend', 'dataCatalogMetricSceneLogic', key]),
     connect([dataCatalogAgentSyncLogic]),
     actions({
+        // Declared here as well as by the loader: the loader takes a breakpoint, so without this the
+        // generated action would require a payload every call site has to pass.
+        loadMetric: true,
         setMetric: (metric: DataCatalogMetricApi) => ({ metric }),
         approveMetric: true,
         refreshMetricFromInsight: true,
