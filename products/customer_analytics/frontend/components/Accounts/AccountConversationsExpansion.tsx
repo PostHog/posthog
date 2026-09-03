@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
 import { IconChevronDown, IconLock, IconSupport } from '@posthog/icons'
 import {
     LemonBanner,
@@ -18,7 +19,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { BigLeaguesHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -43,6 +44,8 @@ import { accountEmailThreadsLogic, MESSAGE_PAGE_SIZE } from './accountEmailThrea
 import { periodLabel } from './AccountSummariesExpansion'
 import { AccountSummaryCadencePicker } from './AccountSummaryCadencePicker'
 
+const HedgehogBusiness = pngHoggie(businessEvolutionPng)
+
 const SOURCE_OPTIONS: { key: ConversationSource; label: string }[] = [
     { key: 'email', label: 'Gmail' },
     { key: 'support', label: 'Support' },
@@ -53,7 +56,7 @@ const VISIBLE_PARTICIPANT_COUNT = 3
 function EmptyState({ title, detail }: { title: string; detail: string }): JSX.Element {
     return (
         <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
-            <BigLeaguesHog className="w-24 h-24" />
+            <HedgehogBusiness className="w-24 h-24" />
             <h4 className="mb-0">{title}</h4>
             <p className="text-secondary max-w-sm mb-0">{detail}</p>
         </div>

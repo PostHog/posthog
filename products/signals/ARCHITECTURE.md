@@ -216,11 +216,15 @@ Bulk sync (`sync_full_cache`) fans the per-repo sync out via `run_parallel_with_
 
 #### Re-promotion
 
-Reports are re-promoted when new evidence arrives. A `READY` / `RESOLVED` report re-promotes on every new matching signal (so research reruns with the latest evidence), and a report reset to `potential` re-promotes once it clears the `signals_at_run` snooze gate again.
+Reports are re-promoted when new evidence arrives. A `READY` report re-promotes when a new matching signal carries it to its next research bucket, and a report reset to `potential` re-promotes once it clears the `signals_at_run` snooze gate again.
 
-**Re-research cap.** The research activity reads every non-deleted signal, so re-research cost scales with report size. Once an already-researched report exceeds `RERESEARCH_MAX_SIGNALS` (`SIGNAL_RERESEARCH_MAX_SIGNALS`, default 10), `READY` re-promotion is suppressed: new signals are still assigned, weighted, and emitted, but no new summary run spawns. The cap is enforced in two places: the grouping promotion gate (`assign_and_emit_signal_activity`), which fires the `signal_report_reresearch_skipped` event per suppressed signal so the saved volume is trackable, and the summary self-loop (`mark_report_ready_activity`), which stops an in-flight run from looping into another research pass (no event — this is a rare mid-run edge).
+**Research buckets.** The research activity reads every non-deleted signal, so re-research cost scales with report size, and a report that re-researched on every signal spent most of its runs re-reading a report that had barely moved. Instead, a report researches at the cumulative signal counts in `RESEARCH_SIGNAL_BUCKETS` (`SIGNAL_RESEARCH_SIGNAL_BUCKETS`, default `1,2,4,10`), which by their number also cap it at four research passes. Between buckets, and past the last one, new signals are still assigned, weighted, and emitted, but no new summary run spawns.
 
-The cap covers **only** the `READY` / `RESOLVED` path (the one that re-promotes on every signal). Re-promotions through the `potential` gate stay uncapped — first research, `candidate` self-heal, snooze return, and a not-actionable reset re-accumulating weight — because they are weight / `signals_at_run`-gated rather than per-signal, so strong new evidence can still resurface a large report.
+`next_research_bucket(signals_researched)` is the single predicate, enforced in two places: the grouping promotion gate (`assign_and_emit_signal_activity`), which fires `signal_report_reresearch_skipped` per withheld signal with a `skip_reason` of `below_next_bucket` or `buckets_exhausted` so the saved volume is trackable, and the summary self-loop (`mark_report_ready_activity`), which decides whether signals that landed mid-run are worth another pass.
+
+`SignalReport.signals_researched` is the count the report's last **completed** pass covered, written when a run reaches `READY`. It is null until then, and `researched_signal_count` reconstructs it from the `signals_at_run` stamp for reports researched before the column existed, so the backlog carries no backfill. Reading it makes the predicate skip buckets the report is already past, so a report whose first pass ran at 5 signals waits for 10 rather than firing passes 2 and 3 back to back on the same evidence. Two properties follow from measuring completed work rather than attempts. A run that pauses on a quota gate before researching leaves the value untouched, so it costs the report nothing. And promotion tests the count the report has _reached_ against its next bucket rather than the crossing itself, so a bucket reached while the quota or daily-report gate suppressed promotion is still claimable on the next signal instead of being skipped for the report's life.
+
+Buckets gate **only** the `READY` re-research path. Re-promotions through the `potential` gate stay uncapped — first research, `candidate` self-heal, snooze return, and a not-actionable reset re-accumulating weight — because they are weight / `signals_at_run`-gated rather than per-signal, so strong new evidence can still resurface a large report.
 
 On re-promotion:
 
@@ -371,9 +375,10 @@ potential → candidate → in_progress → ready
                                     → potential (reset by actionability judge)
                                     → candidate (mid-run quota pause; re-promotes on the next matching signal)
 
-# Re-promotion: READY reports are re-promoted to candidate on each new matching signal,
-# triggering a new summary run that reuses the previous repo selection and findings for
-# already-seen signals. Suppressed once signal_count > RERESEARCH_MAX_SIGNALS (see Re-research cap).
+# Re-promotion: a READY report is re-promoted to candidate by the signal that carries it to its
+# next bucket in RESEARCH_SIGNAL_BUCKETS, triggering a new summary run that reuses the previous
+# repo selection and findings for already-seen signals. Suppressed between buckets and once every
+# bucket is used (see Research buckets).
 # RESOLVED is terminal and never re-promotes: a recurrence spawns a fresh report, linked back to the
 # resolved one via a related_to artefact (assign_and_emit_signal_activity).
 ready → candidate
@@ -1014,7 +1019,7 @@ Telemetry is best-effort; failures are logged, not raised.
 
 ## LLM Integration
 
-Most direct LLM calls use Anthropic via the shared `call_llm()` helper in `backend/temporal/llm.py`, with model selection driven by `SIGNAL_MATCHING_LLM_MODEL` (default: `claude-sonnet-4-5`).
+Most direct LLM calls use Anthropic via the shared `call_llm()` helper in `backend/temporal/llm.py`, with model selection driven by `SIGNAL_MATCHING_LLM_MODEL` (default: `claude-sonnet-5`). The emission stage (summarization, actionability) uses its own `SIGNAL_EMISSION_LLM_MODEL` (default: `claude-sonnet-5`). Each model's request shape (assistant prefill, per-request temperature, extended thinking) is resolved from `MODEL_CAPABILITIES` in `backend/temporal/llm.py`, so swapping either default is a config change. Adaptive-thinking models run every call at `ADAPTIVE_MODEL_EFFORT` (`medium`), set through `effort_kwargs()` in the same module.
 
 That said, **not all “LLM-ish” behavior in Signals goes through `call_llm()` anymore**:
 
@@ -1376,7 +1381,8 @@ Signal {index}:
 | Setting                                  | Default                       | Description                                                                                                                  |
 | ---------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `SIGNAL_WEIGHT_THRESHOLD`                | `1.0`                         | Total weight needed to promote a report to candidate                                                                         |
-| `SIGNAL_MATCHING_LLM_MODEL`              | `claude-sonnet-4-5`           | LLM model for all signal operations                                                                                          |
+| `SIGNAL_MATCHING_LLM_MODEL`              | `claude-sonnet-5`             | LLM model for matching, grouping, and safety-judge signal operations                                                         |
+| `SIGNAL_EMISSION_LLM_MODEL`              | `claude-sonnet-5`             | LLM model for emission-stage summarization and actionability checks                                                          |
 | `MAX_RESPONSE_TOKENS`                    | `4096`                        | Base max tokens for LLM responses (thinking uses 3× for max_tokens, 2× for budget)                                           |
 | Embedding model                          | `text-embedding-3-small-1536` | OpenAI embedding model used for signal content                                                                               |
 | Task queue                               | `VIDEO_EXPORT_TASK_QUEUE`     | Temporal task queue for all workflows                                                                                        |

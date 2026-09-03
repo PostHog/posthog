@@ -295,6 +295,7 @@ POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
 # foreground streams.
 POSTHOG_EXEC_PERSIST_SUB_TOOLS: tuple[str, ...] = (
     "dashboard-create",
+    "dashboard-create-tile",
     "dashboard-create-text-tile",
     "dashboard-tile-copy",
     "dashboard-widgets-batch-add",
@@ -525,6 +526,8 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "AI_GATEWAY_URL",
         "AI_GATEWAY_PRODUCTS",
         "AI_GATEWAY_TOKEN",
+        "AI_GATEWAY_PRODUCT",
+        "AI_GATEWAY_AI_STAGE",
         "POSTHOG_RESUME_RUN_ID",
         "POSTHOG_AGENT_OTEL_LOGS_URL",
         "POSTHOG_AGENT_OTEL_LOGS_TOKEN",

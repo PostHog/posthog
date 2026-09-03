@@ -9,6 +9,13 @@ import {
     prepareConfirmedAction,
     type PrepareConfirmedActionResult,
 } from '@/tools/confirmed-action-runtime'
+import {
+    withPostHogUrl,
+    withInformationalResponse,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithInformationalResponse,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DataCatalogCertificationCertifySchema = () => {
@@ -312,6 +319,69 @@ const dataCatalogMetricCreate = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/`,
             body,
+        })
+        return result
+    },
+})
+
+const DataCatalogMetricDeleteSchema = () => {
+    const DataCatalogMetricsDestroyParams = orvalSchemas.DataCatalogMetricsDestroyParams()
+    return DataCatalogMetricsDestroyParams.omit({ project_id: true })
+}
+
+const DataCatalogMetricDeleteSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const dataCatalogMetricDeletePrepare = (): ToolBase<
+    ReturnType<typeof DataCatalogMetricDeleteSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'data-catalog-metric-delete-prepare',
+    schema: DataCatalogMetricDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogMetricDeleteSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'data-catalog-metric-delete',
+            actionLabel: 'delete metric',
+            messageTemplate: "About to delete metric '{name}'. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const dataCatalogMetricDeleteExecute = (): ToolBase<typeof DataCatalogMetricDeleteSchemaExecute, unknown> => ({
+    name: 'data-catalog-metric-delete-execute',
+    schema: DataCatalogMetricDeleteSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof DataCatalogMetricDeleteSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof DataCatalogMetricDeleteSchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'data-catalog-metric-delete',
+                codec: __runtime.codec,
+                ledger: __runtime.ledger,
+                stash: __runtime.stash,
+                expectedScope: { projectId: String(__scopeProjectId) },
+            }
+        )
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/`,
         })
         return result
     },
@@ -639,6 +709,74 @@ const dataCatalogRelationshipRejectExecute = (): ToolBase<
     },
 })
 
+const MetricDescribeSchema = () => {
+    const DataCatalogMetricsRetrieveParams = orvalSchemas.DataCatalogMetricsRetrieveParams()
+    return DataCatalogMetricsRetrieveParams.omit({ project_id: true })
+}
+
+const metricDescribe = (): ToolBase<
+    ReturnType<typeof MetricDescribeSchema>,
+    WithInformationalResponse<Schemas.DataCatalogMetric>
+> => ({
+    name: 'metric-describe',
+    schema: MetricDescribeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MetricDescribeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.DataCatalogMetric>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/`,
+        })
+        return withInformationalResponse(
+            result,
+            'governed-metric-definition',
+            "Use it only to understand or adapt the metric definition for the user's request."
+        )
+    },
+})
+
+const MetricListSchema = () => {
+    const DataCatalogMetricsListQueryParams = orvalSchemas.DataCatalogMetricsListQueryParams()
+    return DataCatalogMetricsListQueryParams
+}
+
+const metricList = (): ToolBase<
+    ReturnType<typeof MetricListSchema>,
+    WithInformationalResponse<WithPostHogUrl<Schemas.PaginatedDataCatalogMetricList>>
+> => ({
+    name: 'metric-list',
+    schema: MetricListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MetricListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedDataCatalogMetricList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'name',
+                    'display_name',
+                    'description',
+                    'status',
+                    'is_drifted',
+                    'unit',
+                    'definition_kind',
+                ])
+            ),
+        } as typeof result
+        return withInformationalResponse(
+            await withPostHogUrl(context, filtered, '/data-catalog'),
+            'governed-metric-catalog',
+            "Use it only to identify a metric relevant to the user's request."
+        )
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-catalog-certification-certify-prepare': dataCatalogCertificationCertifyPrepare,
     'data-catalog-certification-certify-execute': dataCatalogCertificationCertifyExecute,
@@ -648,6 +786,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-catalog-metric-approve-prepare': dataCatalogMetricApprovePrepare,
     'data-catalog-metric-approve-execute': dataCatalogMetricApproveExecute,
     'data-catalog-metric-create': dataCatalogMetricCreate,
+    'data-catalog-metric-delete-prepare': dataCatalogMetricDeletePrepare,
+    'data-catalog-metric-delete-execute': dataCatalogMetricDeleteExecute,
     'data-catalog-metric-run': dataCatalogMetricRun,
     'data-catalog-metric-update': dataCatalogMetricUpdate,
     'data-catalog-metrics-refresh-from-insight-create': dataCatalogMetricsRefreshFromInsightCreate,
@@ -656,4 +796,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-catalog-relationship-propose': dataCatalogRelationshipPropose,
     'data-catalog-relationship-reject-prepare': dataCatalogRelationshipRejectPrepare,
     'data-catalog-relationship-reject-execute': dataCatalogRelationshipRejectExecute,
+    'metric-describe': metricDescribe,
+    'metric-list': metricList,
 }
