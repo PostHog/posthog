@@ -51947,6 +51947,40 @@ export namespace Schemas {
       cursor_head?: number | null;
     }
 
+    export interface NotebookComputePreset {
+      /** Stable identifier for the preset, e.g. 'balanced'. */
+      key: string;
+      /** Preset name as a person reads it, e.g. 'Balanced'. */
+      name: string;
+      /** What this preset suits, in one sentence. */
+      description: string;
+      /** CPU cores the preset provisions. */
+      cpu_cores: number;
+      /** Memory in GB the preset provisions. */
+      memory_gb: number;
+      /** What this preset costs per hour in USD while it is alive. */
+      hourly_price: number;
+    }
+
+    export interface NotebookComputeOptionsResponse {
+      /** Currency of every price in this response. Always 'USD'. */
+      currency: string;
+      /** Price of one CPU core for one hour, in USD. */
+      cpu_rate_per_core_hour: number;
+      /** Price of one GB of memory for one hour, in USD. */
+      memory_rate_per_gb_hour: number;
+      /** Preset a sandbox starts with when the notebook sets no compute config. */
+      default_preset_key: string;
+      /** Sandbox shapes offered as one-click options. */
+      presets: NotebookComputePreset[];
+      /** CPU core counts the kernel config endpoint accepts. */
+      allowed_cpu_cores: number[];
+      /** Memory sizes in GB the kernel config endpoint accepts. */
+      allowed_memory_gb: number[];
+      /** Idle timeouts in seconds the kernel config endpoint accepts. */
+      allowed_idle_timeout_seconds: number[];
+    }
+
     export interface NotebookKernelConfig {
       /** CPU cores for the notebook's sandbox kernel; must be a supported option. */
       cpu_cores?: number;
@@ -51972,8 +52006,17 @@ export namespace Schemas {
          * @nullable
          */
       idle_timeout_seconds?: number | null;
-      /** True when a kernel is currently active: config applies at sandbox provision time, so the running kernel keeps its old resources until restarted (restarting loses materialized dataframes). */
+      /** True when this call restarted a live kernel to apply a new size. Restarting discards every materialized dataframe, so cells that referenced one must run again. */
+      restarted: boolean;
+      /** True when a kernel is live and this call did not restart it, so the running sandbox may not match the saved config. A resize restarts the kernel and reports False on success, or True if that restart fails. An idle-timeout change and a no-op on a live kernel also report True. */
       restart_required: boolean;
+      /** What this sandbox shape costs per hour in USD while it is alive, at this region's rates. It tracks the running sandbox while a kernel is live, otherwise the configured shape. After a failed resize this stays the running sandbox's rate, not the size that failed to apply. */
+      hourly_price: number;
+      /**
+         * Compute preset the configured shape matches, or null when it was tuned by hand.
+         * @nullable
+         */
+      preset_key?: string | null;
     }
 
     export interface NotebookKernelState {
@@ -52066,6 +52109,13 @@ export namespace Schemas {
          * @nullable
          */
       idle_timeout_seconds?: number | null;
+      /** What this sandbox shape costs per hour in USD while it is alive, at this region's rates. Charged on the sandbox's lifetime, not on how much of it a cell uses. Resizing through the kernel config endpoint restarts a live kernel, so this tracks the running sandbox. */
+      hourly_price: number;
+      /**
+         * Compute preset for the shape hourly_price describes: the running sandbox while a kernel is live, otherwise the configured shape. Null when that shape was tuned by hand and matches no preset.
+         * @nullable
+         */
+      preset_key?: string | null;
     }
 
     export interface NotebookMarkdownSave {
@@ -52228,6 +52278,13 @@ export namespace Schemas {
     export interface NotebookSQLV2RunResponse {
       /** Identifier of the dispatched run. Poll the run result endpoint with it until the status is terminal. */
       run_id: string;
+      /** True when this run has to provision a sandbox because none is live for the caller, checked here rather than inferred from a client's cached kernel status. Tell the user what that costs. */
+      starts_sandbox: boolean;
+      /**
+         * What the sandbox this run provisions costs per hour in USD. Null when the run needs no new sandbox, or when the backend is not charged.
+         * @nullable
+         */
+      sandbox_hourly_price?: number | null;
     }
 
     export interface NotebookSQLV2RunStatusResponse {
@@ -55381,6 +55438,11 @@ export namespace Schemas {
       readonly is_demo: boolean;
       readonly timezone: string;
       readonly access_control: boolean;
+      /**
+         * Labels applied to this project.
+         * @items.maxLength 255
+         */
+      readonly tags: readonly string[];
     }
 
     export interface PaginatedProjectBackwardCompatBasicList {
@@ -58603,6 +58665,11 @@ export namespace Schemas {
       readonly author_type: string;
       /** Display name of the author. */
       readonly author_name: string;
+      /**
+         * Email of the authoring PostHog user, when the message was written by one (support replies and internal notes). Null for customer and AI messages.
+         * @nullable
+         */
+      readonly author_email: string | null;
       /** True for internal notes not visible to the customer. */
       readonly is_private: boolean;
       /** True when the complete inbound email body can be retrieved. */
@@ -64575,7 +64642,10 @@ export namespace Schemas {
     }
 
     /**
-     * Mixin for serializers to add user access control fields
+     * A project and its settings, including the settings that live on its passthrough Team.
+     *
+     * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+     * onto /api/projects/ never loses a field.
      */
     export interface PatchedProjectBackwardCompat {
       readonly id?: number;
@@ -64592,6 +64662,11 @@ export namespace Schemas {
          * @nullable
          */
       product_description?: string | null;
+      /**
+         * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       readonly created_at?: string;
       readonly effective_membership_level?: OrganizationMembershipLevelEnum;
       readonly has_group_types?: boolean;
@@ -68969,7 +69044,10 @@ export namespace Schemas {
     export type ProjectBackwardCompatManagedViewsets = {[key: string]: boolean};
 
     /**
-     * Mixin for serializers to add user access control fields
+     * A project and its settings, including the settings that live on its passthrough Team.
+     *
+     * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+     * onto /api/projects/ never loses a field.
      */
     export interface ProjectBackwardCompat {
       readonly id: number;
@@ -68986,6 +69064,11 @@ export namespace Schemas {
          * @nullable
          */
       product_description?: string | null;
+      /**
+         * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       readonly created_at: string;
       readonly effective_membership_level: OrganizationMembershipLevelEnum;
       readonly has_group_types: boolean;
@@ -90426,7 +90509,23 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    /**
+     * Comma-separated tag names to filter by, for example `production,eu-region`. Names are trimmed and lowercased before matching. At most 20 distinct tags per request.
+     */
+    tags?: string;
+    /**
+     * How to combine the `tags` filter. `all` (the default) returns projects carrying every listed tag; `any` returns projects carrying at least one.
+     */
+    tags_match?: OrganizationsProjectsListTagsMatch;
     };
+
+    export type OrganizationsProjectsListTagsMatch = typeof OrganizationsProjectsListTagsMatch[keyof typeof OrganizationsProjectsListTagsMatch];
+
+
+    export const OrganizationsProjectsListTagsMatch = {
+      All: 'all',
+      Any: 'any',
+    } as const;
 
     export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
     /**

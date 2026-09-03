@@ -139,13 +139,7 @@ import {
 } from './environment/SessionRecordingSettings'
 import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
-import {
-    TeamAuthorizedURLs,
-    TeamBusinessModel,
-    TeamDisplayName,
-    TeamTimezone,
-    TeamVariables,
-} from './environment/TeamSettings'
+import { TeamAuthorizedURLs, TeamBusinessModel, TeamTimezone, TeamVariables } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
@@ -171,6 +165,7 @@ import { OrganizationVariables } from './organization/OrgVariables'
 import { EnforceVerifiedDomains } from './organization/VerifiedDomains/EnforceVerifiedDomains'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
+import { ProjectDetails } from './project/ProjectDetails'
 import { ProjectMove } from './project/ProjectMove'
 import { ProjectSecretAPIKeys } from './project/ProjectSecretAPIKeys'
 import { SettingSection } from './types'
@@ -288,10 +283,10 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'display-name',
-                title: 'Display name',
-                description: 'A human-friendly name for this environment.',
-                component: <TeamDisplayName />,
-                keywords: ['name', 'rename', 'label'],
+                title: 'Project details',
+                description: 'Name this project and label it so you can group and find it across your organization.',
+                component: <ProjectDetails />,
+                keywords: ['name', 'rename', 'label', 'tag', 'tags'],
             },
             {
                 id: 'date-and-time',
