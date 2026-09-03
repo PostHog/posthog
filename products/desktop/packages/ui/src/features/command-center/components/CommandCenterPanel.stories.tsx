@@ -1,5 +1,6 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { Plus, X } from "@phosphor-icons/react";
+import { Button } from "@posthog/quill";
 import { TaskRepositoryChip } from "@posthog/ui/features/canvas/components/TaskRepositoryDialog";
 import { PromptHistoryDialog } from "@posthog/ui/features/message-editor/components/PromptHistoryDialog";
 import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
@@ -7,6 +8,7 @@ import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components
 import { WorkspaceModeSelect } from "@posthog/ui/features/task-detail/components/WorkspaceModeSelect";
 import { DotPatternBackground } from "@posthog/ui/primitives/DotPatternBackground";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { CommandCenterEmptyCell } from "./CommandCenterPanel";
 
 const modelOption = {
   id: "model",
@@ -34,20 +36,14 @@ const modeOption = {
 
 function EmptyGridCell() {
   return (
-    <div className="flex h-full items-center justify-center bg-gray-1">
-      <div className="flex select-none flex-col items-center gap-2">
-        <button
-          type="button"
-          className="flex items-center gap-1.5 rounded-md border border-gray-7 border-dashed px-3 py-1.5 text-[12px] text-gray-10"
-        >
+    <CommandCenterEmptyCell
+      action={
+        <Button type="button" variant="outline" size="default">
           <Plus size={12} />
           Add task
-        </button>
-        <span className="text-[11px] text-gray-9">
-          or drag a task from the sidebar
-        </span>
-      </div>
-    </div>
+        </Button>
+      }
+    />
   );
 }
 
