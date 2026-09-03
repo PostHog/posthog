@@ -1579,6 +1579,32 @@ class RunningTimeCalculationResultSerializer(serializers.Serializer):
     )
 
 
+class RunningTimeEstimateSerializer(serializers.Serializer):
+    """Derived running-time state for one experiment, computed from its live results or manual config."""
+
+    target_sample_size = serializers.IntegerField(
+        allow_null=True,
+        help_text="Recommended total sample size across all variants. Null when inputs are insufficient.",
+    )
+    current_exposures = serializers.IntegerField(
+        allow_null=True,
+        help_text="Exposed users so far across control and variants. Null in manual mode or when no results exist.",
+    )
+    remaining_days = serializers.IntegerField(
+        allow_null=True,
+        help_text="Estimated days left to reach the target sample size. Null when it cannot be estimated.",
+    )
+
+
+class RunningTimeEstimatesResponseSerializer(serializers.Serializer):
+    """Batch running-time estimates keyed by experiment id."""
+
+    results = serializers.DictField(
+        child=RunningTimeEstimateSerializer(),
+        help_text="Estimates keyed by experiment id. Requested ids with no matching experiment are omitted.",
+    )
+
+
 class ExperimentSessionMetricSourceHitSerializer(serializers.Serializer):
     """One event/action source of a metric with at least one matching event in a session recording."""
 

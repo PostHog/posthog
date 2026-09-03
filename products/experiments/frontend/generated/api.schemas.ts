@@ -2679,6 +2679,40 @@ export interface CreateFromPromptInputApi {
 }
 
 /**
+ * Derived running-time state for one experiment, computed from its live results or manual config.
+ */
+export interface RunningTimeEstimateApi {
+    /**
+     * Recommended total sample size across all variants. Null when inputs are insufficient.
+     * @nullable
+     */
+    target_sample_size: number | null
+    /**
+     * Exposed users so far across control and variants. Null in manual mode or when no results exist.
+     * @nullable
+     */
+    current_exposures: number | null
+    /**
+     * Estimated days left to reach the target sample size. Null when it cannot be estimated.
+     * @nullable
+     */
+    remaining_days: number | null
+}
+
+/**
+ * Estimates keyed by experiment id. Requested ids with no matching experiment are omitted.
+ */
+export type RunningTimeEstimatesResponseApiResults = { [key: string]: RunningTimeEstimateApi }
+
+/**
+ * Batch running-time estimates keyed by experiment id.
+ */
+export interface RunningTimeEstimatesResponseApi {
+    /** Estimates keyed by experiment id. Requested ids with no matching experiment are omitted. */
+    results: RunningTimeEstimatesResponseApiResults
+}
+
+/**
  * * `source` - source
  * * `step` - step
  * * `numerator` - numerator
@@ -2920,6 +2954,13 @@ export type ExperimentsPromptTemplatesRetrieve200Item = {
     key: string
     label: string
     description: string
+}
+
+export type ExperimentsRunningTimeEstimatesRetrieveParams = {
+    /**
+     * Comma-separated experiment ids to estimate, e.g. `12,45,88`.
+     */
+    ids: string
 }
 
 export type ExperimentsSessionContextRetrieveParams = {

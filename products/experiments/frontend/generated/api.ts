@@ -32,6 +32,7 @@ import type {
     ExperimentsActivityRetrieveParams,
     ExperimentsListParams,
     ExperimentsPromptTemplatesRetrieve200Item,
+    ExperimentsRunningTimeEstimatesRetrieveParams,
     ExperimentsSessionContextRetrieveParams,
     ExperimentsTimeseriesResultsRetrieveParams,
     PaginatedExperimentBasicListApi,
@@ -43,6 +44,7 @@ import type {
     RecalculateMetricsRequestApi,
     RunningTimeCalculationInputApi,
     RunningTimeCalculationResultApi,
+    RunningTimeEstimatesResponseApi,
     ShipVariantApi,
 } from './api.schemas'
 
@@ -1122,6 +1124,42 @@ export const experimentsPromptTemplatesRetrieve = async (
 ): Promise<ExperimentsPromptTemplatesRetrieve200Item[]> => {
     return apiMutator<ExperimentsPromptTemplatesRetrieve200Item[]>(
         getExperimentsPromptTemplatesRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getExperimentsRunningTimeEstimatesRetrieveUrl = (
+    projectId: string,
+    params: ExperimentsRunningTimeEstimatesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/running_time_estimates/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/running_time_estimates/`
+}
+
+/**
+ * Running-time estimates for a batch of experiments, keyed by experiment id. Derives each estimate from the experiment's latest results (automatic mode) or saved manual config, reading a short-lived cache. Pass a comma-separated `ids` query param; unknown ids are omitted from the response.
+ */
+export const experimentsRunningTimeEstimatesRetrieve = async (
+    projectId: string,
+    params: ExperimentsRunningTimeEstimatesRetrieveParams,
+    options?: RequestInit
+): Promise<RunningTimeEstimatesResponseApi> => {
+    return apiMutator<RunningTimeEstimatesResponseApi>(
+        getExperimentsRunningTimeEstimatesRetrieveUrl(projectId, params),
         {
             ...options,
             method: 'GET',

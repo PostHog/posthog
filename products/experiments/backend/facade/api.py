@@ -5,6 +5,8 @@ This module provides the public interface for creating and managing experiments
 using framework-free DTOs, wrapping the existing ExperimentService.
 """
 
+from collections.abc import Iterable
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.team import Team
@@ -12,6 +14,8 @@ from posthog.models.user import User
 
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import Experiment as ExperimentModel
+from products.experiments.backend.running_time_calculator import RunningTimeEstimate
+from products.experiments.backend.running_time_estimate_service import compute_running_time_estimate
 
 from .contracts import CreateExperimentInput, Experiment
 
@@ -87,6 +91,15 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
 
     # Convert model to DTO
     return _experiment_model_to_dto(experiment_model)
+
+
+def get_running_time_estimates(experiments: Iterable[ExperimentModel]) -> dict[str, RunningTimeEstimate]:
+    """Running-time estimate per experiment, keyed by id, for the caller's already team-scoped experiments.
+
+    Reads a short-lived cache and, in automatic mode, the latest metric result. The caller owns team
+    scoping; this only computes over the experiments it is handed.
+    """
+    return {str(experiment.id): compute_running_time_estimate(experiment) for experiment in experiments}
 
 
 def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:
