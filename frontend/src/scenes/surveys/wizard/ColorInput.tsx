@@ -10,6 +10,7 @@ interface ColorInputProps {
     onChange: (value: string) => void
     onFocus?: () => void
     onBlur?: () => void
+    onPressEnter?: () => void
     disabled?: boolean
     disabledReason?: string
     colorList?: string[]
@@ -70,6 +71,7 @@ export function ColorInput({
     onChange,
     onFocus,
     onBlur,
+    onPressEnter,
     disabled,
     disabledReason,
     colorList,
@@ -112,6 +114,7 @@ export function ColorInput({
                     onChange={onChange}
                     onFocus={onFocus}
                     onBlur={onBlur}
+                    onPressEnter={onPressEnter}
                     placeholder="#000000 or var(--color)"
                     className="flex-1 font-mono text-xs ignore-error-border"
                     size="small"

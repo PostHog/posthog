@@ -78,6 +78,11 @@ function SurveyAppearanceInput({
     // A half-typed CSS value is invalid on almost every keystroke, so wait for blur to report it.
     const [isEditing, setIsEditing] = useState(false)
 
+    function onValueChange(newValue: string): void {
+        setIsEditing(true)
+        onChange(newValue)
+    }
+
     function onEditingDone(): void {
         setIsEditing(false)
         const normalizedValue = normalizeCSSValue(value)
@@ -86,23 +91,27 @@ function SurveyAppearanceInput({
         }
     }
 
+    // Enter submits the survey form and keeps the focus, so it must also end the edit.
+    // Do not blur the field instead: that moves the focus and cancels the submission.
     return (
         <LemonField.Pure label={label} className="flex-1 gap-1" info={info}>
             {inputType === 'color' ? (
                 <ColorInput
                     value={value}
-                    onChange={onChange}
+                    onChange={onValueChange}
                     onFocus={() => setIsEditing(true)}
                     onBlur={onEditingDone}
+                    onPressEnter={onEditingDone}
                     disabled={disabled}
                     disabledReason={disabledReason || undefined}
                 />
             ) : (
                 <LemonInput
                     value={value}
-                    onChange={onChange}
+                    onChange={onValueChange}
                     onFocus={() => setIsEditing(true)}
                     onBlur={onEditingDone}
+                    onPressEnter={onEditingDone}
                     disabled={disabled}
                     className={IGNORE_ERROR_BORDER_CLASS}
                     placeholder={placeholder}
