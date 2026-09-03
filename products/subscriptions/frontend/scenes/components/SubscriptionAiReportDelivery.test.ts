@@ -1,10 +1,19 @@
+import { render, screen } from '@testing-library/react'
+import { createElement } from 'react'
+
 import type {
     AIReportQueryDiagnosticApi,
     SubscriptionDeliveryApi,
 } from 'products/subscriptions/frontend/generated/api.schemas'
 import { SubscriptionDeliveryStatusEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
-import { isPartialDelivery, queryFailureReason, queryStatusLabel } from './SubscriptionAiReportDelivery'
+import {
+    ExpandedDeliveryRow,
+    isPartialDelivery,
+    queryFailureReason,
+    queryStatusLabel,
+} from './SubscriptionAiReportDelivery'
+import { MOCK_SUBSCRIPTION_DELIVERIES } from './subscriptionStoryFixtures'
 
 const diagnostic = (ok: boolean): AIReportQueryDiagnosticApi => ({
     description: 'q',
@@ -64,5 +73,12 @@ describe('SubscriptionAiReportDelivery helpers', () => {
         ])('%s', (_name, ok, human_readable_error, expected) => {
             expect(queryFailureReason({ ok, human_readable_error })).toBe(expected)
         })
+    })
+
+    it('renders a surfaced query failure in the standard error treatment', () => {
+        render(createElement(ExpandedDeliveryRow, { row: MOCK_SUBSCRIPTION_DELIVERIES[1] }))
+
+        const failure = screen.getByText("Unknown function: 'first_ever'")
+        expect(failure.closest('.LemonBanner--error')).not.toBeNull()
     })
 })
