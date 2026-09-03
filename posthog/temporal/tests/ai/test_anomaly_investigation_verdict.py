@@ -1,10 +1,13 @@
 """Verifies that the workflow activity persists the agent's verdict onto the AlertCheck."""
 
+from datetime import UTC, datetime
+
 import pytest
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import patch
 
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 
 from posthog.schema import AlertState
 
@@ -12,6 +15,7 @@ from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 from posthog.temporal.ai.anomaly_investigation.runner import InvestigationRunResult
 from posthog.temporal.ai.anomaly_investigation.workflow import (
     AnomalyInvestigationWorkflowInputs,
+    _deliver_investigation_outcome,
     investigate_anomaly_activity,
 )
 
@@ -211,3 +215,69 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         extra_properties = mock_dispatch.call_args.kwargs["extra_properties"]
         assert "/exporter/" in extra_properties["insight_chart_url"]
         assert "token=" in extra_properties["insight_chart_url"]
+
+
+class TestVerdictChangeFollowup(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.insight = Insight.objects.create(team=self.team, name="test insight")
+        self.alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight=self.insight,
+            name="anomaly alert",
+            detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
+            investigation_agent_enabled=True,
+            investigation_gates_notifications=True,
+            state=AlertState.FIRING,
+            created_by=self.user,
+        )
+        # A later check of a firing episode: it was never gated, so its notification is
+        # already out and a changed verdict is the only thing left to tell the user.
+        self.alert_check = AlertCheck.objects.create(
+            alert_configuration=self.alert,
+            state=AlertState.FIRING,
+            calculated_value=42.0,
+            notification_sent_at=datetime.now(UTC),
+        )
+
+    @parameterized.expand(
+        [
+            ("reversed_to_false_positive", "false_positive", "notify", True),
+            ("turned_inconclusive_and_policy_notifies", "inconclusive", "notify", True),
+            ("turned_inconclusive_and_policy_suppresses", "inconclusive", "suppress", False),
+            ("verdict_held", "true_positive", "notify", False),
+        ]
+    )
+    @patch("posthog.temporal.ai.anomaly_investigation.workflow.dispatch_alert_notification", return_value=[])
+    def test_follow_up_after_a_true_positive(
+        self,
+        _name: str,
+        verdict: str,
+        inconclusive_action: str,
+        expect_follow_up: bool,
+        mock_dispatch,
+    ) -> None:
+        self.alert.investigation_inconclusive_action = inconclusive_action
+        self.alert.save()
+
+        _deliver_investigation_outcome(
+            alert=self.alert,
+            alert_check=self.alert_check,
+            verdict=verdict,
+            previous_verdict="true_positive",
+            summary="The spike is a bot crawl.",
+            notebook_short_id=None,
+        )
+
+        self.alert_check.refresh_from_db()
+        if not expect_follow_up:
+            mock_dispatch.assert_not_called()
+            assert self.alert_check.targets_notified == {}
+            return
+
+        mock_dispatch.assert_called_once()
+        breaches = mock_dispatch.call_args.args[2]
+        assert breaches[0].startswith("Investigation verdict changed from True positive to")
+        assert self.alert_check.targets_notified == {"investigation_verdict_change": True}

@@ -433,12 +433,15 @@ def _build_signal_description(
     return description
 
 
+def _inconclusive_is_suppressed(verdict: str | None, inconclusive_action: str | None) -> bool:
+    """Whether an inconclusive verdict is held back by the alert's configured policy."""
+    return verdict == "inconclusive" and (inconclusive_action or "notify") == "suppress"
+
+
 def _should_suppress_notification(verdict: str | None, inconclusive_action: str | None) -> bool:
     """Whether the verdict holds the notification back: false positives always suppress,
     inconclusive follows the alert's configured policy."""
-    return verdict == "false_positive" or (
-        verdict == "inconclusive" and (inconclusive_action or "notify") == "suppress"
-    )
+    return verdict == "false_positive" or _inconclusive_is_suppressed(verdict, inconclusive_action)
 
 
 def _prepare_insight_chart_url(
@@ -515,7 +518,9 @@ def _deliver_investigation_outcome(
 
     A later investigation of the same episode is not gated, so its notification already
     went out. It gets a follow-up only when the verdict changed, because the change is
-    the news; an unchanged verdict would repeat what the user already read.
+    the news; an unchanged verdict would repeat what the user already read. A change to
+    a false positive is a correction of a message the user already has, so it is sent
+    rather than suppressed.
 
     Idempotent: if another codepath (retry, safety-net task) already dispatched,
     the first delivery is a no-op, and the follow-up is written once per check.
@@ -533,7 +538,6 @@ def _deliver_investigation_outcome(
                 previous_verdict=previous_verdict,
                 summary=summary,
                 notebook_short_id=notebook_short_id,
-                suppress=suppress,
             )
             return
 
@@ -585,15 +589,21 @@ def _dispatch_verdict_change_followup(
     previous_verdict: str | None,
     summary: str,
     notebook_short_id: str | None,
-    suppress: bool,
 ) -> None:
     """Send one follow-up for a check whose notification already went out and whose verdict
     changed since the previous investigation of the same episode.
 
+    A false positive does not hold this back the way it holds back a first notification.
+    The user was already told the anomaly was real, so the correction is the whole point of
+    the message. An inconclusive verdict still follows the alert's configured policy: a user
+    who asked not to hear about unsure verdicts did not ask to hear about them here.
+
     Caller holds the row lock. The marker on `targets_notified` is the idempotency guard, so
     an activity retry past a successful send cannot notify twice.
     """
-    if suppress or not previous_verdict or verdict == previous_verdict:
+    if not previous_verdict or verdict == previous_verdict:
+        return
+    if _inconclusive_is_suppressed(verdict, alert.investigation_inconclusive_action):
         return
     receipts = check.targets_notified or {}
     if receipts.get(_VERDICT_CHANGE_FOLLOWUP_KEY):
