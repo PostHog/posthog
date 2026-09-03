@@ -173,6 +173,28 @@ describe('ScoutConfigForm', () => {
         unmount()
     })
 
+    // The fleet polls while the panel is open, so a schedule set from another tab or by a teammate
+    // reaches the form under the open field. An untouched field must follow it, and leaving the
+    // field without typing must not write the expression it opened with back over it.
+    it('follows a cron set elsewhere until the field is typed in', () => {
+        const onUpdate = jest.fn()
+        const customConfig = { ...config, run_cron_schedule: '0 9 1 2 *' }
+        const { getByLabelText, rerender, unmount } = render(
+            <ScoutConfigForm config={customConfig} onUpdate={onUpdate} />
+        )
+        const input = getByLabelText('signals-scout-general cron expression')
+
+        expect(input).toHaveValue('0 9 1 2 *')
+
+        rerender(<ScoutConfigForm config={{ ...customConfig, run_cron_schedule: '0 9 * * 1-5' }} onUpdate={onUpdate} />)
+        expect(input).toHaveValue('0 9 * * 1-5')
+
+        fireEvent.focus(input)
+        fireEvent.blur(input)
+        expect(onUpdate).not.toHaveBeenCalled()
+        unmount()
+    })
+
     // Guards the pin's wire values: a model option must patch the raw model id (not its display
     // label), and Default must patch null (not '') — the backend treats null as "clear the pin".
     it('pins a model from the dropdown and clears the pin via Default', () => {

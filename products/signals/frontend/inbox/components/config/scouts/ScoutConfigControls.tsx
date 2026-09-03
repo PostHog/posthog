@@ -353,13 +353,16 @@ function ScoutCustomCronField({
     disabledReason?: string
     projectTimezone: string
 }): JSX.Element {
-    const [draft, setDraft] = useState(config.run_cron_schedule ?? '')
-    const expression = draft.trim()
+    // Null until something is typed, so an untouched field follows a schedule set elsewhere and a
+    // blur that changed nothing writes nothing. Once typed, the text stays put — a rejected save
+    // must leave the expression on screen to correct.
+    const [draft, setDraft] = useState<string | null>(null)
+    const expression = (draft ?? config.run_cron_schedule ?? '').trim()
     // An empty field is a half-finished edit, not a mistake, so it stays neutral and saves nothing.
     const error = expression ? scoutCronScheduleError(expression) : null
     const hint = error ?? describeCron(expression)
     const save = (): void => {
-        if (!expression || error || expression === config.run_cron_schedule) {
+        if (draft === null || !expression || error || expression === config.run_cron_schedule) {
             return
         }
         onUpdate(config.id, { run_cron_schedule: expression })
@@ -376,7 +379,7 @@ function ScoutCustomCronField({
             <div className="flex flex-col gap-1 w-44 shrink-0">
                 <LemonInput
                     size="small"
-                    value={draft}
+                    value={draft ?? config.run_cron_schedule ?? ''}
                     placeholder="0 9 * * 1-5"
                     maxLength={SCOUT_CRON_MAX_LENGTH}
                     className="font-mono"
