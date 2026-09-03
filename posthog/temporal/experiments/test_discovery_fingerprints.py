@@ -24,7 +24,7 @@ _raw_saved_sync = _get_experiment_saved_metrics_for_hour_sync.func  # type: igno
 
 @pytest.mark.django_db
 class TestDiscoveryFingerprints:
-    def _create_experiment(self, metrics=None):
+    def _create_experiment(self, metrics: list[dict] | None = None) -> tuple[Experiment, User]:
         org = Organization.objects.create(name="Test Org")
         team = Team.objects.create(organization=org, name="Test Team")
         user = User.objects.create(email="fingerprint@test.com")
@@ -40,7 +40,7 @@ class TestDiscoveryFingerprints:
         )
         return experiment, user
 
-    def _expected_fingerprint(self, experiment, metric):
+    def _expected_fingerprint(self, experiment: Experiment, metric: dict) -> str:
         return compute_metric_fingerprint(
             metric,
             experiment.start_date,
@@ -50,7 +50,7 @@ class TestDiscoveryFingerprints:
             excluded_variants=experiment.excluded_variants,
         )
 
-    def test_regular_metric_fingerprint_includes_excluded_variants(self):
+    def test_regular_metric_fingerprint_includes_excluded_variants(self) -> None:
         experiment, _ = self._create_experiment()
 
         with patch("posthog.temporal.experiments.activities.close_old_connections"):
@@ -59,7 +59,7 @@ class TestDiscoveryFingerprints:
         fingerprints = [r.fingerprint for r in results if r.experiment_id == experiment.id]
         assert fingerprints == [self._expected_fingerprint(experiment, METRIC)]
 
-    def test_saved_metric_fingerprint_includes_excluded_variants(self):
+    def test_saved_metric_fingerprint_includes_excluded_variants(self) -> None:
         experiment, user = self._create_experiment(metrics=[])
         saved_metric = ExperimentSavedMetric.objects.create(
             team=experiment.team,
