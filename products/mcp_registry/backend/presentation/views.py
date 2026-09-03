@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 from django.db.models import Case, Exists, F, FloatField, OuterRef, Q, QuerySet, Subquery, Value, When
@@ -37,8 +38,9 @@ _COMPARE_MAX_LIMIT = 100
 _DISCOVER_DEFAULT_LIMIT = 5
 _DISCOVER_MAX_LIMIT = 20
 _DISCOVER_TOOLS_PER_CANDIDATE = 5
-# Weight of the strongest single-token match, used to normalize relevance into [0, 1].
-_MAX_TOKEN_WEIGHT = 3.0
+# Weight of the strongest single-token match (a verified-namespace hit), used to
+# normalize relevance into [0, 1].
+_MAX_TOKEN_WEIGHT = 4.0
 # Fit outweighs authority: a server has to plausibly do the thing before its track
 # record matters. Tuning these is a ranking-version decision, not a per-query one.
 _FIT_EXPONENT = 0.6
@@ -75,6 +77,20 @@ def _content_tokens(search: str) -> list[str]:
     return [token for token in search.lower().split() if token not in _STOPWORDS and len(token) > 2][
         :_MAX_SEARCH_TOKENS
     ]
+
+
+def _namespace_match(token: str) -> Q:
+    """Whether the token appears in the server's reverse-DNS namespace.
+
+    Worth more than any other match: the official registry validates namespace
+    ownership, so `com.vercel/*` requires proving control of vercel.com, while a display
+    name is free text anyone can set. Without this, third-party clones with the vendor's
+    name in their title outrank the vendor's own server.
+
+    The token is regex-escaped, so the pattern stays a literal bounded to the segment
+    before the first slash.
+    """
+    return Q(registry_name__iregex=rf"^[^/]*{re.escape(token)}[^/]*/")
 
 
 def _tool_match(token: str) -> Exists:
@@ -117,6 +133,7 @@ def _relevance_annotation(tokens: list[str]) -> Case | Value:
     expression: Case | Value = Value(0.0, output_field=FloatField())
     for token in tokens:
         expression = expression + Case(  # type: ignore[assignment]
+            When(_namespace_match(token), then=Value(_MAX_TOKEN_WEIGHT)),
             When(display_name__icontains=token, then=Value(3.0)),
             When(registry_name__icontains=token, then=Value(3.0)),
             When(description__icontains=token, then=Value(2.0)),

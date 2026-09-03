@@ -175,6 +175,33 @@ class TestMCPRegistryAPI(APIBaseTest):
         ids = [candidate["id"] for candidate in payload["candidates"]]
         assert len(ids) == len(set(ids))
 
+    def test_verified_namespace_outranks_a_lookalike_display_name(self) -> None:
+        # Anyone can title their server "Vercel"; only the domain owner can publish under
+        # com.vercel/*, so the vendor's own entry has to win its own name.
+        official = MCPRegistryServer.objects.create(
+            registry_name="com.vercel/vercel-mcp",
+            display_name="vercel-mcp",
+            description="Deploy and manage projects.",
+            listed_in_registry=True,
+            liveness="alive_auth",
+            auth_method="oauth",
+            canonical_url="https://mcp.vercel.com/",
+        )
+        MCPRegistryServer.objects.create(
+            registry_name="io.github.someone/vercel-helper",
+            display_name="Vercel deploy helper",
+            description="Deploy and manage Vercel projects.",
+            listed_in_registry=True,
+            liveness="alive_open",
+            auth_method="none",
+            canonical_url="https://helper.example.com/mcp",
+        )
+        compute_ranking_run("v2_measured_trust")
+
+        payload = self.client.get(self._url("discover/"), {"intent": "vercel"}).json()
+
+        assert payload["candidates"][0]["id"] == str(official.id)
+
     def test_discover_requires_an_intent(self) -> None:
         assert self.client.get(self._url("discover/")).status_code == 400
 
