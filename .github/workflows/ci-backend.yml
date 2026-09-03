@@ -3030,8 +3030,11 @@ jobs:
                       echo "::notice::Checked-out revision predates in-shard parallelism, running one worker"
                       exit 0
                   fi
+                  # loadfile, not the default: django_db_setup is package scoped, and
+                  # several suites leave process state that the next test inherits. Keeping
+                  # a file's tests on one worker preserves the order they already pass in.
                   if ./bin/clone-test-db-for-xdist 2; then
-                      echo "XDIST_ARGS=-n 2 --dist worksteal" >> "$GITHUB_ENV"
+                      echo "XDIST_ARGS=-n 2 --dist loadfile" >> "$GITHUB_ENV"
                   else
                       echo "::warning::Could not clone the per-worker databases, running one worker"
                   fi

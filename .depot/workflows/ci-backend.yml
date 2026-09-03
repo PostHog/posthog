@@ -2054,7 +2054,7 @@ jobs:
                       exit 0
                   fi
                   if ./bin/clone-test-db-for-xdist 2; then
-                      echo "XDIST_ARGS=-n 2 --dist worksteal" >> "$GITHUB_ENV"
+                      echo "XDIST_ARGS=-n 2 --dist loadfile" >> "$GITHUB_ENV"
                   else
                       echo "::warning::Could not clone the per-worker databases, running one worker"
                   fi
