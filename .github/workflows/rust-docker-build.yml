@@ -362,6 +362,12 @@ jobs:
                   REGISTRY: ghcr.io/posthog/posthog
               run: |
                   set -uo pipefail
+                  # jq errors inside the process substitution below never reach the loop,
+                  # so reject a malformed digest map here instead of exiting clean with no work.
+                  if ! jq -e 'type == "object"' <<<"$DIGESTS" >/dev/null 2>&1; then
+                      echo "::error title=Ordered image alias input invalid::The build digests output is not a JSON object."
+                      exit 1
+                  fi
                   failures=0
                   while IFS=$'\t' read -r image digest; do
                       if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
