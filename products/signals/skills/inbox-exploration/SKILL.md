@@ -310,7 +310,10 @@ posthog:inbox-reports-claim
 { "report_id": "<report_uuid>" }
 ```
 
-The claim is attributed to the current internal task or external MCP client. Claims do not expire.
+The claim is attributed to the current internal task or external MCP client. Claims do not expire, so
+release the report whenever you walk away without landing a fix — including when you dismiss it instead.
+Release clears ownership only; an attached pull request stays on the report, and release works from any
+status, so a dismissed report can be released too.
 
 ### Step 2 — Verify the diagnosis against the code (do not skip)
 
@@ -329,7 +332,13 @@ way the report describes, and actually produces the described failure. As a deep
 the raw underlying signals via the `signals` skill (`metadata.report_id`) if you need the signal
 text behind the curated findings. If the diagnosis doesn't hold up, say so and stop — a wrong
 report is itself a useful finding (and a candidate for _dismiss_ below), not a license to write a
-speculative fix.
+speculative fix. Release the claim you took in Step 1 before you stop, so the report returns to the
+unclaimed view instead of reading as active work nobody is doing:
+
+```json
+posthog:inbox-reports-claim
+{ "report_id": "<report_uuid>", "release": true }
+```
 
 ### Step 3 — Scope the fix to the right layer
 
