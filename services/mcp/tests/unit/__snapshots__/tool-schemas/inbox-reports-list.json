@@ -11,6 +11,7 @@
         },
         "assignee": {
             "description": "Use 'me' to return reports claimed by the current user, task, or MCP agent.",
+            "enum": ["me"],
             "type": "string"
         },
         "channel_id": {

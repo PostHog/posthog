@@ -4319,7 +4319,7 @@ export type SignalsReportsListParams = {
     /**
      * Use 'me' to return reports claimed by the current user, task, or MCP agent.
      */
-    assignee?: string
+    assignee?: SignalsReportsListAssignee
     /**
      * Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.
      */
@@ -4409,6 +4409,12 @@ export type SignalsReportsListParams = {
      */
     view?: string
 }
+
+export type SignalsReportsListAssignee = (typeof SignalsReportsListAssignee)[keyof typeof SignalsReportsListAssignee]
+
+export const SignalsReportsListAssignee = {
+    Me: 'me',
+} as const
 
 export type SignalsReportArtefactsListParams = {
     /**

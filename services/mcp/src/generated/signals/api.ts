@@ -30,7 +30,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
             'Filter by whether the latest actionability judgment says the issue is already being handled. False also includes older reports where that judgment did not record a value.'
         ),
     assignee: zod
-        .string()
+        .enum(['me'])
         .optional()
         .describe("Use 'me' to return reports claimed by the current user, task, or MCP agent."),
     channel_id: zod
