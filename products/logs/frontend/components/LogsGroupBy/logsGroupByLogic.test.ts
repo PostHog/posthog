@@ -5,6 +5,7 @@ import { initKeaTests } from '~/test/init'
 import { logsGroupByCreate } from 'products/logs/frontend/generated/api'
 
 import { logsViewerConfigLogic } from '../LogsViewer/config/logsViewerConfigLogic'
+import { logsViewerFiltersLogic } from '../LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsGroupByLogic } from './logsGroupByLogic'
 
 jest.mock('lib/api')
@@ -13,6 +14,7 @@ jest.mock('products/logs/frontend/generated/api')
 describe('logsGroupByLogic', () => {
     let logic: ReturnType<typeof logsGroupByLogic.build>
     let configLogic: ReturnType<typeof logsViewerConfigLogic.build>
+    let filtersLogic: ReturnType<typeof logsViewerFiltersLogic.build>
 
     beforeEach(() => {
         localStorage.clear()
@@ -26,6 +28,8 @@ describe('logsGroupByLogic', () => {
         })
         configLogic = logsViewerConfigLogic({ id: 'test' })
         configLogic.mount()
+        filtersLogic = logsViewerFiltersLogic({ id: 'test' })
+        filtersLogic.mount()
         logic = logsGroupByLogic({ id: 'test' })
         logic.mount()
     })
@@ -48,5 +52,16 @@ describe('logsGroupByLogic', () => {
             { key: 'severity_level', source: 'column' },
         ])
         expect(body.query.groupBy).toBeUndefined()
+    })
+
+    it('re-aggregates when the refresh button runs the query', async () => {
+        configLogic.actions.setGroupBys([{ key: 'service.name', source: 'resource' }])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logsGroupByCreate).toHaveBeenCalledTimes(1)
+
+        filtersLogic.actions.bumpFacetRefresh()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logsGroupByCreate).toHaveBeenCalledTimes(2)
     })
 })
