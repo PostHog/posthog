@@ -84,6 +84,26 @@ describe('prCiStatusLogic', () => {
         expect(requestedIds).toHaveLength(1)
     })
 
+    it('asks again for a row the section dropped and then showed again', async () => {
+        logic.actions.trackReports('needs-decision', ['report-1'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        // Filtering the inbox to resolved reports leaves a section with nothing to announce, and the
+        // poll pauses while nothing is tracked. Repainting the old glyph when the filter clears would
+        // claim a CI state of unknown age.
+        logic.actions.trackReports('needs-decision', [])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.ciStatusByReportId).toEqual({})
+
+        answers = { 'report-1': 'passing' }
+        logic.actions.trackReports('needs-decision', ['report-1'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.ciStatusByReportId).toEqual({ 'report-1': 'passing' })
+        // An empty announcement is answered without a request, so only the two real loads count.
+        expect(requestedIds).toHaveLength(2)
+    })
+
     it('retires the rows a section stops showing', async () => {
         // A narrowed filter drops rows from a section. Keeping them would leave the poll asking
         // GitHub about pull requests nobody is looking at, for as long as the inbox stays open.
