@@ -187,6 +187,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # See `sources/common/history_window.py`.
     history_lookback: datetime.timedelta | None = None
 
+    def history_lookback_for_schema(self, schema_name: str) -> datetime.timedelta | None:
+        """How far back a first sync of one schema reaches, or None for no bound.
+
+        Override when tables of one source need different bounds, for example a daily and an hourly
+        rollup of the same data, where the hourly table holds 24 rows for every daily row.
+        """
+        return self.history_lookback
+
     @property
     @abstractmethod
     def source_type(self) -> ExternalDataSourceType:
