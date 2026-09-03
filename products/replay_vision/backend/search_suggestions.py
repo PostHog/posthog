@@ -186,8 +186,16 @@ def _observation_text(obs: ReplayObservation) -> str:
 
 
 def _recent_observation_samples(scanner: ReplayScanner) -> tuple[list[str], dt.datetime | None]:
-    """Text of the newest observations since the watermark, and the created_at the next watermark moves to."""
-    rows = ReplayObservation.objects.filter(scanner_id=scanner.id, status=ObservationStatus.SUCCEEDED)
+    """Text of the newest observations since the watermark, and the created_at the next watermark moves to.
+
+    Rows are gated like `scanner_access.accessible_observations`: a viewer of this scanner can read its
+    current experiment, so only observations whose snapshot names no experiment or that same one may feed
+    phrases everyone who opens the scanner sees."""
+    current_experiment = (scanner.experiment_targeting or {}).get("experiment_id")
+    rows = ReplayObservation.objects.filter(scanner_id=scanner.id, status=ObservationStatus.SUCCEEDED).filter(
+        Q(scanner_snapshot__experiment_targeting__experiment_id__isnull=True)
+        | Q(scanner_snapshot__experiment_targeting__experiment_id=current_experiment)
+    )
     if scanner.search_suggestions_watermark is not None:
         rows = rows.filter(created_at__gt=scanner.search_suggestions_watermark)
     newest = list(rows.order_by("-created_at").only("scanner_result", "created_at")[:_MAX_SAMPLES])

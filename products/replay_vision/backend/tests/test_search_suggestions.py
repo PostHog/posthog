@@ -62,13 +62,20 @@ class _SuggestionsTestCase(_VisionAPITestCase):
     def _scanner(self, name: str, **overrides) -> ReplayScanner:
         return self._create_scanner(name=name, scanner_type=ScannerType.SUMMARIZER, **overrides)
 
-    def _seed(self, scanner: ReplayScanner, count: int, *, created_at: dt.datetime | None = None) -> None:
+    def _seed(
+        self,
+        scanner: ReplayScanner,
+        count: int,
+        *,
+        created_at: dt.datetime | None = None,
+        snapshot: dict | None = None,
+    ) -> None:
         for idx in range(count):
             obs = ReplayObservation.objects.create(
                 team=self.team,
                 scanner=scanner,
-                session_id=f"{scanner.name}-{idx}",
-                scanner_snapshot=snapshot_for(scanner),
+                session_id=f"{scanner.name}-{snapshot is not None}-{idx}",
+                scanner_snapshot=snapshot or snapshot_for(scanner),
                 triggered_by=ObservationTrigger.SCHEDULE,
                 status=ObservationStatus.SUCCEEDED,
                 completed_at=timezone.now(),
@@ -125,6 +132,21 @@ class TestRefreshAndCandidates(_SuggestionsTestCase):
         scanner.save()
         scanner.refresh_from_db()
         self.assertEqual(scanner.search_suggestions, ["coupon rejected at checkout"])
+
+    @patch(_GENERATE_PATH)
+    def test_rows_from_another_experiment_never_feed_the_phrases(self, mock_generate: MagicMock) -> None:
+        # The scanner was retargeted: rows under the old experiment stay readable only to that experiment's
+        # viewers, so they must not shape phrases shown to everyone who can open the scanner today.
+        scanner = self._scanner("checkout", search_last_viewed_at=timezone.now())
+        old_snapshot = {**snapshot_for(scanner), "experiment_targeting": {"experiment_id": 12345}}
+        self._seed(scanner, MIN_NEW_OBSERVATIONS_FOR_REFRESH, snapshot=old_snapshot)
+        self.assertFalse(refresh_scanner_suggestions(scanner))
+        mock_generate.assert_not_called()
+        self._seed(scanner, MIN_NEW_OBSERVATIONS_FOR_REFRESH)
+        mock_generate.return_value = _LlmQueries(queries=["coupon rejected"])
+        self.assertTrue(refresh_scanner_suggestions(scanner))
+        content = mock_generate.call_args.kwargs["user_content"]
+        self.assertEqual(content.count("- coupon failed"), MIN_NEW_OBSERVATIONS_FOR_REFRESH)
 
     @patch(_GENERATE_PATH)
     def test_too_few_new_observations_skip_the_model_but_still_back_off(self, mock_generate: MagicMock) -> None:

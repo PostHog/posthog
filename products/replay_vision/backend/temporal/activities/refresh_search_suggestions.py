@@ -36,7 +36,7 @@ def refresh_scanner_search_suggestions_activity(inputs: RefreshScannerSuggestion
     withdrawn since listing, too few new observations, or the model gave nothing usable."""
     scanner = (
         ReplayScanner.objects.filter(team_id=inputs.team_id, id=inputs.scanner_id)
-        .only("id", "team_id", "search_suggestions", "search_suggestions_watermark")
+        .only("id", "team_id", "search_suggestions", "search_suggestions_watermark", "experiment_targeting")
         .first()
     )
     if scanner is None or not is_ai_data_processing_approved(inputs.team_id):
