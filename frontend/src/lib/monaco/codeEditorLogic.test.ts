@@ -22,8 +22,14 @@ describe('codeEditorLogic', () => {
         },
     })
 
-    const mountLogic = (modelText: string, metadataQuery: string, metadataQueryOffset: number): any => {
-        const editor = { getModel: () => buildModel(modelText) }
+    const mountLogic = (
+        modelText: string,
+        metadataQuery: string,
+        metadataQueryOffset: number,
+        onMetadata?: (metadata: HogQLMetadataResponse | null) => void
+    ): { logic: any; setModelText: (text: string) => void } => {
+        let currentText = modelText
+        const editor = { getModel: () => buildModel(currentText) }
         const logic = codeEditorLogic({
             key: 'test',
             query: modelText,
@@ -32,9 +38,15 @@ describe('codeEditorLogic', () => {
             language: HogLanguage.hogQL,
             editor: editor as any,
             monaco: { editor: { setModelMarkers } } as any,
+            onMetadata,
         })
         logic.mount()
-        return logic
+        return {
+            logic,
+            setModelText: (text: string) => {
+                currentText = text
+            },
+        }
     }
 
     const respondWith = (response: Partial<HogQLMetadataResponse>): void => {
@@ -50,7 +62,7 @@ describe('codeEditorLogic', () => {
     it('keeps an error without a position off the lines it does not describe', async () => {
         const query = 'SELECT 1\nFROM events\nWHERE event = 1'
         respondWith({ errors: [{ message: 'Syntax error' }] })
-        const logic = mountLogic(query, query, 0)
+        const { logic } = mountLogic(query, query, 0)
 
         await expectLogic(logic, () => logic.actions.reloadMetadata()).toFinishAllListeners()
 
@@ -67,11 +79,29 @@ describe('codeEditorLogic', () => {
     it('does not paint markers from a response for text the editor no longer holds', async () => {
         respondWith({ errors: [{ message: 'Syntax error', start: 0, end: 6 }] })
         // The editor text was replaced, but the metadata query still points at the previous statement.
-        const logic = mountLogic('SELECT 1', 'SELECT 2', 0)
+        const { logic } = mountLogic('SELECT 1', 'SELECT 2', 0)
 
         await expectLogic(logic, () => logic.actions.reloadMetadata()).toFinishAllListeners()
 
         expect(logic.values.modelMarkers).toEqual([])
         expect(setModelMarkers).not.toHaveBeenCalled()
+    })
+
+    it('does not publish a response for text the editor no longer holds', async () => {
+        const onMetadata = jest.fn()
+        respondWith({ errors: [{ message: 'Syntax error', start: 0, end: 6 }] })
+        const { logic, setModelText } = mountLogic('SELECT 1', 'SELECT 1', 0, onMetadata)
+
+        await expectLogic(logic, () => logic.actions.reloadMetadata()).toFinishAllListeners()
+        const published = logic.values.metadata
+        expect(onMetadata).toHaveBeenCalledTimes(1)
+
+        // The editor text is replaced while the next request is in flight.
+        setModelText('SELECT 2')
+        respondWith({ errors: [{ message: 'Stale error', start: 0, end: 6 }] })
+        await expectLogic(logic, () => logic.actions.reloadMetadata()).toFinishAllListeners()
+
+        expect(onMetadata).toHaveBeenCalledTimes(1)
+        expect(logic.values.metadata).toBe(published)
     })
 })

@@ -31,6 +31,11 @@ import { getContextSourceQuery } from './sourceQueryUtils'
 const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
 const VIM_COMMAND_HISTORY_LIMIT = 50
 
+/** True when the editor still holds `query` at `markerOffset`, so a response for it describes the text on screen. */
+function describesEditorText(model: editor.ITextModel, query: string, markerOffset: number): boolean {
+    return model.getValue().slice(markerOffset, markerOffset + query.length) === query
+}
+
 export interface ModelMarker extends editor.IMarkerData {
     hogQLFix?: string
     hogQLAIFixPrompt?: string
@@ -193,6 +198,17 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                         )
                     )
                     breakpoint()
+
+                    // The editor text can change while the request is in flight, for example when you
+                    // open an insight into the editor. A response for text the editor no longer holds
+                    // would give consumers errors and index usage for a statement nobody edits, so keep
+                    // the last response that matched. The request for the new text publishes the
+                    // correct metadata.
+                    const currentModel = props.editor?.getModel()
+                    if (!currentModel || !describesEditorText(currentModel, query, props.metadataQueryOffset ?? 0)) {
+                        return values.metadata
+                    }
+
                     props.onMetadata?.(response)
                     return [query, response]
                 },
@@ -211,11 +227,10 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
 
                     const markerOffset = props.metadataQueryOffset ?? 0
 
-                    // The response describes `query` as it sat at `markerOffset`. The editor text can
-                    // change while the request is in flight, for example when you open an insight into
-                    // the editor. Markers from this response would then land on unrelated characters,
-                    // so keep the ones we have. The request for the new text paints the correct markers.
-                    if (model.getValue().slice(markerOffset, markerOffset + query.length) !== query) {
+                    // Markers from a response the editor text has moved past would land on unrelated
+                    // characters, so keep the ones we have. The request for the new text paints the
+                    // correct markers.
+                    if (!describesEditorText(model, query, markerOffset)) {
                         return values.modelMarkers
                     }
 
