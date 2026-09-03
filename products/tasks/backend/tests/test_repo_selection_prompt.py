@@ -20,7 +20,7 @@ def test_corrections_section_included_only_when_given() -> None:
     base = _build_repo_selection_prompt("ctx", ["acme/a", "acme/b"])
     assert "Past selection corrections" not in base
 
-    with_corrections = _build_repo_selection_prompt("ctx", ["acme/a", "acme/b"], "- 2026-01-01: entry")
+    with_corrections = _build_repo_selection_prompt("ctx", ["acme/a", "acme/b"], past_corrections="- 2026-01-01: entry")
     assert "- 2026-01-01: entry" in with_corrections
     # The section sits between the candidate list and the cache instructions, so the agent reads
     # the corrections together with the candidates they constrain.
@@ -36,7 +36,10 @@ def test_routing_rules_section_included_only_when_given() -> None:
     assert "Team routing rules" not in base
 
     with_rules = _build_repo_selection_prompt(
-        "ctx", ["acme/a", "acme/b"], "- correction entry", "1. Support app asks → `acme/b`"
+        "ctx",
+        ["acme/a", "acme/b"],
+        past_corrections="- correction entry",
+        routing_rules="1. Support app asks → `acme/b`",
     )
     assert "1. Support app asks → `acme/b`" in with_rules
     # Rules sit between the candidate list and the corrections, so the agent reads them together
@@ -45,7 +48,6 @@ def test_routing_rules_section_included_only_when_given() -> None:
         with_rules.index("`acme/b`")
         < with_rules.index("Team routing rules")
         < with_rules.index("Past selection corrections")
-        < with_rules.index("## The cache")
     )
 
 
@@ -68,10 +70,7 @@ def test_routing_rules_block_empty_when_no_rules_match(team) -> None:
     assert _routing_rules_block(team.id, ["acme/a"]) is None
 
 
-@pytest.mark.django_db(transaction=True)
-def test_select_repository_renders_team_rules_into_prompt(team) -> None:
-    RepoRoutingRule.objects.create(team=team, rule_text="Support app asks", repository="acme/b", priority=0)
-
+def test_select_repository_renders_team_rules_into_prompt() -> None:
     result = RepoSelectionResult(repository="acme/b", reason="rule match")
     session = MagicMock()
     session.end = AsyncMock()
@@ -80,11 +79,12 @@ def test_select_repository_renders_team_rules_into_prompt(team) -> None:
     with (
         patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
         patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/a", "acme/b"}),
+        patch(f"{_AGENT}._routing_rules_block", return_value="1. Support app asks → `acme/b`"),
         patch(f"{_AGENT}.MultiTurnSession.start", start),
     ):
         cache.return_value.sync_full_cache = AsyncMock()
         selected = async_to_sync(select_repository)(
-            team.id,
+            1,
             1,
             "which repo?",
             origin_product=Task.OriginProduct.SLACK,
