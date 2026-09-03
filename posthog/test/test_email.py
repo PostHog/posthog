@@ -285,6 +285,7 @@ class TestEmail(BaseTest):
                 requests.exceptions.ConnectionError,
             ),
             ("transient_5xx", MagicMock(status_code=502, text="bad gateway"), _TransientHTTPError),
+            ("transient_429", MagicMock(status_code=429, text="rate limited"), _TransientHTTPError),
             ("permanent_4xx", MagicMock(status_code=400, text="bad request"), None),
         ]
     )

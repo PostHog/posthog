@@ -257,9 +257,10 @@ def _send_via_http(
 
             if response.status_code != 200:
                 message = f"Customer.io API error: {response.status_code} - {response.text}"
-                # 5xx is provider-side and transient → re-raise into autoretry; 4xx is a permanent
-                # request error we must not retry.
-                if response.status_code >= 500:
+                # 5xx is provider-side and transient, and 429 is rate limiting (a "try again later"
+                # signal), so both re-raise into autoretry. Other 4xx are permanent request errors
+                # we must not retry.
+                if response.status_code >= 500 or response.status_code == 429:
                     raise _TransientHTTPError(message)
                 raise Exception(message)
 
