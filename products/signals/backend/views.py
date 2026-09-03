@@ -89,6 +89,7 @@ from products.signals.backend.billing import (
     annotate_first_billable_pr_run_at,
     current_billing_period_bounds,
     first_billable_pr_run,
+    first_billable_pr_run_at_by_report,
     period_billable_credits_for_org,
     refund_ineligibility_reason,
     report_pr_is_merged,
@@ -854,11 +855,9 @@ class SignalReportViewSet(
             # report: only visibility matters here, so skip the rendering annotations and
             # prefetches every other action's serializer needs.
             qs = queryset.filter(team=self.team)
-            qs = self._exclude_deleted_signal_reports(qs)
             return self._apply_signal_report_status_filter(qs)
         if self.action in {"retrieve", "signals"}:
             qs = self._scope_signal_report_queryset(queryset)
-            qs = self._exclude_deleted_signal_reports(qs)
             qs = self._apply_signal_report_status_filter(qs)
             qs = self._annotate_latest_actionability(qs)
             qs = self._prefetch_signal_report_priority_artefacts(qs)
@@ -866,7 +865,6 @@ class SignalReportViewSet(
             return annotate_first_billable_pr_run_at(qs)
         qs = queryset
         qs = self._scope_signal_report_queryset(qs)
-        qs = self._exclude_deleted_signal_reports(qs)
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_source_product_filter(qs)
@@ -887,9 +885,11 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_priority_filter(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
         qs = self._annotate_is_suggested_reviewer(qs)
-        # Batched billable-moment lookup for the serializer's refund_ineligibility_reason field.
-        qs = annotate_first_billable_pr_run_at(qs)
-        if self.action != "list":
+        if self.action not in self._MULTI_REPORT_ACTIONS:
+            # Both of these are correlated subqueries, so they cost one walk per row the query
+            # matches. The multi-row actions do without them: `list` serves the same two values
+            # from batched lookups over the page it returns, and `bulk_state` renders no report.
+            qs = annotate_first_billable_pr_run_at(qs)
             qs = self._annotate_implementation_pr_url(qs)
         return qs
 
@@ -929,13 +929,13 @@ class SignalReportViewSet(
             )
         )
 
-    def _exclude_deleted_signal_reports(self, queryset):
-        # Deleted reports are terminal -- exclude from all endpoints (detail, list, actions)
-        return queryset.exclude(status=SignalReport.Status.DELETED)
-
-    # `deleted` is in the model but always stripped upstream by `_exclude_deleted_signal_reports`,
-    # so it is never a valid filter target.
+    # Deleted reports are terminal, so `deleted` never reaches any endpoint (detail, list,
+    # actions) and is never a valid filter target either.
     _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {SignalReport.Status.DELETED}
+    _DEFAULT_STATUSES = _FILTERABLE_STATUSES - {SignalReport.Status.SUPPRESSED}
+
+    # Actions that work on many reports at once, so per-row annotations are wasted work there.
+    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state"})
 
     # Actions allowed to resolve a suppressed report by ID even without an explicit
     # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
@@ -948,9 +948,10 @@ class SignalReportViewSet(
     # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
     # returning 404 — matching the existing contract.
     # `viewed` follows `retrieve` for the same reason: the Dismissed tab's detail view records its
-    # open like any other.
+    # open like any other. `pr_checks` and `pr_comments` are there because that same view renders the
+    # read-only PR panel whatever the report's status is.
     _SUPPRESSED_VISIBLE_ACTIONS = frozenset(
-        {"state", "bulk_state", "retrieve", "signals", "refund", "feedback", "viewed"}
+        {"state", "bulk_state", "retrieve", "signals", "refund", "feedback", "viewed", "pr_checks", "pr_comments"}
     )
 
     # Human-readable explanation per bulk outcome, surfaced in each result's `detail` field
@@ -962,6 +963,12 @@ class SignalReportViewSet(
     }
 
     def _apply_signal_report_status_filter(self, queryset):
+        # Always a positive `status__in`, never a negated equality: Postgres can put an IN into the
+        # `(team, status, promoted_at)` index condition, while `exclude(status=...)` leaves the
+        # status as a filter that runs on rows the index already made it read.
+        return queryset.filter(status__in=sorted(self._visible_statuses()))
+
+    def _visible_statuses(self) -> frozenset[str]:
         status_filter = self.request.query_params.get("status")
         if status_filter:
             statuses = [s.strip() for s in status_filter.split(",") if s.strip()]
@@ -973,7 +980,7 @@ class SignalReportViewSet(
                         "status": f"Invalid status value(s): {', '.join(sorted(set(invalid)))}. Accepted values: {accepted}."
                     }
                 )
-            return queryset.filter(status__in=statuses)
+            return frozenset(statuses)
         # A few read/reopen actions must be able to reach a suppressed report by ID
         # (e.g. `state` reopens a dismissed report, `retrieve`/`signals` back the
         # inbox's Dismissed-tab detail view). Everywhere else — including the list and
@@ -982,13 +989,13 @@ class SignalReportViewSet(
         # the default exclusions with `include_all_statuses=true` (agents deduping
         # against the full inbox state, human dismissals included, without enumerating
         # every status — and without breaking if the status set evolves).
-        if self.action in self._SUPPRESSED_VISIBLE_ACTIONS:
-            return queryset
-        if self._include_all_statuses_requested():
-            return queryset
-        if self.request.query_params.get("view") in {"dismissed", "all"}:
-            return queryset
-        return queryset.exclude(status=SignalReport.Status.SUPPRESSED)
+        if (
+            self.action in self._SUPPRESSED_VISIBLE_ACTIONS
+            or self._include_all_statuses_requested()
+            or self.request.query_params.get("view") in {"dismissed", "all"}
+        ):
+            return self._FILTERABLE_STATUSES
+        return self._DEFAULT_STATUSES
 
     def _include_all_statuses_requested(self) -> bool:
         # List-only: the flag widens the *list* for full-inbox-state scans (agent dedup). By-ID
@@ -1117,7 +1124,8 @@ class SignalReportViewSet(
         # `Exists` over `tasks.TaskRun` evaluated once per candidate report (which made the inbox
         # PR-tab count scan the whole `ready` set per PR'd run).
         return SignalReport.reports_for_task_ids_filter(
-            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter())
+            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter()),
+            team_id=self.team.id,
         )
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
@@ -1598,10 +1606,10 @@ class SignalReportViewSet(
             edit_artefacts.append(SummaryChange(old_summary=report.summary, new_summary=data["summary"]))
             report.summary = data["summary"]
             update_fields.append("summary")
-            # The suggested questions were written against the prose this edit replaces, so they go
+            # The suggested prompts were written against the prose this edit replaces, so they go
             # down with it — the same rule the research pipeline applies when it rewrites a summary.
-            # Leaving them would offer questions about a report that no longer says what they ask
-            # about, and this field is read-only here, so nothing could take them back down.
+            # Leaving them would offer prompts about a report that no longer says what they point
+            # at, and this field is read-only here, so nothing could take them back down.
             if report.suggested_prompts:
                 report.suggested_prompts = []
                 update_fields.append("suggested_prompts")
@@ -1898,12 +1906,18 @@ class SignalReportViewSet(
                 logger.exception("signals.reports.list.implementation_pr_url_failed", report_count=len(report_ids))
                 implementation_pr_by_report = {}
 
+        # One grouped query for the whole page, in place of the per-row annotation the other
+        # actions carry, for the serializer's refund_ineligibility_reason field.
+        with tracer.start_as_current_span("signals.reports.list.fetch_billable_pr_runs"):
+            first_billable_pr_run_at_map = first_billable_pr_run_at_by_report(report_ids)
+
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
+            "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 

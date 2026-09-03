@@ -136,6 +136,20 @@ describe('OAuth Region Routing', () => {
             delete process.env.POSTHOG_API_BASE_URL
             expect(getAuthorizationServerUrl()).toBe('https://oauth.posthog.com')
         })
+
+        it.each([
+            {
+                name: 'dev',
+                publicUrl: 'https://app.dev.posthog.dev',
+                expected: 'https://app.dev.posthog.dev',
+            },
+            { name: 'prod-us', publicUrl: 'https://us.posthog.com', expected: 'https://oauth.posthog.com' },
+            { name: 'prod-eu', publicUrl: 'https://eu.posthog.com', expected: 'https://oauth.posthog.com' },
+        ])('returns $expected for the $name cluster deployment', ({ publicUrl, expected }) => {
+            process.env.POSTHOG_API_BASE_URL = 'http://posthog-web-django.posthog.svc.cluster.local:8000'
+            process.env.POSTHOG_PUBLIC_URL = publicUrl
+            expect(getAuthorizationServerUrl()).toBe(expected)
+        })
     })
 
     describe('401 Response Metadata URL (RFC 9728)', () => {

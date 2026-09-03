@@ -1071,13 +1071,13 @@ describe('Hog Executor', () => {
                 expect(claims.external_id).toEqual('acme-1')
             })
 
-            it('postHogSetAccountProperties targets the custom_property_values route', async () => {
+            it('postHogSetAccountProperties sends an explicit property clear as API null', async () => {
                 const fetchSpy = jest
                     .spyOn(requestModule, 'internalFetch')
                     .mockResolvedValue(mockInternalResponse(200, { ok: true }))
 
                 mockExecHogForAsyncFunction('postHogSetAccountProperties', [
-                    { external_id: 'acme-1', properties: { 'def-1': 'gold' } },
+                    { external_id: 'acme-1', properties: { 'def-1': { __posthog_clear_property: true } } },
                 ])
                 await executor.execute(createAccountInvocation())
 
@@ -1086,7 +1086,7 @@ describe('Hog Executor', () => {
                     `${hub.INTERNAL_API_BASE_URL}/api/projects/1/internal/customer_analytics/account/custom_property_values`
                 )
                 expect(options.method).toEqual('PATCH')
-                expect(options.body).toEqual(JSON.stringify({ external_id: 'acme-1', properties: { 'def-1': 'gold' } }))
+                expect(options.body).toEqual(JSON.stringify({ external_id: 'acme-1', properties: { 'def-1': null } }))
             })
 
             it('postHogCreateAccount posts the claimed external_id with workflow attribution', async () => {
@@ -1192,6 +1192,21 @@ describe('Hog Executor', () => {
                 await executor.execute(createAccountInvocation())
 
                 expect(captureExceptionSpy).not.toHaveBeenCalled()
+            })
+
+            it('rejects a null custom property value rather than queueing a clear', async () => {
+                disableAccountJwt()
+                const getTeamSpy = jest.spyOn(hub.teamManager, 'getTeam')
+
+                mockExecHogForAsyncFunction('postHogSetAccountProperties', [
+                    { external_id: 'acme-1', properties: { 'def-1': null } },
+                ])
+                const result = await executor.execute(createAccountInvocation())
+
+                expect(result.error).toContain("received null for property 'def-1'")
+                expect(result.error).toContain('Use Clear property in the workflow editor')
+                expect(result.invocation.queueParameters).toBeUndefined()
+                expect(getTeamSpy).not.toHaveBeenCalled()
             })
 
             it('postHogUpdateAccount queues a PATCH with external_id merged into the body', async () => {

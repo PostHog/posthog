@@ -10,6 +10,10 @@
     overflow: hidden;
     background-color: var(--color-bg-3000-dark);
 
+    &--ios {
+        touch-action: pan-x pan-y;
+    }
+
     .PlayerFrame__content--masking-window .replayer-wrapper::before {
         position: absolute;
         inset: 0; /* Cover the entire wrapper */

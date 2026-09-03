@@ -113,6 +113,7 @@ import {
 import { extractPeerAgentMessage } from "@posthog/ui/features/sessions/components/session-update/peerAgentMessage";
 import { collapsePiSkillInvocation } from "@posthog/ui/features/sessions/components/session-update/piSkillInvocation";
 import { SessionUpdateView } from "@posthog/ui/features/sessions/components/session-update/SessionUpdateView";
+import { isShowActionsItem } from "@posthog/ui/features/sessions/components/session-update/showActionsItem";
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
 import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
 import {
@@ -280,10 +281,7 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
   for (const item of items) {
     if (isToolCallItem(item)) {
-      // A plan presented for approval renders as the full PlanApprovalView
-      // card — folded into a "N tool calls" chip, the plan the user is being
-      // asked to approve is invisible. Same exemption as buildThreadGroups.
-      if (isPlanItem(item)) {
+      if (isPlanItem(item) || isShowActionsItem(item)) {
         flush();
         out.push(item);
         continue;
@@ -363,6 +361,7 @@ function formatTimestamp(ts: number): string {
  * tab stop a keyboard reader needs to reach the thumbs at all.
  */
 const FooterRevealContext = createContext(false);
+const RawLogsToggleContext = createContext(false);
 
 function TurnFooter({
   turnId,
@@ -736,10 +735,6 @@ function UserBubble({
  * message's right rail — the turn footer covers the common case, so a single message's copy lives
  * here instead of costing every row a hover affordance.
  *
- * This menu sits inside `SessionView`'s own context menu and wins the event over it, so it also
- * carries that menu's raw-logs toggle; without it, right-clicking a message would be the one spot
- * in the session where the toggle went missing.
- *
  * Highlighted text wins over the message: right-clicking a selection copies just that, as it does
  * outside the app. The whole message is the fallback for a right-click with nothing selected, and
  * stays reachable without the menu through the footer's copy button.
@@ -755,6 +750,7 @@ function MessageContextMenu({
   value: string;
   children: ReactElement;
 }) {
+  const showRawLogsToggle = useContext(RawLogsToggleContext);
   const showRawLogs = useShowRawLogs();
   const { setShowRawLogs } = useSessionViewActions();
   const [selection, setSelection] = useState<string | null>(null);
@@ -779,11 +775,15 @@ function MessageContextMenu({
           <Copy size={14} />
           {selection ? "Copy selection" : "Copy message"}
         </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={() => setShowRawLogs(!showRawLogs)}>
-          <Scroll size={14} />
-          {showRawLogs ? "Back to conversation" : "Show raw logs"}
-        </ContextMenuItem>
+        {showRawLogsToggle && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={() => setShowRawLogs(!showRawLogs)}>
+              <Scroll size={14} />
+              {showRawLogs ? "Back to conversation" : "Show raw logs"}
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -1432,13 +1432,15 @@ export function ChatThread({ events, ...props }: ChatThreadProps) {
   );
 
   return (
-    <ChatThreadRenderer
-      key={props.taskId}
-      {...props}
-      conversationItems={items}
-      footerEvents={[]}
-      footerState={footerState}
-    />
+    <RawLogsToggleContext.Provider value={false}>
+      <ChatThreadRenderer
+        key={props.taskId}
+        {...props}
+        conversationItems={items}
+        footerEvents={[]}
+        footerState={footerState}
+      />
+    </RawLogsToggleContext.Provider>
   );
 }
 
@@ -1449,12 +1451,14 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
   });
 
   return (
-    <ChatThreadRenderer
-      key={props.taskId}
-      {...props}
-      conversationItems={items}
-      footerEvents={events}
-    />
+    <RawLogsToggleContext.Provider value={true}>
+      <ChatThreadRenderer
+        key={props.taskId}
+        {...props}
+        conversationItems={items}
+        footerEvents={events}
+      />
+    </RawLogsToggleContext.Provider>
   );
 }
 

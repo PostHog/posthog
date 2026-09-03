@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import type { RpcSessionState } from "@earendil-works/pi-coding-agent";
 import type { ServerType } from "@hono/node-server";
 import { serve } from "@hono/node-server";
 import {
   type AgentConversationEvent,
+  type AgentTurnUsage,
   MCP_TOOL_PERMISSION_OPTIONS,
   type McpToolPermissionDecision,
   type McpToolPermissionRequest,
@@ -42,8 +44,14 @@ import { Logger } from "../utils/logger";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { createRtkSavingsNotification } from "./rtk-savings";
+import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import { jsonRpcRequestSchema } from "./schemas";
 import type { AgentServerConfig } from "./types";
+
+const MODEL_CHANGING_RPC_COMMANDS: ReadonlySet<string> = new Set([
+  "set_model",
+  "cycle_model",
+]);
 
 interface SseController {
   send(data: unknown): void;
@@ -143,6 +151,8 @@ export class PiAgentServer {
     McpToolPermissionRequest
   >();
   private rtkSavingsAttempted = false;
+  private runUsage = new RunUsageAccumulator();
+  private modelContextWindow: number | null = null;
 
   constructor(private readonly config: AgentServerConfig) {
     this.posthogAPI = new PostHogAPIClient({
@@ -250,6 +260,7 @@ export class PiAgentServer {
         );
     }
     this.session = null;
+    this.runUsage = new RunUsageAccumulator();
     this.pendingMcpPermissions.clear();
     await this.flushConversationLog().catch((error) =>
       this.logger.error("Failed to persist Pi events during shutdown", error),
@@ -582,6 +593,7 @@ export class PiAgentServer {
         }),
     ]);
     const runState = taskRun?.state;
+    seedRunUsage(this.runUsage, runState?.token_usage);
     const taskSnapshotKind = taskRun
       ? typeof runState?.snapshot_kind === "string"
         ? runState.snapshot_kind
@@ -591,12 +603,17 @@ export class PiAgentServer {
       typeof this.config.claudeCode?.systemPrompt === "string"
         ? this.config.claudeCode.systemPrompt
         : this.config.claudeCode?.systemPrompt?.append;
+    // A repo-less run gets the tools to discover and clone a repository, and the
+    // channel prompt that names them. Derive both from one condition so the tools
+    // and the prompt that describes them can never disagree.
+    const channelMode = !this.config.repositoryPath;
     const taskContext: TaskContext = {
       projectId: this.config.projectId,
       apiHost: this.config.apiUrl,
       taskId: this.config.taskId,
       cwd,
       environment: "cloud",
+      channelMode,
       additionalInstructions: configuredSystemPrompt,
     };
     const attributionHeaders = buildPosthogPropertyHeaderRecord({
@@ -621,7 +638,7 @@ export class PiAgentServer {
     });
 
     const extensions: PiRuntimeExtension[] = ["context-wiki"];
-    if (!this.config.repositoryPath) {
+    if (channelMode) {
       extensions.push("repository-tools");
     }
     if (this.config.autoPublish === true && this.config.createPr !== false) {
@@ -650,9 +667,12 @@ export class PiAgentServer {
       extensions,
       contextWikiPath: resolveContextWikiPath(),
     });
-    const runtime = new PiRuntime(client);
+    const runtime = new PiRuntime(
+      client,
+      () => this.modelContextWindow ?? undefined,
+    );
     const unsubscribeConversation = runtime.onConversationEvent((event) =>
-      this.handleEvent(event),
+      this.handleConversationEvent(event),
     );
     const unsubscribeRuntime = runtime.onRuntimeEvent((event) => {
       if (event.type === "agent_settled") {
@@ -679,6 +699,7 @@ export class PiAgentServer {
       );
     }
     const runtimeState = await client.getState();
+    this.applyModelContextWindow(runtimeState);
     this.sessionFile = runtimeState.sessionFile ?? restoredSessionFile ?? null;
     const unsubscribe = () => {
       unsubscribeConversation();
@@ -699,6 +720,24 @@ export class PiAgentServer {
       taskId: payload.task_id,
       runId: payload.run_id,
     });
+  }
+
+  private handleConversationEvent(event: AgentConversationEvent): void {
+    if (event.type === "turn_completed" && event.usage) {
+      this.recordTurnUsage(event.usage);
+    }
+    this.handleEvent(event);
+  }
+
+  private recordTurnUsage(usage: AgentTurnUsage): void {
+    if (!this.runUsage.add(usage)) return;
+    reportRunUsage(
+      this.runUsage,
+      this.posthogAPI,
+      this.config.taskId,
+      this.config.runId,
+      this.logger,
+    );
   }
 
   private handleEvent(event: AgentConversationEvent): void {
@@ -818,8 +857,27 @@ export class PiAgentServer {
           const response = piExtensionUIResponseSchema.parse(command);
           return this.respondExtensionUI(response);
         }
-        return runtime.sendCommand(command);
+        const result = await runtime.sendCommand(command);
+        if (MODEL_CHANGING_RPC_COMMANDS.has(command.type)) {
+          await this.refreshModelContextWindow(client);
+        }
+        return result;
       }
+    }
+  }
+
+  private applyModelContextWindow(state: RpcSessionState): void {
+    this.modelContextWindow =
+      typeof state.model?.contextWindow === "number"
+        ? state.model.contextWindow
+        : null;
+  }
+
+  private async refreshModelContextWindow(client: PiRpcClient): Promise<void> {
+    try {
+      this.applyModelContextWindow(await client.getState());
+    } catch (error) {
+      this.logger.debug("Failed to refresh Pi model context window", error);
     }
   }
 

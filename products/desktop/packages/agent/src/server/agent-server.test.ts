@@ -974,7 +974,7 @@ describe("AgentServer HTTP Mode", () => {
       return testServer;
     }
 
-    it("reports cumulative run token usage into TaskRun.state after each settled turn", () => {
+    it("reports cumulative run token usage into TaskRun.state after each settled turn", async () => {
       const testServer = createUsageTestServer();
       const turnUsage = {
         inputTokens: 100,
@@ -987,7 +987,9 @@ describe("AgentServer HTTP Mode", () => {
       testServer.recordTurnUsage(turnUsage);
       testServer.recordTurnUsage(turnUsage);
 
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2);
+      await vi.waitFor(() =>
+        expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2),
+      );
       expect(testServer.posthogAPI.updateTaskRun).toHaveBeenNthCalledWith(
         1,
         "task-1",
@@ -5327,11 +5329,22 @@ describe("AgentServer HTTP Mode", () => {
           "Task-Id: test-task-id",
           "canonical `posthog:exec` tool",
           "`posthog:read-data-schema`",
+          "`posthog:metric-list`",
+          "`posthog:metric-describe`",
+          "`posthog:data-catalog-metric-run`",
+          "You do not have GitHub access in this session.",
+          "Codebase analysis and code review require readable repository content.",
+          "do not replace the requested code work with generic guidance or PostHog data analysis",
+          "The connection applies to a new task, not this task.",
+          "call `show_actions` with one `compose` action",
+          "Try again in a new task",
+          "/settings/user-personal-integrations",
         ],
         shouldNotContain: [
           "gh repo clone",
           "query-run",
           "event-definitions-list",
+          "send the request again",
         ],
       },
       {
@@ -5343,6 +5356,9 @@ describe("AgentServer HTTP Mode", () => {
           "You may make local edits in a repository cloned with `clone_repo`",
           "Do NOT create branches, commits, push changes, or open pull requests in this run",
           "canonical `posthog:exec` tool",
+          "`posthog:metric-list`",
+          "`posthog:metric-describe`",
+          "`posthog:data-catalog-metric-run`",
         ],
         shouldNotContain: [
           "open a draft pull request",
@@ -5405,6 +5421,7 @@ describe("AgentServer HTTP Mode", () => {
       vi.stubEnv("GITHUB_TOKEN", "ghu_actor");
       const s = createServer();
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
+      expect(prompt).toContain("You have GitHub access in this session.");
       expect(prompt).toContain('gh issue create --assignee "@me"');
       expect(prompt).toContain("gh api user --jq .login");
       // An installation token resolves to the app, so acting on it would assign a bot.
