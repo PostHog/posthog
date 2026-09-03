@@ -26,6 +26,7 @@ import { ErrorTrackingRelationalIssue, ProductIntentContext, ProductKey } from '
 import { ExternalReferences } from '../../../components/ExternalReferences'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { IssueCohort } from './IssueCohort'
+import { IssueNotifications } from './IssueNotifications'
 
 export const ErrorTrackingIssueScenePanel = ({
     issue,
@@ -33,6 +34,7 @@ export const ErrorTrackingIssueScenePanel = ({
     issue: ErrorTrackingRelationalIssue
 }): JSX.Element | null => {
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+    const hasNativeAlerts = useFeatureFlag('ERROR_TRACKING_NATIVE_ALERTS')
 
     return issue ? (
         <ScenePanel>
@@ -40,6 +42,7 @@ export const ErrorTrackingIssueScenePanel = ({
                 <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
                 <IssueExternalReference />
                 <IssueCohort issue={issue} />
+                {hasNativeAlerts && <IssueNotifications issueId={issue.id} />}
             </ScenePanelInfoSection>
             <ScenePanelDivider />
             <ScenePanelActionsSection>
