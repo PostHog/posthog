@@ -50,7 +50,7 @@ import {
 } from './types'
 import { mergeReportRows, selectedFlatListSections } from './utils/flatReportList'
 import { isInboxRedesignEnabled } from './utils/inboxRedesign'
-import { inboxTabRedirectPath } from './utils/inboxReportUrls'
+import { inboxTabRedirectPath, resolveInboxTabAlias } from './utils/inboxReportUrls'
 import { decodeScoutCreateTemplate } from './utils/scoutTemplateDeepLink'
 
 // Newest-first scout runs to pull for the Runs panel. The scout-runs endpoint caps at 100 server-side.
@@ -662,16 +662,15 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         // The landing tab differs per layout (Reports under the redesign, Pull requests with the
         // flag off), and a bare `/inbox` keeps whichever tab was already active. A tab set under one
         // layout can outlive a mid-session flag flip (async flag resolution, or a bookmarked URL of
-        // the other layout). Fall back to the layout's landing tab when the active tab is not one of
-        // this layout's tabs, so the body never renders a tab the active layout has no panel for.
+        // the other layout). The settings surface exists in both layouts under different keys, so
+        // that pair maps across; any other tab the active layout has no panel for falls back to the
+        // layout's landing tab.
         activeTab: [
             (s) => [s.activeTabState, s.isRedesign],
-            (activeTabState: InboxTabKey | null, isRedesign: boolean): InboxTabKey =>
-                activeTabState && isInboxTabKey(activeTabState, isRedesign)
-                    ? activeTabState
-                    : isRedesign
-                      ? 'reports'
-                      : 'pulls',
+            (activeTabState: InboxTabKey | null, isRedesign: boolean): InboxTabKey => {
+                const tab = resolveInboxTabAlias(activeTabState ?? undefined, isRedesign)
+                return isInboxTabKey(tab, isRedesign) ? tab : isRedesign ? 'reports' : 'pulls'
+            },
         ],
         breadcrumbs: [
             () => [],
@@ -1075,9 +1074,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 consumeScoutTemplateHash(actions, hashParams)
                 closeAllSurfaces()
             },
-            [urls.inbox(':tab')]: ({ tab }: { tab?: string }, searchParams, hashParams) => {
+            [urls.inbox(':tab')]: ({ tab: segment }: { tab?: string }, searchParams, hashParams) => {
                 // Tab segments from the other inbox layout still arrive from Slack messages, bookmarks,
                 // and a flag that flipped between visits: send them to the surface that replaced them.
+                // The settings segments (`config` / `settings`) are the exception — they resolve to
+                // this layout's tab in place, because redirecting either one bounces off the other.
+                const tab = resolveInboxTabAlias(segment, values.isRedesign)
                 const redirectPath = inboxTabRedirectPath(tab, values.isRedesign)
                 if (redirectPath) {
                     redirectForLayout(redirectPath, searchParams, hashParams)

@@ -1,5 +1,5 @@
 import { IconGear } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { IconBranch } from 'lib/lemon-ui/icons'
 
@@ -79,14 +79,34 @@ export function GitHubRepoSummary({
             repositorySelection === 'selected'
                 ? `${repoNames.length} selected ${noun}`
                 : `${repoNames.length} ${noun} accessible`
+        const hiddenCount = repoNames.length - 3
+        // The overflow count reads as a link, so it has to lead somewhere: the tooltip names every
+        // repository, and the link opens the GitHub page that controls which ones we can see.
+        const overflow =
+            hiddenCount > 0 ? (
+                <>
+                    {' '}
+                    <Tooltip title={repoNames.join(', ')}>
+                        {installationId ? (
+                            <Link
+                                to={manageInstallationUrl(installationId, accountType, accountName)}
+                                target="_blank"
+                                onClick={() => void onBeforeManage?.(installationId)}
+                            >
+                                and {hiddenCount} more
+                            </Link>
+                        ) : (
+                            <span>and {hiddenCount} more</span>
+                        )}
+                    </Tooltip>
+                </>
+            ) : null
         return (
             <div className="flex items-center gap-2 min-h-5">
                 <div className="text-xs text-muted">
                     <IconBranch className="inline mr-1 text-sm" />
-                    {countLabel}:{' '}
-                    {repoNames.length <= 3
-                        ? repoNames.join(', ')
-                        : `${repoNames.slice(0, 3).join(', ')} and ${repoNames.length - 3} more`}
+                    {countLabel}: {repoNames.slice(0, 3).join(', ')}
+                    {overflow}
                 </div>
                 {manageButton}
             </div>
