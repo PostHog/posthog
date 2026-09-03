@@ -1,7 +1,7 @@
 {
     "id": "019cd710-ccd4-0000-a139-aa4f6f8b9a29",
     "name": "Educate users for unused features",
-    "description": "Detect when users haven’t tried an important feature yet and send a helpful tip encouraging them to explore it. In this workflow, we're using PostHog Workflows as an example.",
+    "description": "Find people who have not tried an important feature yet, and send them a tip that gets them started.",
     "version": 1,
     "created_at": "2026-03-10T09:25:28.405138Z",
     "created_by": {

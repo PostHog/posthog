@@ -1,7 +1,7 @@
 {
     "id": "019ce1f1-5d12-0000-e318-4b3ebd4b2aea",
     "name": "New support ticket notification",
-    "description": "Automatically notify your support team in Slack whenever a new support ticket is created so they can quickly review and respond.",
+    "description": "Notify your support team in Slack as soon as a new ticket comes in.",
     "version": 1,
     "created_at": "2026-03-12T12:06:57.554838Z",
     "created_by": {

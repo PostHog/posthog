@@ -1,7 +1,7 @@
 {
     "id": "019cc2c0-99f0-0000-b510-b3774bc75c7e",
     "name": "Unlocking advanced features",
-    "description": "Unlock features automatically when users complete a key action in your product. This workflow updates a user property that can be used to target feature flags or personalize the experience.",
+    "description": "Unlock a feature when someone completes a key action, by setting a property you can target.",
     "version": 1,
     "created_at": "2026-03-06T10:45:28.176584Z",
     "created_by": {

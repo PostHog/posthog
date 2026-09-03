@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useState } from 'react'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
@@ -10,6 +11,8 @@ export interface WorkflowTemplateCardProps {
     description?: string | null
     /** Icons that show what the template does, drawn above the name. */
     preview: JSX.Element
+    /** Marker next to the name, such as the AI badge. */
+    badge?: JSX.Element | null
     /** Short line under the description, such as how the workflow starts. */
     footer?: JSX.Element | null
     onClick: () => void
@@ -22,6 +25,7 @@ export function WorkflowTemplateCard({
     name,
     description,
     preview,
+    badge,
     footer,
     onClick,
     onEdit,
@@ -29,6 +33,7 @@ export function WorkflowTemplateCard({
     'data-attr': dataAttr,
 }: WorkflowTemplateCardProps): JSX.Element {
     const [isMenuOpen, setIsMenuOpen] = useState(false)
+    const hasMenu = !!onEdit || !!onDelete
 
     return (
         <div className="relative">
@@ -36,17 +41,21 @@ export function WorkflowTemplateCard({
                 type="button"
                 onClick={onClick}
                 data-attr={dataAttr}
-                className="flex flex-col gap-2 w-full h-full p-3 text-left border rounded bg-surface-primary hover:border-primary hover:bg-surface-secondary transition-colors"
+                className="flex flex-col gap-2 w-full h-full p-4 text-left border rounded bg-surface-primary hover:border-primary hover:bg-surface-secondary transition-colors"
             >
                 {preview}
-                <div className="flex flex-col gap-0.5 grow">
-                    <span className="font-semibold truncate">{name}</span>
-                    {description && <p className="mb-0 text-xs text-secondary line-clamp-2">{description}</p>}
+                <div className="flex flex-col gap-1 grow">
+                    <div className={clsx('flex items-start gap-2', hasMenu && 'pr-6')}>
+                        <span className="font-semibold">{name}</span>
+                        {badge}
+                    </div>
+                    {/* Descriptions are authored with paragraphs and lists, so keep the line breaks */}
+                    {description && <p className="mb-0 text-sm text-secondary whitespace-pre-line">{description}</p>}
                 </div>
                 {footer}
             </button>
-            {(onEdit || onDelete) && (
-                <div className="absolute top-1.5 right-1.5">
+            {hasMenu && (
+                <div className="absolute top-2.5 right-2.5">
                     <More
                         size="xsmall"
                         dropdown={{

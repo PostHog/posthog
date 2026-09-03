@@ -1,7 +1,7 @@
 {
     "id": "019b6fc4-282c-0000-50c9-aef7a834102d",
     "name": "Announce a new feature",
-    "description": "Use this workflow when you release a new feature and want to notify only the users it actually applies to. This avoids blanket announcements and keeps feature messaging relevant. This pattern is especially useful when features are gated by:\n\n- plan or account type\n- role or permissions\n- rollout conditions\n- product usage level\n\nWe've left the event points empty so you can add your own events, but feel free to use the suggested email copy we've added.",
+    "description": "Tell people about a new feature, but only the ones who can actually use it.",
     "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/posthog_mobile_sessions_1aa340c741.jpg",
     "scope": "global",
     "created_at": "2025-12-30T14:58:04.972674Z",

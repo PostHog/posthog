@@ -37,3 +37,21 @@ export function getTemplateTrigger(template: Pick<HogFlowTemplate, 'trigger' | '
 export function getTemplateScopeLabel(scope: HogFlowTemplate['scope']): string | null {
     return scope ? (SCOPE_LABELS[scope] ?? null) : null
 }
+
+// Hog function templates for the steps that hand work to an AI agent.
+const AI_STEP_TEMPLATE_IDS = new Set(['template-posthog-create-task', 'template-posthog-run-scout'])
+
+const AI_TAG = 'ai'
+
+/**
+ * A template counts as AI if it runs an AI step, or if an author tagged it `ai`. The tag covers
+ * templates that reach an agent another way, such as a webhook to a service the team runs.
+ */
+export function isAiTemplate(template: Pick<HogFlowTemplate, 'actions' | 'tags'>): boolean {
+    if (template.tags?.some((tag) => tag.toLowerCase() === AI_TAG)) {
+        return true
+    }
+    return (template.actions ?? []).some(
+        (action) => 'template_id' in action.config && AI_STEP_TEMPLATE_IDS.has(action.config.template_id)
+    )
+}

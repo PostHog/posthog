@@ -1,8 +1,12 @@
+import './WorkflowTemplateChooser.scss'
+
 import { Meta, StoryFn } from '@storybook/react'
 
 import type { HogFlowAction, HogFlowTemplate } from '../hogflows/types'
+import { WorkflowTemplateAiBadge } from './WorkflowTemplateAiBadge'
 import { WorkflowTemplateBlankPreview } from './WorkflowTemplateBlankPreview'
 import { WorkflowTemplateCard, WorkflowTemplateCardProps } from './WorkflowTemplateCard'
+import { isAiTemplate } from './workflowTemplateDisplay'
 import { WorkflowTemplateMeta } from './WorkflowTemplateMeta'
 import { WorkflowTemplateSteps } from './WorkflowTemplateSteps'
 
@@ -12,40 +16,113 @@ const meta: Meta<typeof WorkflowTemplateCard> = {
 }
 export default meta
 
-function action(id: string, type: HogFlowAction['type'], config: Record<string, any> = {}): HogFlowAction {
-    return { id, type, name: id, config } as HogFlowAction
+type StepSpec = HogFlowAction['type'] | [HogFlowAction['type'], string]
+
+function template(
+    name: string,
+    description: string,
+    trigger: string,
+    steps: StepSpec[],
+    tags: string[] = []
+): HogFlowTemplate {
+    const actions = [
+        { id: 'trigger', type: 'trigger', name: 'Trigger', config: { type: trigger, filters: {} } },
+        ...steps.map((step, index) => {
+            const [type, templateId] = Array.isArray(step) ? step : [step, undefined]
+            return { id: `${type}_${index}`, type, name: type, config: templateId ? { template_id: templateId } : {} }
+        }),
+        { id: 'exit', type: 'exit', name: 'Exit', config: {} },
+    ]
+    return { id: name, name, description, actions, tags, scope: 'global' } as unknown as HogFlowTemplate
 }
 
-function template(name: string, description: string, actions: HogFlowAction[], scope = 'global'): HogFlowTemplate {
-    return { id: name, name, description, actions, scope, tags: [] } as unknown as HogFlowTemplate
-}
-
-const WELCOME_EMAIL = template('Welcome email', 'Send one welcome email when a person signs up.', [
-    action('trigger', 'trigger', { type: 'event', filters: {} }),
-    action('email', 'function_email'),
-    action('exit', 'exit'),
-])
-
-const ONBOARDING_SERIES = template(
-    'Onboarding series with a very long name that has to truncate',
-    'Guide new people through their first week with a series of emails, a wait step, and an SMS reminder for anyone who has not finished setup.',
-    [
-        action('trigger', 'trigger', { type: 'schedule' }),
-        action('delay', 'delay', { delay_duration: '1d' }),
-        action('branch', 'conditional_branch', { conditions: [] }),
-        action('email', 'function_email'),
-        action('wait', 'wait_until_condition'),
-        action('sms', 'function_sms'),
-        action('exit', 'exit'),
-    ],
-    'team'
-)
+// Copied from the templates that ship in products/workflows/backend/templates, so the card is
+// measured against the copy people actually see
+const TEMPLATES: HogFlowTemplate[] = [
+    template(
+        'New support ticket notification',
+        'Notify your support team in Slack as soon as a new ticket comes in.',
+        'event',
+        [['function', 'template-slack']],
+        ['slack', 'support ticket', 'support']
+    ),
+    template(
+        'Welcome email sequence',
+        'Welcome new signups with an intro email, then check in on how they are getting on.',
+        'event',
+        [['function_email', 'template-email'], 'delay', ['function_email', 'template-email']]
+    ),
+    template(
+        'Educate users for unused features',
+        'Find people who have not tried an important feature yet, and send them a tip that gets them started.',
+        'schedule',
+        [
+            'delay',
+            'conditional_branch',
+            ['function_email', 'template-email'],
+            'delay',
+            'conditional_branch',
+            ['function_email', 'template-email'],
+        ],
+        ['product usage']
+    ),
+    template(
+        'Notify sales for high intent users',
+        'Alert your sales team in Slack when someone shows strong buying intent, so they can follow up while it is warm.',
+        'event',
+        ['conditional_branch', ['function', 'template-slack']],
+        ['sales', 'slack']
+    ),
+    // Stands in for the AI template on the way, so the badge has something to sit on
+    template(
+        'Triage a new error with an agent',
+        'Hand a new error to an AI agent. It reads the stack trace, finds the change that caused it, and opens a draft pull request.',
+        'internal-event',
+        [['function', 'template-posthog-create-task']],
+        ['error tracking']
+    ),
+    template(
+        'Trial started → upgrade nudge',
+        'Nudge trial users to upgrade when they show real usage, instead of when the clock runs down.',
+        'event',
+        [
+            'conditional_branch',
+            ['function_email', 'template-email'],
+            'conditional_branch',
+            ['function_email', 'template-email'],
+            'conditional_branch',
+            'delay',
+            ['function_email', 'template-email'],
+            'delay',
+        ]
+    ),
+    template(
+        'Announce a new feature',
+        'Tell people about a new feature, but only the ones who can actually use it.',
+        'event',
+        [
+            'conditional_branch',
+            ['function_email', 'template-email'],
+            'conditional_branch',
+            ['function_email', 'template-email'],
+            'delay',
+        ]
+    ),
+    template(
+        'Send a webhook when a user upgrades',
+        'Send a webhook when someone upgrades, so your CRM, billing tool, or backend can react.',
+        'event',
+        [['function', 'template-webhook']],
+        ['webhook', 'upgrade']
+    ),
+]
 
 function templateArgs(source: HogFlowTemplate): WorkflowTemplateCardProps {
     return {
         name: source.name,
         description: source.description,
         preview: <WorkflowTemplateSteps actions={source.actions} />,
+        badge: isAiTemplate(source) ? <WorkflowTemplateAiBadge /> : null,
         footer: <WorkflowTemplateMeta template={source} />,
         onClick: () => {},
         'data-attr': 'create-workflow-from-template',
@@ -62,32 +139,41 @@ const BLANK_ARGS: WorkflowTemplateCardProps = {
 }
 
 const Template: StoryFn<WorkflowTemplateCardProps> = (props) => (
-    <div className="w-[24rem]">
+    <div className="w-[26rem]">
         <WorkflowTemplateCard {...props} />
     </div>
 )
 
 export const Basic: StoryFn<WorkflowTemplateCardProps> = Template.bind({})
-Basic.args = templateArgs(WELCOME_EMAIL)
+Basic.args = templateArgs(TEMPLATES[1])
 
-export const ManySteps: StoryFn<WorkflowTemplateCardProps> = Template.bind({})
-ManySteps.args = { ...templateArgs(ONBOARDING_SERIES), onEdit: () => {}, onDelete: () => {} }
+// The longest description that ships, next to the menu a team template shows
+export const LongestDescription: StoryFn<WorkflowTemplateCardProps> = Template.bind({})
+LongestDescription.args = { ...templateArgs(TEMPLATES[3]), onEdit: () => {}, onDelete: () => {} }
+
+// A template that hands work to an agent, so the AI badge shows
+export const Ai: StoryFn = () => (
+    <div className="w-[26rem]">
+        <WorkflowTemplateCard {...templateArgs(TEMPLATES[4])} />
+    </div>
+)
 
 export const Blank: StoryFn<WorkflowTemplateCardProps> = Template.bind({})
 Blank.args = BLANK_ARGS
 
-// The picker collapses to one column in a narrow modal, so the card has to hold up at this width
+// The picker drops to one column in a narrow modal, so the card has to hold up at this width
 export const Narrow: StoryFn = () => (
     <div className="w-64">
-        <WorkflowTemplateCard {...templateArgs(ONBOARDING_SERIES)} />
+        <WorkflowTemplateCard {...templateArgs(TEMPLATES[3])} />
     </div>
 )
 
-// In the picker the cards sit in a grid, where they all take the height of the tallest one
-export const Grid: StoryFn = () => (
-    <div className="grid grid-cols-2 gap-2 items-stretch w-[50rem]">
+// The picker's own layout: columns, so a long description makes one card taller and nothing else
+export const Picker: StoryFn = () => (
+    <div className="WorkflowTemplateChooser w-[54rem]">
         <WorkflowTemplateCard {...BLANK_ARGS} />
-        <WorkflowTemplateCard {...templateArgs(WELCOME_EMAIL)} />
-        <WorkflowTemplateCard {...templateArgs(ONBOARDING_SERIES)} />
+        {TEMPLATES.map((source) => (
+            <WorkflowTemplateCard key={source.id} {...templateArgs(source)} />
+        ))}
     </div>
 )

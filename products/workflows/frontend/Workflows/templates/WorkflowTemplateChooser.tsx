@@ -12,8 +12,10 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { HogFlowTemplate } from '../hogflows/types'
 import { newWorkflowLogic } from '../newWorkflowLogic'
+import { WorkflowTemplateAiBadge } from './WorkflowTemplateAiBadge'
 import { WorkflowTemplateBlankPreview } from './WorkflowTemplateBlankPreview'
 import { WorkflowTemplateCard } from './WorkflowTemplateCard'
+import { isAiTemplate } from './workflowTemplateDisplay'
 import { WorkflowTemplateMeta } from './WorkflowTemplateMeta'
 import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 import { WorkflowTemplateSteps } from './WorkflowTemplateSteps'
@@ -60,6 +62,7 @@ export function WorkflowTemplateChooser(props: WorkflowTemplateChooserProps): JS
                         name={template.name || 'Unnamed template'}
                         description={template.description}
                         preview={<WorkflowTemplateSteps actions={template.actions} />}
+                        badge={isAiTemplate(template) ? <WorkflowTemplateAiBadge /> : null}
                         footer={<WorkflowTemplateMeta template={template} />}
                         onClick={() => createWorkflowFromTemplate(template)}
                         onEdit={
