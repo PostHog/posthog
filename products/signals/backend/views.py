@@ -3035,22 +3035,28 @@ class SignalReportViewSet(
             pending.extend(repository_references)
 
         for github, pending in batches.values():
-            try:
-                fetched = github.get_pull_request_ci_statuses(pending)
-            except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
-                # Expected under load, and the reader loses nothing they had: skip the glyph and let
-                # the next request (or the detail view) answer once the limit clears.
-                logger.info("signals.reports.pr_ci_statuses.throttled", pr_count=len(pending))
-                continue
-            except Exception:
-                logger.warning("signals.reports.pr_ci_statuses.fetch_failed", pr_count=len(pending), exc_info=True)
-                continue
-            for reference, ci_status in fetched.items():
-                cache.set(self._pr_ci_status_cache_key(reference), ci_status, timeout=PR_CI_STATUS_CACHE_SECONDS)
-                resolved[reference] = ci_status
-            # GitHub answered the batch but left this pull request out, so the installation cannot
-            # read it (deleted, transferred, or access revoked). That is stable enough to remember.
-            self._remember_unreadable_pr_ci_statuses([ref for ref in pending if ref not in fetched])
+            # One call per batch, cached as it lands, so a failure costs the batches it stopped and
+            # not the ones GitHub already answered for. Stop this integration at the first failure:
+            # another call would spend the same budget on the same condition.
+            batch_size = GitHubIntegration.PR_CI_STATUS_BATCH_SIZE
+            for start in range(0, len(pending), batch_size):
+                batch = pending[start : start + batch_size]
+                try:
+                    fetched = github.get_pull_request_ci_statuses(batch)
+                except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
+                    # Expected under load, and the reader loses nothing they had: skip the glyph and
+                    # let the next request (or the detail view) answer once the limit clears.
+                    logger.info("signals.reports.pr_ci_statuses.throttled", pr_count=len(batch))
+                    break
+                except Exception:
+                    logger.warning("signals.reports.pr_ci_statuses.fetch_failed", pr_count=len(batch), exc_info=True)
+                    break
+                for reference, ci_status in fetched.items():
+                    cache.set(self._pr_ci_status_cache_key(reference), ci_status, timeout=PR_CI_STATUS_CACHE_SECONDS)
+                    resolved[reference] = ci_status
+                # GitHub answered the batch but left this pull request out, so the installation cannot
+                # read it (deleted, transferred, or access revoked). That is stable enough to remember.
+                self._remember_unreadable_pr_ci_statuses([ref for ref in batch if ref not in fetched])
         return resolved
 
     def _remember_unreadable_pr_ci_statuses(self, references: Iterable[PullRequestRef]) -> None:

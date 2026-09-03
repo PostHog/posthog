@@ -1604,8 +1604,9 @@ class GitHubIntegrationBase:
         }
 
     # Pull requests per aliased CI-rollup query. Each alias reads one PR and the check rollup of its
-    # head commit, so a batch this size stays well inside GitHub's GraphQL node limit, and a failed
-    # batch costs one call rather than the whole list.
+    # head commit, so a batch this size stays well inside GitHub's GraphQL node limit. A longer list
+    # is split across several calls, and a failure in any of them raises without the batches that
+    # already landed, so a caller that must keep those feeds this method one batch at a time.
     PR_CI_STATUS_BATCH_SIZE = 25
 
     def get_pull_request_ci_statuses(self, references: Iterable[PullRequestRef]) -> dict[PullRequestRef, str]:

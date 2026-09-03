@@ -22,6 +22,7 @@ from social_django.models import UserSocialAuth
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.models import OAuthApplication
+from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 from posthog.temporal.oauth import (
@@ -3121,6 +3122,41 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"statuses": []}
+
+    def test_a_batch_that_landed_before_a_rate_limit_is_kept(self):
+        # An inbox wider than one GraphQL batch splits into several calls. Throwing away the batch
+        # GitHub already answered for would cost every row its glyph, and the next poll would buy the
+        # same answer again while GitHub is still limiting us.
+        batch_size = GitHubIntegration.PR_CI_STATUS_BATCH_SIZE
+        reports = [self._create_report(f"pr {n}") for n in range(batch_size + 1)]
+        pr_by_report = {str(report.id): self._pr(n + 1) for n, report in enumerate(reports)}
+        github = self._patch_github()
+        calls: list[int] = []
+
+        def fetch(references):
+            calls.append(len(references))
+            if len(calls) > 1:
+                raise GitHubRateLimitError("slow down")
+            return dict.fromkeys(references, "passing")
+
+        github.return_value.get_pull_request_ci_statuses.side_effect = fetch
+        url = self._url([report.id for report in reports])
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_state_for_reports",
+            return_value=pr_by_report,
+        ):
+            first = self.client.get(url)
+            # The batch that never went out is not remembered as unreadable, because nothing was
+            # learned about it, so it resolves as soon as GitHub answers again.
+            github.return_value.get_pull_request_ci_statuses.side_effect = lambda references: dict.fromkeys(
+                references, "passing"
+            )
+            second = self.client.get(url)
+
+        assert calls == [batch_size, 1]
+        assert len(first.json()["statuses"]) == batch_size
+        assert len(second.json()["statuses"]) == batch_size + 1
 
     def test_another_teams_report_is_never_answered_for(self):
         other_team = Team.objects.create(organization=self.organization, name="other")
