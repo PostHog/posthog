@@ -1111,6 +1111,224 @@ export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
 }
 
+/**
+ * * `suggested` - Suggested
+ * * `approved` - Approved
+ * * `rejected` - Rejected
+ * * `applied` - Applied
+ */
+export type WorkflowProposalStatusEnumApi =
+    (typeof WorkflowProposalStatusEnumApi)[keyof typeof WorkflowProposalStatusEnumApi]
+
+export const WorkflowProposalStatusEnumApi = {
+    Suggested: 'suggested',
+    Approved: 'approved',
+    Rejected: 'rejected',
+    Applied: 'applied',
+} as const
+
+/**
+ * * `web` - Web
+ * * `api` - API
+ * * `mcp` - MCP
+ * * `self_driving` - Self-driving
+ */
+export type WorkflowProposalCreatedViaEnumApi =
+    (typeof WorkflowProposalCreatedViaEnumApi)[keyof typeof WorkflowProposalCreatedViaEnumApi]
+
+export const WorkflowProposalCreatedViaEnumApi = {
+    Web: 'web',
+    Api: 'api',
+    Mcp: 'mcp',
+    SelfDriving: 'self_driving',
+} as const
+
+/**
+ * * `scout` - Scout
+ * * `responder` - Responder
+ * * `human` - Human
+ * * `stub` - Stub generator
+ */
+export type WorkflowProposalSourceTypeEnumApi =
+    (typeof WorkflowProposalSourceTypeEnumApi)[keyof typeof WorkflowProposalSourceTypeEnumApi]
+
+export const WorkflowProposalSourceTypeEnumApi = {
+    Scout: 'scout',
+    Responder: 'responder',
+    Human: 'human',
+    Stub: 'stub',
+} as const
+
+/**
+ * Only the content fields the proposal changes. Valid keys are the workflow's content fields: actions, edges, trigger, trigger_masking, conversion, exit_condition, email_sending_rate_limit, abort_action, variables. Each value has the same shape as on the workflow itself.
+ */
+export type WorkflowProposalApiContent = { [key: string]: unknown }
+
+/**
+ * The numbers behind the proposal, read back by name. Four keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
+ */
+export type WorkflowProposalApiEvidence = { [key: string]: unknown }
+
+export interface WorkflowProposalApi {
+    readonly id: string
+    /** Short summary of the proposed change. */
+    readonly title: string
+    /** Why the producer thinks this change is worth making. */
+    readonly rationale: string
+    /** Only the content fields the proposal changes. Valid keys are the workflow's content fields: actions, edges, trigger, trigger_masking, conversion, exit_condition, email_sending_rate_limit, abort_action, variables. Each value has the same shape as on the workflow itself. */
+    readonly content: WorkflowProposalApiContent
+    /** The numbers behind the proposal, read back by name. Four keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
+    readonly evidence: WorkflowProposalApiEvidence
+    /**
+     * The workflow step this is about, when it is about one. The evidence and the outcome both read metrics for this step, so a change to one email in a sequence is not measured against every other email in it.
+     * @nullable
+     */
+    readonly step_id: string | null
+    /** Live workflow version this was authored against. Drives a staleness warning, not a block. */
+    readonly base_version: number
+    /** Whether the live workflow has moved on to a newer version since this was proposed. */
+    readonly is_stale: boolean
+    readonly status: WorkflowProposalStatusEnumApi
+    /** How the proposal was created. Derived from the request, never set by the caller.
+     *
+     * * `web` - Web
+     * * `api` - API
+     * * `mcp` - MCP
+     * * `self_driving` - Self-driving */
+    readonly created_via: WorkflowProposalCreatedViaEnumApi
+    /** What kind of producer authored the proposal.
+     *
+     * * `scout` - Scout
+     * * `responder` - Responder
+     * * `human` - Human
+     * * `stub` - Stub generator */
+    readonly source_type: WorkflowProposalSourceTypeEnumApi
+    /**
+     * Stable id of the producing agent run or finding, e.g. 'run:<run id>:finding:<finding id>'.
+     * @nullable
+     */
+    readonly source_id: string | null
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+    /** @nullable */
+    readonly resolved_at: string | null
+    readonly resolved_by: UserBasicApi | null
+    readonly resolution_note: string
+    /**
+     * Workflow version the approved change went live as.
+     * @nullable
+     */
+    readonly applied_version: number | null
+}
+
+export interface PaginatedWorkflowProposalListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WorkflowProposalApi[]
+}
+
+/**
+ * Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are.
+ */
+export type WorkflowProposalCreateApiContent = { [key: string]: unknown }
+
+/**
+ * The metric numbers behind the proposal, so a human can judge it without re-deriving them.
+ */
+export type WorkflowProposalCreateApiEvidence = { [key: string]: unknown }
+
+export interface WorkflowProposalCreateApi {
+    /**
+     * Short summary of the proposed change.
+     * @maxLength 200
+     */
+    title: string
+    /** Why this change is worth making, in prose a human reads. */
+    rationale: string
+    /** Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. */
+    content: WorkflowProposalCreateApiContent
+    /** The metric numbers behind the proposal, so a human can judge it without re-deriving them. */
+    evidence?: WorkflowProposalCreateApiEvidence
+    /** Workflow version this was authored against. Required when the proposal changes a whole list (actions, edges, variables), because approve refuses such a proposal once the workflow has moved on and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise. */
+    base_version?: number
+    /**
+     * The step this is about, when it is about one. Both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest.
+     * @maxLength 200
+     * @nullable
+     */
+    step_id?: string | null
+    /** What kind of producer authored this proposal.
+     *
+     * * `scout` - Scout
+     * * `responder` - Responder
+     * * `human` - Human
+     * * `stub` - Stub generator */
+    source_type: WorkflowProposalSourceTypeEnumApi
+    /**
+     * Stable id of the producing agent run or finding. Posting the same one twice returns the existing proposal instead of creating a duplicate.
+     * @maxLength 200
+     * @nullable
+     */
+    source_id?: string | null
+}
+
+export interface WorkflowProposalApproveRequestApi {
+    /** Replace the open staged draft with this proposal's content. Without it, approving while a draft is open returns 409. */
+    overwrite?: boolean
+    /**
+     * The draft_updated_at of the staged draft this overwrite was confirmed against. A draft with a different stamp returns 409 instead of being overwritten. Omit to overwrite unconditionally.
+     * @nullable
+     */
+    expected_draft_updated_at?: string | null
+}
+
+export interface WorkflowProposalMetricApi {
+    /** What was measured, e.g. 'email open rate'. */
+    metric: string
+    /**
+     * The rate over the window, or null when there was nothing to divide.
+     * @nullable
+     */
+    value: number | null
+    /** Observations the rate was computed over. */
+    n: number
+    /** True when n is too small for the rate to mean anything. Show it labelled, not as a finding. */
+    below_minimum_sample: boolean
+}
+
+export interface WorkflowProposalVersionOutcomeApi {
+    /** Workflow version these numbers belong to. */
+    version: number
+    /** The metric the suggestion aimed at. */
+    target: WorkflowProposalMetricApi
+    /** Click-through rate over the same window and denominator, since opens alone can move without clicks. */
+    click_through: WorkflowProposalMetricApi
+    /** Counter-metrics over the same window, so a harmful win is visible. */
+    guardrails: WorkflowProposalMetricApi[]
+}
+
+export interface WorkflowProposalOutcomeApi {
+    /** Relative window both sides were measured over. */
+    window: string
+    /** The version the change was proposed against. */
+    before: WorkflowProposalVersionOutcomeApi | null
+    /** The version it went live as. Null until the proposal is applied. */
+    after: WorkflowProposalVersionOutcomeApi | null
+    /** Counter-metrics that cannot be read yet, named so their absence is not read as zero. */
+    unavailable_guardrails: string[]
+}
+
+export interface WorkflowProposalRejectRequestApi {
+    /**
+     * Why the proposal was rejected. Read back by whoever tunes the agent that produced it.
+     * @maxLength 1000
+     */
+    resolution_note?: string
+}
+
 export interface HogFlowPublishRequestApi {
     /** False (default) previews the publish: returns the impact on people in-flight without changing anything. True applies the staged draft to the live workflow. */
     confirm?: boolean
@@ -2037,6 +2255,37 @@ export const HogFlowsMetricsTotalsRetrieveInterval = {
     Day: 'day',
     Week: 'week',
 } as const
+
+export type HogFlowsProposalsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Only return proposals in this status (suggested, approved, rejected, applied).
+     */
+    status?: HogFlowsProposalsListStatus
+}
+
+export type HogFlowsProposalsListStatus = (typeof HogFlowsProposalsListStatus)[keyof typeof HogFlowsProposalsListStatus]
+
+export const HogFlowsProposalsListStatus = {
+    Applied: 'applied',
+    Approved: 'approved',
+    Rejected: 'rejected',
+    Suggested: 'suggested',
+} as const
+
+export type HogFlowsProposalsOutcomeRetrieveParams = {
+    /**
+     * Relative window, e.g. -7d. Defaults to -7d.
+     */
+    window?: string
+}
 
 export type HogFlowsRevisionsListParams = {
     /**
