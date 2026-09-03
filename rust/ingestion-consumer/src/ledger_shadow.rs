@@ -14,8 +14,8 @@ use tracing::{info, warn};
 use crate::order_sentinel::OffsetSpan;
 
 /// Runs the offset ledger next to the current commit path without taking
-/// part in commit choice. Without a ledger every call is a no-op: the kill
-/// switch leaves the consumer with no ledger at all, so nothing is charged,
+/// part in commit choice. Without a ledger every call is a no-op: the off
+/// mode leaves the consumer with no ledger at all, so nothing is charged,
 /// settled, or forgotten anywhere.
 pub(crate) struct LedgerShadow {
     ledger: Option<Arc<TopicOffsetLedger>>,

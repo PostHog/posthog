@@ -245,8 +245,9 @@ impl IngestionConsumer {
     ) -> Self {
         // Share the context's commit sentinel and ledger so rebalance
         // callbacks reset the same baselines the commit path checks against.
-        // The shadow runs whenever the context carries a ledger: `new` reads
-        // the kill switch, and a detached context always carries one.
+        // The shadow runs whenever the context carries a ledger: `new` builds
+        // one unless the mode is off, and a detached context always carries
+        // one.
         let commit_sentinel = consumer.context().commit_sentinel();
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
         let (batcher, outputs) = Batcher::new(
@@ -307,8 +308,7 @@ impl IngestionConsumer {
         key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         // Off, the consumer has no ledger at all: the rebalance callbacks
         // have nothing to forget and the shadow nothing to charge.
-        let topic_offset_ledger = config
-            .consumer_offset_ledger_shadow_enabled
+        let topic_offset_ledger = (config.consumer_offset_ledger_mode != LedgerMode::Off)
             .then(|| Arc::new(TopicOffsetLedger::new()));
         let mut context = SentinelContext::new(
             Arc::clone(&commit_sentinel),
@@ -712,13 +712,14 @@ impl IngestionConsumer {
         }
 
         match self.ledger_mode {
-            LedgerMode::Shadow => self.commit_offset_spans(partitions),
+            LedgerMode::Off | LedgerMode::Shadow => self.commit_offset_spans(partitions),
             LedgerMode::Commit => self.commit_frontiers(partitions),
         }
     }
 
-    /// Shadow mode: commit the per-batch max offsets unchanged, then settle
-    /// the ledger against them for comparison only.
+    /// Off and shadow modes: commit the per-batch max offsets unchanged, then
+    /// settle the ledger against them for comparison only. Off has no ledger,
+    /// so the settlement is a no-op there.
     fn commit_offset_spans(
         &self,
         partitions: &HashMap<TopicPartition, PartitionDeliveries>,
