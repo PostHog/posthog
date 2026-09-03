@@ -20,7 +20,7 @@ describe('captureElementAsPng', () => {
         await captureElementAsPng(document.createElement('div'))
         const { style } = (toBlob as jest.Mock).mock.calls[0][1]
 
-        expect(style).toMatchObject({ transform: 'none', position: 'relative' })
+        expect(style).toEqual({ transform: 'none', position: 'relative', inset: 'auto', margin: '0' })
     })
 
     it('drops the excluded elements and keeps the rest', async () => {
