@@ -288,6 +288,7 @@ QUERIES: list[QuerySpec] = [
             "mcp_prompt_get_events": "teams_with_mcp_prompt_get_events_count_in_period",
             "mcp_prompts_list_events": "teams_with_mcp_prompts_list_events_count_in_period",
             "openclaw_events": "teams_with_openclaw_events_count_in_period",
+            "opencode_events": "teams_with_opencode_events_count_in_period",
             "posthog_pi_events": "teams_with_posthog_pi_events_count_in_period",
             "posthog_ai_events": "teams_with_posthog_ai_events_count_in_period",
             "edge_events": "teams_with_edge_events_count_in_period",

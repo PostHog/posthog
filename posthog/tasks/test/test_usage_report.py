@@ -523,6 +523,14 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
             create_event(
                 event_uuid=uuid4(),
                 distinct_id=distinct_id,
+                event="$ai_generation",
+                properties={"$lib": "posthog-node", "$ai_lib": "posthog-opencode", "$is_identified": True},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+            create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
                 event="$ai_span",
                 properties={"$lib": "posthog-node", "$ai_lib": "@posthog/pi", "$is_identified": True},
                 timestamp=now() - relativedelta(hours=12),
@@ -683,6 +691,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "mcp_prompt_get_events_count_in_period": 0,
                     "mcp_prompts_list_events_count_in_period": 0,
                     "openclaw_events_count_in_period": 1,
+                    "opencode_events_count_in_period": 1,
                     "posthog_pi_events_count_in_period": 1,
                     "posthog_ai_events_count_in_period": 1,
                     "edge_events_count_in_period": 1,
@@ -740,7 +749,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "event_explorer_api_duration_ms": 0,
                     "rows_synced_in_period": 0,
                     "exceptions_captured_in_period": 0,
-                    "ai_event_count_in_period": 4,
+                    "ai_event_count_in_period": 5,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "cdp_billable_invocations_in_period": 0,
@@ -773,6 +782,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mcp_prompt_get_events_count_in_period": 0,
                             "mcp_prompts_list_events_count_in_period": 0,
                             "openclaw_events_count_in_period": 1,
+                            "opencode_events_count_in_period": 1,
                             "posthog_pi_events_count_in_period": 1,
                             "posthog_ai_events_count_in_period": 1,
                             "edge_events_count_in_period": 1,
@@ -834,7 +844,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "hog_function_fetch_calls_in_period": 0,
                             "cdp_billable_invocations_in_period": 0,
                             "rows_exported_in_period": 0,
-                            "ai_event_count_in_period": 4,
+                            "ai_event_count_in_period": 5,
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
@@ -857,6 +867,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mcp_prompt_get_events_count_in_period": 0,
                             "mcp_prompts_list_events_count_in_period": 0,
                             "openclaw_events_count_in_period": 0,
+                            "opencode_events_count_in_period": 0,
                             "posthog_pi_events_count_in_period": 0,
                             "posthog_ai_events_count_in_period": 0,
                             "edge_events_count_in_period": 0,
@@ -964,6 +975,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "mcp_prompt_get_events_count_in_period": 0,
                     "mcp_prompts_list_events_count_in_period": 0,
                     "openclaw_events_count_in_period": 0,
+                    "opencode_events_count_in_period": 0,
                     "posthog_pi_events_count_in_period": 0,
                     "posthog_ai_events_count_in_period": 0,
                     "edge_events_count_in_period": 0,
@@ -1054,6 +1066,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mcp_prompt_get_events_count_in_period": 0,
                             "mcp_prompts_list_events_count_in_period": 0,
                             "openclaw_events_count_in_period": 0,
+                            "opencode_events_count_in_period": 0,
                             "posthog_pi_events_count_in_period": 0,
                             "posthog_ai_events_count_in_period": 0,
                             "edge_events_count_in_period": 0,
@@ -1586,10 +1599,11 @@ class TestQueryUsageReportSQL:
                 "node_mcp_events": [(1, 9)],
                 "kmp_events": [(1, 8)],
                 "openclaw_events": [],
+                "opencode_events": [],
                 "posthog_pi_events": [],
                 "posthog_ai_events": [],
             },
-            [(1, "posthog-ai", 2), (1, "posthog-openclaw", 3)],
+            [(1, "posthog-ai", 2), (1, "posthog-openclaw", 3), (1, "posthog-opencode", 1)],
         ]
         # Both MCP scans are calendar-aligned, so they reach sync_execute directly: 1st is
         # `$mcp_tool_call`, 2nd is the grouped (team_id, event, count) scan over the other 7 events.
@@ -1624,6 +1638,7 @@ class TestQueryUsageReportSQL:
         assert "lib_expr IN ('posthog-node')" in ai_query
         assert "ai_lib_expr IN (" in ai_query
         assert "'posthog-ai'" in ai_query
+        assert "'posthog-opencode'" in ai_query
 
         dedup_expression = "uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)))"
 
@@ -1644,10 +1659,11 @@ class TestQueryUsageReportSQL:
         # One grouped query for the 7, not one query each.
         assert mock_sync_execute.call_count == 2
 
-        # AI counts are folded back in and subtracted from node_events (10 - 2 - 3 = 5).
+        # Subtract AI sub-SDK counts so each Node event belongs to one SDK metric.
         assert result["posthog_ai_events"] == [(1, 2)]
         assert result["openclaw_events"] == [(1, 3)]
-        assert result["node_events"] == [(1, 5)]
+        assert result["opencode_events"] == [(1, 1)]
+        assert result["node_events"] == [(1, 4)]
         assert result["node_mcp_events"] == [(1, 9)]
         assert result["kmp_events"] == [(1, 8)]
 
@@ -6027,6 +6043,13 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             properties={"$lib": "posthog-node", "$ai_lib": "posthog-openclaw"},
         )
         _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="opencode_user",
+            timestamp=self.begin + relativedelta(hours=12),
+            properties={"$lib": "posthog-node", "$ai_lib": "posthog-opencode"},
+        )
+        _create_event(
             event="$ai_span",
             team=self.team,
             distinct_id="pi_user",
@@ -6046,6 +6069,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         self.assertEqual(dict(result["node_events"]).get(self.team.id), 1)
         self.assertEqual(dict(result["openclaw_events"]).get(self.team.id), 1)
+        self.assertEqual(dict(result["opencode_events"]).get(self.team.id), 1)
         self.assertEqual(dict(result["posthog_pi_events"]).get(self.team.id), 1)
         self.assertEqual(dict(result["posthog_ai_events"]).get(self.team.id), 1)
 

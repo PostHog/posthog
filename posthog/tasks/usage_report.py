@@ -317,6 +317,7 @@ class UsageReportCounters:
 
     # SDK usage (continued)
     openclaw_events_count_in_period: int
+    opencode_events_count_in_period: int
     posthog_pi_events_count_in_period: int
     posthog_ai_events_count_in_period: int
     edge_events_count_in_period: int
@@ -931,6 +932,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("web", None, "web_events"),
         ("js", None, "web_lite_events"),
         ("posthog-node", "posthog-openclaw", "openclaw_events"),
+        ("posthog-node", "posthog-opencode", "opencode_events"),
         ("posthog-node", "@posthog/pi", "posthog_pi_events"),
         ("posthog-node", "posthog-ai", "posthog_ai_events"),
         ("posthog-node", None, "node_events"),
@@ -999,6 +1001,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "node_events": {},
             "node_mcp_events": {},
             "openclaw_events": {},
+            "opencode_events": {},
             "posthog_pi_events": {},
             "posthog_ai_events": {},
             "edge_events": {},
@@ -2876,6 +2879,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_mcp_prompt_get_events_count_in_period": all_metrics["mcp_prompt_get_events"],
         "teams_with_mcp_prompts_list_events_count_in_period": all_metrics["mcp_prompts_list_events"],
         "teams_with_openclaw_events_count_in_period": all_metrics["openclaw_events"],
+        "teams_with_opencode_events_count_in_period": all_metrics["opencode_events"],
         "teams_with_posthog_pi_events_count_in_period": all_metrics["posthog_pi_events"],
         "teams_with_posthog_ai_events_count_in_period": all_metrics["posthog_ai_events"],
         "teams_with_edge_events_count_in_period": all_metrics["edge_events"],
@@ -3293,6 +3297,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
             team.id, 0
         ),
         openclaw_events_count_in_period=all_data["teams_with_openclaw_events_count_in_period"].get(team.id, 0),
+        opencode_events_count_in_period=all_data["teams_with_opencode_events_count_in_period"].get(team.id, 0),
         posthog_pi_events_count_in_period=all_data["teams_with_posthog_pi_events_count_in_period"].get(team.id, 0),
         posthog_ai_events_count_in_period=all_data["teams_with_posthog_ai_events_count_in_period"].get(team.id, 0),
         edge_events_count_in_period=all_data["teams_with_edge_events_count_in_period"].get(team.id, 0),

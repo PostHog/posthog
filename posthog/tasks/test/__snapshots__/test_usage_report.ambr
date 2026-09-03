@@ -169,6 +169,7 @@
   AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                 'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
@@ -186,6 +187,7 @@
   AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                 'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
@@ -203,6 +205,7 @@
   AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                 'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
@@ -220,6 +223,7 @@
   AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                 'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
@@ -237,6 +241,7 @@
   AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                 'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
@@ -254,6 +259,7 @@
   AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                 'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
@@ -271,6 +277,7 @@
   AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                 'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
@@ -325,6 +332,7 @@
   AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                 'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
@@ -342,6 +350,7 @@
   AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                 'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
@@ -359,6 +368,7 @@
   AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                 'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
@@ -376,6 +386,7 @@
   AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                 'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
@@ -393,6 +404,7 @@
   AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                 'posthog-opencode',
                                                                                  '@posthog/pi',
                                                                                  'posthog-ai')
   GROUP BY team_id,
