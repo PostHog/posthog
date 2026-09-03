@@ -48,6 +48,9 @@ export interface BoardFrameEvents {
   onFragmentPointerDown(
     e: Extract<BoardFrameToHostMessage, { type: "fragment-pointer-down" }>,
   ): void;
+  /** Where the pointer is inside the frame, in client coordinates. */
+  onPointerMove(clientX: number, clientY: number): void;
+  onPointerLeave(): void;
 }
 
 export interface UseBoardFrameOptions {
@@ -264,6 +267,12 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
           break;
         case "fragment-pointer-down":
           events.onFragmentPointerDown(message);
+          break;
+        case "pointer-move":
+          events.onPointerMove(message.clientX, message.clientY);
+          break;
+        case "pointer-leave":
+          events.onPointerLeave();
           break;
         case "open-external": {
           const now = Date.now();

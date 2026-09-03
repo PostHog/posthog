@@ -43,6 +43,8 @@ interface BoardToolbarProps {
   onToggleInspector: () => void;
   /** The sync chip, owned by the caller because it reads the sync state. */
   syncChip?: ReactNode;
+  /** The faces of the other people on the board. */
+  presenceFaces?: ReactNode;
 }
 
 export function BoardToolbar({
@@ -60,6 +62,7 @@ export function BoardToolbar({
   onToggleHistory,
   onToggleInspector,
   syncChip,
+  presenceFaces,
 }: BoardToolbarProps): ReactElement {
   return (
     <TooltipProvider delay={400}>
@@ -115,7 +118,10 @@ export function BoardToolbar({
           <BracketsCurlyIcon />
         </IconToggle>
 
-        <div className="ml-auto flex items-center gap-2">{syncChip}</div>
+        <div className="ml-auto flex items-center gap-2">
+          {presenceFaces}
+          {syncChip}
+        </div>
       </div>
     </TooltipProvider>
   );

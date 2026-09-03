@@ -263,6 +263,10 @@ export function buildBoardFrameDocument(): string {
     );
     window.addEventListener("pointermove", (e) => {
       if (relayingPointer) post(pointerPayload("move", e));
+      post({ type: "pointer-move", clientX: e.clientX, clientY: e.clientY });
+    });
+    document.addEventListener("pointerleave", () => {
+      post({ type: "pointer-leave" });
     });
     const endPointer = (e) => {
       if (!relayingPointer) return;

@@ -124,6 +124,13 @@ export const boardFrameToHostMessageSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     channel,
+    type: z.literal("pointer-move"),
+    clientX: z.number(),
+    clientY: z.number(),
+  }),
+  z.object({ channel, type: z.literal("pointer-leave") }),
+  z.object({
+    channel,
     type: z.literal("fragment-pointer-down"),
     id: z.string(),
     shiftKey: z.boolean(),

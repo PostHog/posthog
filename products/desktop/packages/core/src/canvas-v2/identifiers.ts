@@ -4,6 +4,8 @@ import type {
   CanvasV2Board,
   CanvasV2BoardSummary,
   CanvasV2OpsPage,
+  CanvasV2PresenceInput,
+  CanvasV2StreamEvent,
 } from "@posthog/shared";
 
 export const CANVAS_V2_BOARDS_SERVICE = Symbol.for(
@@ -21,4 +23,16 @@ export interface ICanvasV2BoardsService {
     id: string,
     input: CanvasV2AppendOpsInput,
   ): Promise<CanvasV2AppendOpsResult>;
+}
+
+export const CANVAS_V2_STREAM_SERVICE = Symbol.for(
+  "posthog.core.canvasV2.streamService",
+);
+
+export interface ICanvasV2StreamService {
+  streamBoard(
+    boardId: string,
+    signal?: AbortSignal,
+  ): AsyncGenerator<CanvasV2StreamEvent>;
+  sendPresence(boardId: string, input: CanvasV2PresenceInput): Promise<void>;
 }

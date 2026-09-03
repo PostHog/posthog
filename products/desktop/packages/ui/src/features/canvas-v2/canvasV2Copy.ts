@@ -96,6 +96,14 @@ export function collaboratorsLabel(count: number): string {
   return count === 1 ? "1 other editing" : `${count} others editing`;
 }
 
+export const PRESENCE_FACES_LABEL = "People on this board";
+export const PRESENCE_UNKNOWN_NAME = "Someone";
+
+/** "+3", for the people the faces row cannot show. */
+export function presenceOverflowLabel(count: number): string {
+  return `+${count}`;
+}
+
 export const HISTORY_PANEL_CLOSE = "Close history";
 export const HISTORY_LOADING = "Loading the rest of the history…";
 export const HISTORY_EMPTY = "No changes yet.";

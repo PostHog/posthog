@@ -3,6 +3,7 @@ import {
   type BoardPoint,
   screenToWorld,
 } from "@posthog/core/canvas-v2/boardGeometry";
+import type { PresencePeer } from "@posthog/core/canvas-v2/boardPresence";
 import {
   type CanvasV2Fragment,
   type CanvasV2Op,
@@ -15,6 +16,7 @@ import { BOARD_FRAME_TITLE } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import { DropCaptureLayer } from "@posthog/ui/features/canvas-v2/components/DropCaptureLayer";
 import type { FragmentLastEdit } from "@posthog/ui/features/canvas-v2/components/FragmentOverlay";
 import { OverlayLayer } from "@posthog/ui/features/canvas-v2/components/OverlayLayer";
+import { PresenceLayer } from "@posthog/ui/features/canvas-v2/components/PresenceLayer";
 import {
   useBoardHighlightedIds,
   useBoardSelectedIds,
@@ -56,6 +58,10 @@ export interface BoardStageProps {
   /** True while a library drag runs, so drops land on the board and not the frame. */
   dragActive: boolean;
   onDropFragment: (name: string, world: BoardPoint) => void;
+  /** The other people on the board, drawn above the frame. */
+  peers: readonly PresencePeer[];
+  /** Where this person points, in world units, or null when off the board. */
+  onCursor: (world: BoardPoint | null) => void;
 }
 
 /** The board frame with its chrome above it. */
@@ -74,6 +80,8 @@ export function BoardStage({
   onEditFragment,
   dragActive,
   onDropFragment,
+  peers,
+  onCursor,
 }: BoardStageProps): ReactElement {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [paneRect, setPaneRect] = useState<BoardPaneRect>({
@@ -120,6 +128,23 @@ export function BoardStage({
   // must stay live or the release never arrives.
   const gestureActive = pointer.gesture.kind !== "none";
 
+  const paneRectRef = useRef(paneRect);
+  paneRectRef.current = paneRect;
+  // Frame points are relative to the iframe, which fills the pane.
+  const reportFrameCursor = useCallback(
+    (clientX: number, clientY: number): void => {
+      const pane = paneRectRef.current;
+      onCursor(
+        screenToWorld(
+          { x: clientX + pane.left, y: clientY + pane.top },
+          viewportRef.current,
+          pane,
+        ),
+      );
+    },
+    [onCursor],
+  );
+
   const syncedSnapshot = useRef<CanvasV2Snapshot | null>(null);
   const frameRef = useRef<BoardFrameHandle | null>(null);
   const frame = useBoardFrame({
@@ -141,6 +166,8 @@ export function BoardStage({
       onWheel: pointer.onFrameWheel,
       onBackgroundPointer: pointer.onFrameBackgroundPointer,
       onFragmentPointerDown: pointer.onFrameFragmentPointerDown,
+      onPointerMove: reportFrameCursor,
+      onPointerLeave: () => onCursor(null),
     },
   });
   frameRef.current = frame;
@@ -272,6 +299,16 @@ export function BoardStage({
       ref={paneRef}
       className="relative h-full w-full overflow-hidden"
       onWheel={pointer.onOverlayWheel}
+      onPointerMove={(event) =>
+        onCursor(
+          screenToWorld(
+            { x: event.clientX, y: event.clientY },
+            viewportRef.current,
+            paneRectRef.current,
+          ),
+        )
+      }
+      onPointerLeave={() => onCursor(null)}
     >
       <iframe
         ref={iframeRef}
@@ -308,6 +345,12 @@ export function BoardStage({
           }}
         />
       ) : null}
+      <PresenceLayer
+        peers={peers}
+        fragments={ordered}
+        viewport={viewport}
+        paneRect={paneRect}
+      />
       <DropCaptureLayer
         active={dragActive}
         toWorld={toWorld}

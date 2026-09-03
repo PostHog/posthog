@@ -43,6 +43,9 @@ import {
   useBoardViewStore,
 } from "@posthog/ui/features/canvas-v2/interaction/boardViewStore";
 import { libraryEntry } from "@posthog/ui/features/canvas-v2/library/registry";
+import { useBoardPeers } from "@posthog/ui/features/canvas-v2/presence/useBoardPeers";
+import { useBoardStream } from "@posthog/ui/features/canvas-v2/presence/useBoardStream";
+import { usePresenceSender } from "@posthog/ui/features/canvas-v2/presence/usePresenceSender";
 import { useBoardSync } from "@posthog/ui/features/canvas-v2/sync/useBoardSync";
 import {
   PageHeader,
@@ -57,6 +60,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   type ReactElement,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -70,6 +74,7 @@ import { EditFragmentDialog } from "./EditFragmentDialog";
 import type { FragmentLastEdit } from "./FragmentOverlay";
 import { HistoryPanel } from "./HistoryPanel";
 import { LibraryPalette } from "./LibraryPalette";
+import { PresenceFaces } from "./PresenceFaces";
 import { StateInspector } from "./StateInspector";
 import { SyncChip } from "./SyncChip";
 
@@ -91,6 +96,15 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
     [currentUser.data],
   );
   const { state, client } = useBoardSync(boardId, api, actorUser);
+
+  const presence = usePresenceSender(boardId);
+  const { peers, ingest } = useBoardPeers(presence.clientId);
+  useBoardStream(boardId, {
+    onOp: (entry) => client?.ingestStreamEntry(entry),
+    onPresence: ingest,
+    onReload: () => void client?.poll(),
+    onLive: (live) => client?.setLive(live),
+  });
 
   const viewport = useBoardViewport(boardId);
   const setViewportForBoard = useBoardViewportStore((s) => s.setViewport);
@@ -169,6 +183,14 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
       view.setSelection(state.snapshot.fragments.map((f) => f.id)),
     onUndo: () => void client?.undoLastOwnOp(),
   });
+
+  useEffect(() => {
+    presence.reportSelection(view.selectedIds);
+  }, [presence, view.selectedIds]);
+
+  useEffect(() => {
+    presence.reportViewport(viewport);
+  }, [presence, viewport]);
 
   const lastEdits: Record<string, FragmentLastEdit> = useMemo(
     () => buildLastEdits(state.log),
@@ -262,13 +284,8 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
             onToggleInspector={() =>
               togglePanel("inspector", view.inspectorOpen)
             }
-            syncChip={
-              <SyncChip
-                status={state.status}
-                log={state.log}
-                currentUserId={actorUser?.userId}
-              />
-            }
+            presenceFaces={<PresenceFaces peers={peers} />}
+            syncChip={<SyncChip status={state.status} />}
           />
           <div className="relative min-h-0 flex-1">
             <BoardStage
@@ -288,6 +305,8 @@ export function BoardView({ boardId }: { boardId: string }): ReactElement {
               onEditFragment={setEditingId}
               dragActive={dragActive}
               onDropFragment={(name, world) => addFromLibrary(name, world)}
+              peers={peers}
+              onCursor={presence.reportCursor}
             />
             {state.snapshot.fragments.length === 0 ? (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">

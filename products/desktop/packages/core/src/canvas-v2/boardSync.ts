@@ -52,6 +52,8 @@ export interface BoardSyncState {
   logComplete: boolean;
   pending: PendingEntry[];
   status: BoardSyncStatus;
+  /** True while the board stream is connected, so polling is off. */
+  live: boolean;
   lastError?: string;
   fragmentErrors: Record<string, string>;
 }
@@ -111,6 +113,7 @@ export class BoardSyncClient {
   private retryAttempt = 0;
   private lastCheckpointAt = 0;
   private visible = true;
+  private live = false;
   private started = false;
   private stopped = false;
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -321,6 +324,25 @@ export class BoardSyncClient {
       return;
     }
     this.clearPollTimer();
+  }
+
+  /**
+   * The stream is the first source of ops. While it is connected the poll
+   * timer stops; a drop starts it again and one poll closes the gap.
+   */
+  setLive(live: boolean): void {
+    if (this.live === live) return;
+    this.live = live;
+    this.restartPollTimer();
+    void this.poll();
+    this.emit();
+  }
+
+  /** One stream op, applied exactly as a polled entry. */
+  ingestStreamEntry(entry: CanvasV2LogEntry): void {
+    this.headSeq = Math.max(this.headSeq, entry.seq);
+    this.ingest([entry]);
+    this.recompute();
   }
 
   setFragmentError(id: string, message: string | null): void {
@@ -562,7 +584,7 @@ export class BoardSyncClient {
 
   private restartPollTimer(): void {
     this.clearPollTimer();
-    if (!this.started || !this.visible) return;
+    if (!this.started || !this.visible || this.live) return;
     this.pollTimer = setInterval(() => {
       void this.poll();
     }, this.pollIntervalMs);
@@ -613,6 +635,7 @@ export class BoardSyncClient {
       logComplete: this.logComplete,
       pending: this.pending,
       status: this.status(),
+      live: this.live,
       lastError: this.lastError,
       fragmentErrors: this.fragmentErrors,
     };

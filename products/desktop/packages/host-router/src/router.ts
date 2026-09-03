@@ -9,6 +9,7 @@ import { canvasDataRouter } from "./routers/canvas-data.router";
 import { canvasTemplatesRouter } from "./routers/canvas-templates.router";
 import { canvasV2Router } from "./routers/canvas-v2.router";
 import { canvasV2CacheRouter } from "./routers/canvas-v2-cache.router";
+import { canvasV2StreamRouter } from "./routers/canvas-v2-stream.router";
 import { channelTasksRouter } from "./routers/channel-tasks.router";
 import { claudeCliSessionsRouter } from "./routers/claude-cli-sessions.router";
 import { cloudTaskRouter } from "./routers/cloud-task.router";
@@ -64,6 +65,7 @@ export const hostRouter = router({
   canvasTemplates: canvasTemplatesRouter,
   canvasV2: canvasV2Router,
   canvasV2Cache: canvasV2CacheRouter,
+  canvasV2Stream: canvasV2StreamRouter,
   channelTasks: channelTasksRouter,
   claudeCliSessions: claudeCliSessionsRouter,
   cloudTask: cloudTaskRouter,

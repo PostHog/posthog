@@ -2,11 +2,17 @@ import {
   canvasV2ActorKindSchema,
   canvasV2LogEntrySchema,
   canvasV2OpSchema,
+  canvasV2PresenceInputSchema,
   canvasV2SnapshotSchema,
 } from "@posthog/shared";
 import { z } from "zod";
 
 export const canvasV2BoardIdInput = z.object({ id: z.string().min(1) });
+
+export const canvasV2SendPresenceInput = z.object({
+  id: z.string().min(1),
+  presence: canvasV2PresenceInputSchema,
+});
 
 export const createCanvasV2BoardInput = z.object({
   name: z.string().min(1).max(120),

@@ -10,6 +10,7 @@ import { canvasDataRouter } from "@posthog/host-router/routers/canvas-data.route
 import { canvasTemplatesRouter } from "@posthog/host-router/routers/canvas-templates.router";
 import { canvasV2Router } from "@posthog/host-router/routers/canvas-v2.router";
 import { canvasV2CacheRouter } from "@posthog/host-router/routers/canvas-v2-cache.router";
+import { canvasV2StreamRouter } from "@posthog/host-router/routers/canvas-v2-stream.router";
 import { channelTasksRouter } from "@posthog/host-router/routers/channel-tasks.router";
 import { claudeCliSessionsRouter } from "@posthog/host-router/routers/claude-cli-sessions.router";
 import { cloudTaskRouter } from "@posthog/host-router/routers/cloud-task.router";
@@ -73,6 +74,7 @@ export const trpcRouter = router({
   canvasTemplates: canvasTemplatesRouter,
   canvasV2: canvasV2Router,
   canvasV2Cache: canvasV2CacheRouter,
+  canvasV2Stream: canvasV2StreamRouter,
   channelTasks: channelTasksRouter,
   claudeCliSessions: claudeCliSessionsRouter,
   dashboards: dashboardsRouter,
