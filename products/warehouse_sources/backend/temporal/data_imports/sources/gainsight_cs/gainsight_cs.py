@@ -1,4 +1,6 @@
 import re
+import json
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any, Optional
@@ -24,7 +26,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_
 REQUEST_TIMEOUT = 60
 CREATED_DATE = "CreatedDate"
 
+# The host is customer-controlled, so a body is never buffered unbounded (size cap) nor allowed to
+# hold a worker by dribbling bytes under the per-read timeout (time cap).
+MAX_RESPONSE_BYTES = 128 * 1024 * 1024
+MAX_DOWNLOAD_SECONDS = 120
+RESPONSE_CHUNK_BYTES = 256 * 1024
+# Pages one attempt walks before it checkpoints and stops. Temporal retries the activity, which
+# resumes from the saved offset, so a large object still finishes while a host that never sends a
+# short page can't hold the worker for the whole activity timeout.
+MAX_PAGES_PER_ATTEMPT = 2000
+
 HOST_NOT_ALLOWED_ERROR = "That Gainsight domain isn't allowed."
+RESPONSE_TOO_LARGE_ERROR = "Gainsight returned a response larger than this source accepts."
+RESPONSE_TOO_SLOW_ERROR = "Gainsight took too long to send a response."
 
 _DOMAIN_RE = re.compile(r"^[A-Za-z0-9.\-]+$")
 _OBJECT_NAME_RE = re.compile(OBJECT_NAME_PATTERN)
@@ -32,6 +46,37 @@ _OBJECT_NAME_RE = re.compile(OBJECT_NAME_PATTERN)
 
 class GainsightCsHostNotAllowedError(Exception):
     pass
+
+
+class GainsightCsResponseTooLargeError(Exception):
+    pass
+
+
+class GainsightCsResponseTooSlowError(Exception):
+    pass
+
+
+class GainsightCsPageBudgetExhaustedError(Exception):
+    pass
+
+
+def _read_capped_json(response: requests.Response) -> Any:
+    chunks: list[bytes] = []
+    total = 0
+    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
+    try:
+        for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
+            if time.monotonic() > deadline:
+                raise GainsightCsResponseTooSlowError(RESPONSE_TOO_SLOW_ERROR)
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > MAX_RESPONSE_BYTES:
+                raise GainsightCsResponseTooLargeError(RESPONSE_TOO_LARGE_ERROR)
+            chunks.append(chunk)
+    finally:
+        response.close()
+    return json.loads(b"".join(chunks) or b"null")
 
 
 @frozen
@@ -205,10 +250,10 @@ def describe_object(
     rather than hardcoded.
     """
     url = f"{_base_url(domain)}{DESCRIBE_PATH.format(object_name=object_name)}"
-    response = session.get(url, headers=_headers(access_key), timeout=REQUEST_TIMEOUT)
+    response = session.get(url, headers=_headers(access_key), timeout=REQUEST_TIMEOUT, stream=True)
     _raise_for_redirect(response)
     response.raise_for_status()
-    return _parse_fields(response.json(), object_name)
+    return _parse_fields(_read_capped_json(response), object_name)
 
 
 def _raise_for_redirect(response: requests.Response) -> None:
@@ -272,28 +317,35 @@ def gainsight_cs_source(
             if resume is not None:
                 offset = max(resume.offset, 0)
 
-        while True:
+        for _ in range(MAX_PAGES_PER_ATTEMPT):
             body: dict[str, Any] = {"select": select, "limit": MAX_PAGE_SIZE, "offset": offset}
             if order_by is not None:
                 body["orderBy"] = order_by
 
-            response = session.post(url, headers=_headers(access_key), json=body, timeout=REQUEST_TIMEOUT)
+            response = session.post(url, headers=_headers(access_key), json=body, timeout=REQUEST_TIMEOUT, stream=True)
             _raise_for_redirect(response)
             response.raise_for_status()
 
-            rows = _rows_from_body(response.json(), object_name)
+            rows = _rows_from_body(_read_capped_json(response), object_name)
             if rows:
                 yield [_normalize_row(row, date_fields) for row in rows]
 
             # A short page means the API ran out of records; advancing by the rows actually returned
             # (rather than by the requested limit) keeps the cursor honest if it ever returns fewer.
             if len(rows) < MAX_PAGE_SIZE:
-                break
+                # A finished walk must not leave its offset behind: within the checkpoint TTL the
+                # next job would resume there and merge instead of replacing the table.
+                resumable_source_manager.clear_state()
+                return
 
             offset += len(rows)
             # Saved after the page is yielded, so a crash re-reads the last page — which the merge
             # dedupes on the primary key — instead of stepping over it.
             resumable_source_manager.save_state(GainsightCsResumeConfig(offset=offset))
+
+        raise GainsightCsPageBudgetExhaustedError(
+            f"Stopped after {MAX_PAGES_PER_ATTEMPT} pages of '{object_name}'; the next attempt resumes at offset {offset}."
+        )
 
     partition_keys = [CREATED_DATE] if CREATED_DATE in field_names else None
 
@@ -317,15 +369,17 @@ def validate_credentials(
     url = f"{_base_url(domain)}{DESCRIBE_PATH.format(object_name=object_name)}"
     try:
         response = make_tracked_session(redact_values=(access_key,), allow_redirects=False).get(
-            url, headers=_headers(access_key), timeout=30
+            url, headers=_headers(access_key), timeout=30, stream=True
         )
     except requests.exceptions.RequestException as e:
         return False, f"Could not reach Gainsight ({e}). Check the domain and your network."
 
     if response.is_redirect or response.is_permanent_redirect:
+        response.close()
         return False, HOST_NOT_ALLOWED_ERROR
 
     if response.status_code in (401, 403):
+        response.close()
         return (
             False,
             "Gainsight rejected the access key. Generate one under Administration → Connectors in "
@@ -333,14 +387,16 @@ def validate_credentials(
         )
 
     if response.status_code == 404:
+        response.close()
         return False, f"Gainsight has no object named '{object_name}' on that domain."
 
     if response.status_code != 200:
+        response.close()
         return False, f"Gainsight returned an unexpected status ({response.status_code})."
 
     try:
-        _parse_fields(response.json(), object_name)
-    except ValueError as e:
+        _parse_fields(_read_capped_json(response), object_name)
+    except (ValueError, GainsightCsResponseTooLargeError, GainsightCsResponseTooSlowError) as e:
         return False, str(e)
 
     return True, None

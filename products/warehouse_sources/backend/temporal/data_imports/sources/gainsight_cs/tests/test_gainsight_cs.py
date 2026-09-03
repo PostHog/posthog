@@ -11,9 +11,13 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.gainsight_cs import (
     GainsightCsHostNotAllowedError,
+    GainsightCsPageBudgetExhaustedError,
+    GainsightCsResponseTooLargeError,
+    GainsightCsResponseTooSlowError,
     GainsightCsResumeConfig,
     _normalize_row,
     _parse_fields,
+    _read_capped_json,
     _rows_from_body,
     gainsight_cs_source,
     normalize_domain,
@@ -30,6 +34,7 @@ HOST_CHECK_PATCH = (
 PAGE_SIZE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.gainsight_cs.MAX_PAGE_SIZE"
 )
+GAINSIGHT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.gainsight_cs"
 
 DOMAIN = "acme.gainsightcloud.com"
 
@@ -38,6 +43,8 @@ def _response(body: Any, *, status_code: int = 200, headers: dict[str, str] | No
     resp = Response()
     resp.status_code = status_code
     resp._content = json.dumps(body).encode()
+    # The source streams bodies through a size cap; a pre-filled Response only iterates once consumed.
+    resp._content_consumed = True
     if headers:
         resp.headers.update(headers)
     return resp
@@ -212,6 +219,36 @@ class TestPagination:
 
         # One save, for the boundary after the first page — the terminal page has nothing to resume to.
         manager.save_state.assert_called_once_with(GainsightCsResumeConfig(offset=2))
+        # ...and the finished walk drops that checkpoint so the next job starts from offset 0.
+        manager.clear_state.assert_called_once_with()
+
+    def test_a_walk_that_ends_on_its_first_page_still_clears_state(self) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = _response(_describe_body([_field("Gsid")]))
+        session.post.side_effect = [_response({"result": True, "data": [{"Gsid": "1"}]})]
+        manager = _manager()
+
+        self._run(session, manager)
+
+        manager.save_state.assert_not_called()
+        manager.clear_state.assert_called_once_with()
+
+    def test_checkpoints_then_stops_when_the_page_budget_runs_out(self) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = _response(_describe_body([_field("Gsid")]))
+        full_page = {"result": True, "data": [{"Gsid": "1"}, {"Gsid": "2"}]}
+        session.post.side_effect = [_response(full_page) for _ in range(10)]
+        manager = _manager()
+
+        with (
+            mock.patch(f"{GAINSIGHT_MODULE}.MAX_PAGES_PER_ATTEMPT", 3),
+            pytest.raises(GainsightCsPageBudgetExhaustedError),
+        ):
+            self._run(session, manager)
+
+        assert session.post.call_count == 3
+        assert manager.save_state.call_args_list[-1] == mock.call(GainsightCsResumeConfig(offset=6))
+        manager.clear_state.assert_not_called()
 
     def test_resumes_from_the_saved_offset(self) -> None:
         session = mock.MagicMock()
@@ -269,6 +306,42 @@ class TestPagination:
                 resumable_source_manager=_manager(),
             )
         session.get.assert_not_called()
+
+
+class TestCappedResponses:
+    def _streaming(self, chunks: list[bytes]) -> mock.MagicMock:
+        response = mock.MagicMock()
+        response.iter_content.return_value = iter(chunks)
+        return response
+
+    def test_parses_a_body_that_fits(self) -> None:
+        assert _read_capped_json(self._streaming([b'{"a": ', b"1}"])) == {"a": 1}
+
+    def test_refuses_a_body_past_the_size_cap(self) -> None:
+        response = self._streaming([b"x" * 10, b"y" * 10])
+        with mock.patch(f"{GAINSIGHT_MODULE}.MAX_RESPONSE_BYTES", 15), pytest.raises(GainsightCsResponseTooLargeError):
+            _read_capped_json(response)
+        response.close.assert_called_once_with()
+
+    def test_refuses_a_body_that_dribbles_past_the_time_cap(self) -> None:
+        response = self._streaming([b"{", b"}"])
+        with (
+            mock.patch(f"{GAINSIGHT_MODULE}.time.monotonic", side_effect=[0.0, 1.0, 500.0]),
+            mock.patch(f"{GAINSIGHT_MODULE}.MAX_DOWNLOAD_SECONDS", 100),
+            pytest.raises(GainsightCsResponseTooSlowError),
+        ):
+            _read_capped_json(response)
+        response.close.assert_called_once_with()
+
+    def test_pages_are_requested_as_streams(self) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = _response(_describe_body([_field("Gsid")]))
+        session.post.side_effect = [_response({"result": True, "data": []})]
+
+        TestPagination()._run(session, _manager())
+
+        assert session.get.call_args.kwargs["stream"] is True
+        assert session.post.call_args.kwargs["stream"] is True
 
 
 class TestValidateCredentials:

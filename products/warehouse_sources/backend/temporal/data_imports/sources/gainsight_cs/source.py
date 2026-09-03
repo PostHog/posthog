@@ -20,7 +20,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     build_endpoint_schemas,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.canonical_descriptions import (
+    CANONICAL_DESCRIPTIONS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.gainsight_cs import (
+    RESPONSE_TOO_LARGE_ERROR,
+    RESPONSE_TOO_SLOW_ERROR,
     GainsightCsResumeConfig,
     gainsight_cs_source,
     parse_custom_objects,
@@ -65,13 +70,11 @@ class GainsightCsSource(ResumableSource[GainsightCsSourceConfig, GainsightCsResu
         return {
             "401 Client Error: Unauthorized": message,
             "403 Client Error: Forbidden": message,
+            RESPONSE_TOO_LARGE_ERROR: RESPONSE_TOO_LARGE_ERROR,
+            RESPONSE_TOO_SLOW_ERROR: RESPONSE_TOO_SLOW_ERROR,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.canonical_descriptions import (  # noqa: PLC0415
-            CANONICAL_DESCRIPTIONS,
-        )
-
         return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
