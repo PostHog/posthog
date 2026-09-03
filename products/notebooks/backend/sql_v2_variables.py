@@ -20,26 +20,22 @@ passes the value as data instead:
 
 import re
 from collections.abc import Iterator
-from datetime import date, datetime
 from difflib import get_close_matches
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_prepared_ast
-from posthog.hogql.variables import is_relative_date_value
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.dataclasses import frozen
-from posthog.utils import relative_date_parse
 
 # HogQL injects its own `{filters}` placeholder into notebook queries, so a variable could never
 # take that name. Left untouched here rather than reported as undeclared.
 RESERVED_VARIABLE_NAMES = frozenset({"filters"})
 
-NotebookVariableValue = str | int | float | bool | datetime | date | None
+NotebookVariableValue = str | int | float | bool | None
 
 
 class NotebookVariableError(Exception):
@@ -269,7 +265,7 @@ def reject_variables_in_raw_query(code: str, variables: list[NotebookVariable]) 
         )
 
 
-def build_notebook_variables(items: list[dict[str, Any]], timezone_info: ZoneInfo) -> list[NotebookVariable]:
+def build_notebook_variables(items: list[dict[str, Any]]) -> list[NotebookVariable]:
     """Coerce the run request's declarations into variables with Python scalar values.
 
     Duplicates keep the first declaration, matching what the editor treats as the valid one.
@@ -281,13 +277,11 @@ def build_notebook_variables(items: list[dict[str, Any]], timezone_info: ZoneInf
         if not name or name in seen or name in RESERVED_VARIABLE_NAMES:
             continue
         seen.add(name)
-        variables.append(
-            NotebookVariable(name=name, value=_coerce_value(item.get("type"), item.get("value"), timezone_info))
-        )
+        variables.append(NotebookVariable(name=name, value=_coerce_value(item.get("type"), item.get("value"))))
     return variables
 
 
-def _coerce_value(variable_type: Any, value: Any, timezone_info: ZoneInfo) -> NotebookVariableValue:
+def _coerce_value(variable_type: Any, value: Any) -> NotebookVariableValue:
     if value is None:
         return None
     if variable_type == "number":
@@ -301,22 +295,15 @@ def _coerce_value(variable_type: Any, value: Any, timezone_info: ZoneInfo) -> No
             return None
     if variable_type == "boolean":
         return value if isinstance(value, bool) else str(value).strip().lower() == "true"
-    if variable_type == "date":
-        text = str(value).strip()
-        # A relative value ("-7d", "mStart") is resolved against the team's timezone, exactly as
-        # an insight's date variable is; an absolute date stays a string the engine casts.
-        return relative_date_parse(text, timezone_info) if is_relative_date_value(text) else text
-    return str(value)
+    # A date is an absolute ISO string the engine casts (the serializer refuses anything else),
+    # so it binds like any other string and compares stably across reads.
+    return str(value).strip() if variable_type == "date" else str(value)
 
 
 def python_variable_bindings(variables: list[NotebookVariable]) -> dict[str, Any]:
     """The name -> value map a Python cell gets bound into its kernel namespace.
 
-    Dates go over as ISO strings: the payload is JSON on its way to the sandbox, and a
-    string the user can parse beats a silently dropped value.
+    Dates go over as the ISO strings they were declared as: the payload is JSON on its way to
+    the sandbox, and a string the user can parse beats a silently dropped value.
     """
-    return {
-        variable.name: variable.value.isoformat() if isinstance(variable.value, datetime | date) else variable.value
-        for variable in variables
-        if variable.name
-    }
+    return {variable.name: variable.value for variable in variables if variable.name}

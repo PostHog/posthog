@@ -5,10 +5,9 @@ Staleness is derived, not stored: a cell is stale when re-running it now would e
 different code than its last completed run. For a SQL cell that last ran on ClickHouse the
 comparison uses the variable-bound, CTE-resolved code (notebook variables and upstream
 definitions inline into the stored run code, so a changed value or an upstream edit changes
-the resolution; a relative date variable resolves against the clock, so a cell reading one
-reads stale once time has moved on). A SQL cell that last ran on the sandbox's DuckDB, and
-a Python cell, fall back to code drift plus upstream run recency: both materialize inputs by
-run, and neither run row records which input runs or variable values it used.
+the resolution). A SQL cell that last ran on the sandbox's DuckDB, and a Python cell, fall
+back to code drift plus upstream run recency: both materialize inputs by run, and neither
+run row records which input runs or variable values it used.
 """
 
 import re
@@ -202,7 +201,7 @@ def annotate_run_state(cells: list[NotebookCellState], team_id: int, notebook: A
             latest_done_by_node[run.node_id] = run
 
     cells_by_node = {cell.node_id: cell for cell in cells}
-    variables = build_notebook_variables(notebook.variables or [], notebook.team.timezone_info)
+    variables = build_notebook_variables(notebook.variables or [])
     for cell in cells:
         if cell.cell_type not in ("sql", "python"):
             continue

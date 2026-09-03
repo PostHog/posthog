@@ -21,7 +21,7 @@ const NotebookVariableSchema = z
         type: z
             .enum(['string', 'number', 'boolean', 'date'])
             .describe(
-                "How the value binds: 'string', 'number', 'boolean', or 'date'. A 'date' accepts an absolute date ('2025-01-31') or a relative expression ('-7d', 'mStart') resolved against the project timezone."
+                "How the value binds: 'string', 'number', 'boolean', or 'date'. A 'date' is an absolute ISO 8601 date or datetime ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions like '-7d' are rejected, so compute the date first."
             ),
         value: z
             .union([z.string(), z.number(), z.boolean(), z.null()])

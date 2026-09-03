@@ -93,7 +93,7 @@ export const NotebooksCreateBody = () => zod.object({
                         .unknown()
                         .optional()
                         .describe(
-                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
                         ),
                 })
                 .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
@@ -167,7 +167,7 @@ export const NotebooksPartialUpdateBody = () => zod.object({
                         .unknown()
                         .optional()
                         .describe(
-                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
                         ),
                 })
                 .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")

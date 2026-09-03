@@ -1802,7 +1802,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             )
         # The notebook's variables as of this run. A SQL node has them bound into its code
         # below; a python node carries them to the kernel, which binds them as globals.
-        variables = build_notebook_variables(serializer.validated_data.get("variables") or [], self.team.timezone_info)
+        variables = build_notebook_variables(serializer.validated_data.get("variables") or [])
         try:
             if node_type == "python":
                 # A python node stores its code as-is; referenced frames become kernel inputs,
