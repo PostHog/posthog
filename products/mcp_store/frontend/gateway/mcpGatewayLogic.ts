@@ -619,27 +619,27 @@ export interface mcpGatewayLogicMeta {
         ) => GatewayServerEntry[]
         mergedServers: (
             servers: MCPGatewayServerApi[],
-            templateOnlyServers: MCPGatewayServerApi[]
+            templateOnlyServers: GatewayServerEntry[]
         ) => GatewayServerEntry[]
         connectionModalServer: (
-            mergedServers: MCPGatewayServerApi[],
+            mergedServers: GatewayServerEntry[],
             connectionModalServerId: string | null
         ) => GatewayServerEntry | null
         connectionSubmitDisabledReason: (
-            connectionModalServer: MCPGatewayServerApi | null,
+            connectionModalServer: GatewayServerEntry | null,
             connectionAuthType: InstallCustomAuthTypeEnumApi,
             connectionApiKey: string
         ) => string | null
-        categoryCounts: (mergedServers: MCPGatewayServerApi[]) => Record<string, number>
-        connectedServers: (mergedServers: MCPGatewayServerApi[]) => GatewayServerEntry[]
+        categoryCounts: (mergedServers: GatewayServerEntry[]) => Record<string, number>
+        connectedServers: (mergedServers: GatewayServerEntry[]) => GatewayServerEntry[]
         filteredServers: (
-            mergedServers: MCPGatewayServerApi[],
+            mergedServers: GatewayServerEntry[],
             searchQuery: string,
             categoryFilter: string | null
         ) => GatewayServerEntry[]
         activeAgentCount: (serviceAccounts: MCPServiceAccountApi[]) => number
         agentSharedServerCounts: (serviceAccounts: MCPServiceAccountApi[]) => Record<string, number>
-        enabledServerCount: (mergedServers: MCPGatewayServerApi[]) => number
+        enabledServerCount: (mergedServers: GatewayServerEntry[]) => number
     }
 }
 
