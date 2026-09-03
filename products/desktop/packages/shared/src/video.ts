@@ -18,7 +18,7 @@ const PLAYABLE_VIDEO_EXTENSIONS: ReadonlySet<string> = new Set(
 
 // Derived from VIDEO_MIME_TYPES so the playable set and the allow-list cannot
 // drift apart when a new format is added.
-export const ALLOWED_VIDEO_MIME_TYPES: ReadonlySet<string> = new Set(
+const ALLOWED_VIDEO_MIME_TYPES: ReadonlySet<string> = new Set(
   Object.values(VIDEO_MIME_TYPES),
 );
 

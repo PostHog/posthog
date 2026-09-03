@@ -294,7 +294,7 @@ Note: Endpoint paths confirmed by reading https://amplitude.com/docs/apis/analyt
 
 ## Anthropic — gaps
 
-Today (10): `api_keys`, `claude_code_analytics`, `claude_code_model_breakdown`, `cost_report`, `invites`, `service_accounts`, `usage_report`, `users`, `workspace_members`, `workspaces`
+Today (9): `api_keys`, `claude_code_analytics`, `claude_code_model_breakdown`, `cost_report`, `invites`, `usage_report`, `users`, `workspace_members`, `workspaces`
 
 Diffed against: <https://platform.claude.com/llms.txt>
 
@@ -305,7 +305,7 @@ Diffed against: <https://platform.claude.com/llms.txt>
 - [ ] `GET /v1/organizations/rbac_groups and .../rbac_groups/{id}/members` — group definitions plus the membership join for the users already synced (high)
 - [ ] `GET /v1/organizations/rbac_roles and .../rbac_roles/{id}/permissions` — lookup resolving the role identifiers carried on users and workspace_members (medium)
 - [ ] `GET /v1/organizations/analytics/summaries (Get Activity Summaries)` — rolled-up org activity as the vendor reports it (medium)
-- [ ] `GET /v1/organizations/service_accounts/{id}/workspaces and /workspaces/{id}/service_accounts` — service-account-to-workspace membership join for the service_accounts already synced (medium)
+- ~~`GET /v1/organizations/service_accounts/{id}/workspaces and /workspaces/{id}/service_accounts`~~ — not reachable: Anthropic serves the service-account endpoints only to an `org:admin` OAuth token, which this source never holds
 - [ ] `GET /v1/organizations/analytics/connectors, /plugins, /skills` — adoption breakdown by connector, plugin and skill (medium)
 - [ ] `GET /v1/messages/batches` — batch job history with request counts and status, for batch spend analysis (medium)
 - [ ] `GET /v1/organizations/analytics/chat_projects and /analytics/artifacts` — Claude project and artifact usage breakdown (low)
@@ -8333,6 +8333,21 @@ Diffed against: <https://api.tailscale.com/api/v2?outputOpenapiSchema=true>
 
 Note: Fetched the live OpenAPI 3.1 schema (58 paths). Static 4-endpoint config in sources/tailscale/settings.py, no dynamic discovery. Coverage of the tailnet-level list endpoints is reasonable; the notable miss is network flow logs, which sit on the same /logging prefix as the audit logs already synced and are by far the largest analytical dataset the API exposes. ACL, DNS, contacts, settings, webhooks and OAuth apps are all config and correctly out of scope.
 
+## Tally — gaps
+
+Today (7): `workspaces`, `forms`, `folders`, `questions`, `submissions`, `form_analytics_metrics`, `webhooks`
+
+Diffed against: <https://developers.tally.so/api-reference/changelog>
+
+- [x] `GET /workspaces/{workspaceId}/folders` — Folders that organize a workspace's forms; fanned out per workspace (added)
+- [x] `GET /forms/{formId}/analytics/metrics` — Aggregate per-form metrics (visits, submissions, completion rate); fanned out per form with `period=all` (added)
+- [ ] `GET /forms/{formId}/analytics/visits` — Form visits over time; a time series, not a table row per resource, so it needs a bucketed shape before it is worth syncing (low)
+- [ ] `GET /forms/{formId}/analytics/submissions` — Completed and partial submissions over time; same time-series shape caveat as visits (low)
+- [ ] `GET /forms/{formId}/analytics/dimensions` — Visitor breakdowns by source, browser, OS, device, and location (low)
+- [ ] `GET /forms/{formId}/analytics/drop-off` — Per-question drop-off statistics (low)
+
+Note: The folders and form-analytics endpoints were announced in the June 2026 releases (v0.8.0, v0.9.0) and are additive, so they are reachable with the source's pinned `tally-version: 2025-02-01`. Folders returns a bare JSON array; the metrics endpoint returns a single aggregate object per form. The remaining analytics endpoints are time series rather than one-row-per-resource tables, so they are deferred until a bucketed table shape is designed for them.
+
 ## Tavus — gaps
 
 Today (4): `conversations`, `personas`, `replicas`, `videos`
@@ -9485,10 +9500,11 @@ Note: api.getzep.com/api/v2/openapi.json returns 401, so I diffed against the do
 
 ## ZonkaFeedback — gaps
 
-Today (3): `contacts`, `responses`, `surveys`
+Today (4): `contacts`, `responses`, `survey_links`, `surveys`
 
 Diffed against: <https://apidocs.zonkafeedback.com/api/collections/2077940/TVCY7Cby>
 
+- [x] `survey-links` — shareable per-survey link objects from the Survey Links API (GET /survey-links); each carries the URL and tracking code used to attribute a collected response (high)
 - [ ] `workspaces` — lookup resolving the workspace ID carried on surveys and responses; required to segment reporting by workspace (high)
 - [ ] `locations` — lookup resolving the location ID on responses - the standard breakdown dimension for multi-site CX programs (high)
 - [ ] `distribution-logs` — survey send log; pairing it with responses gives delivery, open and response rates instead of responses alone (high)
@@ -9542,6 +9558,8 @@ Diffed against: <https://developer.zuora.com/yaml/apis/zuora-openapi-full-compac
 - [ ] `object-query/usages and object-query/processed-usages` — consumption records for usage-based charges - required to explain variable invoice amounts (medium)
 
 Note: The connector already uses Zuora's Object Query API (/object-query/<segment>, filtered on updateddate), so every gap listed is a same-shape, same-pagination addition - the spec exposes ~50 object-query collections and the source wires up 8. Also unsynced but lower value: payment-applications, refund-applications, payment-methods, taxation-items, billing-runs, payment-runs, prepaid-balances/prepaid-balance-transactions, invoice-schedules, ramps, summarystatements. Zuora also serves the spec as zuora-openapi-for-otc.yaml (order-to-cash only); I used the full compact build, version 2026-07-24.
+
+Out of scope — the Metering/meters API (`/meters/*`): despite the "Metering/meters endpoints" changelog note, this family exposes no Object Query collection and no plain list-of-meters endpoint. Every path is either an operational action (run/stop/debug a meter, import a definition, truncate or query event stores) or a per-resource fetch (meter summary, run status, audit-trail entries), none of which supports the `updateddate` filter and cursor pagination this source is built on, so there is no incremental table to add.
 
 ## Zylo — gaps
 

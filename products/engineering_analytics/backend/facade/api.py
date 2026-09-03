@@ -47,6 +47,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     TeamCIActivity,
     TeamCIHealthList,
     TeamMergeTrend,
+    TrunkQuarantineDebt,
     WorkflowCost,
     WorkflowHealthItem,
     WorkflowJob,
@@ -382,6 +383,7 @@ def list_team_ci_health(
     date_to: str | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
+    owner_team: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> TeamCIHealthList:
@@ -391,6 +393,7 @@ def list_team_ci_health(
         date_to=date_to,
         min_failed_prs=min_failed_prs,
         limit=limit,
+        owner_team=owner_team,
     )
 
 
@@ -444,6 +447,16 @@ def list_github_sources(*, team: Team, user_access_control: "UserAccessControl |
     return logic.build_github_sources(team=team, user_access_control=user_access_control)
 
 
+def get_trunk_quarantine(
+    *,
+    team: Team,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> TrunkQuarantineDebt:
+    return logic.build_trunk_quarantine(curated=_authorized_source(team, source_id, user_access_control, repo=repo))
+
+
 def get_quarantine(
     *,
     team: Team,
@@ -489,8 +502,9 @@ def get_dora_overview(
     team: Team,
     date_from: str | None = None,
     date_to: str | None = None,
-    environment: str | None = None,
+    environments: list[str] | None = None,
     github_team: str | None = None,
+    granularity: str | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
@@ -499,8 +513,9 @@ def get_dora_overview(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
-        environment=environment,
+        environments=environments,
         github_team=github_team,
+        granularity=granularity,
     )
 
 

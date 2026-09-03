@@ -6,10 +6,18 @@
             "type": "string"
         },
         "documentation_url": {
-            "description": "URL to external documentation for this feature. Shown to users in the opt-in UI.",
-            "format": "uri",
-            "maxLength": 800,
-            "type": "string"
+            "anyOf": [
+                {
+                    "format": "uri",
+                    "maxLength": 800,
+                    "type": "string"
+                },
+                {
+                    "maxLength": 0,
+                    "type": "string"
+                }
+            ],
+            "description": "URL to external documentation for this feature. Shown to users in the opt-in UI."
         },
         "feature_flag_id": {
             "description": "Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate.",

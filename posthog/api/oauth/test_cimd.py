@@ -326,7 +326,6 @@ class TestFetchAndUpsertCimdApplication(APIBaseTest):
         self.assertTrue(app.is_cimd_client)
         self.assertFalse(app.is_dcr_client)
         self.assertEqual(app.client_id, VALID_CIMD_URL)
-        self.assertEqual(app.cimd_metadata_url, VALID_CIMD_URL)
         self.assertEqual(app.name, "Test MCP Client")
         self.assertEqual(app.redirect_uris, "http://127.0.0.1:3000/callback")
         self.assertEqual(app.logo_uri, "https://example.com/logo.png")
@@ -440,15 +439,18 @@ class TestFetchAndUpsertCimdApplication(APIBaseTest):
             fetch_and_upsert_cimd_application(VALID_CIMD_URL)
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
-    def test_blocked_url_prevents_fetch(self, mock_get, _url_mock):
-        from posthog.api.oauth.cimd import block_cimd_url, unblock_cimd_url
+    def test_deleting_the_application_lets_the_url_register_again(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert app is not None
 
-        block_cimd_url(VALID_CIMD_URL)
-        result = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
-        self.assertIsNone(result)
-        self.assertEqual(_document_fetches(mock_get), [])
+        app.delete()
 
-        unblock_cimd_url(VALID_CIMD_URL)
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        recreated = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert recreated is not None
+        self.assertTrue(OAuthApplication.objects.filter(client_id=VALID_CIMD_URL).exists())
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_releases_lock_on_failure(self, mock_get, _url_mock):

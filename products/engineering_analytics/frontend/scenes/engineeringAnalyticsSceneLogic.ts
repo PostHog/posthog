@@ -9,8 +9,8 @@ export const VIEW_DESCRIPTIONS: Record<EngineeringAnalyticsView, string> = {
     hub: 'CI health, pull requests, workflows, and cost for the connected repo.',
     'pull-requests': 'Pull requests and their CI status across connected repos.',
     workflows: 'Run volume, success rate, and duration per workflow over the selected window.',
-    'test-health': 'Flaky tests under quarantine: what is masked, who owns it, and when it expires.',
-    teams: 'CI test surfaces rolled up by owning team: flaky signal and failures, with prior-window deltas.',
+    'test-health': 'Quarantine debt by team: which quarantined tests each team owns, and how long they have stood.',
+    teams: 'CI test health by owning team, from the owners.yaml map.',
     health: 'DORA-style deploy metrics from the GitHub deployments data: frequency, merge to deploy lead time, and failure proxies.',
 }
 

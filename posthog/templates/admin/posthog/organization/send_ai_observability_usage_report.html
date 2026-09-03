@@ -1,38 +1,52 @@
 {% extends "admin/base_site.html" %}
 {% load i18n admin_urls %}
-
 {% block content %}
-<div id="content-main">
-    <form method="post" onsubmit="this.querySelector('input[name=_send_report]').disabled = true">
-        <p>The date is the day the report would have run; it reports AI observability usage for the <b>previous</b> day.
-            <br/>If the dashboards are missing a day X, enter the day after (X+1). The report covering day X is generated and stamped on X+1.</p>
-        <p>Submitting the same date again while a run is still emitting is refused, so you cannot start two runs for
-            one date by accident.</p>
-        {% if can_skip_existing_reports %}
-            <p>Organizations that already have a report for the period are skipped, so only the organizations still
-                missing one get a report.
-                <br/>This reads back the reports that landed, so it cannot see a report emitted in the last few minutes.
-                If a run has just finished, give it time to be ingested before submitting the same date again.</p>
-        {% else %}
-            <p><b>This region cannot check which organizations already have a report.</b> Reports are emitted into the US
-                project, so a worker here cannot read them back.
-                <br/>Submitting a date that already emitted will double count usage in every insight built on these
-                events, and the duplicates cannot be removed. Check the daily <code>llm analytics usage</code> event
-                volume for that date in the internal usage-tracking project before submitting.</p>
-        {% endif %}
-        <p>US and EU each report their own organizations. To backfill both, run this in each region's admin separately.</p>
-        {% csrf_token %}
-        <fieldset class="module aligned">
-            {% for field in form %}
-                <div class="form-row">
-                    {{ field.errors }}
-                    {{ field.label_tag }} {{ field }}
-                </div>
-            {% endfor %}
-        </fieldset>
-        <div class="submit-row">
-            <input type="submit" value="Send AI observability usage report" class="default" name="_send_report">
-        </div>
-    </form>
-</div>
+    <div id="content-main">
+        <form method="post"
+              onsubmit="this.querySelector('input[name=_send_report]').disabled = true">
+            <p>
+                The date is the day the report would have run; it reports AI observability usage for the <b>previous</b> day.
+                <br />
+                If the dashboards are missing a day X, enter the day after (X+1). The report covering day X is generated and stamped on X+1.
+            </p>
+            <p>
+                Submitting the same date again while a run is still emitting is refused, so you cannot start two runs for
+                one date by accident.
+            </p>
+            {% if can_skip_existing_reports %}
+                <p>
+                    Organizations that already have a report for the period are skipped, so only the organizations still
+                    missing one get a report.
+                    <br />
+                    This reads back the reports that landed, so it cannot see a report emitted in the last few minutes.
+                    If a run has just finished, give it time to be ingested before submitting the same date again.
+                </p>
+            {% else %}
+                <p>
+                    <b>This region cannot check which organizations already have a report.</b> Reports are emitted into the US
+                    project, so a worker here cannot read them back.
+                    <br />
+                    Submitting a date that already emitted will double count usage in every insight built on these
+                    events, and the duplicates cannot be removed. Check the daily <code>llm analytics usage</code> event
+                    volume for that date in the internal usage-tracking project before submitting.
+                </p>
+            {% endif %}
+            <p>US and EU each report their own organizations. To backfill both, run this in each region's admin separately.</p>
+            {% csrf_token %}
+            <fieldset class="module aligned">
+                {% for field in form %}
+                    <div class="form-row">
+                        {{ field.errors }}
+                        {{ field.label_tag }} {{ field }}
+                    </div>
+                {% endfor %}
+            </fieldset>
+            <div class="submit-row">
+                <input type="submit"
+                       value="Send AI observability usage report"
+                       class="default"
+                       name="_send_report">
+            </div>
+        </form>
+    </div>
 {% endblock %}

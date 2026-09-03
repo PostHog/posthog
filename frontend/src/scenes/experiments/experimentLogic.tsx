@@ -87,6 +87,13 @@ import {
     PropertyMathType,
 } from '~/types'
 
+import {
+    EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
+    EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
+    NEW_EXPERIMENT,
+    NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES,
+    MetricInsightId,
+} from 'products/experiments/frontend/constants'
 import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
 import {
     legacyExpectedRunningTime,
@@ -113,13 +120,6 @@ import type {
 } from '../../types'
 import type { TrendResult } from '../../types'
 import type { ExperimentsConfig } from '../settings/environment/experimentsConfigLogic'
-import {
-    EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
-    EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
-    NEW_EXPERIMENT,
-    NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES,
-    MetricInsightId,
-} from './constants'
 import { experimentMetricsLogic } from './experimentMetricsLogic'
 import { experimentSceneLogic } from './experimentSceneLogic'
 import { featureFlagVariantProperty, resolvedExposureEvent } from './exposureContract'
@@ -187,7 +187,7 @@ export type ExperimentTriggeredBy =
     | 'experiment_config_change'
     | 'metric_config_change'
 
-// Triggers that kick off a metrics recalculation. Each is also a valid API TriggerEnumApi value, so a
+// Triggers that kick off a metrics recalculation. Each is also a valid API ExperimentMetricsRecalculationTriggerEnumApi value, so a
 // narrowed triggeredBy passes straight to triggerRecalculation. page_load and manual are handled elsewhere.
 const RECALCULATION_TRIGGERS = ['experiment_config_change', 'metric_config_change', 'auto_refresh'] as const
 
@@ -2973,6 +2973,10 @@ export const experimentLogic = kea<experimentLogicType>([
             // Settings like stats config, CUPED, and conversion-window handling change
             // how metrics and exposures are computed, so persist then re-query.
             await asyncActions.updateExperiment({ ...update, update_feature_flag_params: false })
+            // Unlaunched experiments have no results to recalculate, so don't promise a recalculation.
+            lemonToast.success(
+                values.isExperimentLaunched ? 'Settings saved. Recalculating results…' : 'Settings saved'
+            )
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         resetRunningExperiment: async () => {

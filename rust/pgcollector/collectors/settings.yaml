@@ -1,0 +1,9 @@
+name: settings
+description: Every GUC; snapshot diffs produce setting_change events.
+interval: 1h
+scope: cluster
+kind: snapshot
+key: [name]
+query: |
+  SELECT name, setting, unit, source, boot_val, reset_val, pending_restart, category
+  FROM pg_settings

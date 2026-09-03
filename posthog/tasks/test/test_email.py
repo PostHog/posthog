@@ -12,7 +12,6 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
-from posthog.api.email_verification import email_verification_token_generator
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
@@ -29,7 +28,6 @@ from posthog.tasks.email import (
     send_canary_email,
     send_discussions_mentioned,
     send_email_change_emails,
-    send_email_verification,
     send_email_verification_code,
     send_external_data_failure_digest,
     send_fatal_plugin_error,
@@ -521,22 +519,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         MockEmailMessage.assert_not_called()
         task.refresh_from_db()
         assert task.pr_ready_email_sent_at is not None
-
-    @patch("posthoganalytics.capture")
-    def test_send_email_verification(self, mock_capture: MagicMock, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
-        token = email_verification_token_generator.make_token(self.user)
-        send_email_verification(user.id, token)
-
-        mock_capture.assert_called_once_with(
-            event="verification email sent",
-            distinct_id=user.distinct_id,
-            groups={"organization": str(user.current_organization_id)},
-        )
-        assert len(mocked_email_messages) == 1
-        assert mocked_email_messages[0].send.call_count == 1
-        assert mocked_email_messages[0].html_body
 
     @patch("posthog.tasks.email.ph_scoped_capture")
     def test_send_email_verification_code(self, mock_scoped_capture: MagicMock, MockEmailMessage: MagicMock) -> None:

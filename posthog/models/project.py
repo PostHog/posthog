@@ -100,6 +100,15 @@ class Project(UpdatedMetaFields):
 
     __repr__ = sane_repr("id", "name")
 
+    @property
+    def team_id(self) -> int:
+        """The id of this project's passthrough team, which a project shares.
+
+        Tag rows are team-scoped, so the shared tagging helpers reach the right namespace
+        through this attribute without loading the team.
+        """
+        return self.pk
+
     @cached_property
     def passthrough_team(self) -> "Team":
         return self.teams.get(pk=self.pk)

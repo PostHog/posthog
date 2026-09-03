@@ -147,7 +147,7 @@ CADDY
 
 echo "== bootstrap-dev-stack =="
 if [ -x /usr/local/bin/bootstrap-dev-stack ]; then
-	/usr/local/bin/bootstrap-dev-stack || fail "bootstrap-dev-stack failed"
+	/usr/local/bin/bootstrap-dev-stack 9>&- || fail "bootstrap-dev-stack failed"
 fi
 
 echo "== preview proxy =="
@@ -184,9 +184,16 @@ export TRUST_ALL_PROXIES=1
 export DEBUG=1
 export COMPOSE_PROJECT_NAME=posthog
 export HOGLI_SKIP_ZOMBIE_CHECK=1
+export HOGLI_SKIP_PREVIEW_CHECK=1
 
 echo "== hogli start =="
-hogli start -y -d || fail "hogli start failed"
+start_lock_deadline=$((SECONDS + 120))
+until flock -n "$REPO_PATH/bin/start.lock" true 2>/dev/null; do
+	[ "$SECONDS" -lt "$start_lock_deadline" ] || break
+	echo "another bin/start is running; waiting for it"
+	sleep 2
+done
+hogli start -y -d || echo "hogli start did not start a new stack; waiting for the existing one"
 
 echo "== hogli wait =="
 hogli wait --timeout "$HEALTH_TIMEOUT_SECONDS" || fail "a dev stack process crashed or did not become ready within ${HEALTH_TIMEOUT_SECONDS}s"

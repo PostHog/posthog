@@ -9,23 +9,15 @@ import {
 } from "@phosphor-icons/react";
 import {
   SKILL_BUTTON_CATALOG,
-  SKILL_BUTTON_ORDER,
   type SkillButtonCatalogEntry,
   type SkillButtonId,
 } from "@posthog/core/skill-buttons/catalog";
-import {
-  buildSkillButtonPromptBlocks,
-  extractSkillButtonId,
-} from "@posthog/core/skill-buttons/prompts";
+import { extractSkillButtonId } from "@posthog/core/skill-buttons/prompts";
 
-export {
-  buildSkillButtonPromptBlocks,
-  extractSkillButtonId,
-  SKILL_BUTTON_ORDER,
-};
+export { extractSkillButtonId };
 export type { SkillButtonId };
 
-export interface SkillButton extends SkillButtonCatalogEntry {
+interface SkillButton extends SkillButtonCatalogEntry {
   Icon: Icon;
 }
 

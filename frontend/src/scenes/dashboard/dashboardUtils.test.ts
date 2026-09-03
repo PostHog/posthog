@@ -69,6 +69,52 @@ describe('dashboardToSaveableTemplate', () => {
             button_tile: { url: '/replay/home', text: 'Watch replays' },
         })
     })
+
+    it('preserves display attributes for every tile type', () => {
+        const dashboard = {
+            name: 'My dashboard',
+            description: '',
+            filters: {},
+            tags: [],
+            tiles: [
+                {
+                    id: 1,
+                    text: { body: 'Text', last_modified_at: '2024-01-01' },
+                    layouts: {},
+                    color: null,
+                    transparent_background: true,
+                },
+                {
+                    id: 2,
+                    insight: { name: 'Insight', query: { kind: 'TrendsQuery' } },
+                    layouts: {},
+                    color: null,
+                    transparent_background: false,
+                },
+                {
+                    id: 3,
+                    button_tile: { url: '/insights', text: 'Insights', placement: 'left', style: 'primary' },
+                    layouts: {},
+                    color: null,
+                    transparent_background: true,
+                },
+                {
+                    id: 4,
+                    widget: { id: 'widget-1', widget_type: 'todo', config: {} },
+                    layouts: {},
+                    color: null,
+                    transparent_background: false,
+                },
+            ],
+        } as unknown as DashboardType<InsightModel>
+
+        expect(dashboardToSaveableTemplate(dashboard)?.tiles).toMatchObject([
+            { type: 'TEXT', transparent_background: true },
+            { type: 'INSIGHT', transparent_background: false },
+            { type: 'BUTTON', transparent_background: true },
+            { type: 'WIDGET', transparent_background: false },
+        ])
+    })
 })
 
 describe('isWidgetTileVisibleOnPlacement', () => {

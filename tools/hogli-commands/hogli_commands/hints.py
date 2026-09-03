@@ -26,6 +26,7 @@ _SKIP_COMMANDS = frozenset(
         "doctor",
         "doctor:disk",
         "doctor:zombies",
+        "doctor:git",
         "doctor:report",
         "telemetry:off",
         "telemetry:on",
@@ -50,6 +51,7 @@ class _HintDef:
 _HINT_DEFS: tuple[_HintDef, ...] = (
     _HintDef("doctor:disk", 7, "Run `hogli doctor:disk` to check for disk bloat"),
     _HintDef("doctor:zombies", 7, "Run `hogli doctor:zombies` to find orphaned processes"),
+    _HintDef("doctor:git", 30, "Run `hogli doctor:git` to check git housekeeping"),
     _HintDef("doctor", 14, "Run `hogli doctor` for a quick health check"),
 )
 

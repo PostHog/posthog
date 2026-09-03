@@ -407,6 +407,23 @@ class TestScan:
         assert "event=push" in url
         assert "status=completed" in url
 
+    def test_also_scans_the_scheduled_lane_of_cron_covered_workflows(self) -> None:
+        # ci-backend.yml runs the per-commit checks on a master push and its test matrices
+        # hourly, so a push-only scan drops the heaviest CI workload in the repo.
+        workflow_file = reporter.SCHEDULED_MASTER_WORKFLOWS[0]
+        opener = _FakeOpener(
+            {
+                "/actions/runs": {"workflow_runs": [{"id": 1, "updated_at": _iso(400)}]},
+                f"/workflows/{workflow_file}/runs": {"workflow_runs": [{"id": 2, "updated_at": _iso(500)}]},
+            }
+        )
+        fresh = reporter.scan_runs("PostHog/posthog", "t", RUN_START, opener=opener)
+        # Newest first across both scans, because that is the order --max-runs caps on.
+        assert [run["id"] for run in fresh] == [2, 1]
+        scheduled_url = next(url for url in opener.calls if workflow_file in url)
+        assert "branch=master" in scheduled_url
+        assert "event=schedule" in scheduled_url
+
 
 class TestAttemptSelection:
     def test_selected_attempt_uses_that_attempts_window(self) -> None:

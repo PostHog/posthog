@@ -161,6 +161,34 @@ pub struct Config {
     #[envconfig(default = "5")]
     pub seeder_max_chunk_attempts: u32,
 
+    /// The first retry's wait ceiling after a chunk fails; it doubles per attempt up to
+    /// [`Config::seeder_retry_backoff_cap_secs`]. Without a wait, the poll loop re-claims a chunk
+    /// that failed for a durable reason within seconds and spends its whole attempt budget on the
+    /// same failure, which fails the run.
+    #[envconfig(default = "30")]
+    pub seeder_retry_backoff_base_secs: u64,
+
+    /// The longest a failed chunk waits before it is claimable again.
+    ///
+    /// This bounds how long a durably-failing chunk holds its run open, and the bound is a sum over
+    /// attempts rather than the cap alone: the ceilings double from
+    /// [`Config::seeder_retry_backoff_base_secs`] until they reach the cap, and the jitter draws
+    /// uniformly from `[0, ceiling]`, so the expected drain is half the worst case. At the defaults
+    /// (base 30s, cap 1800s) the doubling reaches the cap on the 7th attempt, so the sum is about
+    /// 15 minutes at 5 attempts and 3.5 hours at 12 — the cap times the attempt count is a real
+    /// upper bound but a loose one, and reading it as the answer overstates a small budget by an
+    /// order of magnitude.
+    ///
+    /// A run cannot complete until every chunk is `confirmed`, so that whole window is time the run
+    /// holds its cohort's uniqueness slot against every future backfill for that cohort.
+    /// `charts/apps/cohort-seeder/values.prod-us.yaml` is where the deployed
+    /// `SEEDER_MAX_CHUNK_ATTEMPTS` lives; the two must be sized together.
+    ///
+    /// The chunk lease budget is not the comparison to make. A `failed` chunk holds no lease and
+    /// cannot heartbeat, so the two quantities never meet in any predicate.
+    #[envconfig(default = "1800")]
+    pub seeder_retry_backoff_cap_secs: u64,
+
     #[envconfig(default = "3000")]
     pub seeder_tiles_per_sec: u32,
 
@@ -228,6 +256,18 @@ pub struct Config {
     /// only a point-read on absent records (the consumer's no-create rule).
     #[envconfig(default = "true")]
     pub seeder_person_emit_nonmatchers: bool,
+
+    /// Run the legacy wide scan alongside the projected scan and diff the resulting tiles.
+    ///
+    /// On by default, because taking this measurement is the only reason the layer exists and a
+    /// run that silently skipped it reads exactly like a clean one. Nothing downstream depends on
+    /// it either way: the projected arm's tiles are what a chunk emits regardless.
+    ///
+    /// Turn it off in charts to finish a long reseed at full speed once the measurement is in
+    /// hand, then delete the layer. While it is on a chunk pays its projected scan plus a full
+    /// wide one.
+    #[envconfig(default = "true")]
+    pub seeder_scan_shadow_compare: bool,
 
     #[envconfig(default = "14400")]
     pub seeder_ch_max_execution_time_secs: u64,
@@ -414,6 +454,15 @@ mod tests {
         let config = default_config();
         assert!(config.clickhouse_verify);
         assert!(config.clickhouse_ca.is_empty());
+    }
+
+    /// A default of off would make the validation run a silent no-op: the compare emits nothing,
+    /// so its counters are absent rather than zero, and an unmeasured run is indistinguishable
+    /// from a clean one. The measurement is the whole point of the layer, so it is what a pod does
+    /// unless an operator says otherwise.
+    #[test]
+    fn the_shadow_compare_runs_unless_an_operator_turns_it_off() {
+        assert!(default_config().seeder_scan_shadow_compare);
     }
 
     #[test]

@@ -1,36 +1,38 @@
 {% extends "admin/delete_confirmation.html" %}
-
 {% block delete_confirm %}
-  <p>
-    Deleting <strong>{{ object }}</strong> removes their account, their personal API keys, their
-    two-factor devices, and their membership of every organization they belong to. Insights,
-    dashboards, and anything else they created stays, with no creator on it. You can't undo this.
-  </p>
-  <p>
-    If the account is only in the way of a new one, changing its email address is usually the
-    better fix.
-  </p>
-
-  {% include "admin/includes/object_delete_summary.html" %}
-  <p>
-    Counts stop at {{ deletion_summary_count_cap }}+, so a big account doesn't slow this page down.
-    Only rows attached directly to the account are counted. Rows that belong to those go too.
-  </p>
-
-  <form method="post">{% csrf_token %}
-    <div>
-      <input type="hidden" name="post" value="yes">
-      {% if is_popup %}<input type="hidden" name="{{ is_popup_var }}" value="1">{% endif %}
-      {% if to_field %}<input type="hidden" name="{{ to_field_var }}" value="{{ to_field }}">{% endif %}
-
-      <p>
-        <label for="deletion_reason">Why are you deleting this account? Saved to the activity log.</label><br>
-        <input type="text" id="deletion_reason" name="deletion_reason" size="80" maxlength="400" required
-               placeholder="e.g. duplicate account left over from an email change, ticket 1234">
-      </p>
-
-      <input type="submit" value="Yes, delete this user">
-      <a href="#" class="button cancel-link">No, take me back</a>
-    </div>
-  </form>
+    <p>
+        Deleting <strong>{{ object }}</strong> removes their account, their personal API keys, their
+        two-factor devices, and their membership of every organization they belong to. Insights,
+        dashboards, and anything else they created stays, with no creator on it. You can't undo this.
+    </p>
+    <p>
+        If the account is only in the way of a new one, changing its email address is usually the
+        better fix.
+    </p>
+    {% include "admin/includes/object_delete_summary.html" %}
+    <p>
+        Counts stop at {{ deletion_summary_count_cap }}+, so a big account doesn't slow this page down.
+        Only rows attached directly to the account are counted. Rows that belong to those go too.
+    </p>
+    <form method="post">
+        {% csrf_token %}
+        <div>
+            <input type="hidden" name="post" value="yes">
+            {% if is_popup %}<input type="hidden" name="{{ is_popup_var }}" value="1">{% endif %}
+            {% if to_field %}<input type="hidden" name="{{ to_field_var }}" value="{{ to_field }}">{% endif %}
+            <p>
+                <label for="deletion_reason">Why are you deleting this account? Saved to the activity log.</label>
+                <br>
+                <input type="text"
+                       id="deletion_reason"
+                       name="deletion_reason"
+                       size="80"
+                       maxlength="400"
+                       required
+                       placeholder="e.g. duplicate account left over from an email change, ticket 1234">
+            </p>
+            <input type="submit" value="Yes, delete this user">
+            <a href="#" class="button cancel-link">No, take me back</a>
+        </div>
+    </form>
 {% endblock %}

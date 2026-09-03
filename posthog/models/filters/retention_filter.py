@@ -38,7 +38,7 @@ class RetentionFilter(
     OffsetMixin,
     LimitMixin,
     GroupsAggregationMixin,
-    FunnelCorrelationMixin,  # Typing pain because ColumnOptimizer expects a uniform filter
+    FunnelCorrelationMixin,  # Kept so all filter classes expose the same attribute surface
     # TODO: proper fix for EventQuery abstraction, make filters uniform
     ClientQueryIdMixin,
     SimplifyFilterMixin,

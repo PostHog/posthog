@@ -1,0 +1,6 @@
+{
+    "id": "RA5",
+    "real": true,
+    "source": "fresh",
+    "reasoning": "Factual claims all verified in the frozen tree. `raise cast(Any, <task>).retry(exc=e)` appears 19 times in products/stamphog/backend/tasks/tasks.py (lines 752-1237), including the cited regions (954; 1085/1090). No comment, docstring, or doc explains the cast: zero mypy/type-ignore mentions in the module, module docstring (lines 1-7) silent, stamphog AGENTS.md mentions retry only for orphan-approval dismissal. Refutation attempts failed: the idiom is not a documented repo convention (the dominant repo pattern is bind=True + self.retry, e.g. posthog/tasks/team_access_cache_tasks.py:73); its only other user (products/conversations/backend/tasks.py) is equally uncommented. Runtime correctness is not disputed. A genuine, if minor, [consider] documentation gap."
+}

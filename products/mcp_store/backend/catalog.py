@@ -61,6 +61,15 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         icon_domain="browserbase.com",
     ),
     CatalogEntry(
+        name="Calendly",
+        url="https://mcp.calendly.com",
+        description="Schedule meetings, manage availability, and share booking links.",
+        auth_type="oauth",
+        category="productivity",
+        icon_domain="calendly.com",
+        docs_url="https://developer.calendly.com/calendly-mcp-server",
+    ),
+    CatalogEntry(
         name="Circle",
         url="https://api.circle.com/v1/codegen/mcp",
         description="Build on Circle stablecoin, wallet, and payment infrastructure.",

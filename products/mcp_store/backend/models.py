@@ -8,28 +8,37 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-AUTH_TYPE_CHOICES = [
-    ("api_key", "API Key"),
-    ("oauth", "OAuth"),
-]
 
-APPROVAL_STATES = [
-    ("approved", "Approved"),
-    ("needs_approval", "Needs approval"),
-    ("do_not_use", "Do not use"),
-]
+class MCPAuthType(models.TextChoices):
+    API_KEY = "api_key", "API Key"
+    OAUTH = "oauth", "OAuth"
+
+
+AUTH_TYPE_CHOICES = MCPAuthType.choices
+
+
+class MCPToolApprovalState(models.TextChoices):
+    APPROVED = "approved", "Approved"
+    NEEDS_APPROVAL = "needs_approval", "Needs approval"
+    DO_NOT_USE = "do_not_use", "Do not use"
+
+
+APPROVAL_STATES = MCPToolApprovalState.choices
+
 
 # Catalog categories used by the marketplace UI to group templates. Pinned to a
 # finite choice list so the frontend can render predictable filter chips. New
 # rows default to "dev" until they're reclassified in the admin.
-CATEGORY_CHOICES = [
-    ("business", "Business Operations"),
-    ("data", "Data & Analytics"),
-    ("design", "Design & Content"),
-    ("dev", "Developer Tools & APIs"),
-    ("infra", "Infrastructure"),
-    ("productivity", "Productivity & Collaboration"),
-]
+class MCPServerCategory(models.TextChoices):
+    BUSINESS = "business", "Business Operations"
+    DATA = "data", "Data & Analytics"
+    DESIGN = "design", "Design & Content"
+    DEV = "dev", "Developer Tools & APIs"
+    INFRA = "infra", "Infrastructure"
+    PRODUCTIVITY = "productivity", "Productivity & Collaboration"
+
+
+CATEGORY_CHOICES = MCPServerCategory.choices
 
 SCOPE_CHOICES = [
     ("personal", "Personal"),
@@ -46,19 +55,25 @@ AGENT_GRANT_SCOPE_CHOICES = [
     ("team", "Team"),
 ]
 
-SERVICE_ACCOUNT_STATUS_CHOICES = [
-    ("active", "Active"),
-    ("paused", "Paused"),
-]
+
+class MCPServiceAccountStatus(models.TextChoices):
+    ACTIVE = "active", "Active"
+    PAUSED = "paused", "Paused"
+
+
+SERVICE_ACCOUNT_STATUS_CHOICES = MCPServiceAccountStatus.choices
+
 
 # Team-level policy baselines. They derive a default per-tool state for tools
 # that have no explicit policy row (see policy.member_preset_team_state).
-POLICY_PRESET_CHOICES = [
-    ("allow", "Allow all"),
-    ("user", "Member decides"),
-    ("ask", "Ask for destructive"),
-    ("block", "Block destructive"),
-]
+class MCPPolicyPreset(models.TextChoices):
+    ALLOW = "allow", "Allow all"
+    USER = "user", "Member decides"
+    ASK = "ask", "Ask for destructive"
+    BLOCK = "block", "Block destructive"
+
+
+POLICY_PRESET_CHOICES = MCPPolicyPreset.choices
 
 POLICY_SCOPE_TYPE_CHOICES = [
     ("team", "Team default"),
@@ -77,14 +92,17 @@ ORG_RULE_EFFECT_CHOICES = [
     ("do_not_use", "Block"),
 ]
 
+
 # How the gateway decided a proxied tool call. "pending" is an agent call that
 # hit a needs_approval tool and was rejected awaiting a human.
-AUDIT_DECISION_CHOICES = [
-    ("auto", "Auto-approved"),
-    ("approved", "Approved"),
-    ("pending", "Awaiting approval"),
-    ("blocked", "Blocked"),
-]
+class MCPAuditDecision(models.TextChoices):
+    AUTO = "auto", "Auto-approved"
+    APPROVED = "approved", "Approved"
+    PENDING = "pending", "Awaiting approval"
+    BLOCKED = "blocked", "Blocked"
+
+
+AUDIT_DECISION_CHOICES = MCPAuditDecision.choices
 
 
 class SensitiveConfig(TypedDict, total=False):
@@ -310,6 +328,11 @@ class MCPGatewayServer(TeamScopedRootMixin, UUIDModel):
     template = models.ForeignKey(
         MCPServerTemplate, on_delete=models.SET_NULL, related_name="gateway_servers", null=True, blank=True
     )
+    # How members authenticate to a custom server, copied from the credential
+    # that registered the row. Later connections follow it instead of asking
+    # each member to guess. Templates carry their own auth_type. Blank on rows
+    # that predate the column; members then choose.
+    auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, blank=True, default="", db_default="")
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )

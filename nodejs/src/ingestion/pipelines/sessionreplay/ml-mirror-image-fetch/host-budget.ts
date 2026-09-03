@@ -1,3 +1,5 @@
+import type { ImageFetchBlockReason } from './block-reason'
+
 export interface HostBudgetOptions {
     requestsPerSecond: number
     burst: number
@@ -17,6 +19,7 @@ export type BudgetBlockReason =
     | 'origin_map_full'
     | 'registrable_domain_map_full'
 export type BudgetWaitScope = 'origin_crawl_delay' | 'registrable_domain_rate'
+export type HostBackoffReason = Extract<ImageFetchBlockReason, 'retry_after' | 'transient_backoff'>
 export type BudgetGrant =
     | {
           granted: true
@@ -25,7 +28,13 @@ export type BudgetGrant =
           halfOpenProbe: boolean
           reservedStartAtMs: number | null
       }
-    | { granted: false; reason: BudgetBlockReason; waitMs: number }
+    | {
+          granted: false
+          reason: BudgetBlockReason
+          waitMs: number
+          backoffReason?: HostBackoffReason
+          waitScope?: BudgetWaitScope
+      }
 
 const EVICTION_SCAN_LIMIT = 64
 
@@ -36,6 +45,7 @@ interface RegistrableDomainState {
     lastRefillMs: number
     consecutiveTransientFailures: number
     blockedUntilMs: number
+    backoffReason: HostBackoffReason | null
     breakerOpen: boolean
     halfOpenProbeInFlight: boolean
 }
@@ -89,10 +99,18 @@ export class HostBudget {
         let halfOpenProbe = false
         if (!ignoreImageDelay) {
             if (registrableDomainState.blockedUntilMs > nowMs) {
+                if (registrableDomainState.breakerOpen) {
+                    return {
+                        granted: false,
+                        reason: 'breaker_open',
+                        waitMs: registrableDomainState.blockedUntilMs - nowMs,
+                    }
+                }
                 return {
                     granted: false,
-                    reason: registrableDomainState.breakerOpen ? 'breaker_open' : 'backoff',
+                    reason: 'backoff',
                     waitMs: registrableDomainState.blockedUntilMs - nowMs,
+                    backoffReason: registrableDomainState.backoffReason ?? undefined,
                 }
             }
             if (registrableDomainState.breakerOpen) {
@@ -113,7 +131,7 @@ export class HostBudget {
         const waitScope: BudgetWaitScope | null =
             waitMs === 0 ? null : crawlWaitMs > tokenWaitMs ? 'origin_crawl_delay' : 'registrable_domain_rate'
         if (nowMs + waitMs > deadlineMs) {
-            return { granted: false, reason: 'deadline', waitMs }
+            return { granted: false, reason: 'deadline', waitMs, waitScope: waitScope ?? undefined }
         }
         if (waitMs > 0) {
             return {
@@ -203,9 +221,9 @@ export class HostBudget {
         return true
     }
 
-    public availableConnections(registrableDomain: string): number {
+    public availableConnections(registrableDomain: string, connectionLimit = this.options.maxConcurrent): number {
         const inFlight = this.registrableDomains.get(registrableDomain)?.inFlight ?? 0
-        return Math.max(0, this.options.maxConcurrent - inFlight)
+        return Math.max(0, Math.min(this.options.maxConcurrent, connectionLimit) - inFlight)
     }
 
     public releaseConnection(registrableDomain: string, origin: string): void {
@@ -260,7 +278,11 @@ export class HostBudget {
             minimumDelayMs + Math.floor(this.random() * (maximumDelayMs - minimumDelayMs + 1))
         )
         const delayMs = Math.max(jitteredDelayMs, retryAfterMs ?? 0)
-        state.blockedUntilMs = Math.max(state.blockedUntilMs, nowMs + delayMs)
+        const blockedUntilMs = nowMs + delayMs
+        if (blockedUntilMs >= state.blockedUntilMs) {
+            state.backoffReason = retryAfterMs === undefined ? 'transient_backoff' : 'retry_after'
+        }
+        state.blockedUntilMs = Math.max(state.blockedUntilMs, blockedUntilMs)
         if (state.consecutiveTransientFailures >= this.options.breakerFailures) {
             state.breakerOpen = true
             state.halfOpenProbeInFlight = false
@@ -275,6 +297,9 @@ export class HostBudget {
         }
         state.consecutiveTransientFailures = 0
         state.blockedUntilMs = Math.max(state.blockedUntilMs, nowMs)
+        if (state.blockedUntilMs <= nowMs) {
+            state.backoffReason = null
+        }
         state.breakerOpen = false
         state.halfOpenProbeInFlight = false
     }
@@ -322,6 +347,7 @@ export class HostBudget {
             lastRefillMs: nowMs,
             consecutiveTransientFailures: 0,
             blockedUntilMs: 0,
+            backoffReason: null,
             breakerOpen: false,
             halfOpenProbeInFlight: false,
         }

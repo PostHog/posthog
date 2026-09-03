@@ -1,6 +1,7 @@
 import { ArrowsClockwise, WifiHigh, WifiSlash } from "@phosphor-icons/react";
 import { useService } from "@posthog/di/react";
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
+import { Spin } from "@posthog/ui/primitives/Spinner";
 import { Box } from "@radix-ui/themes";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
@@ -101,10 +102,9 @@ function OfflineRow({
         onClick={onRetry}
         className="flex shrink-0 items-center gap-1.5 rounded-2 bg-(--amber-a4) px-2 py-1 font-medium text-(--amber-11) text-[12px] transition-colors hover:bg-(--amber-a5) disabled:opacity-60"
       >
-        <ArrowsClockwise
-          size={13}
-          className={isChecking ? "animate-spin" : undefined}
-        />
+        <Spin spinning={isChecking}>
+          <ArrowsClockwise size={13} />
+        </Spin>
         {isChecking ? "Checking…" : "Retry"}
       </button>
     </div>

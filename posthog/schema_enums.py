@@ -89,6 +89,13 @@ class AccountsTableCustomPropertyOperator(StrEnum):
     IS_DATE_AFTER = "is_date_after"
 
 
+class AccountsTableRelationshipOperator(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+
+
 class AccountsTableSortDirection(StrEnum):
     ASC = "asc"
     DESC = "desc"
@@ -188,6 +195,14 @@ class AssistantArrayPropertyFilterOperator(StrEnum):
     IS_NOT = "is_not"
 
 
+class AssistantBehavioralPropertyFilterOperator(StrEnum):
+    EXACT = "exact"
+    GT = "gt"
+    GTE = "gte"
+    LT = "lt"
+    LTE = "lte"
+
+
 class Operator(StrEnum):
     IN_ = "in"
     NOT_IN = "not_in"
@@ -222,6 +237,7 @@ class AssistantDataVisualizationDisplayType(StrEnum):
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     SCATTER_PLOT = "ScatterPlot"
+    BOX_PLOT = "BoxPlot"
 
 
 class Scale(StrEnum):
@@ -511,11 +527,6 @@ class AssistantTool(StrEnum):
     LABEL_REPLAY_VISION_OBSERVATION = "label_replay_vision_observation"
     ANALYZE_REPLAY_VISION_IMPACT = "analyze_replay_vision_impact"
     SUGGEST_REPLAY_VISION_TAGS = "suggest_replay_vision_tags"
-    READ_REPLAY_VISION_ACTIONS = "read_replay_vision_actions"
-    UPDATE_REPLAY_VISION_ACTION = "update_replay_vision_action"
-    DELETE_REPLAY_VISION_ACTION = "delete_replay_vision_action"
-    RUN_REPLAY_VISION_ACTION = "run_replay_vision_action"
-    CREATE_REPLAY_VISION_ACTION = "create_replay_vision_action"
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
     OPEN_ACCOUNT = "open_account"
@@ -677,6 +688,13 @@ class ChartDisplayType(StrEnum):
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
     SCATTER_PLOT = "ScatterPlot"
+
+
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class Curve(StrEnum):
@@ -1580,6 +1598,7 @@ class ExternalDataSourceType(StrEnum):
     CUSTOMERLY = "Customerly"
     DATASCOPE = "Datascope"
     DBT = "Dbt"
+    DEMODESK = "Demodesk"
     DEPUTY = "Deputy"
     DEVIN_AI = "DevinAI"
     DOCUSEAL = "Docuseal"
@@ -2613,6 +2632,11 @@ class ExternalDataSourceType(StrEnum):
     ANVIL = "Anvil"
     COOLIFY = "Coolify"
     SOCIAL_PILOT = "SocialPilot"
+    ROKT_ADS = "RoktAds"
+    STRATO = "Strato"
+    MEDUSA = "Medusa"
+    MEMBRAIN = "Membrain"
+    RECALL_AI = "RecallAI"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2766,13 +2790,6 @@ class FunnelVizType(StrEnum):
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
     FLOW = "flow"
-
-
-class LegendPosition(StrEnum):
-    TOP = "top"
-    BOTTOM = "bottom"
-    LEFT = "left"
-    RIGHT = "right"
 
 
 class Position(StrEnum):
@@ -3020,6 +3037,7 @@ class IntegrationKind(StrEnum):
     APNS = "apns"
     POSTGRESQL = "postgresql"
     AWS_S3 = "aws-s3"
+    AWS_REDSHIFT = "aws-redshift"
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
     YOUTUBE_ANALYTICS = "youtube-analytics"
@@ -3094,6 +3112,22 @@ class NeighborDirection(StrEnum):
     AFTER = "after"
 
 
+class MCPToolQualitySortColumn(StrEnum):
+    TOTAL_CALLS = "total_calls"
+    ERROR_RATE_PCT = "error_rate_pct"
+    P50_DURATION_MS = "p50_duration_ms"
+    P95_DURATION_MS = "p95_duration_ms"
+    P99_DURATION_MS = "p99_duration_ms"
+    USERS = "users"
+    SESSIONS = "sessions"
+    LAST_SEEN = "last_seen"
+
+
+class MCPToolQualitySortDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
 class MarketingAnalyticsAttributionBreakdown(StrEnum):
     CHANNEL = "channel"
     SOURCE = "source"
@@ -3164,6 +3198,12 @@ class MarketingAnalyticsDrillDownLevel(StrEnum):
 class MarketingAnalyticsOrderByEnum(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
+
+
+class MarketingAnalyticsRetentionInterval(StrEnum):
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
 
 
 class MarketingAnalyticsSchemaFieldTypes(StrEnum):
@@ -3256,6 +3296,18 @@ class MetricsAttributeScope(StrEnum):
     AUTO = "auto"
 
 
+class MetricsAxisScale(StrEnum):
+    LINEAR = "linear"
+    LOG = "log"
+
+
+class MetricsDisplayType(StrEnum):
+    LINE = "line"
+    AREA = "area"
+    BAR = "bar"
+    STAT = "stat"
+
+
 class MetricsFilterOp(StrEnum):
     EQ = "eq"
     NEQ = "neq"
@@ -3269,6 +3321,12 @@ class MetricsOtelType(StrEnum):
     HISTOGRAM = "histogram"
     EXPONENTIAL_HISTOGRAM = "exponential_histogram"
     SUMMARY = "summary"
+
+
+class MetricsStatSummary(StrEnum):
+    LATEST = "latest"
+    AVERAGE = "average"
+    TOTAL = "total"
 
 
 class MultiQuestionFormFieldType(StrEnum):
@@ -3378,6 +3436,7 @@ class NodeKind(StrEnum):
     MARKETING_ANALYTICS_AGGREGATED_QUERY = "MarketingAnalyticsAggregatedQuery"
     MARKETING_ANALYTICS_ATTRIBUTION_QUERY = "MarketingAnalyticsAttributionQuery"
     MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY = "MarketingAnalyticsAttributionPathsQuery"
+    MARKETING_ANALYTICS_RETENTION_QUERY = "MarketingAnalyticsRetentionQuery"
     NON_INTEGRATED_CONVERSIONS_TABLE_QUERY = "NonIntegratedConversionsTableQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
@@ -3420,6 +3479,7 @@ class NodeKind(StrEnum):
     MCP_TOOL_DESCRIPTIONS_QUERY = "MCPToolDescriptionsQuery"
     MCP_TOOL_SAMPLE_INTENTS_QUERY = "MCPToolSampleIntentsQuery"
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
+    MCP_MISSING_CAPABILITIES_QUERY = "MCPMissingCapabilitiesQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 
@@ -3608,6 +3668,7 @@ class ProductKey(StrEnum):
     COMMENTS = "comments"
     CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
+    DASHBOARDS = "dashboards"
     DATA_CATALOG = "data_catalog"
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_SAVED_QUERIES = "data_warehouse_saved_queries"
@@ -3684,6 +3745,7 @@ class PropertyFilterType(StrEnum):
     ERROR_TRACKING_ISSUE = "error_tracking_issue"
     REVENUE_ANALYTICS = "revenue_analytics"
     ACCOUNT = "account"
+    ACCOUNT_RELATIONSHIP = "account_relationship"
     ACCOUNT_CUSTOM_PROPERTY = "account_custom_property"
     FLAG = "flag"
     LOG = "log"
@@ -4112,6 +4174,7 @@ class TaxonomicFilterGroupType(StrEnum):
     REPLAY_SAVED_FILTERS = "replay_saved_filters"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     ACCOUNT_FIELDS = "account_fields"
+    ACCOUNT_RELATIONSHIPS = "account_relationships"
     ACCOUNT_CUSTOM_PROPERTIES = "account_custom_properties"
     RESOURCES = "resources"
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
@@ -4166,18 +4229,6 @@ class UsageMetricDisplay(StrEnum):
 class UsageMetricFormat(StrEnum):
     NUMERIC = "numeric"
     CURRENCY = "currency"
-
-
-class UserProductListReason(StrEnum):
-    DEFAULT = "default"
-    ONBOARDING = "onboarding"
-    PRODUCT_INTENT = "product_intent"
-    USED_BY_COLLEAGUES = "used_by_colleagues"
-    USED_SIMILAR_PRODUCTS = "used_similar_products"
-    USED_ON_SEPARATE_TEAM = "used_on_separate_team"
-    NEW_PRODUCT = "new_product"
-    SALES_LED = "sales_led"
-    ONBOARDING_DELEGATED = "onboarding_delegated"
 
 
 class WebAgentAnalyticsQueryType(StrEnum):

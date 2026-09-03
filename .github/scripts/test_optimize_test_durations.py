@@ -33,6 +33,11 @@ _MIN_JUNIT_XML = b"""<?xml version="1.0"?>
 <testsuite name="pytest"><testcase classname="posthog.test_foo.TestThing" name="test_one" time="0.5"/></testsuite>
 """
 
+# What pytest writes for a product that has no tests yet: valid, parseable, and empty.
+_NO_TESTS_JUNIT_XML = b"""<?xml version="1.0"?>
+<testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="0" time="0.479"/></testsuites>
+"""
+
 
 class TestPickOutlier:
     def test_all_same_returns_value(self):
@@ -528,6 +533,50 @@ def test_fail_on_drift_refuses_an_incomplete_junit_set(tmp_path: Path, monkeypat
     with pytest.raises(SystemExit):
         main()
     assert not out.exists()
+
+
+def test_fail_on_drift_accepts_a_shard_whose_junit_ran_no_tests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A product with no tests yet uploads a valid JUnit declaring tests="0". Reading that
+    # as a missing clock made the strict run exit, and the workflow then kept the previous
+    # products slice — freezing the timings of every product in the run, not just the empty
+    # one. The slice must be written, and keep the shard's entries.
+    artifacts = tmp_path / "timing_artifacts"
+    timings = {
+        "1": {"posthog/test_foo.py::TestThing::test_one": 0.5},
+        "2": {"posthog/test_bar.py::TestOther::test_two": 1.0},
+    }
+    for shard, entries in timings.items():
+        shard_dir = artifacts / f"timing_data-Core-{shard}"
+        shard_dir.mkdir(parents=True)
+        (shard_dir / ".test_durations").write_text(json.dumps(entries))
+    junit_dir = tmp_path / "junit_artifacts"
+    for shard, xml in (("1", _MIN_JUNIT_XML), ("2", _NO_TESTS_JUNIT_XML)):
+        (junit_dir / f"junit-results-backend-core-{shard}").mkdir(parents=True)
+        (junit_dir / f"junit-results-backend-core-{shard}" / "junit.xml").write_bytes(xml)
+    out = tmp_path / "core_durations"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "optimize_test_durations.py",
+            str(artifacts),
+            str(out),
+            "--segment",
+            "Core",
+            "--junit-dir",
+            str(junit_dir),
+            "--fail-on-drift",
+        ],
+    )
+
+    main()
+
+    assert json.loads(out.read_text()) == {
+        "posthog/test_foo.py::TestThing::test_one": 0.5,
+        "posthog/test_bar.py::TestOther::test_two": 1.0,
+    }
 
 
 @pytest.mark.parametrize(

@@ -16,7 +16,7 @@ export const marketplaceSearchInput = z.object({
   query: z.string(),
 });
 
-export const marketplaceSearchResult = z.object({
+const marketplaceSearchResult = z.object({
   id: z.string(),
   skillId: z.string(),
   name: z.string(),

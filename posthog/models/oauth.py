@@ -191,16 +191,6 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         verbose_name="Is CIMD client",
         help_text="True if this client was registered via Client ID Metadata Document (CIMD)",
     )
-    # Superseded by client_id, which now holds this same URL. Nothing resolves a client
-    # through it any more; it stays written on create so a rollback to code that does keeps
-    # working, and is dropped once that window closes.
-    cimd_metadata_url: models.URLField = models.URLField(
-        max_length=2048,
-        null=True,
-        blank=True,
-        unique=True,
-        help_text="The URL used as client_id for CIMD clients. Must match the client_id in the metadata document.",
-    )
     cimd_metadata_last_fetched: models.DateTimeField = models.DateTimeField(
         null=True, blank=True, help_text="When the CIMD metadata was last successfully fetched"
     )
@@ -1045,27 +1035,6 @@ def create_cimd_verification_token(
     return token, plaintext
 
 
-class CIMDBlocklistEntry(models.Model):
-    """Persistent blocklist for CIMD partner URLs.
-
-    Source of truth for is_cimd_url_blocked - the Redis check is a read-through
-    cache. Persisting in Postgres means the blocklist survives Redis flushes /
-    LRU eviction and a deleted CIMD app can stay blocked across restarts.
-    """
-
-    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
-    cimd_url: models.URLField = models.URLField(max_length=2048, unique=True)
-    reason: models.CharField = models.CharField(max_length=200, blank=True, default="")
-    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
-    created_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
-    )
-
-    class Meta:
-        verbose_name = "CIMD Blocklist Entry"
-        verbose_name_plural = "CIMD Blocklist Entries"
-
-
 logger = structlog.get_logger(__name__)
 
 
@@ -1110,18 +1079,3 @@ def _revoke_impersonation_oauth_tokens(sender, request, user, **kwargs):
             refresh_tokens_revoked=refresh_revoked,
             grants_deleted=grants_deleted,
         )
-
-
-@receiver(models.signals.post_delete, sender=OAuthApplication)
-def _block_cimd_url_on_application_delete(sender, instance: OAuthApplication, **kwargs):
-    # Auto-blocklist a CIMD URL when its app is deleted, so a metadata refresh
-    # can't immediately recreate the same partner. Admin can explicitly
-    # unblock via unblock_cimd_url if they want to allow re-registration.
-    if not instance.is_cimd_client:
-        return
-    from posthog.api.oauth.cimd import block_cimd_url
-
-    block_cimd_url(
-        instance.client_id,
-        reason=f"Auto-blocked on deletion of OAuthApplication {instance.pk}",
-    )

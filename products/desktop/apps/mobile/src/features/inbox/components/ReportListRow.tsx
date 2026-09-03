@@ -1,10 +1,15 @@
 import { Text } from "@components/text";
+import {
+  humanizeReportTitle,
+  parseConventionalCommitTitle,
+} from "@posthog/core/inbox/reportPresentation";
 import type { SignalReport } from "@posthog/shared/domain-types";
 import { memo } from "react";
 import { Pressable, View } from "react-native";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
 import { useThemeColors } from "@/lib/theme";
 import { formatReportTimestamp } from "../utils";
+import { ConventionalCommitTag } from "./ConventionalCommitTag";
 import { SuggestedReviewerAvatarStack } from "./SuggestedReviewerAvatarStack";
 
 interface ReportListRowProps {
@@ -36,6 +41,8 @@ const priorityColorMap: Record<string, string> = {
 function ReportListRowComponent({ report, onPress }: ReportListRowProps) {
   const themeColors = useThemeColors();
   const timeDisplay = formatReportTimestamp(new Date(report.updated_at));
+  const conventionalTitle = parseConventionalCommitTitle(report.title);
+  const displayTitle = humanizeReportTitle(report.title, "Untitled report");
 
   const dotKind = statusDotMap[report.status] ?? "muted";
   const dotColor =
@@ -71,8 +78,17 @@ function ReportListRowComponent({ report, onPress }: ReportListRowProps) {
           numberOfLines={2}
           ellipsizeMode="tail"
         >
-          {report.title ?? "Untitled report"}
+          {displayTitle}
         </Text>
+
+        {conventionalTitle ? (
+          <View className="mt-1 flex-row">
+            <ConventionalCommitTag
+              type={conventionalTitle.type}
+              scope={conventionalTitle.scope}
+            />
+          </View>
+        ) : null}
 
         <View className="mt-1 flex-row items-center gap-2">
           {priorityClass ? (

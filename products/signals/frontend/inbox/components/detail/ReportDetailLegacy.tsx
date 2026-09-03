@@ -18,6 +18,7 @@ import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
+import { canCreateImplementationPr } from '../../utils/reportActions'
 import {
     displayConventionalCommitTitle,
     parseConventionalCommitTitle,
@@ -36,6 +37,7 @@ import {
 } from '../badges/sourceProductIcons'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
+import { CreatePrButton } from './CreatePrButton'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
 import { PrChecksSection } from './PrChecksSection'
@@ -379,13 +381,6 @@ function InboxDetailFrameLegacy({
                             title="Evidence"
                             collapsible
                             onToggleCollapsed={captureSectionToggle('evidence')}
-                            rightSlot={
-                                <Tooltip title={SIGNALS_TOOLTIP}>
-                                    <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
-                                        {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
-                                    </span>
-                                </Tooltip>
-                            }
                         >
                             {reportSignalsLoading && reportSignals === null ? (
                                 <EvidenceSkeleton count={evidenceCount} />
@@ -449,6 +444,10 @@ function InboxDetailFrameLegacy({
                     </div>
                     <div className="flex items-center gap-2 @2xl:shrink-0">
                         {primaryAction}
+                        {/* The report's main call to action. Same gate and standalone button the redesign pane
+                            uses, so a flag-off reader keeps Create PR. Never shows alongside the "Open in
+                            GitHub" primary action — the gate is false once a PR exists. */}
+                        {canCreateImplementationPr(report) && <CreatePrButton report={report} />}
                         {/* Discuss is always available and stays inline as its own dropdown button. */}
                         <DiscussReportButton report={report} reportUrl={reportUrl} />
                         {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}

@@ -91,7 +91,13 @@ async fn plan_claimed_run(
     let timer = MetricTimer::start(PERSON_PLANNING_DURATION_SECONDS);
 
     let boundaries = match scanner
-        .boundaries(run.team_id, run.scan_since, persons_per_chunk, shutdown)
+        .boundaries(
+            run_id,
+            run.team_id,
+            run.scan_since,
+            persons_per_chunk,
+            shutdown,
+        )
         .await
     {
         Ok(boundaries) => boundaries,

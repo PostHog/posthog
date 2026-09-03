@@ -19,8 +19,14 @@ import {
   POSTHOG_METHODS,
   POSTHOG_NOTIFICATIONS,
 } from "@posthog/agent";
+import { machineClaudeAuth } from "@posthog/agent/adapters/claude/machine-auth";
 import type { McpToolApprovals } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
 import { hydrateSessionJsonl } from "@posthog/agent/adapters/claude/session/jsonl-hydration";
+import {
+  type ClaudeAuthAction,
+  claudeAuthTerminalCommand,
+  hasClaudeLogin,
+} from "@posthog/agent/adapters/claude/subscription-login";
 import {
   type CodexLoginSession,
   hasCodexChatgptLogin,
@@ -75,10 +81,11 @@ import {
   type Adapter,
   type BedrockGatewayVariant,
   buildCloudTaskConfigOptions,
+  buildProviderModelGroups,
   type CloudRegion,
-  type CodexModelAccess,
   type ExecutionMode,
   isAuthError,
+  type ModelAccess,
   resolveCloudInitialPermissionMode,
   serializeError,
   TypedEventEmitter,
@@ -119,6 +126,8 @@ import type {
 import {
   AgentServiceEvent,
   type AgentServiceEvents,
+  type ClaudeAuthTerminal,
+  type ClaudeSubscriptionStatus,
   type CodexSubscriptionStatus,
   type Credentials,
   type EffortLevel,
@@ -126,6 +135,7 @@ import {
   type PromptOutput,
   type ReconnectSessionInput,
   type RtkStatus,
+  type SessionContextChange,
   type SessionResponse,
   type SideQuestionOutput,
   type StartSessionInput,
@@ -285,7 +295,8 @@ interface SessionConfig {
   /** The agent's session ID (for resume - SDK session ID for Claude, Codex's session ID for Codex) */
   sessionId?: string;
   adapter?: Adapter;
-  codexModelAccess?: CodexModelAccess;
+  codexModelAccess?: ModelAccess;
+  claudeModelAccess?: ModelAccess;
   /** Permission mode to use for the session */
   permissionMode?: string;
   /** Custom instructions injected into the system prompt */
@@ -522,14 +533,60 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
   private codexLogin?: CodexLoginSession;
   private codexAuthGeneration = 0;
+  private claudeAuthGeneration = 0;
 
   async getCodexSubscriptionStatus(): Promise<CodexSubscriptionStatus> {
-    if (this.codexLogin) return { appLoggedIn: false };
+    if (this.codexLogin) return { loginState: "logged-out" };
+    const loggedIn = await hasCodexChatgptLogin({
+      binaryPath: this.getCodexBinaryPath(),
+    });
+    return { loginState: loggedIn ? "logged-in" : "logged-out" };
+  }
+
+  async getClaudeSubscriptionStatus(): Promise<ClaudeSubscriptionStatus> {
     return {
-      appLoggedIn: await hasCodexChatgptLogin({
-        binaryPath: this.getCodexBinaryPath(),
+      loginState: await hasClaudeLogin({
+        claudeCliPath: this.getClaudeCliPath(),
+        machineAuth: machineClaudeAuth(),
+        logger: this.log,
       }),
     };
+  }
+
+  async getClaudeAuthTerminal(
+    action: ClaudeAuthAction,
+  ): Promise<ClaudeAuthTerminal> {
+    if (action === "logout") {
+      await this.prepareClaudeAccountChange();
+    }
+    const { command, env } = claudeAuthTerminalCommand(
+      action,
+      this.getClaudeCliPath(),
+      machineClaudeAuth(),
+    );
+    return {
+      command,
+      cwd: homedir(),
+      additionalEnv: env.set,
+      unsetEnv: env.unset,
+    };
+  }
+
+  private async prepareClaudeAccountChange(): Promise<void> {
+    this.claudeAuthGeneration += 1;
+    await this.stopClaudeSubscriptionSessions();
+  }
+
+  private async stopClaudeSubscriptionSessions(): Promise<void> {
+    const sessionIds = [...this.sessions.entries()]
+      .filter(
+        ([, session]) =>
+          session.config.claudeModelAccess === "own-subscription",
+      )
+      .map(([taskRunId]) => taskRunId);
+    await Promise.all(
+      sessionIds.map((taskRunId) => this.cleanupSession(taskRunId)),
+    );
   }
 
   async startCodexSubscriptionLogin(): Promise<{ authUrl: string }> {
@@ -946,7 +1003,24 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       );
       const codexSubscription =
         adapter === "codex" && config.codexModelAccess === "own-subscription";
+      let claudeSubscription =
+        adapter === "claude" && config.claudeModelAccess === "own-subscription";
+      if (claudeSubscription) {
+        const loginState = await hasClaudeLogin({
+          claudeCliPath: this.getClaudeCliPath(),
+          machineAuth: machineClaudeAuth(),
+          logger: this.log,
+        });
+        if (loginState !== "logged-in") {
+          this.log.warn(
+            "Claude own-subscription requested but login is not active; using gateway",
+            { loginState, isReconnect },
+          );
+          claudeSubscription = false;
+        }
+      }
       const codexAuthGeneration = this.codexAuthGeneration;
+      const claudeAuthGeneration = this.claudeAuthGeneration;
 
       let codexHome: string | undefined;
       if (adapter === "codex") {
@@ -966,6 +1040,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       const acpConnection = await agent.run(taskId, taskRunId, {
         adapter,
         codexModelAccess: codexSubscription ? "own-subscription" : undefined,
+        claudeModelAccess: claudeSubscription ? "own-subscription" : undefined,
         gatewayUrl: proxyUrl,
         contextWiki: contextWiki ?? undefined,
         codexBinaryPath:
@@ -1288,6 +1363,13 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       ) {
         await this.cleanupSession(taskRunId);
         throw new Error("The Codex account changed during task setup.");
+      }
+      if (
+        claudeSubscription &&
+        claudeAuthGeneration !== this.claudeAuthGeneration
+      ) {
+        await this.cleanupSession(taskRunId);
+        throw new Error("The Claude account changed during task setup.");
       }
       this.recordActivity(taskRunId);
 
@@ -1724,7 +1806,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
    */
   async notifySessionContext(
     sessionId: string,
-    context: import("./schemas.js").SessionContextChange,
+    context: SessionContextChange,
   ): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -1758,9 +1840,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     });
   }
 
-  private buildContextMessage(
-    context: import("./schemas.js").SessionContextChange,
-  ): string {
+  private buildContextMessage(context: SessionContextChange): string {
     if (context.isDetached) {
       return `Your worktree is now on detached HEAD while the user edits in their main repo. The branch is \`${context.branchName}\`.
 
@@ -2239,6 +2319,8 @@ For git operations while detached:
       adapter: "adapter" in params ? params.adapter : undefined,
       codexModelAccess:
         "codexModelAccess" in params ? params.codexModelAccess : undefined,
+      claudeModelAccess:
+        "claudeModelAccess" in params ? params.claudeModelAccess : undefined,
       permissionMode:
         "permissionMode" in params ? params.permissionMode : undefined,
       customInstructions:
@@ -2493,6 +2575,7 @@ For git operations while detached:
   async getPreviewConfigOptions(
     apiHost: string,
     adapter: Adapter = "claude",
+    allHarnessModels = false,
   ): Promise<SessionConfigOption[]> {
     const gatewayUrl = getLlmGatewayUrl(apiHost);
     const gatewayModels = await fetchGatewayModels({
@@ -2511,6 +2594,14 @@ For git operations while detached:
     );
     const resolvedModelId =
       modelOption?.type === "select" ? modelOption.currentValue : "";
+
+    if (allHarnessModels && modelOption?.type === "select") {
+      modelOption.options = buildProviderModelGroups(
+        gatewayModels,
+        adapter,
+        resolvedModelId,
+      );
+    }
 
     // The adapter-level effort options carry _meta (default notch, docs links)
     // that the shared cloud builder omits; the desktop picker needs them.

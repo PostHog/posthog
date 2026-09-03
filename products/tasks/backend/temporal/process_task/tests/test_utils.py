@@ -50,6 +50,18 @@ class TestRuntimeModelCapabilities(SimpleTestCase):
         assert "moonshotai/kimi-k3" in get_models_for_runtime_adapter("claude")
         assert get_supported_reasoning_efforts("claude", "moonshotai/kimi-k3") == ()
 
+    def test_fable_models_support_all_public_reasoning_efforts(self) -> None:
+        for model in ("claude-fable-5", "claude-fable-5-1"):
+            assert model in get_models_for_runtime_adapter("claude")
+            assert tuple(effort.value for effort in get_supported_reasoning_efforts("claude", model)) == (
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+                "ultracode",
+            )
+
 
 class TestRunStateResumeCompatibility(SimpleTestCase):
     @parameterized.expand(
@@ -306,6 +318,16 @@ class TestGetSandboxMcpConfigs(TestCase):
                 {"name": "X-PostHog-Task-Id", "value": "task-uuid-123"},
             ]
 
+    def test_origin_product_adds_task_origin_header(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = "https://app.posthog.com"
+            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, origin_product="signals_scout")
+            assert configs[0].headers == [
+                *self._expected_headers(),
+                {"name": "X-PostHog-Task-Origin", "value": "signals_scout"},
+            ]
+
     def test_no_task_id_omits_attribution_header(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
@@ -430,6 +452,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             task_origin=None,
             task_agent_key=None,
             credential_owner_id=None,
+            allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
         )
         assert configs == [
@@ -455,28 +478,21 @@ class TestFetchUserMcpServerConfigs(TestCase):
 
         assert configs[0].description == "Manage Linear issues, projects, and workflows."
 
+    @parameterized.expand([("selection", ["keep"]), ("empty_selection", [])])
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
-    def test_allowlist_restricts_mounted_connectors(self, mock_facade, mock_api_url) -> None:
-        # A loop run snapshots the connectors its owner selected. Without enforcement the sandbox
-        # mounts every shared team connector; the allowlist must keep only the selected ones.
+    def test_installation_allowlist_is_forwarded_to_the_facade(
+        self, _name: str, allowed: list[str], mock_facade, mock_api_url
+    ) -> None:
+        # A loop run snapshots the connectors its owner selected. The facade applies the list on
+        # the member path (and only there), so this layer must hand it over untouched, an empty
+        # selection included.
         mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = [
-            self._make_installation(id="keep", name="Kept"),
-            self._make_installation(id="drop", name="Dropped"),
-        ]
+        mock_facade.return_value = []
 
-        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, allowed_installation_ids=["keep"])
+        get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, allowed_installation_ids=allowed)
 
-        assert [config.name for config in configs] == ["Kept"]
-
-    @patch(MOCK_API_URL)
-    @patch(MOCK_FACADE)
-    def test_empty_allowlist_mounts_nothing(self, mock_facade, mock_api_url) -> None:
-        mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = [self._make_installation()]
-
-        assert get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, allowed_installation_ids=[]) == []
+        assert mock_facade.call_args.kwargs["allowed_installation_ids"] == allowed
 
     @parameterized.expand(
         [
@@ -550,6 +566,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             task_origin="support_reply",
             task_agent_key="support",
             credential_owner_id=self.CREDENTIAL_OWNER_ID,
+            allowed_installation_ids=None,
             allowed_gateway_server_ids=["server-1"],
         )
         assert configs == [
@@ -581,6 +598,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             task_origin=None,
             task_agent_key=None,
             credential_owner_id=None,
+            allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
         )
 

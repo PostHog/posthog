@@ -55,6 +55,106 @@ export interface LintErrorApi {
 }
 
 /**
+ * * `not_started` - not_started
+ * * `queued` - queued
+ * * `in_progress` - in_progress
+ */
+export type ActiveDreamRunRunStatusEnumApi =
+    (typeof ActiveDreamRunRunStatusEnumApi)[keyof typeof ActiveDreamRunRunStatusEnumApi]
+
+export const ActiveDreamRunRunStatusEnumApi = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+} as const
+
+/**
+ * A dreaming task that has not reached a terminal state yet.
+ */
+export interface ActiveDreamRunApi {
+    /** The current task-run state for the active dream.
+     *
+     * * `not_started` - not_started
+     * * `queued` - queued
+     * * `in_progress` - in_progress */
+    run_status: ActiveDreamRunRunStatusEnumApi
+    /** When the active dream task was created. */
+    started_at: string
+}
+
+/**
+ * One dreaming run: the merge commit it landed as, plus what it changed.
+ */
+export interface DreamRunApi {
+    /** Merge commit sha the run landed as; pass back as `sha` on the detail read. */
+    sha: string
+    /** The run's date, `YYYY-MM-DD`. */
+    date: string
+    /** When the run landed. */
+    committed_at: string
+    /** The run summary the dreaming agent wrote. */
+    summary: string
+    /** Pages the run created. */
+    pages_added: number
+    /** Pages the run edited. */
+    pages_modified: number
+    /** Pages the run removed. */
+    pages_deleted: number
+}
+
+/**
+ * Response shape for the wiki's dream run listing.
+ */
+export interface DreamRunListApi {
+    /** Commit sha of the wiki's current head. */
+    head_sha: string
+    /** The organization's active dreaming task, or null when no dream is running. */
+    active_run: ActiveDreamRunApi | null
+    /** Every landed dream run, newest first. */
+    dreams: DreamRunApi[]
+}
+
+/**
+ * * `added` - added
+ * * `modified` - modified
+ * * `deleted` - deleted
+ */
+export type DreamFileDiffStatusEnumApi = (typeof DreamFileDiffStatusEnumApi)[keyof typeof DreamFileDiffStatusEnumApi]
+
+export const DreamFileDiffStatusEnumApi = {
+    Added: 'added',
+    Modified: 'modified',
+    Deleted: 'deleted',
+} as const
+
+/**
+ * One file a dream run changed, with its unified patch.
+ */
+export interface DreamFileDiffApi {
+    /** Repo-relative path of the changed page. */
+    path: string
+    /** How the run changed the page.
+     *
+     * * `added` - added
+     * * `modified` - modified
+     * * `deleted` - deleted */
+    status: DreamFileDiffStatusEnumApi
+    /** Unified git patch for this file. */
+    patch: string
+    /** Whether the patch was cut off for size. */
+    truncated: boolean
+}
+
+/**
+ * Response shape for one dream run: the run plus the diff it landed.
+ */
+export interface DreamRunDetailApi {
+    run: DreamRunApi
+    /** Per-file patches, in diff order. */
+    files: DreamFileDiffApi[]
+}
+
+/**
  * Response shape for a wiki bundle export.
  */
 export interface WikiExportApi {

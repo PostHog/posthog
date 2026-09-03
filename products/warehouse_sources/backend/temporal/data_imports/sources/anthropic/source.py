@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import (
     ANTHROPIC_ENDPOINTS,
+    ENDPOINT_RETIRED_ERROR,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -83,6 +84,7 @@ Create an Admin API key (prefixed `sk-ant-admin...`) in your [Anthropic Console]
         return {
             "401 Client Error: Unauthorized for url: https://api.anthropic.com": "Your Anthropic Admin API key is invalid or has been revoked. Create a new Admin API key in the Anthropic Console, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.anthropic.com": "Your Anthropic API key does not have organization admin access. Use an Admin API key (prefixed sk-ant-admin) created by an organization admin, then reconnect.",
+            ENDPOINT_RETIRED_ERROR: "Anthropic no longer offers this table, so it can't sync. PostHog has turned its sync off for you, and any rows already imported stay in your warehouse.",
         }
 
     def get_schemas(

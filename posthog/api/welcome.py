@@ -49,6 +49,16 @@ _SCOPE_URL_BUILDERS = {
     "Survey": lambda team_id, item_id: f"/project/{team_id}/surveys/{item_id}",
 }
 
+
+def _activity_path_id(scope: str, item_id: str | None, detail: dict[str, Any]) -> str | None:
+    # Insight scene routes look up by short_id. Activity log item_id is the numeric PK, so a
+    # `/insights/<pk>` link 404s even though the insight exists.
+    if scope == "Insight":
+        short_id = detail.get("short_id")
+        return short_id if isinstance(short_id, str) and short_id else None
+    return item_id
+
+
 _RECENT_ACTIVITY_MAX_ITEMS = 10
 _POPULAR_DASHBOARDS_MAX_ITEMS = 3
 _TEAM_MEMBERS_MAX_ITEMS = 8
@@ -275,7 +285,9 @@ def _get_accessible_team_ids(organization: Organization, access_control: UserAcc
             organization_id=str(organization.id),
         )
         return []
-    return list(queryset.order_by("id").values_list("id", flat=True)[:_MAX_TEAMS_SCANNED])
+    # Sort after the bounded fetch: an `ORDER BY id ... LIMIT n` lets the planner walk the primary
+    # key and filter organization_id on the way, instead of seeking the organization index.
+    return sorted(queryset.values_list("id", flat=True)[:_MAX_TEAMS_SCANNED])
 
 
 def _filter_visible(members: list[dict[str, Any]], organization: Organization, user: User) -> list[dict[str, Any]]:
@@ -454,8 +466,9 @@ def _format_activity_row(row: ActivityLog, team_ids: list[int]) -> dict[str, Any
 
     entity_url = None
     url_builder = _SCOPE_URL_BUILDERS.get(row.scope)
-    if url_builder is not None and row.item_id and row.team_id:
-        entity_url = url_builder(row.team_id, row.item_id)
+    path_id = _activity_path_id(row.scope, row.item_id, detail)
+    if url_builder is not None and path_id and row.team_id:
+        entity_url = url_builder(row.team_id, path_id)
 
     timestamp = row.created_at
     if timezone.is_naive(timestamp):
@@ -509,7 +522,7 @@ def _get_products_in_use(organization: Organization) -> list[str]:
     round-trip (vs. the prior N EXISTS queries), plus one extra pass over has_completed_onboarding_for
     to surface JSONB-encoded onboarding keys.
     """
-    team_ids = list(organization.teams.all().order_by("id").values_list("id", flat=True)[:_MAX_TEAMS_SCANNED])
+    team_ids = list(organization.teams.all().values_list("id", flat=True)[:_MAX_TEAMS_SCANNED])
     if not team_ids:
         return []
     from posthog.models import Team

@@ -53,6 +53,7 @@ from posthog.models.activity_logging.utils import (
     activity_storage,
 )
 from posthog.models.utils import generate_random_token
+from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, get_trusted_client_ip
@@ -1136,6 +1137,26 @@ class ActivityLoggingMiddleware:
         return response
 
 
+_POSTHOG_CSP_REPORT_ENDPOINT = f"{PH_US_HOST}/report/?token={PH_US_API_KEY}&v=2"
+
+
+def csp_report_endpoint(**params: str) -> str:
+    """The URL browsers report CSP violations and crashes to, or "" when reporting is turned off."""
+    endpoint = settings.CSP_REPORT_ENDPOINT
+    if endpoint is None:
+        # Only deployments PostHog runs report to PostHog. Violations from an instance we do not
+        # run tell us nothing we can act on, and reporting sends that instance's document URLs to a
+        # destination its operator never chose. The gate is cloud rather than hobby because a
+        # self-hosted install with DEBUG set runs in the local mode, not the hobby one.
+        endpoint = _POSTHOG_CSP_REPORT_ENDPOINT if is_cloud() else ""
+    if not endpoint or not params:
+        return endpoint
+    # The endpoint carries the destination's project token, so it normally already has a query
+    # string; one an operator sets may not.
+    separator = "&" if "?" in endpoint else "?"
+    return f"{endpoint}{separator}{urlencode(params)}"
+
+
 class CSPMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -1169,16 +1190,16 @@ class CSPMiddleware:
                 # used by the error page
                 "frame-src https://posthog.com",
                 "base-uri 'self'",
-                "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2",
-                "report-to posthog",
             ]
 
-            # Browsers only deliver crash reports to the endpoint named `default`; the CSP
-            # `report-to posthog` directive keeps routing violations to `posthog`.
-            admin_report_endpoint = "https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2"
-            response.headers["Reporting-Endpoints"] = (
-                f'posthog="{admin_report_endpoint}", default="{admin_report_endpoint}"'
-            )
+            admin_report_endpoint = csp_report_endpoint()
+            if admin_report_endpoint:
+                csp_parts += [f"report-uri {admin_report_endpoint}", "report-to posthog"]
+                # Browsers only deliver crash reports to the endpoint named `default`; the CSP
+                # `report-to posthog` directive keeps routing violations to `posthog`.
+                response.headers["Reporting-Endpoints"] = (
+                    f'posthog="{admin_report_endpoint}", default="{admin_report_endpoint}"'
+                )
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
         else:
             resource_url = "https://*.posthog.com"
@@ -1192,7 +1213,7 @@ class CSPMiddleware:
                 "default-src 'self'",
                 f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
                 f"script-src 'self' 'nonce-{nonce}' {resource_url} https://*.i.posthog.com",
-                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://d1sdjtjk6xzm7.cloudfront.net https://fonts.gstatic.com https://cdn.jsdelivr.net https://assets.faircado.com https://use.typekit.net",
+                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://fonts.gstatic.com https://cdn.jsdelivr.net",
                 "worker-src 'self'",
                 "child-src 'none'",
                 "object-src 'none'",
@@ -1204,20 +1225,21 @@ class CSPMiddleware:
                 "frame-src https:",
                 "manifest-src 'self'",
                 "base-uri 'self'",
-                "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2",
-                "report-to posthog",
             ]
 
-            report_endpoint = "https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2"
-            user = getattr(request, "user", None)
-            if user is not None and user.is_authenticated and getattr(user, "distinct_id", None):
-                # Crash reports arrive after the tab already died, so the report body is the
-                # only chance to attribute them; carrying the distinct_id in the endpoint URL
-                # ties the event to the person instead of a random per-report id.
-                report_endpoint += "&" + urlencode({"distinct_id": user.distinct_id})
-            # Browsers only deliver crash reports to the endpoint named `default`; the CSP
-            # `report-to posthog` directive keeps routing violations to `posthog`.
-            response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
+            report_uri = csp_report_endpoint(sample_rate="0.1")
+            if report_uri:
+                csp_parts += [f"report-uri {report_uri}", "report-to posthog"]
+                report_endpoint = report_uri
+                user = getattr(request, "user", None)
+                if user is not None and user.is_authenticated and getattr(user, "distinct_id", None):
+                    # Crash reports arrive after the tab already died, so the report body is the
+                    # only chance to attribute them; carrying the distinct_id in the endpoint URL
+                    # ties the event to the person instead of a random per-report id.
+                    report_endpoint = csp_report_endpoint(sample_rate="0.1", distinct_id=user.distinct_id)
+                # Browsers only deliver crash reports to the endpoint named `default`; the CSP
+                # `report-to posthog` directive keeps routing violations to `posthog`.
+                response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
             response.headers["Content-Security-Policy-Report-Only"] = "; ".join(csp_parts)
 
         return response

@@ -313,7 +313,9 @@
     --color-product-data-pipeline-light: rgb(46 162 211);
     --color-product-data-pipeline-dark: rgb(84 189 235);
     --color-product-product-analytics-light: rgb(47 128 250);
+    --color-product-product-analytics-dark: rgb(96 165 250);
     --color-product-workflows-light: rgb(47 128 250);
+    --color-product-workflows-dark: rgb(96 156 255);
     --color-product-web-analytics-light: rgb(52 175 102);
     --color-product-web-analytics-dark: rgb(54 196 111); // original color
     --color-product-endpoints-light: rgb(243 153 109);
@@ -323,16 +325,22 @@
     --color-product-heatmaps-light: rgb(220 152 16);
     --color-product-heatmaps-dark: rgb(247 165 1);
     --color-product-logs-light: rgb(214 37 123);
+    --color-product-logs-dark: rgb(240 92 161);
     --color-product-marketing-analytics-light: rgb(214 37 123);
+    --color-product-marketing-analytics-dark: rgb(240 92 161);
     --color-product-live-debugger-light: rgb(76 14 200);
     --color-product-feature-flags-light: rgb(48 171 198);
     --color-product-experiments-light: rgb(182 42 217);
     --color-product-error-tracking-light: rgb(211 148 24);
     --color-product-error-tracking-dark: rgb(247 165 1);
     --color-product-surveys-light: rgb(243 84 84);
+    --color-product-surveys-dark: rgb(248 121 121);
     --color-product-product-tours-light: rgb(243 84 84);
     --color-product-product-tours-dark: rgb(248 121 121);
+    --color-product-customer-analytics-light: rgb(23 158 172);
+    --color-product-customer-analytics-dark: rgb(85 199 211);
     --color-product-data-warehouse-light: rgb(133 103 255);
+    --color-product-data-warehouse-dark: rgb(160 135 255);
     --color-product-llm-analytics-light: rgb(182 42 217);
     --color-product-llm-analytics-dark: rgb(212 106 240);
     --color-product-llm-clusters-light: rgb(147 51 234);
@@ -353,6 +361,7 @@
     --color-product-user-interviews-light: rgb(0 140 255);
     --color-product-user-interviews-dark: rgb(77 171 255);
     --color-product-dashboards-light: rgb(255 139 7);
+    --color-product-dashboards-dark: rgb(255 168 71);
     --color-product-early-access-features-light: rgb(39 171 151);
     --color-product-early-access-features-dark: rgb(53 213 189);
     --color-product-support-light: rgb(243 84 84);
@@ -365,6 +374,8 @@
     --color-product-cohorts-dark: rgb(45 212 191);
     --color-product-activity-light: rgb(225 29 72);
     --color-product-activity-dark: rgb(251 113 133);
+    --color-product-annotations-light: rgb(124 92 252);
+    --color-product-annotations-dark: rgb(167 139 250);
 
     // Generic brand color assignments
     // Change these to change the brand colors

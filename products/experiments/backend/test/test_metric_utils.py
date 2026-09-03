@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from products.actions.backend.models.action import Action
 from products.experiments.backend.metric_utils import (
+    apply_metric_date_range,
     collect_metric_events_and_action_ids,
     collect_metric_warehouse_tables,
     refresh_action_names_in_metric,
@@ -500,3 +501,23 @@ class TestResolveActionEvents(BaseTest):
     def test_empty_makes_no_query(self):
         with self.assertNumQueries(0):
             assert resolve_action_events(set(), self.team) == {}
+
+
+class TestApplyMetricDateRange(SimpleTestCase):
+    NEW_RANGE = {"date_from": "2025-02-01T00:00:00Z", "date_to": "", "explicitDate": True}
+
+    @parameterized.expand([("trends", "count_query"), ("funnels", "funnels_query")])
+    def test_overwrites_a_stale_nested_date_range(self, _name: str, query_key: str) -> None:
+        metric = {query_key: {"dateRange": {"date_from": "2025-01-30T12:16", "date_to": "2025-02-13T23:59"}}}
+
+        apply_metric_date_range(metric, self.NEW_RANGE)
+
+        assert metric[query_key]["dateRange"] == self.NEW_RANGE
+
+    @parameterized.expand([("trends", "count_query"), ("funnels", "funnels_query")])
+    def test_leaves_a_metric_without_a_date_range_alone(self, _name: str, query_key: str) -> None:
+        metric: dict = {query_key: {"series": []}}
+
+        apply_metric_date_range(metric, self.NEW_RANGE)
+
+        assert metric == {query_key: {"series": []}}

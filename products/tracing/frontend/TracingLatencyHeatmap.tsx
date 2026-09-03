@@ -6,6 +6,7 @@ import { Heatmap, type HeatmapBrushData, useChartTheme } from '@posthog/quill-ch
 import { dayjs } from 'lib/dayjs'
 import { shortTimeZone } from 'lib/utils/timezones'
 
+import { TRACING_DATE_TIME_FORMAT } from './dateFormats'
 import type { TracingLatencyHeatmapData } from './durationBuckets'
 
 const MAX_X_TICKS = 6
@@ -38,7 +39,7 @@ export function TracingLatencyHeatmap({
         } else if (hoursDiff <= 48) {
             return 'HH:mm'
         }
-        return 'D MMM HH:mm'
+        return 'MM-DD HH:mm'
     }, [data.timeBuckets])
 
     const tickStep = Math.max(1, Math.ceil(data.timeBuckets.length / MAX_X_TICKS))
@@ -57,7 +58,7 @@ export function TracingLatencyHeatmap({
         (label: string): string => {
             const d = displayTimezone ? dayjs(label).tz(displayTimezone) : dayjs(label)
             const tz = displayTimezone === 'UTC' ? 'UTC' : (shortTimeZone(displayTimezone, d.toDate()) ?? 'Local')
-            return `${d.format('D MMM YYYY HH:mm:ss')} ${tz}`
+            return `${d.format(TRACING_DATE_TIME_FORMAT)} ${tz}`
         },
         [displayTimezone]
     )

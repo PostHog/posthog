@@ -66,6 +66,15 @@ def is_workflow_dispatch_restart_enabled(organization_id: str, distinct_id: str)
     return _is_workflow_dispatch_org_flag_enabled(WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG, organization_id, distinct_id)
 
 
+def is_task_run_stream_presence_gated(origin_product: str) -> bool:
+    return origin_product in settings.TASK_RUN_STREAM_PRESENCE_GATED_ORIGINS
+
+
+def run_stream_presence_gated(state: dict | None) -> bool:
+    """Pinned onto TaskRun.state at creation so writers and readers agree for the run's life; absent means ungated."""
+    return bool((state or {}).get("stream_presence_gated", False))
+
+
 def is_dev_stack_image_bake_enabled() -> bool:
     """Gates the nightly prebaked dev-stack image bake (a paid Modal VM run per tick).
 

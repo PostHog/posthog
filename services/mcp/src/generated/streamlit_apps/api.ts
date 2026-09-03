@@ -11,7 +11,7 @@ import * as zod from 'zod'
 /**
  * @summary List streamlit apps
  */
-export const StreamlitAppsListParams = /* @__PURE__ */ zod.object({
+export const StreamlitAppsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -19,7 +19,7 @@ export const StreamlitAppsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const StreamlitAppsListQueryParams = /* @__PURE__ */ zod.object({
+export const StreamlitAppsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -27,7 +27,7 @@ export const StreamlitAppsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * @summary Create a streamlit app
  */
-export const StreamlitAppsCreateParams = /* @__PURE__ */ zod.object({
+export const StreamlitAppsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -35,7 +35,7 @@ export const StreamlitAppsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const StreamlitAppsCreateBody = /* @__PURE__ */ zod.object({
+export const StreamlitAppsCreateBody = () => zod.object({
     name: zod.string().describe('Name of the app.'),
     description: zod.string().optional().describe('Optional description of the app.'),
     cpu_cores: zod.number().optional().describe('CPU cores allocated to the sandbox.'),
@@ -45,7 +45,7 @@ export const StreamlitAppsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * @summary Retrieve a streamlit app
  */
-export const StreamlitAppsRetrieveParams = /* @__PURE__ */ zod.object({
+export const StreamlitAppsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -57,7 +57,7 @@ export const StreamlitAppsRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * @summary Partially update a streamlit app
  */
-export const StreamlitAppsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const StreamlitAppsPartialUpdateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -66,7 +66,7 @@ export const StreamlitAppsPartialUpdateParams = /* @__PURE__ */ zod.object({
     short_id: zod.string(),
 })
 
-export const StreamlitAppsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const StreamlitAppsPartialUpdateBody = () => zod.object({
     name: zod.string().optional().describe('New name for the app.'),
     description: zod.string().optional().describe('New description for the app.'),
     cpu_cores: zod.number().optional().describe('New CPU core allocation for the sandbox.'),
@@ -76,7 +76,7 @@ export const StreamlitAppsPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * @summary Delete a streamlit app
  */
-export const StreamlitAppsDestroyParams = /* @__PURE__ */ zod.object({
+export const StreamlitAppsDestroyParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -88,7 +88,7 @@ export const StreamlitAppsDestroyParams = /* @__PURE__ */ zod.object({
 /**
  * @summary Create an app version from source code
  */
-export const StreamlitAppsCreateVersionFromSourceCreateParams = /* @__PURE__ */ zod.object({
+export const StreamlitAppsCreateVersionFromSourceCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -99,7 +99,7 @@ export const StreamlitAppsCreateVersionFromSourceCreateParams = /* @__PURE__ */ 
 
 export const streamlitAppsCreateVersionFromSourceCreateBodySourceMax = 1048576
 
-export const StreamlitAppsCreateVersionFromSourceCreateBody = /* @__PURE__ */ zod.object({
+export const StreamlitAppsCreateVersionFromSourceCreateBody = () => zod.object({
     source: zod
         .string()
         .max(streamlitAppsCreateVersionFromSourceCreateBodySourceMax)
@@ -111,7 +111,7 @@ export const StreamlitAppsCreateVersionFromSourceCreateBody = /* @__PURE__ */ zo
 /**
  * @summary Start the app sandbox
  */
-export const StreamlitAppsStartCreateParams = /* @__PURE__ */ zod.object({
+export const StreamlitAppsStartCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -123,7 +123,7 @@ export const StreamlitAppsStartCreateParams = /* @__PURE__ */ zod.object({
 /**
  * @summary Get app sandbox status
  */
-export const StreamlitAppsStatusRetrieveParams = /* @__PURE__ */ zod.object({
+export const StreamlitAppsStatusRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -135,7 +135,7 @@ export const StreamlitAppsStatusRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * @summary Stop the app sandbox
  */
-export const StreamlitAppsStopCreateParams = /* @__PURE__ */ zod.object({
+export const StreamlitAppsStopCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -147,7 +147,7 @@ export const StreamlitAppsStopCreateParams = /* @__PURE__ */ zod.object({
 /**
  * @summary List app versions
  */
-export const StreamlitAppsVersionsRetrieveParams = /* @__PURE__ */ zod.object({
+export const StreamlitAppsVersionsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(

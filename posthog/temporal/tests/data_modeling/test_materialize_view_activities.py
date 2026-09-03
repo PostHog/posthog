@@ -1,6 +1,6 @@
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator, Collection, Iterable
+from collections.abc import AsyncIterator, Callable, Collection, Iterable
 from dataclasses import replace
 from io import BytesIO
 from typing import Any, cast
@@ -18,8 +18,9 @@ import pyarrow.parquet as pq
 
 from posthog.hogql.resolver import ResolverFactory
 
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.clickhouse import ClickHouseError
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
     FailMaterializationInputs,
@@ -36,6 +37,7 @@ from posthog.temporal.data_modeling.activities import (
 )
 from posthog.temporal.data_modeling.activities.materialize_view import (
     LOGGER,
+    EmptyHogQLResponseColumnsError,
     InvalidNodeTypeException,
     get_aws_storage_options,
     get_s3_client,
@@ -1639,17 +1641,42 @@ class _EmptyArrowClient:
         self.schema = schema
         self.arrow_query_calls = 0
         self.schema_query_calls = 0
+        self.describe_settings: dict[str, str] | None = None
+        self.describe_query: str | None = None
+        self.describe_calls: list[tuple[str, dict[str, str] | None]] = []
+        self.reject_describe_with_settings = False
+        self.arrow_query: str | None = None
 
-    async def astream_query_as_arrow(self, query, *data, query_parameters=None, query_id=None, on_schema=None):
+    async def astream_query_as_arrow(
+        self,
+        query: str,
+        *data: Any,
+        query_parameters: dict[str, Any] | None = None,
+        query_id: str | None = None,
+        on_schema: Callable[[pa.Schema], None] | None = None,
+    ) -> AsyncIterator[pa.RecordBatch]:
         self.arrow_query_calls += 1
+        self.arrow_query = query
         if on_schema is not None:
             on_schema(self.schema)
         return
         yield  # type: ignore[unreachable]  # makes this an async generator that yields no batches
 
     @contextlib.asynccontextmanager
-    async def apost_query(self, query, *data, query_parameters=None, query_id=None):
+    async def apost_query(
+        self,
+        query: str,
+        *data: Any,
+        query_parameters: dict[str, Any] | None = None,
+        query_id: str | None = None,
+        settings: dict[str, str] | None = None,
+    ) -> AsyncIterator[Any]:
         if query.startswith("DESCRIBE TABLE"):
+            self.describe_calls.append((query, settings))
+            if self.reject_describe_with_settings and settings is not None:
+                raise ClickHouseError("Code: 8. DB::Exception: Cannot find column in source stream", query=query)
+            self.describe_settings = settings
+            self.describe_query = query
             body = self.describe_body
         else:
             self.schema_query_calls += 1
@@ -1667,6 +1694,45 @@ class _EmptyArrowClient:
                 return self.body
 
         yield _Response(body)
+
+
+class TestHogqlTableModifiers:
+    @pytest.mark.parametrize(
+        "query,team_modifiers,expected_sql",
+        [
+            ("SELECT $is_bounce FROM sessions LIMIT 1", {"bounceRateDurationSeconds": 123}, "123"),
+            (
+                "SELECT properties.plan FROM events LIMIT 1",
+                {"propertyGroupsMode": "optimized"},
+                "properties_group_custom",
+            ),
+        ],
+    )
+    async def test_compiles_the_view_with_the_team_default_modifiers(
+        self, ateam: Team, query: str, team_modifiers: dict[str, Any], expected_sql: str
+    ) -> None:
+        ateam.modifiers = team_modifiers
+        await database_sync_to_async(ateam.save)()
+        captured_sql: str | None = None
+
+        async def fake_astream_query_as_arrow(
+            _client: Any, query: str, *args: Any, **kwargs: Any
+        ) -> AsyncIterator[pa.RecordBatch]:
+            nonlocal captured_sql
+            captured_sql = query
+            return
+            yield  # type: ignore[unreachable]  # makes this an async generator that yields no batches
+
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.common.clickhouse.ClickHouseClient.astream_query_as_arrow",
+                fake_astream_query_as_arrow,
+            ),
+            contextlib.suppress(EmptyHogQLResponseColumnsError),
+        ):
+            _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+
+        assert captured_sql is not None and expected_sql in captured_sql
 
 
 class TestHogqlTableEmptyResults:
@@ -1688,6 +1754,57 @@ class TestHogqlTableEmptyResults:
         assert client.schema_query_calls == 0
 
 
+class TestHogqlTableDescribeSettings:
+    @pytest.mark.parametrize(
+        "operator,global_function",
+        [("IN", "globalIn("), ("NOT IN", "globalNotIn(")],
+    )
+    async def test_describe_probe_drops_global_subqueries(
+        self, ateam: Team, operator: str, global_function: str
+    ) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("distinct_id", pa.string())]))
+        client.describe_body = b"distinct_id\tString\n"
+        query = (
+            f"SELECT distinct_id FROM events WHERE distinct_id {operator} "
+            "(SELECT distinct_id FROM events WHERE event = 'x')"
+        )
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+        ):
+            _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+
+        assert client.describe_settings == {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"}
+        assert client.describe_query is not None and global_function not in client.describe_query
+        assert client.arrow_query is not None and global_function in client.arrow_query
+
+    async def test_describe_probe_falls_back_to_the_untouched_query(self, ateam: Team) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("distinct_id", pa.string())]))
+        client.describe_body = b"distinct_id\tString\n"
+        client.reject_describe_with_settings = True
+        query = "SELECT distinct_id FROM events WHERE distinct_id IN (SELECT distinct_id FROM events WHERE event = 'x')"
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+        ):
+            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+
+        assert [settings for _, settings in client.describe_calls] == [
+            {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"},
+            None,
+        ]
+        assert "globalIn(" in client.describe_calls[1][0]
+        assert batches[0][1] == [("distinct_id", "String")]
+
+
 class _SlowDescribeClient(_EmptyArrowClient):
     describe_body = b"ts\tDateTime\n"
 
@@ -1696,9 +1813,18 @@ class _SlowDescribeClient(_EmptyArrowClient):
         self.describe_seconds = describe_seconds
 
     @contextlib.asynccontextmanager
-    async def apost_query(self, query, *data, query_parameters=None, query_id=None):
+    async def apost_query(
+        self,
+        query: str,
+        *data: Any,
+        query_parameters: dict[str, Any] | None = None,
+        query_id: str | None = None,
+        settings: dict[str, str] | None = None,
+    ) -> AsyncIterator[Any]:
         await asyncio.sleep(self.describe_seconds)
-        async with super().apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+        async with super().apost_query(
+            query, *data, query_parameters=query_parameters, query_id=query_id, settings=settings
+        ) as response:
             yield response
 
 

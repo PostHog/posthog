@@ -25,6 +25,9 @@ MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
     "MAX_CONCURRENT_WORKFLOW_TASKS", None, optional=True, type_cast=int
 )
 MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES", None, optional=True, type_cast=int)
+# Batch trace summarization model; overridable so a fleet-wide model rollback is a config change
+# plus a worker restart, not a deploy.
+LLMA_SUMMARIZATION_MODEL: str = get_from_env("LLMA_SUMMARIZATION_MODEL", "gpt-5-nano")
 TARGET_MEMORY_USAGE: float | None = get_from_env("TARGET_MEMORY_USAGE", None, optional=True, type_cast=float)
 TARGET_CPU_USAGE: float | None = get_from_env("TARGET_CPU_USAGE", None, optional=True, type_cast=float)
 
@@ -77,6 +80,12 @@ SANDBOX_AI_GATEWAY_MINT_KEY: str | None = get_from_env("SANDBOX_AI_GATEWAY_MINT_
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD", "10")
 # Per-team per-run cap overrides as a JSON object of team id to dollars, e.g. {"2": "10"}.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES", "")
+# Per-product per-run cap overrides as a JSON object of ai_product to dollars. A product
+# entry beats the team override and the default: run cost tracks the kind of work, and
+# implementation runs regularly outspend every other stage.
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES: str = get_from_env(
+    "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES", '{"signals_implementation": "15"}'
+)
 SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
@@ -169,6 +178,8 @@ TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS: list[str] = get_list(
 # in /logs. Unset disables the direct leg (stdout emission for the collector remains).
 TASK_RUN_LOGS_MIRROR_OTLP_URL: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_URL", None, optional=True)
 TASK_RUN_LOGS_MIRROR_OTLP_TOKEN: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_TOKEN", None, optional=True)
+
+TASK_RUN_STREAM_PRESENCE_GATED_ORIGINS: list[str] = get_list(os.getenv("TASK_RUN_STREAM_PRESENCE_GATED_ORIGINS", ""))
 
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)

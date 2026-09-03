@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 
@@ -244,13 +245,24 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def partial_update(self, request, pk=None, **kwargs):
         serializer = ChannelUpdateSerializer(data=request.data, context={"team_id": self.team_id}, partial=True)
         serializer.is_valid(raise_exception=True)
-        result = tasks_facade.update_channel(pk, self.team_id, self._user_id(), **serializer.validated_data)
+        membership_level = self.user_permissions.current_team.effective_membership_level
+        result = tasks_facade.update_channel(
+            pk,
+            self.team_id,
+            self._user_id(),
+            can_manage_shared_auto_archive=(
+                membership_level is not None and membership_level >= OrganizationMembership.Level.ADMIN
+            ),
+            **serializer.validated_data,
+        )
         if result == "not_found":
             raise NotFound()
         if result == "personal":
             raise PermissionDenied("Personal channels cannot be renamed")
         if result == "general":
             raise PermissionDenied("The general space can't be renamed")
+        if result == "auto_archive_forbidden":
+            raise PermissionDenied("Only project admins can change automatic archiving for shared spaces")
         if result == "invalid_name":
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         if result == "name_taken":

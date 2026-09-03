@@ -77,6 +77,7 @@ import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useCo
 import { useSessionForTask } from "@posthog/ui/features/sessions/useSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
+import { Spin } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import {
@@ -924,10 +925,9 @@ export function FreeformCanvasView({
               {interactive &&
                 (isGenerating && effectiveTaskId ? (
                   <>
-                    <SpinnerGapIcon
-                      size={14}
-                      className="animate-spin text-accent-9"
-                    />
+                    <Spin className="text-accent-9">
+                      <SpinnerGapIcon size={14} />
+                    </Spin>
                     <Text size="1" className="text-gray-10">
                       Generating
                     </Text>
@@ -1293,7 +1293,9 @@ function LoadingState() {
     <Empty className="h-full">
       <EmptyHeader>
         <EmptyMedia variant="icon">
-          <SpinnerGapIcon size={18} className="animate-spin text-accent-9" />
+          <Spin className="text-accent-9">
+            <SpinnerGapIcon size={18} />
+          </Spin>
         </EmptyMedia>
         <EmptyTitle>Loading canvas</EmptyTitle>
       </EmptyHeader>
@@ -1314,7 +1316,9 @@ function GeneratingState({
     <Empty className="h-full border-0">
       <EmptyHeader>
         <EmptyMedia variant="icon">
-          <SpinnerGapIcon size={18} className="animate-spin text-accent-9" />
+          <Spin className="text-accent-9">
+            <SpinnerGapIcon size={18} />
+          </Spin>
         </EmptyMedia>
         <EmptyTitle>Generating</EmptyTitle>
         <EmptyDescription>An agent is building this canvas.</EmptyDescription>
