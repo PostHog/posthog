@@ -259,5 +259,73 @@ describe('experimentActivityDescriber', () => {
             )
             expect(textOf(result)).not.toContain('updated parameters')
         })
+
+        it.each([
+            {
+                name: 'recomputed outputs drifted',
+                action: 'changed' as const,
+                before: { recommended_sample_size: 5442, recommended_running_time: 10 },
+                after: { recommended_sample_size: 21781, recommended_running_time: 127 },
+            },
+            {
+                name: 'first save only stored recomputed outputs',
+                action: 'created' as const,
+                before: null,
+                after: { recommended_sample_size: 7307, recommended_running_time: 13 },
+            },
+        ])('drops the row when no calculator input was edited: $name', ({ action, before, after }) => {
+            const result = experimentActivityDescriber(
+                baseLogItem({
+                    activity: 'updated',
+                    detail: {
+                        name: 'Checkout funnel',
+                        changes: [
+                            {
+                                type: ActivityScope.EXPERIMENT,
+                                action,
+                                field: 'running_time_calculation',
+                                before,
+                                after,
+                            },
+                        ],
+                        merge: null,
+                        trigger: null,
+                    },
+                })
+            )
+            expect(result.description).toBeNull()
+        })
+
+        it('keeps the row when output drift accompanies a real change', () => {
+            const result = experimentActivityDescriber(
+                baseLogItem({
+                    activity: 'updated',
+                    detail: {
+                        name: 'Checkout funnel',
+                        changes: [
+                            {
+                                type: ActivityScope.EXPERIMENT,
+                                action: 'created',
+                                field: 'start_date',
+                                before: null,
+                                after: '2026-06-18T14:25:34Z',
+                            },
+                            {
+                                type: ActivityScope.EXPERIMENT,
+                                action: 'changed',
+                                field: 'running_time_calculation',
+                                before: { recommended_sample_size: 5442 },
+                                after: { recommended_sample_size: 21781 },
+                            },
+                        ],
+                        merge: null,
+                        trigger: null,
+                    },
+                })
+            )
+            const text = textOf(result)
+            expect(text).toContain('launched experiment')
+            expect(text).not.toContain('running time calculation')
+        })
     })
 })

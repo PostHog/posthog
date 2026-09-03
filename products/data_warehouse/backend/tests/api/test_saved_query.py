@@ -166,13 +166,7 @@ class TestSavedQuery(APIBaseTest):
         saved_query_id = response.data["id"]
         assert saved_query_id is not None
 
-        with (
-            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"),
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
-                return_value=False,
-            ),
-        ):
+        with patch.object(DataWarehouseSavedQuery, "schedule_materialization"):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
             )
@@ -201,50 +195,17 @@ class TestSavedQuery(APIBaseTest):
         saved_query_id = response.data["id"]
         assert saved_query_id is not None
 
-        with (
-            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"),
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
-                return_value=False,
-            ),
-        ):
-            # First call to materialize
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
-            )
+        with patch.object(DataWarehouseSavedQuery, "schedule_materialization"):
+            for _ in range(2):
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
+                )
 
-            assert response.status_code == 200
+                assert response.status_code == 200
 
-            saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
-            assert saved_query.is_materialized is True
-            assert saved_query.sync_frequency_interval == timedelta(hours=24)
-
-        with (
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"
-            ) as mock_sync,
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
-                return_value=True,
-            ),
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.unpause_saved_query_schedule"
-            ) as mock_unpause,
-        ):
-            # Second call to materialize - should be idempotent
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
-            )
-
-            assert response.status_code == 200
-
-            saved_query.refresh_from_db()
-            assert saved_query.is_materialized is True
-            assert saved_query.sync_frequency_interval == timedelta(hours=24)
-            # Schedule already exists, so should not unpause (unpause=False on second call)
-            mock_unpause.assert_not_called()
-            # But should still update the schedule
-            mock_sync.assert_called_once()
+        saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+        assert saved_query.is_materialized is True
+        assert saved_query.sync_frequency_interval == timedelta(hours=24)
 
     def test_materialize_leaves_nothing_persisted_when_the_frequency_is_rejected(self):
         response = self.client.post(
@@ -292,13 +253,7 @@ class TestSavedQuery(APIBaseTest):
         assert response.status_code == 201
         saved_query_id = response.data["id"]
 
-        with (
-            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"),
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
-                return_value=False,
-            ),
-        ):
+        with patch.object(DataWarehouseSavedQuery, "schedule_materialization"):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
                 {"sync_frequency": "1hour"},
@@ -705,65 +660,6 @@ class TestSavedQuery(APIBaseTest):
 
         assert response.status_code == 404
 
-    def test_update_sync_frequency_with_existing_schedule(self):
-        """Test that updating sync_frequency via PATCH only sets the interval"""
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": "select event as event from events LIMIT 100",
-                },
-            },
-        )
-        self.assertEqual(response.status_code, 201)
-        saved_query = response.json()
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
-            {"sync_frequency": "24hour"},
-        )
-
-        self.assertEqual(response.status_code, 200)
-
-        # Verify the interval was set
-        updated_query = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
-        self.assertEqual(updated_query.sync_frequency_interval, timedelta(hours=24))
-
-    def test_update_sync_frequency_to_never(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": "select event as event from events LIMIT 100",
-                },
-            },
-        )
-        self.assertEqual(response.status_code, 201)
-        saved_query = response.json()
-
-        with (
-            patch(
-                "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists",
-                return_value=True,
-            ) as mock_workflow_exists,
-            patch(
-                "products.data_warehouse.backend.presentation.views.saved_query.pause_saved_query_schedule"
-            ) as mock_pause_saved_query_schedule,
-        ):
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
-                {"sync_frequency": "never"},
-            )
-            self.assertEqual(response.status_code, 200)
-            saved_query_id = response.json()["id"]
-            saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
-            mock_workflow_exists.assert_called_once_with(saved_query)
-            mock_pause_saved_query_schedule.assert_called_once_with(saved_query)
-
     def _create_saved_query_for_frequency_tests(self, name: str = "event_view") -> dict:
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -778,17 +674,16 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 201)
         return response.json()
 
-    def _v2_flag_only(self, key, *args, **kwargs):
-        return key == "data-modeling-backend-v2"
-
     @parameterized.expand(
         [
-            ("24hour", timedelta(hours=24)),
-            ("never", None),
+            ("24hour", "24hour", timedelta(hours=24)),
+            ("never", None, None),
+            # Sub-15min cadences are deprecated for saved queries and clamped up to the "15min" floor.
+            ("5min", "15min", timedelta(minutes=15)),
         ]
     )
     def test_update_sync_frequency_on_tiered_v2_writes_target_through(
-        self, sync_frequency: str, expected_target: timedelta | None
+        self, sync_frequency: str, expected_frequency: str | None, expected_target: timedelta | None
     ):
         from products.data_modeling.backend.facade.api import get_declared_target, set_declared_target
         from products.data_modeling.backend.facade.models import Node
@@ -799,10 +694,6 @@ class TestSavedQuery(APIBaseTest):
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
 
         with (
-            patch(
-                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
-                side_effect=self._v2_flag_only,
-            ),
             patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
             patch(f"{reconcile_module}.maybe_reconcile_dag") as reconcile,
             patch(
@@ -817,7 +708,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.json())
         # the write response must echo the cadence it just stored: an agent that reads back null
         # concludes the update failed and retries it
-        self.assertEqual(response.json()["sync_frequency"], None if expected_target is None else sync_frequency)
+        self.assertEqual(response.json()["sync_frequency"], expected_frequency)
         # the node target is the only store of frequency intent; the interval stays NULL
         updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
         self.assertIsNone(updated.sync_frequency_interval)
@@ -848,10 +739,6 @@ class TestSavedQuery(APIBaseTest):
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
 
         with (
-            patch(
-                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
-                side_effect=self._v2_flag_only,
-            ),
             patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
             patch(f"{reconcile_module}.maybe_reconcile_dag"),
         ):
@@ -876,10 +763,6 @@ class TestSavedQuery(APIBaseTest):
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
 
         with (
-            patch(
-                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
-                side_effect=self._v2_flag_only,
-            ),
             patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
             patch(f"{reconcile_module}.maybe_reconcile_dag"),
             patch("products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists"),
@@ -901,10 +784,6 @@ class TestSavedQuery(APIBaseTest):
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
 
         with (
-            patch(
-                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
-                side_effect=self._v2_flag_only,
-            ),
             patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
             patch(
                 f"{reconcile_module}.apply_saved_query_frequency_target",
@@ -925,10 +804,6 @@ class TestSavedQuery(APIBaseTest):
         saved_query = self._create_saved_query_for_frequency_tests()
 
         with (
-            patch(
-                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
-                side_effect=self._v2_flag_only,
-            ),
             patch(
                 "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
                 return_value=False,
@@ -1004,23 +879,16 @@ class TestSavedQuery(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("v1", False, False, False),
-            ("v2_single_schedule", True, False, True),
-            ("v2_tiered", True, True, False),
+            ("single_schedule", False, True),
+            ("tiered", True, False),
         ]
     )
-    def test_sync_frequency_managed_by_dag_tracks_the_write_path(
-        self, _name: str, v2_enabled: bool, tiered: bool, expected: bool
-    ):
+    def test_sync_frequency_managed_by_dag_tracks_the_write_path(self, _name: str, tiered: bool, expected: bool):
         # The frontend hides the cadence control on this flag. It must mean exactly what the
         # write path rejects, or the control disappears from teams that can in fact edit.
         saved_query = self._create_saved_query_for_frequency_tests()
 
         with (
-            patch(
-                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
-                side_effect=lambda key, *args, **kwargs: v2_enabled and key == "data-modeling-backend-v2",
-            ),
             patch(
                 "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
                 return_value=tiered,
@@ -1059,16 +927,10 @@ class TestSavedQuery(APIBaseTest):
         set_declared_target(Node.objects.get(saved_query_id=consumer.json()["id"]), consumer_target)
         return upstream
 
-    def _read_frequency_bounds(self, saved_query_id: str, *, tiered: bool = True, v2: bool = True) -> dict:
-        with (
-            patch(
-                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
-                side_effect=lambda key, *args, **kwargs: v2 and key == "data-modeling-backend-v2",
-            ),
-            patch(
-                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-                return_value=tiered,
-            ),
+    def _read_frequency_bounds(self, saved_query_id: str, *, tiered: bool = True) -> dict:
+        with patch(
+            "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+            return_value=tiered,
         ):
             response = self.client.get(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
@@ -1078,20 +940,19 @@ class TestSavedQuery(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("v1_team", False, False, "legacy"),
-            ("v2_single_schedule", True, False, "dag_schedule"),
-            ("v2_tiered", True, True, "tiered"),
+            ("single_schedule", False, "dag_schedule"),
+            ("tiered", True, "tiered"),
         ]
     )
     def test_bounds_are_offered_only_where_a_per_view_cadence_is_writable(
-        self, _name: str, v2: bool, tiered: bool, expected_mode: str
+        self, _name: str, tiered: bool, expected_mode: str
     ):
         # The picker renders from this payload. Offering options to a team whose writes the DAG
         # owns puts a control on screen that can only 400, which is the bug this field exists
         # to close; serving none to a tiered team hides a control that does work.
         saved_query = self._create_saved_query_for_frequency_tests()
 
-        bounds = self._read_frequency_bounds(saved_query["id"], tiered=tiered, v2=v2)
+        bounds = self._read_frequency_bounds(saved_query["id"], tiered=tiered)
 
         self.assertEqual(bounds["frequency_mode"], expected_mode)
         self.assertEqual(bool(bounds["options"]), expected_mode == "tiered")
@@ -1106,10 +967,6 @@ class TestSavedQuery(APIBaseTest):
 
         for option in options:
             with (
-                patch(
-                    "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
-                    side_effect=self._v2_flag_only,
-                ),
                 patch(
                     "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
                     return_value=True,
@@ -1142,10 +999,6 @@ class TestSavedQuery(APIBaseTest):
         upstream = self._create_view_with_a_consumer(consumer_target=timedelta(hours=6))
 
         with (
-            patch(
-                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
-                side_effect=self._v2_flag_only,
-            ),
             patch(
                 "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
                 return_value=True,
@@ -1182,30 +1035,6 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 201)
         return response.json()
-
-    @parameterized.expand(
-        [
-            ("15min", "15min", timedelta(minutes=15)),
-            ("6hour", "6hour", timedelta(hours=6)),
-            ("1hour", "1hour", timedelta(hours=1)),
-            ("30day", "30day", timedelta(days=30)),
-            # Sub-15min cadences are deprecated for saved queries and clamped up to the "15min" floor.
-            ("5min", "15min", timedelta(minutes=15)),
-            ("1min", "15min", timedelta(minutes=15)),
-        ]
-    )
-    def test_update_sync_frequency_round_trip(self, sent: str, expected_value: str, expected_interval: timedelta):
-        saved_query = self._create_saved_query()
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
-            {"sync_frequency": sent},
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(response.json()["sync_frequency"], expected_value)
-
-        updated_query = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
-        self.assertEqual(updated_query.sync_frequency_interval, expected_interval)
 
     def test_update_sync_frequency_rejects_invalid_value(self):
         saved_query = self._create_saved_query()
@@ -2266,13 +2095,7 @@ class TestSavedQuery(APIBaseTest):
             created_by=self.user,
         )
 
-        with (
-            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"),
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
-                return_value=False,
-            ),
-        ):
+        with patch.object(DataWarehouseSavedQuery, "schedule_materialization"):
             for action in ("materialize", "revert_materialization"):
                 # First 5 requests should succeed (rate is 5/hour)
                 for i in range(5):
@@ -2317,12 +2140,7 @@ class TestMaterializeRequestBody(SimpleTestCase):
         assert "sync_frequency" in serializer.errors
 
 
-class TestSavedQueryRunV2Aware(APIBaseTest):
-    """The run action branches on the saved query's schedule version: materialize the backing node
-    via the v2 workflow when its DAG is on a v2 schedule, otherwise trigger the v1 per-query
-    schedule (which only exists for v1 saved queries).
-    """
-
+class TestSavedQueryRun(APIBaseTest):
     def _make_saved_query_with_node(self, name: str) -> tuple[DataWarehouseSavedQuery, DAG, Node]:
         dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -2338,14 +2156,9 @@ class TestSavedQueryRunV2Aware(APIBaseTest):
         )
         return saved_query, dag, node
 
-    @patch("products.data_warehouse.backend.presentation.views.saved_query.trigger_saved_query_schedule")
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    @patch("products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids")
-    def test_run_on_v2_schedule_materializes_node_without_v1_trigger(
-        self, mock_v2_dags, mock_sync_connect, mock_trigger
-    ):
-        saved_query, dag, _node = self._make_saved_query_with_node("v2_view")
-        mock_v2_dags.return_value = {str(dag.id)}
+    def test_run_materializes_node(self, mock_sync_connect):
+        saved_query, _dag, _node = self._make_saved_query_with_node("v2_view")
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
 
@@ -2354,22 +2167,14 @@ class TestSavedQueryRunV2Aware(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200, response.content)
-        mock_trigger.assert_not_called()
         mock_client.start_workflow.assert_called_once()
         self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
 
-    @patch("products.data_warehouse.backend.presentation.views.saved_query.trigger_saved_query_schedule")
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    @patch("products.data_modeling.backend.logic.node_materialization.get_v2_saved_query_ids")
-    def test_run_on_v2_without_backing_node_does_not_fall_back_to_v1(
-        self, mock_v2_ids, mock_sync_connect, mock_trigger
-    ):
-        # v2 is confirmed but no backing node exists: nothing is materialized, and it must not fall
-        # back to the v1 schedule trigger, which a v2 saved query has no schedule for.
+    def test_run_without_backing_node_reports_the_failure(self, mock_sync_connect):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="orphan_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
         )
-        mock_v2_ids.return_value = {saved_query.id}
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
 
@@ -2377,8 +2182,7 @@ class TestSavedQueryRunV2Aware(APIBaseTest):
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
         )
 
-        self.assertEqual(response.status_code, 200, response.content)
-        mock_trigger.assert_not_called()
+        self.assertEqual(response.status_code, 400, response.content)
         mock_client.start_workflow.assert_not_called()
 
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
@@ -2399,19 +2203,6 @@ class TestSavedQueryRunV2Aware(APIBaseTest):
         self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
         saved_query.refresh_from_db()
         self.assertTrue(saved_query.is_materialized)
-
-    @patch("products.data_warehouse.backend.presentation.views.saved_query.trigger_saved_query_schedule")
-    @patch("products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids")
-    def test_run_on_v1_triggers_saved_query_schedule(self, mock_v2_dags, mock_trigger):
-        saved_query, _dag, _node = self._make_saved_query_with_node("v1_view")
-        mock_v2_dags.return_value = set()
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
-        )
-
-        self.assertEqual(response.status_code, 200, response.content)
-        mock_trigger.assert_called_once()
 
     @parameterized.expand(
         [

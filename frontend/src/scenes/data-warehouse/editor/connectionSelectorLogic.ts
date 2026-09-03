@@ -12,6 +12,7 @@ import IconMySQL from 'public/services/mysql.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconRedshift from 'public/services/redshift.png'
 import IconSnowflake from 'public/services/snowflake.png'
+import IconTrino from 'public/services/trino.svg'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import {
@@ -47,7 +48,15 @@ export interface ConnectionSelectOptionGroup {
     options: ConnectionSelectOption[]
 }
 
-type ConnectionEngine = 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | 'clickhouse' | 'motherduck'
+type ConnectionEngine =
+    | 'duckdb'
+    | 'postgres'
+    | 'mysql'
+    | 'snowflake'
+    | 'redshift'
+    | 'clickhouse'
+    | 'motherduck'
+    | 'trino'
 
 const ENGINE_LABELS: Record<ConnectionEngine, string> = {
     duckdb: 'DuckDB',
@@ -57,6 +66,7 @@ const ENGINE_LABELS: Record<ConnectionEngine, string> = {
     redshift: 'Redshift',
     clickhouse: 'ClickHouse',
     motherduck: 'MotherDuck',
+    trino: 'Trino',
 }
 
 const ENGINE_ICONS: Record<ConnectionEngine, string> = {
@@ -67,6 +77,7 @@ const ENGINE_ICONS: Record<ConnectionEngine, string> = {
     redshift: IconRedshift,
     clickhouse: IconClickHouse,
     motherduck: IconMotherDuck,
+    trino: IconTrino,
 }
 
 function getConnectionEngine(
@@ -78,7 +89,8 @@ function getConnectionEngine(
         source.engine === 'snowflake' ||
         source.engine === 'redshift' ||
         source.engine === 'clickhouse' ||
-        source.engine === 'motherduck'
+        source.engine === 'motherduck' ||
+        source.engine === 'trino'
     ) {
         return source.engine
     }

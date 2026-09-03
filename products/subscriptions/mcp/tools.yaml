@@ -38,6 +38,11 @@ tools:
             `target_value`). A Teams webhook URL is only ever read back as its host. Creating a Teams subscription
             requires the full webhook URL in `target_value`.
 
+            Set `start_date` to an ISO 8601 datetime. Its date anchors the recurrence and may be in the past. Deliveries
+            run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but
+            delivery happens during the next cycle instead of at that exact minute. For example, use a value ending in
+            `T16:30:00Z` for the 16:30 delivery cycle.
+
             The kind is fixed at create time — a PATCH that would change the populated relation to a different kind is
             rejected.
 

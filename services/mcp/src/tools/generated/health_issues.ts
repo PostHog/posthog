@@ -2,16 +2,19 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import { HealthIssuesListQueryParams, HealthIssuesRetrieveParams } from '@/generated/health_issues/api'
+import * as orvalSchemas from '@/generated/health_issues/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const HealthIssuesGetSchema = HealthIssuesRetrieveParams.omit({ project_id: true })
+const HealthIssuesGetSchema = () => {
+    const HealthIssuesRetrieveParams = orvalSchemas.HealthIssuesRetrieveParams()
+    return HealthIssuesRetrieveParams.omit({ project_id: true })
+}
 
-const healthIssuesGet = (): ToolBase<typeof HealthIssuesGetSchema, Schemas.HealthIssueDetail> => ({
+const healthIssuesGet = (): ToolBase<ReturnType<typeof HealthIssuesGetSchema>, Schemas.HealthIssueDetail> => ({
     name: 'health-issues-get',
-    schema: HealthIssuesGetSchema,
-    handler: async (context: Context, params: z.infer<typeof HealthIssuesGetSchema>) => {
+    schema: HealthIssuesGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof HealthIssuesGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HealthIssueDetail>({
             method: 'GET',
@@ -21,15 +24,18 @@ const healthIssuesGet = (): ToolBase<typeof HealthIssuesGetSchema, Schemas.Healt
     },
 })
 
-const HealthIssuesListSchema = HealthIssuesListQueryParams
+const HealthIssuesListSchema = () => {
+    const HealthIssuesListQueryParams = orvalSchemas.HealthIssuesListQueryParams()
+    return HealthIssuesListQueryParams
+}
 
 const healthIssuesList = (): ToolBase<
-    typeof HealthIssuesListSchema,
+    ReturnType<typeof HealthIssuesListSchema>,
     WithPostHogUrl<Schemas.PaginatedHealthIssueList>
 > => ({
     name: 'health-issues-list',
-    schema: HealthIssuesListSchema,
-    handler: async (context: Context, params: z.infer<typeof HealthIssuesListSchema>) => {
+    schema: HealthIssuesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof HealthIssuesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedHealthIssueList>({
             method: 'GET',
@@ -47,13 +53,12 @@ const healthIssuesList = (): ToolBase<
     },
 })
 
-const HealthIssuesSummarySchema = z.object({})
+const HealthIssuesSummarySchema = () => z.object({})
 
-const healthIssuesSummary = (): ToolBase<typeof HealthIssuesSummarySchema, Schemas.HealthIssueSummary> => ({
+const healthIssuesSummary = (): ToolBase<ReturnType<typeof HealthIssuesSummarySchema>, Schemas.HealthIssueSummary> => ({
     name: 'health-issues-summary',
-    schema: HealthIssuesSummarySchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof HealthIssuesSummarySchema>) => {
+    schema: HealthIssuesSummarySchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof HealthIssuesSummarySchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HealthIssueSummary>({
             method: 'GET',
