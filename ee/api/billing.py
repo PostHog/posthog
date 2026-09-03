@@ -3,7 +3,7 @@ import re
 import csv
 import json
 import zlib
-from collections.abc import AsyncIterator, Callable, Iterator, Sequence
+from collections.abc import AsyncGenerator, Callable, Iterator, Sequence
 from typing import Any, NoReturn, Optional, cast
 from zoneinfo import ZoneInfo
 
@@ -521,7 +521,7 @@ def _gzip_stream(chunks: Iterator[bytes]) -> Iterator[bytes]:
     yield compressor.flush()
 
 
-async def _stream_chunks(upstream: requests.Response, chunks: Iterator[bytes]) -> AsyncIterator[bytes]:
+async def _stream_chunks(upstream: requests.Response, chunks: Iterator[bytes]) -> AsyncGenerator[bytes]:
     """Hand the file to the ASGI server one chunk at a time.
 
     Django 5 consumes a synchronous iterator in full before an ASGI server sends anything -
