@@ -1,7 +1,12 @@
 import { DashboardPlacement } from '~/types'
 
 import { buildDashboardAgentContext, dashboardAgentContextForPlacement } from './dashboardAgentContext'
-import { ALERT_MCP_TOOLS, MANAGING_SUBSCRIPTIONS_SKILL, SUBSCRIPTION_MCP_TOOLS } from './generated/agentContext'
+import {
+    ALERT_MCP_TOOLS,
+    BUILDING_A_DASHBOARD_SKILL,
+    MANAGING_SUBSCRIPTIONS_SKILL,
+    SUBSCRIPTION_MCP_TOOLS,
+} from './generated/agentContext'
 
 describe('dashboardAgentContext', () => {
     it('attaches the current dashboard, both skills, and the tool catalog', () => {
@@ -115,6 +120,71 @@ describe('dashboardAgentContext', () => {
                 ),
             })
         )
+    })
+
+    it('embeds contract-accurate subscription create examples', () => {
+        const createWorkflow = MANAGING_SUBSCRIPTIONS_SKILL.content
+            .split('#### Step 5: Create with `subscriptions-create`')[1]
+            .split('### Updating a subscription')[0]
+        const createPayloads = [...createWorkflow.matchAll(/```json\n([\s\S]*?)\n```/g)].map((match) =>
+            JSON.parse(match[1])
+        )
+
+        expect(createPayloads).toHaveLength(5)
+        expect(new Set(createPayloads.map((payload) => payload.target_type))).toEqual(
+            new Set(['email', 'slack', 'teams'])
+        )
+        expect(createPayloads).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    target_type: 'teams',
+                    target_value: 'https://example.webhook.office.com/webhookb2/example-token',
+                }),
+            ])
+        )
+        expect(
+            createPayloads.every(
+                (payload) =>
+                    payload.target_type &&
+                    payload.target_value &&
+                    payload.frequency &&
+                    payload.interval === 1 &&
+                    payload.start_date
+            )
+        ).toBe(true)
+    })
+
+    it('embeds contract-accurate subscription destination, update, and deletion guidance', () => {
+        const { content, description } = MANAGING_SUBSCRIPTIONS_SKILL
+        const normalizedContent = content.replace(/\s+/g, ' ')
+        const deletionHeading = content.includes('### Deleting a subscription')
+            ? '### Deleting a subscription'
+            : '### Deactivating a subscription'
+        const updateWorkflow = content.split('### Updating a subscription')[1].split(deletionHeading)[0]
+        const updatePayloads = [...updateWorkflow.matchAll(/`(\{[^`]+\})`/g)].map((match) => JSON.parse(match[1]))
+        const deleteWorkflow = content.split(deletionHeading)[1].split('## Defaults')[0]
+
+        expect(description).toContain('email, Slack, or Microsoft Teams deliveries')
+        expect(description).not.toContain('email, Slack, or webhook deliveries')
+        expect(content).toContain('`target_type` as `email`, `slack`, or `teams`')
+        expect(content).not.toContain('`target_type` as `email`, `slack`, or `webhook`')
+        expect(content).toContain('Responses expose only the webhook host')
+        expect(content).toContain('`send_test_now` defaults to `true` on create')
+        expect(normalizedContent).toContain('It is not available on `subscriptions-partial-update`')
+        expect(updatePayloads).not.toHaveLength(0)
+        expect(updatePayloads.every((payload) => payload.id === 456)).toBe(true)
+        expect(deleteWorkflow).toContain('Use `subscriptions-delete`')
+        expect(deleteWorkflow).not.toContain('subscriptions-partial-update')
+        expect(deleteWorkflow).not.toContain('"deleted": true')
+    })
+
+    it('embeds bare MCP tool names in the building dashboard skill', () => {
+        expect(BUILDING_A_DASHBOARD_SKILL.content).not.toContain('posthog:')
+        expect(BUILDING_A_DASHBOARD_SKILL.content).toEqual(expect.stringContaining('`dashboard-reorder-tiles`'))
+        expect(BUILDING_A_DASHBOARD_SKILL.content).toEqual(expect.stringContaining('`dashboard-get`'))
+        expect(BUILDING_A_DASHBOARD_SKILL.content).toEqual(expect.stringContaining('`dashboard-create-tile`'))
+        expect(BUILDING_A_DASHBOARD_SKILL.content).toEqual(expect.stringContaining('`dashboard-widget-catalog-list`'))
+        expect(BUILDING_A_DASHBOARD_SKILL.content).toEqual(expect.stringContaining('`dashboard-widgets-batch-add`'))
     })
 
     test.each([
