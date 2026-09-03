@@ -41,7 +41,7 @@ from posthog.models.integration import (
     DatabricksIntegrationError,
     Integration,
 )
-from posthog.security.url_validation import resolve_and_validate_host
+from posthog.security.url_validation import validate_external_host
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
 
@@ -1620,7 +1620,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
             if host is not None:
                 try:
-                    resolve_and_validate_host(host)
+                    validate_external_host(host)
                 except ValueError:
                     raise serializers.ValidationError(INVALID_HOST_MESSAGE)
 

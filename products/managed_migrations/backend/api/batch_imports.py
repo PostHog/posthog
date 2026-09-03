@@ -24,7 +24,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
-from posthog.security.url_validation import resolve_and_validate_url
+from posthog.security.url_validation import validate_external_url
 
 from products.managed_migrations.backend import trial_storage
 from products.managed_migrations.backend.models.batch_imports import (
@@ -123,7 +123,7 @@ class BatchImportSerializer(serializers.ModelSerializer):
         if not value or not value.strip():
             return None
         try:
-            resolve_and_validate_url(value)
+            validate_external_url(value)
         except ValueError:
             raise serializers.ValidationError(f"Invalid endpoint URL: '{value}'")
         return value
