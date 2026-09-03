@@ -115,6 +115,11 @@ export interface BillingTimeSeriesResponseApi {
     next?: string
 }
 
+export interface BillingTeamOptionsResponseApi {
+    /** Project ids that appear in the organization's usage reports. */
+    team_id_options: number[]
+}
+
 /**
  * * `spend` - Spend
  * * `projected_spend` - Projected spend

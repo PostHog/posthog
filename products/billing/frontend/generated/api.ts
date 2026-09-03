@@ -21,6 +21,7 @@ import type {
     BillingPeriodResponseApi,
     BillingSpendExportRetrieveParams,
     BillingSpendRetrieveParams,
+    BillingTeamOptionsResponseApi,
     BillingTimeSeriesResponseApi,
     BillingUsageExportRetrieveParams,
     BillingUsageRetrieveParams,
@@ -387,8 +388,10 @@ export const getBillingUsageTeamOptionsRetrieveUrl = () => {
  * Scoped the way the charts are: a member without billing access sees only the projects
  * they can see.
  */
-export const billingUsageTeamOptionsRetrieve = async (options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getBillingUsageTeamOptionsRetrieveUrl(), {
+export const billingUsageTeamOptionsRetrieve = async (
+    options?: RequestInit
+): Promise<BillingTeamOptionsResponseApi> => {
+    return apiMutator<BillingTeamOptionsResponseApi>(getBillingUsageTeamOptionsRetrieveUrl(), {
         ...options,
         method: 'GET',
     })
