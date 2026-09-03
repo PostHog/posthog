@@ -31,6 +31,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterGroupValueMap,
 } from 'lib/components/TaxonomicFilter/types'
+import { NonCapturedKind } from 'lib/components/TaxonomicFilter/utils/nonCapturedOption'
 import { dayjs } from 'lib/dayjs'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -381,7 +382,7 @@ interface InfiniteListRowProps {
     expandedCount: number
     isExpandable: boolean
     isLoading: boolean
-    showNonCapturedEventOption: boolean
+    nonCapturedKind: NonCapturedKind | null
     trimmedSearchQuery: string
     dataWarehousePopoverFields: DataWarehousePopoverField[] | undefined
     popupAnchorElement: HTMLDivElement | null
@@ -448,7 +449,7 @@ export const InfiniteListRow = ({
     expandedCount,
     isExpandable,
     isLoading,
-    showNonCapturedEventOption,
+    nonCapturedKind,
     trimmedSearchQuery,
     dataWarehousePopoverFields,
     popupAnchorElement,
@@ -509,8 +510,8 @@ export const InfiniteListRow = ({
 
     const isActive = itemValue ? !!selectedProperties[listGroupType]?.includes(itemValue) : false
 
-    if (showNonCapturedEventOption && rowIndex === 0) {
-        const selectNonCapturedEvent = (): void => {
+    if (nonCapturedKind && rowIndex === 0) {
+        const selectNonCaptured = (): void => {
             if (!itemGroup) {
                 return
             }
@@ -533,16 +534,18 @@ export const InfiniteListRow = ({
                 outlined={false}
                 onKeyDown={(e) => {
                     if (e.key === 'Enter') {
-                        selectNonCapturedEvent()
+                        selectNonCaptured()
                     }
                 }}
-                onClick={selectNonCapturedEvent}
+                onClick={selectNonCaptured}
                 onMouseEnter={() => mouseInteractionsEnabled && setIndex(rowIndex)}
                 icon={<IconPlus className="text-muted size-4" />}
                 data-attr="prop-filter-event-option-custom"
             >
                 <div className="flex items-center gap-2">
-                    <span className="text-muted">Select event:</span>
+                    <span className="text-muted">
+                        {nonCapturedKind === 'event' ? 'Select event:' : 'Select property:'}
+                    </span>
                     <span className="font-medium">{trimmedSearchQuery}</span>
                     <LemonTag type="caution" size="small">
                         Not seen yet
@@ -870,7 +873,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         totalListCount,
         expandedCount,
         showPopover,
-        showNonCapturedEventOption,
+        nonCapturedKind,
         showEmptyState,
         showErrorState,
         showLoadingState,
@@ -942,7 +945,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                                     expandedCount,
                                     isExpandable,
                                     isLoading,
-                                    showNonCapturedEventOption,
+                                    nonCapturedKind,
                                     trimmedSearchQuery,
                                     dataWarehousePopoverFields,
                                     popupAnchorElement,

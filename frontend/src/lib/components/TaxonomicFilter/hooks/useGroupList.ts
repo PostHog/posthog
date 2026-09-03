@@ -35,6 +35,7 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { floatRecentAndPinnedToTop, groupItemKey } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
+import { NonCapturedKind, nonCapturedKindForGroup } from 'lib/components/TaxonomicFilter/utils/nonCapturedOption'
 import { createFuse } from 'lib/utils/fuseSearch'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -72,6 +73,8 @@ export interface UseGroupListInput {
     limit?: number
     /** Allow selecting events that haven't been captured yet. */
     allowNonCapturedEvents?: boolean
+    /** Allow selecting event, person and group properties that haven't been captured yet. */
+    allowNonCapturedProperties?: boolean
     /** Surface keyword shortcuts as QuickFilterItems alongside real results. */
     enableKeywordShortcuts?: boolean
     /** When true, disable the auto-select of first item on results refresh. */
@@ -107,7 +110,8 @@ export interface UseGroupListResult {
     hasRemoteDataSource: boolean
     showEmptyState: boolean
     showLoadingState: boolean
-    showNonCapturedEventOption: boolean
+    /** The kind of "not seen yet" row to offer as the first row, or null for none. */
+    nonCapturedKind: NonCapturedKind | null
 
     isExpandable: boolean
     isExpanded: boolean
@@ -130,6 +134,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         minSearchQueryLength: minSearchOverride,
         limit = DEFAULT_LIMIT,
         allowNonCapturedEvents = false,
+        allowNonCapturedProperties = false,
         enableKeywordShortcuts = false,
         autoSelectItem = true,
         selectFirstItem = true,
@@ -428,30 +433,38 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     const isLoading = remote.isLoading || (serverSearchEnabled && serverSearch.isLoading)
     const isFetching = remote.isFetching || (serverSearchEnabled && serverSearch.isFetching)
 
-    const showNonCapturedEventOption = useMemo(() => {
-        if (!allowNonCapturedEvents) {
-            return false
-        }
-        if (group.type !== TaxonomicFilterGroupType.Events && group.type !== TaxonomicFilterGroupType.CustomEvents) {
-            return false
+    const nonCapturedKind = useMemo(() => {
+        const kind = nonCapturedKindForGroup(group.type, allowNonCapturedEvents, allowNonCapturedProperties)
+        if (!kind) {
+            return null
         }
         if (!trimmedSearch || isLoading) {
-            return false
+            return null
         }
-        // Offering an excluded name would let it be selected as a non-captured event, committing the
-        // value the exclusion forbids. Mirrors legacy infiniteListLogic's `showNonCapturedEventOption`.
-        if (group.excludedProperties?.includes(trimmedSearch)) {
-            return false
+        // Offering an excluded name would let it be selected as a non-captured key, committing the
+        // value the exclusion forbids. An allowlist is a closed set, so it forbids every other key.
+        // Mirrors legacy infiniteListLogic's `nonCapturedKind`.
+        if (group.excludedProperties?.includes(trimmedSearch) || group.propertyAllowList) {
+            return null
         }
         const realResults = items.filter((item) => !isQuickFilterItem(item))
-        return realResults.length === 0
-    }, [allowNonCapturedEvents, group.type, group.excludedProperties, trimmedSearch, isLoading, items])
+        return realResults.length === 0 ? kind : null
+    }, [
+        allowNonCapturedEvents,
+        allowNonCapturedProperties,
+        group.type,
+        group.excludedProperties,
+        group.propertyAllowList,
+        trimmedSearch,
+        isLoading,
+        items,
+    ])
 
     // Empty / loading state checks read array length, not the API-reported
     // total — a remote tab can have count > 0 while still loading its first
     // page, and we don't want to flash an empty state during that window.
     const showEmptyState =
-        (items.length === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption) ||
+        (items.length === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !nonCapturedKind) ||
         needsMoreSearchCharacters
 
     const showLoadingState = isLoading && items.length === 0
@@ -497,7 +510,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         hasRemoteDataSource,
         showEmptyState,
         showLoadingState,
-        showNonCapturedEventOption,
+        nonCapturedKind,
         isExpandable,
         isExpanded,
         expand,

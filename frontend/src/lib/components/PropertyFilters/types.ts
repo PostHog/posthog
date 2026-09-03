@@ -76,6 +76,8 @@ export interface PropertyFilterInternalProps {
     addFilterDocLink?: string
     endpointFilters?: Record<string, any>
     hogQLGlobals?: Record<string, any>
+    /** Allow users to filter on event, person and group properties that haven't been captured yet (default: false) */
+    allowNonCapturedProperties?: boolean
     /**
      * `'input'` renders the replay-style input-box add-filter trigger; `'button'`
      * (the default) renders a button. Only has an effect on the rebuild menu

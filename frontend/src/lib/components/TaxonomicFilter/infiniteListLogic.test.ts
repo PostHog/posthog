@@ -922,8 +922,8 @@ describe('infiniteListLogic', () => {
         const EXCLUDED_EVENT = '$exception'
 
         it.each([
-            [EXCLUDED_EVENT, false],
-            ['checkout_started', true],
+            [EXCLUDED_EVENT, null],
+            ['checkout_started', 'event'],
         ])('searching %p offers the option: %p', async (query, expected) => {
             const listLogic = infiniteListLogic({
                 taxonomicFilterLogicKey: `excluded-events-${query}`,
@@ -939,7 +939,7 @@ describe('infiniteListLogic', () => {
                 listLogic.actions.setSearchQuery(query)
             })
                 .toFinishAllListeners()
-                .toMatchValues({ showNonCapturedEventOption: expected })
+                .toMatchValues({ nonCapturedKind: expected })
         })
     })
 

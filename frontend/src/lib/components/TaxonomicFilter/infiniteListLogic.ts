@@ -58,6 +58,7 @@ import {
     recentSourceKey,
 } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
 import { floatToFront } from 'lib/components/TaxonomicFilter/utils/floatToFront'
+import { NonCapturedKind, nonCapturedKindForGroup } from 'lib/components/TaxonomicFilter/utils/nonCapturedOption'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
 import {
     filterPinnedForContext,
@@ -269,6 +270,7 @@ export interface infiniteListLogicValues {
     pinnedFilterItems: TaxonomicDefinitionTypes[] // taxonomicFilterPinnedPropertiesLogic
     currentTeamId: number | null // teamLogic
     allowNonCapturedEvents: boolean
+    allowNonCapturedProperties: boolean
     contextFilteredPinnedItems: TaxonomicDefinitionTypes[]
     contextFilteredRecentItems: TaxonomicDefinitionTypes[]
     dedupedTopMatches: (SkeletonItem | TaxonomicDefinitionTypes)[]
@@ -337,7 +339,7 @@ export interface infiniteListLogicValues {
     showEmptyState: boolean
     showErrorState: boolean
     showLoadingState: boolean
-    showNonCapturedEventOption: boolean
+    nonCapturedKind: NonCapturedKind | null
     showPopover: boolean
     showSuggestedFiltersEmptyState: boolean
     soleGroupHasGetValue: boolean
@@ -532,6 +534,7 @@ export interface infiniteListLogicMeta {
             taxonomicGroups: TaxonomicFilterGroup[]
         ) => boolean
         allowNonCapturedEvents: (arg: any) => boolean
+        allowNonCapturedProperties: (arg: any) => boolean
         isLocalDataLoading: (arg: any) => boolean
         isLoading: (remoteItemsLoading: boolean) => boolean
         group: (
@@ -558,14 +561,16 @@ export interface infiniteListLogicMeta {
             searchQuery: string,
             remoteFetchFailed: string | null
         ) => boolean
-        showNonCapturedEventOption: (
+        nonCapturedKind: (
             allowNonCapturedEvents: boolean,
+            allowNonCapturedProperties: boolean,
             listGroupType: TaxonomicFilterGroupType,
             searchQuery: string,
             isLoading: boolean,
             results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
-            excludedProperties: string[] | undefined
-        ) => boolean
+            excludedProperties: string[] | undefined,
+            propertyAllowList: string[] | undefined
+        ) => NonCapturedKind | null
         suggestedFiltersSettling: (
             isSuggestedFilters: boolean,
             anyGroupLoading: boolean,
@@ -584,7 +589,7 @@ export interface infiniteListLogicMeta {
             suggestedFiltersSettling: boolean,
             searchQuery: string,
             hasRemoteDataSource: boolean,
-            showNonCapturedEventOption: boolean,
+            nonCapturedKind: NonCapturedKind | null,
             needsMoreSearchCharacters: boolean,
             remoteResultsAreFresh: boolean,
             showErrorState: boolean
@@ -768,7 +773,7 @@ export interface infiniteListLogicMeta {
             results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
         ) => boolean
         rowCount: (
-            showNonCapturedEventOption: boolean,
+            nonCapturedKind: NonCapturedKind | null,
             results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
             isLoading: boolean,
             totalListCount: number,
@@ -1179,6 +1184,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
         ],
+        allowNonCapturedProperties: [
+            () => [(_, props) => props.allowNonCapturedProperties],
+            (allowNonCapturedProperties: boolean | undefined) => allowNonCapturedProperties ?? false,
+        ],
         isLocalDataLoading: [
             (selectors) => [
                 (state, props: InfiniteListLogicProps) => {
@@ -1262,45 +1271,45 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return isLocalOnly || currentQueryFailed || currentQuerySettled
             },
         ],
-        showNonCapturedEventOption: [
+        nonCapturedKind: [
             (s) => [
                 s.allowNonCapturedEvents,
+                s.allowNonCapturedProperties,
                 s.listGroupType,
                 s.searchQuery,
                 s.isLoading,
                 s.results,
                 s.excludedProperties,
+                s.propertyAllowList,
             ],
             (
                 allowNonCapturedEvents: boolean,
+                allowNonCapturedProperties: boolean,
                 listGroupType: TaxonomicFilterGroupType,
                 searchQuery: string,
                 isLoading: boolean,
                 results: TaxonomicDefinitionTypes[],
-                excludedProperties: string[] | undefined
-            ): boolean => {
-                if (!allowNonCapturedEvents) {
-                    return false
-                }
-                if (
-                    listGroupType !== TaxonomicFilterGroupType.CustomEvents &&
-                    listGroupType !== TaxonomicFilterGroupType.Events
-                ) {
-                    return false
+                excludedProperties: string[] | undefined,
+                propertyAllowList: string[] | undefined
+            ): NonCapturedKind | null => {
+                const kind = nonCapturedKindForGroup(listGroupType, allowNonCapturedEvents, allowNonCapturedProperties)
+                if (!kind) {
+                    return null
                 }
                 const trimmedSearch = searchQuery.trim()
                 if (trimmedSearch.length === 0 || isLoading) {
-                    return false
+                    return null
                 }
-                // Offering an excluded name would let it be selected as a non-captured event,
-                // committing the value the exclusion forbids.
-                if (excludedProperties?.includes(trimmedSearch)) {
-                    return false
+                // Offering an excluded name would let it be selected as a non-captured key,
+                // committing the value the exclusion forbids. An allowlist is a closed set, so it
+                // forbids every other key.
+                if (excludedProperties?.includes(trimmedSearch) || propertyAllowList) {
+                    return null
                 }
-                // Keyword-shortcut QuickFilterItems don't represent captured events — ignore them
+                // Keyword-shortcut QuickFilterItems don't represent captured keys — ignore them
                 // when deciding whether to show the "not seen yet" escape hatch.
                 const realResults = results.filter((item) => !isQuickFilterItem(item))
-                return realResults.length === 0
+                return realResults.length === 0 ? kind : null
             },
         ],
         // True while the aggregated SuggestedFilters ("All") tab is still catching up to the current
@@ -1340,7 +1349,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.suggestedFiltersSettling,
                 s.searchQuery,
                 s.hasRemoteDataSource,
-                s.showNonCapturedEventOption,
+                s.nonCapturedKind,
                 s.needsMoreSearchCharacters,
                 s.remoteResultsAreFresh,
                 s.showErrorState,
@@ -1351,7 +1360,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 suggestedFiltersSettling: boolean,
                 searchQuery: string,
                 hasRemoteDataSource: boolean,
-                showNonCapturedEventOption: boolean,
+                nonCapturedKind: NonCapturedKind | null,
                 needsMoreSearchCharacters: boolean,
                 remoteResultsAreFresh: boolean,
                 showErrorState: boolean
@@ -1366,7 +1375,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     // `suggestedFiltersSettling`).
                     !suggestedFiltersSettling &&
                     (!!searchQuery || !hasRemoteDataSource) &&
-                    !showNonCapturedEventOption) ||
+                    !nonCapturedKind) ||
                 needsMoreSearchCharacters,
         ],
         showLoadingState: [
@@ -2037,21 +2046,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             ): boolean => isSuggestedFilters && !trimmedSearchQuery && results.length > 0,
         ],
         rowCount: [
-            (s) => [
-                s.showNonCapturedEventOption,
-                s.results,
-                s.isLoading,
-                s.totalListCount,
-                s.showSuggestedFiltersEmptyState,
-            ],
+            (s) => [s.nonCapturedKind, s.results, s.isLoading, s.totalListCount, s.showSuggestedFiltersEmptyState],
             (
-                showNonCapturedEventOption: boolean,
+                nonCapturedKind: NonCapturedKind | null,
                 results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
                 isLoading: boolean,
                 totalListCount: number,
                 showSuggestedFiltersEmptyState: boolean
             ): number =>
-                showNonCapturedEventOption
+                nonCapturedKind
                     ? 1
                     : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0) +
                       (showSuggestedFiltersEmptyState ? 1 : 0),

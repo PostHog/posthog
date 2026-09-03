@@ -131,6 +131,25 @@ describe('HogFlowPropertyFilters search', () => {
         expect(screen.getByTestId('prop-filter-workflow_variables-0')).toHaveTextContent('order_id')
     })
 
+    it('builds a filter on an event property the project has never sent', async () => {
+        renderFilters()
+
+        await openTaxonomicFilter()
+        fireEvent.click(screen.getByTestId('taxonomic-tab-event_properties'))
+        search('plan_tier')
+
+        await waitFor(() => {
+            expect(screen.getAllByTestId('prop-filter-event-option-custom').length).toBeGreaterThan(0)
+        })
+        const offeredRow = screen.getAllByTestId('prop-filter-event-option-custom')[0]
+        expect(offeredRow).toHaveTextContent('Select property:')
+        fireEvent.click(offeredRow)
+
+        await waitFor(() => {
+            expect(screen.getByTestId('property-select-toggle-0')).toHaveTextContent('plan_tier')
+        })
+    })
+
     it('shows an empty state in the workflow variables tab when no variables match the search', async () => {
         setWorkflowVariables([ORDER_ID_VARIABLE])
         renderFilters()

@@ -110,6 +110,8 @@ export interface ActionFilterProps {
     excludedProperties?: TaxonomicPopoverProps['excludedProperties']
     /** Allow adding non-captured events */
     allowNonCapturedEvents?: boolean
+    /** Allow filtering on non-captured event, person and group properties */
+    allowNonCapturedProperties?: boolean
     hogQLGlobals?: Record<string, any>
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     operatorAllowlist?: PropertyOperator[]
@@ -152,6 +154,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         addFilterDocLink,
         excludedProperties,
         allowNonCapturedEvents,
+        allowNonCapturedProperties,
         hogQLGlobals,
         definitionPopoverRenderer,
         operatorAllowlist,
@@ -224,6 +227,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         addFilterDocLink,
         excludedProperties,
         allowNonCapturedEvents,
+        allowNonCapturedProperties,
         hogQLGlobals,
         operatorAllowlist,
         inlineEventsDocLink: isTrendsFilter(filters)
