@@ -76,6 +76,16 @@ describe('url-parameters-to-properties.template', () => {
         expect(result.properties.tag).toBe('["a","b"]')
     })
 
+    it('ignores query-like text inside a hash fragment', async () => {
+        mockGlobals = tester.createGlobals({
+            event: { properties: { $current_url: 'https://example.com/#/route?utm_source=fromhash' } },
+        })
+
+        const result = await invoke({ parameters: 'utm_source' }, mockGlobals)
+
+        expect(result.properties.utm_source).toBeUndefined()
+    })
+
     it('leaves the event unchanged when the URL has no query string', async () => {
         mockGlobals = tester.createGlobals({
             event: { properties: { $current_url: 'https://example.com/home' } },
