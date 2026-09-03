@@ -62,6 +62,19 @@ describe('flatten-properties.template', () => {
         expect(properties.$set.__name).toBe('nested under the empty key in $set')
     })
 
+    it('keeps a nested empty object as a flattened leaf', async () => {
+        const properties = await invoke({
+            a: { b: {} },
+            list: { items: [] },
+            $set: { a: { b: {} } },
+        })
+
+        expect(properties.a__b).toEqual({})
+        expect(properties.$set.a__b).toEqual({})
+        // An empty array has no items to enumerate, so it produces no flattened key.
+        expect(properties.list__items).toBeUndefined()
+    })
+
     it('leaves internal deny-listed properties nested', async () => {
         const properties = await invoke({
             $groups: { org: { id: 1 } },

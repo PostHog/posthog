@@ -25,7 +25,9 @@ let sep := inputs.separator
 let denyList := ['$elements', '$elements_chain', '$groups', '$active_feature_flags', '$heatmap_data', '$web_vitals_data']
 
 fun isContainer(v) {
-    return v != null and (typeof(v) == 'object' or typeof(v) == 'array')
+    // An empty object has no leaves, so it stays a leaf itself and a nested one keeps its
+    // flattened key, as in the legacy plugin. An empty array never had such a key.
+    return v != null and (typeof(v) == 'array' or (typeof(v) == 'object' and not empty(v)))
 }
 
 // Write the flattened leaf paths of \`obj\` into \`out\`, joining keys with the separator.
