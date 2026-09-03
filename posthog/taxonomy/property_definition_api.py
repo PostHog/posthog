@@ -19,6 +19,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.constants import GROUP_TYPES_LIMIT
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
@@ -192,7 +193,7 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         return super().validate(attrs)
 
 
-@dataclasses.dataclass
+@frozen
 class QueryContext:
     """
     The raw query is used to both query and count these results
@@ -223,7 +224,7 @@ class QueryContext:
 
     def __post_init__(self):
         # Add limit and offset to params for parameterized query execution
-        self.params = {**self.params, "limit": self.limit, "offset": self.offset}
+        object.__setattr__(self, "params", {**self.params, "limit": self.limit, "offset": self.offset})
 
     def with_properties_to_filter(self, properties_to_filter: Optional[str]) -> Self:
         if properties_to_filter:
