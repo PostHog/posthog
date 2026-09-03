@@ -67,15 +67,7 @@ describe('getSortChangedEvent', () => {
 })
 
 describe('getRecommendedFilterChange', () => {
-    it('uses recency when the recommended filter is enabled', () => {
-        expect(getRecommendedFilterChange(true)).toEqual({
-            recommended_only: true,
-            order: 'start_time',
-            order_direction: 'DESC',
-        })
-    })
-
-    it('keeps the current sort when the recommended filter is disabled', () => {
-        expect(getRecommendedFilterChange(false)).toEqual({ recommended_only: false })
+    it.each([true, false])('only changes the relevance filter when set to %s', (enabled) => {
+        expect(getRecommendedFilterChange(enabled)).toEqual({ recommended_only: enabled })
     })
 })

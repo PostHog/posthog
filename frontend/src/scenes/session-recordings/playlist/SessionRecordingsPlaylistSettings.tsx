@@ -73,9 +73,7 @@ export function getSortChangedEvent(
 }
 
 export function getRecommendedFilterChange(enabled: boolean): Partial<RecordingUniversalFilters> {
-    return enabled
-        ? { recommended_only: true, order: 'start_time', order_direction: 'DESC' }
-        : { recommended_only: false }
+    return { recommended_only: enabled }
 }
 
 function SortedBy({
@@ -216,10 +214,10 @@ function RecommendedOnlyFilter({
     }
 
     return (
-        <Tooltip title="Show recommended recordings, ordered newest first">
+        <Tooltip title="Show recordings with high relevance">
             <span className="inline-flex items-center ml-3">
                 <LemonCheckbox
-                    label="Recommended only"
+                    label="High relevance"
                     checked={!!filters.recommended_only}
                     onChange={(checked) => {
                         posthog.capture('session recording recommended filter changed', { enabled: checked })
