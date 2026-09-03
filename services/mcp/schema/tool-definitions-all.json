@@ -4976,6 +4976,48 @@
             "readOnlyHint": true
         }
     },
+    "feature-flag-archive": {
+        "description": "Archive a feature flag, hiding it from the default flag list. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nSets `archived` to true. An archived flag must be disabled, so an enabled flag is turned off in the same call. Nothing else changes: this tool never accepts or replaces the `filters` object, and linked experiment and survey history is preserved. There is no request body.\n\nWhen the flag is enabled, archiving stops it evaluating everywhere. Tell the user what else this affects: linked experiments, surveys, early access features and session replay settings all appear in the flag's full definition.\n\nReturns 400 when the flag is enabled and other active flags depend on it. Returns 409 when an approval policy gates disabling. Archiving an already-archived flag succeeds and changes nothing, so retrying is safe.\n\nA key lookup that finds nothing does not mean the flag is absent. Archived flags are hidden from `feature-flag-get-definition-by-key` and from `feature-flag-get-all`, so a flag that is already archived looks missing on a retry. Pass `{\"archived\":\"true\"}` to `feature-flag-get-all` before you report the flag as missing.\n\nUse `feature-flag-unarchive` to put the flag back in the list, or `delete-feature-flag` when the user wants it gone rather than tidied away.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Archive feature flag",
+        "title": "Archive feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "feature-flag-disable": {
+        "description": "Turn a feature flag off. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nSets `active` to false and changes nothing else. This tool never accepts or replaces the `filters` object, so targeting, rollout percentages, variants and payloads cannot change. There is no request body.\n\nA disabled flag stops evaluating everywhere, so every caller falls back to its own default. Tell the user what else this affects: linked experiments, surveys, early access features and session replay settings all appear in the flag's full definition. `feature-flag-get-definition-by-key` already returns it, and `feature-flag-get-definition` returns it by ID.\n\nReturns 400 when other active flags depend on this one; `feature-flags-dependent-flags-retrieve` lists them. Returns 409 when an approval policy gates disabling. Disabling an already-disabled flag succeeds and changes nothing, so retrying is safe.\n\nA key lookup that finds nothing does not mean the flag is absent. Archived flags are hidden from `feature-flag-get-definition-by-key` and from `feature-flag-get-all`, and an archived flag is already disabled. Pass `{\"archived\":\"true\"}` to `feature-flag-get-all` before you report the flag as missing.\n\nTo turn the flag off at a future time instead, use `scheduled-changes-create` with the `update_status` operation.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Disable feature flag",
+        "title": "Disable feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "feature-flag-enable": {
+        "description": "Turn a feature flag on. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nSets `active` to true and changes nothing else. This tool never accepts or replaces the `filters` object, so targeting, rollout percentages, variants and payloads cannot change. There is no request body. To change who the flag is served to, use `update-feature-flag`.\n\nReturns 400 when the flag is archived (call `feature-flag-unarchive` first) or when a flag it depends on is disabled. Returns 409 when an approval policy gates enabling. Enabling an already-enabled flag succeeds and changes nothing, so retrying is safe.\n\nA key lookup that finds nothing does not mean the flag is absent. Archived flags are hidden from `feature-flag-get-definition-by-key` and from `feature-flag-get-all`. Pass `{\"archived\":\"true\"}` to `feature-flag-get-all` before you report the flag as missing.\n\nTo turn the flag on at a future time instead, use `scheduled-changes-create` with the `update_status` operation.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Enable feature flag",
+        "title": "Enable feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "feature-flag-get-all": {
         "description": "Get feature flags in the current project. Supports list filters including search by feature flag key or name (case-insensitive), then use the returned ID for get/update/delete tools.",
         "category": "Feature flags",
@@ -5016,6 +5058,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "feature-flag-unarchive": {
+        "description": "Restore an archived feature flag to the default flag list. Requires the flag's numeric ID; pass `{\"archived\":\"true\"}` to `feature-flag-get-all` to find archived flags.\n\nSets `archived` to false and changes nothing else. This tool never accepts or replaces the `filters` object. There is no request body.\n\nThe flag stays turned off. Call `feature-flag-enable` when the user also wants it serving again. Unarchiving a flag that is not archived succeeds and changes nothing, so retrying is safe.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Unarchive feature flag",
+        "title": "Unarchive feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "feature-flags-activity-retrieve": {
@@ -11410,7 +11466,7 @@
         "feature_flag": "tasks"
     },
     "update-feature-flag": {
-        "description": "Update a feature flag by numeric ID (partial update — only the fields you include are changed). Call when the user asks to enable or disable a flag, change its rollout percentage or release conditions, edit variants or payloads, or update its description. Rollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters` replaces the whole object — read the flag first with `feature-flag-get-definition` and merge your change. To apply a change at a future time instead, use `scheduled-changes-create`. Use `feature-flag-get-all` to find the numeric ID from a key.",
+        "description": "Update a feature flag by numeric ID (partial update: only the fields you include are changed). Use this for edits that have no dedicated tool, such as release conditions, rollout percentages, variants, payloads, tags and the description.\n\nPrefer a dedicated tool whenever the request matches one. `feature-flag-enable`, `feature-flag-disable`, `feature-flag-archive` and `feature-flag-unarchive` each change one state field and send no `filters`. A targeting change someone else made between your read and your write is therefore not overwritten. Send `active` or `archived` here only when the same request also changes targeting or another field, so the whole edit lands in one write.\n\nRollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters` replaces the whole object, so read the flag first and merge your change. Use `feature-flag-get-definition-by-key` when you have the string key: it returns the numeric ID and the full definition in one call. Use `feature-flag-get-definition` when you already have the ID. To apply a change at a future time instead, use `scheduled-changes-create`.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Update feature flag",
