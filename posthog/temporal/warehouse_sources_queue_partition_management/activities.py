@@ -45,7 +45,6 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
     dropped: list[str] = []
     errors: list[str] = []
 
-    # Never bind the URL to a local: the SDK captures frame locals into error tracking when connect raises.
     with psycopg.Connection.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
         today = datetime.now(UTC).date()
 

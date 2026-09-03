@@ -524,12 +524,7 @@ async def test_activity_logs_s3_deleted_count(activity_environment) -> None:
     assert completion_calls[0].kwargs["s3_deleted_count"] == 2
 
 
-# Credential hygiene
-
-
 def _connect_refused(*args: Any, **kwargs: Any) -> None:
-    # The SDK snapshots f_locals of every frame in the traceback; drop the call args so this
-    # stand-in's frame does not itself hold the URL the test asserts on.
     del args, kwargs
     raise psycopg.OperationalError("connection refused")
 
@@ -559,6 +554,5 @@ async def test_connect_failure_keeps_database_url_out_of_traceback_locals() -> N
     ):
         await manage_warehouse_sources_queue_partitions()
 
-    # Computed outside the assert so pytest's rewriter does not bind the needle into this frame.
     hits = _frames_holding(exc_info.value.__traceback__, _SECRET)
     assert hits == []
