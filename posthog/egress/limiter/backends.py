@@ -10,9 +10,13 @@ offloads the blocking call via ``asyncio.to_thread`` rather than pulling in ``li
 storage, which requires a separate ``coredis`` client and would bypass our configured client.
 """
 
+from __future__ import annotations
+
 import time
+import uuid
 import asyncio
 import threading
+from typing import TYPE_CHECKING, cast
 
 import structlog
 import redis.exceptions
@@ -20,8 +24,12 @@ from limits import RateLimitItemPerSecond
 from limits.storage import MemoryStorage, RedisStorage
 from limits.strategies import SlidingWindowCounterRateLimiter
 
+from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority, RateLimit, RatePolicy
 from posthog.redis import get_client
+
+if TYPE_CHECKING:
+    from redis.commands.core import Script
 
 logger = structlog.get_logger(__name__)
 
@@ -42,6 +50,94 @@ _KEY_PREFIX = "outbound_rate_limit"
 # the floor that spending it at full speed would exhaust the window and get the caller shed for the
 # rest of it.
 _PACE_HEADROOM_FRACTION = 0.5
+
+# The generation marker follows a counter when Redis shifts its window, so release never decrements
+# a newer request after the original counter has moved or expired.
+_RESERVE_SLIDING_WINDOW = b"""
+local limit = tonumber(ARGV[1])
+local expiry = tonumber(ARGV[2]) * 1000
+local amount = tonumber(ARGV[3])
+local candidate_generation = ARGV[4]
+
+if amount > limit then
+    return false
+end
+
+local current_ttl = tonumber(redis.call('pttl', KEYS[2]))
+if current_ttl > 0 and current_ttl < expiry then
+    redis.call('rename', KEYS[2], KEYS[1])
+    if redis.call('exists', KEYS[4]) == 1 then
+        redis.call('rename', KEYS[4], KEYS[3])
+    else
+        redis.call('del', KEYS[3])
+    end
+    redis.call('set', KEYS[2], 0, 'PX', current_ttl + expiry)
+    redis.call('set', KEYS[4], candidate_generation, 'PX', current_ttl + expiry)
+end
+
+local previous_count = tonumber(redis.call('get', KEYS[1])) or 0
+local previous_ttl = tonumber(redis.call('pttl', KEYS[1])) or 0
+local current_count = tonumber(redis.call('get', KEYS[2])) or 0
+current_ttl = tonumber(redis.call('pttl', KEYS[2])) or 0
+
+if previous_ttl <= 0 then
+    previous_ttl = 0
+end
+if current_ttl <= 0 then
+    current_ttl = 0
+end
+
+local weighted_count = math.floor(previous_count * previous_ttl / expiry) + current_count
+if (weighted_count + amount) > limit then
+    return false
+end
+
+if redis.call('exists', KEYS[2]) == 1 then
+    redis.call('incrby', KEYS[2], amount)
+    if redis.call('exists', KEYS[4]) == 0 then
+        redis.call('set', KEYS[4], candidate_generation, 'PX', current_ttl)
+    end
+else
+    redis.call('set', KEYS[2], amount, 'PX', expiry * 2)
+    redis.call('set', KEYS[4], candidate_generation, 'PX', expiry * 2)
+end
+
+return redis.call('get', KEYS[4])
+"""
+
+_RELEASE_SLIDING_WINDOW = b"""
+local generation = ARGV[1]
+local amount = tonumber(ARGV[2])
+
+for index = 1, 2 do
+    local count_key = KEYS[index]
+    local generation_key = KEYS[index + 2]
+    if redis.call('get', generation_key) == generation then
+        local count = tonumber(redis.call('get', count_key)) or 0
+        if count < amount then
+            return false
+        end
+        redis.call('decrby', count_key, amount)
+        return true
+    end
+end
+
+return false
+"""
+
+
+@frozen
+class RedisWindowReservation:
+    item_key: str
+    generation: str
+    amount: int
+
+
+@frozen
+class LimitsReleaseToken:
+    reservation_id: str
+    windows: tuple[RedisWindowReservation, ...]
+    ttl_seconds: int
 
 
 def _items(limits: tuple[RateLimit, ...]) -> list[RateLimitItemPerSecond]:
@@ -116,11 +212,18 @@ class LimitsBackend:
     def __init__(self) -> None:
         self._redis: SlidingWindowCounterRateLimiter | None = None
         self._memory: SlidingWindowCounterRateLimiter | None = None
+        self._reserve_script: Script | None = None
+        self._release_script: Script | None = None
         self._lock = threading.Lock()
 
     async def acquire(self, key: str, policy: RatePolicy, n: int, priority: Priority) -> bool:
         # Offload the blocking Redis call so the event loop isn't held.
         return await asyncio.to_thread(self.consume_sync, key, policy, n, priority)
+
+    async def reserve(
+        self, key: str, policy: RatePolicy, n: int, priority: Priority
+    ) -> tuple[bool, LimitsReleaseToken | None]:
+        return await asyncio.to_thread(self.reserve_sync, key, policy, n, priority)
 
     def consume_sync(self, key: str, policy: RatePolicy, n: int, priority: Priority) -> bool:
         try:
@@ -132,6 +235,41 @@ class LimitsBackend:
             # limit rather than the full one.
             shrunk = self._shrunk(policy)
             return _check(self._memory_limiter(), _items(shrunk), key, n, _reserves(policy, priority, shrunk))
+
+    def reserve_sync(
+        self, key: str, policy: RatePolicy, n: int, priority: Priority
+    ) -> tuple[bool, LimitsReleaseToken | None]:
+        try:
+            limits = policy.limits
+            reservations: list[RedisWindowReservation] = []
+            for item, reserve in zip(_items(limits), _reserves(policy, priority, limits)):
+                reservation = self._reserve_redis_window(item, key, n, reserve)
+                if reservation is None:
+                    self._release_redis_windows(tuple(reservations))
+                    return False, None
+                reservations.append(reservation)
+            return True, LimitsReleaseToken(
+                reservation_id=uuid.uuid4().hex,
+                windows=tuple(reservations),
+                ttl_seconds=max(item.get_expiry() for item in _items(limits)) * 2,
+            )
+        except _REDIS_ERRORS:
+            logger.warning("outbound_rate_limit_redis_unavailable", key=key, fallback="in_memory")
+            shrunk = self._shrunk(policy)
+            granted = _check(self._memory_limiter(), _items(shrunk), key, n, _reserves(policy, priority, shrunk))
+            return granted, None
+
+    def release_sync(self, token: LimitsReleaseToken) -> bool:
+        try:
+            self._redis_storage()
+            claimed = get_client().set(
+                f"{_KEY_PREFIX}:released:{token.reservation_id}", "1", ex=token.ttl_seconds, nx=True
+            )
+            if not claimed:
+                return False
+            return self._release_redis_windows(token.windows)
+        except _REDIS_ERRORS:
+            return False
 
     def pace_seconds(self, key: str, policy: RatePolicy, priority: Priority) -> float:
         limits = policy.limits
@@ -155,6 +293,46 @@ class LimitsBackend:
         divider = max(1, policy.in_memory_divider)
         return tuple((max(1, count // divider), period) for count, period in policy.limits)
 
+    def _reserve_redis_window(
+        self, item: RateLimitItemPerSecond, key: str, n: int, reserve: int
+    ) -> RedisWindowReservation | None:
+        storage = self._redis_storage()
+        item_key = item.key_for(key)
+        previous_key, current_key, previous_generation_key, current_generation_key = self._redis_window_keys(
+            storage, item_key
+        )
+        script = self._reserve_script
+        if script is None:
+            raise RuntimeError("Redis reservation script is not initialized")
+        generation = script(
+            keys=[previous_key, current_key, previous_generation_key, current_generation_key],
+            args=[item.amount - reserve, item.get_expiry(), n, uuid.uuid4().hex],
+        )
+        if not generation:
+            return None
+        return RedisWindowReservation(item_key=item_key, generation=bytes(generation).decode(), amount=n)
+
+    def _release_redis_windows(self, reservations: tuple[RedisWindowReservation, ...]) -> bool:
+        storage = self._redis_storage()
+        script = self._release_script
+        if script is None:
+            raise RuntimeError("Redis release script is not initialized")
+        released = True
+        for reservation in reservations:
+            keys = self._redis_window_keys(storage, reservation.item_key)
+            if not script(keys=list(keys), args=[reservation.generation, reservation.amount]):
+                released = False
+        return released
+
+    @staticmethod
+    def _redis_window_keys(storage: RedisStorage, item_key: str) -> tuple[str, str, str, str]:
+        previous_key = storage.prefixed_key(storage._previous_window_key(item_key))
+        current_key = storage.prefixed_key(storage._current_window_key(item_key))
+        return previous_key, current_key, f"{previous_key}:generation", f"{current_key}:generation"
+
+    def _redis_storage(self) -> RedisStorage:
+        return cast(RedisStorage, self._redis_limiter().storage)
+
     def _redis_limiter(self) -> SlidingWindowCounterRateLimiter:
         if self._redis is None:
             with self._lock:
@@ -162,6 +340,8 @@ class LimitsBackend:
                     storage = RedisStorage(
                         _PLACEHOLDER_URI, connection_pool=get_client().connection_pool, key_prefix=_KEY_PREFIX
                     )
+                    self._reserve_script = storage.get_connection().register_script(_RESERVE_SLIDING_WINDOW)
+                    self._release_script = storage.get_connection().register_script(_RELEASE_SLIDING_WINDOW)
                     self._redis = SlidingWindowCounterRateLimiter(storage)
         return self._redis
 

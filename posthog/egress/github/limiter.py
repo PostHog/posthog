@@ -16,6 +16,8 @@ Importing this module registers the policies as a side effect — import it (dir
 ``acquire_github_installation``) before using a ``github*:...`` limiter key.
 """
 
+from __future__ import annotations
+
 import time
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -26,6 +28,8 @@ from django.core.cache import cache
 
 if TYPE_CHECKING:
     import requests
+
+    from posthog.egress.limiter.outbound import OutboundRateLimitAdmission, OutboundRateLimitReservation
 
 from posthog.egress.limiter.outbound import get_outbound_rate_limiter
 from posthog.egress.limiter.policies import Priority, RatePolicy, register_policy
@@ -175,7 +179,7 @@ def get_observed_core_limit(installation_id: str) -> int | None:
     return observed
 
 
-def remember_observed_core_limit(installation_id: str | None, response: "requests.Response") -> None:
+def remember_observed_core_limit(installation_id: str | None, response: requests.Response) -> None:
     """Persist the tier from a *successful installation-token* response's headers.
 
     Called from ``GitHubIntegrationBase.api_request`` — the one place that knows the response was
@@ -332,9 +336,10 @@ async def acquire_github_installation(
     budget (or this ``priority``'s reserved floor) is exhausted — back off and retry rather than
     calling GitHub."""
     _note_demand_if_interactive(installation_id, priority, resource)
-    return await get_outbound_rate_limiter().acquire(
+    admission = await get_outbound_rate_limiter().reserve(
         github_installation_key(installation_id, resource=resource), n, priority=priority, source=source
     )
+    return admission.granted
 
 
 def consume_github_installation_sync(
@@ -348,9 +353,28 @@ def consume_github_installation_sync(
     """Sync variant of :func:`acquire_github_installation` for callers outside an event loop (e.g. the
     warehouse source iterator, which runs in a thread pool)."""
     _note_demand_if_interactive(installation_id, priority, resource)
-    return get_outbound_rate_limiter().consume_sync(
+    admission = get_outbound_rate_limiter().reserve_sync(
         github_installation_key(installation_id, resource=resource), n, priority=priority, source=source
     )
+    return admission.granted
+
+
+def reserve_github_installation_sync(
+    installation_id: str | int,
+    n: int = 1,
+    *,
+    priority: Priority = Priority.NORMAL,
+    source: str = "unknown",
+    resource: GitHubRateResource = GitHubRateResource.CORE,
+) -> OutboundRateLimitAdmission:
+    _note_demand_if_interactive(installation_id, priority, resource)
+    return get_outbound_rate_limiter().reserve_sync(
+        github_installation_key(installation_id, resource=resource), n, priority=priority, source=source
+    )
+
+
+def release_github_installation_sync(reservation: OutboundRateLimitReservation) -> bool:
+    return get_outbound_rate_limiter().release_sync(reservation)
 
 
 def github_installation_pace_seconds(

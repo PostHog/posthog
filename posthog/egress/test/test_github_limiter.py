@@ -29,6 +29,7 @@ from posthog.egress.github.limiter import (
     observed_core_limit_cache_key,
     remember_observed_core_limit,
 )
+from posthog.egress.limiter.outbound import OutboundRateLimitAdmission
 from posthog.egress.limiter.policies import Priority, resolve_policy
 
 
@@ -172,7 +173,7 @@ class TestInteractiveDemandMarker(GitHubLimiterTestCase):
         # A denied interactive call is the moment the reserve matters most, so gating the stamp on
         # the admission result would drop the signal exactly when it is needed.
         with patch("posthog.egress.github.limiter.get_outbound_rate_limiter") as limiter:
-            limiter.return_value.consume_sync.return_value = False
+            limiter.return_value.reserve_sync.return_value = OutboundRateLimitAdmission(granted=False, reservation=None)
             assert consume_github_installation_sync(self.installation_id, priority=Priority.NORMAL) is False
 
         _interactive_memo.clear()

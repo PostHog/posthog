@@ -63,6 +63,60 @@ def test_consume_sync_enforces_budget():
     assert [limiter.consume_sync("test-sync:scope:1") for _ in range(3)] == [True, True, False]
 
 
+def test_release_sync_restores_a_reserved_unit_once():
+    register_policy("test-release", RatePolicy(limits=((1, 3600.0),)))
+    limiter = _fresh_limiter()
+    key = _unique_key("test-release")
+
+    admission = limiter.reserve_sync(key)
+    assert admission.granted is True
+    assert admission.reservation is not None
+    assert limiter.consume_sync(key) is False
+    assert limiter.release_sync(admission.reservation) is True
+    assert limiter.consume_sync(key) is True
+    assert limiter.release_sync(admission.reservation) is False
+
+
+def test_release_sync_targets_the_original_window_after_a_shift():
+    register_policy("test-release-shift", RatePolicy(limits=((4, 10.0),)))
+    limiter = _fresh_limiter()
+    key = _unique_key("test-release-shift")
+
+    first_admission = limiter.reserve_sync(key, 2)
+    assert first_admission.reservation is not None
+    assert first_admission.reservation.token is not None
+    first_window = first_admission.reservation.token.windows[0]
+    backend = limiter._backend
+    storage = backend._redis_storage()
+    window_keys = backend._redis_window_keys(storage, first_window.item_key)
+    redis_client = backends_module.get_client()
+    redis_client.pexpire(window_keys[1], 9_000)
+    redis_client.pexpire(window_keys[3], 9_000)
+
+    second_admission = limiter.reserve_sync(key, 2)
+    assert second_admission.granted is True
+    assert limiter.release_sync(first_admission.reservation) is True
+    assert limiter.reserve_sync(key, 2).granted is True
+    assert limiter.reserve_sync(key, 1).granted is False
+
+
+def test_release_sync_keeps_the_fallback_count_when_redis_is_unavailable(monkeypatch):
+    register_policy("test-release-fallback", RatePolicy(limits=((2, 3600.0),), in_memory_divider=2))
+
+    def _boom(*_args, **_kwargs):
+        raise ConnectionError("redis down")
+
+    monkeypatch.setattr(backends_module, "get_client", _boom)
+    limiter = _fresh_limiter()
+    key = _unique_key("test-release-fallback")
+
+    admission = limiter.reserve_sync(key)
+    assert admission.granted is True
+    assert admission.reservation is not None
+    assert limiter.release_sync(admission.reservation) is False
+    assert limiter.consume_sync(key) is False
+
+
 async def test_unique_keys_do_not_share_budget():
     # Per-key isolation: exhausting one installation's budget must not deny another, or the shared
     # GitHub budget would be enforced globally instead of per installation.
