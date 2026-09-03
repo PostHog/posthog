@@ -23,7 +23,7 @@ class CustomerTask(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     account = models.ForeignKey(
         "customer_analytics.Account",
-        on_delete=models.SET_NULL,
+        on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="customer_tasks",

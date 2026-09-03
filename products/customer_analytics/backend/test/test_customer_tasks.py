@@ -109,24 +109,6 @@ class CustomerTaskAPI(APIBaseTest):
         activity = CustomerTaskActivity.objects.unscoped().get(task=task)
         assert activity.activity_type == "created"
 
-    def test_account_deletion_preserves_task_and_activities(self) -> None:
-        account = Account.objects.for_team(self.team.id).create(team=self.team, name="Temporary account")
-        created = self.client.post(
-            self.url,
-            {"name": "Preserved task", "account_id": str(account.id)},
-            format="json",
-        )
-        task = CustomerTask.objects.unscoped().get(id=created.json()["id"])
-        activity_ids = list(CustomerTaskActivity.objects.unscoped().filter(task=task).values_list("id", flat=True))
-
-        account.delete()
-
-        task.refresh_from_db()
-        assert task.account_id is None
-        assert (
-            list(CustomerTaskActivity.objects.unscoped().filter(task=task).values_list("id", flat=True)) == activity_ids
-        )
-
     def test_put_requires_name_while_patch_accepts_partial_fields(self) -> None:
         created = self.client.post(self.url, {"name": "Original task"}, format="json")
         task_url = f"{self.url}{created.json()['id']}/"

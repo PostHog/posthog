@@ -338,6 +338,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "warehouse_table"
     if name == "customerjourney":
         return "customer_journey"
+    if name == "customertask":
+        return "customer_task"
     if name in ("replayscanner", "replayobservation"):
         return "replay_scanner"
     if name in ("visionalertconfiguration", "visionalertevent"):
