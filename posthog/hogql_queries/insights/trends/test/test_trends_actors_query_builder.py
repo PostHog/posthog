@@ -90,6 +90,14 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             return None
         return dt.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%SZ")
 
+    @parameterized.expand([("past_the_end", 1), ("far_past_the_end", 7), ("negative", -1)])
+    def test_out_of_range_series_index_raises_query_error(self, _name: str, series_index: int):
+        with self.assertRaises(QueryError) as ctx:
+            self._get_builder(series_index=series_index)
+
+        self.assertIn(f"Series index {series_index} is out of range", str(ctx.exception))
+        self.assertIn("between 0 and 0", str(ctx.exception))
+
     def test_time_frame(self):
         self.team.timezone = "Europe/Berlin"
 
