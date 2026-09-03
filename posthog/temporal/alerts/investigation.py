@@ -59,7 +59,7 @@ class InvestigationDecision:
 
 def investigation_cooldown(alert: AlertConfiguration) -> timedelta:
     """The minimum gap between two investigations of the same alert."""
-    interval = _CALCULATION_INTERVAL_DURATIONS.get(alert.calculation_interval, MAX_INVESTIGATION_COOLDOWN)
+    interval = _CALCULATION_INTERVAL_DURATIONS.get(alert.calculation_interval or "", MAX_INVESTIGATION_COOLDOWN)
     return min(max(interval - INVESTIGATION_COOLDOWN_MARGIN, MIN_INVESTIGATION_COOLDOWN), MAX_INVESTIGATION_COOLDOWN)
 
 
