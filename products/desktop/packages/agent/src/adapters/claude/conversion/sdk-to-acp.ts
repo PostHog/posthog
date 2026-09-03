@@ -737,12 +737,15 @@ export async function handleSystemMessage(
       // The traceparent hook reports the running turn's trace id on stderr —
       // the same id the LLM gateway stamps on the turn's $ai_generation
       // events. The session nonce keeps other UserPromptSubmit hooks (user or
-      // repo settings) from squatting this channel.
+      // repo settings) from colliding with this channel. A mid-turn steer
+      // fires the hook again; the newer echo replaces the held id on purpose,
+      // so the turn's rating attaches to the segment that produced its final
+      // answer.
       const traceId =
         message.hook_event === "UserPromptSubmit" &&
         message.outcome === "success"
           ? traceIdFromHookStderr(message.stderr, session.traceparentHookNonce)
-          : undefined;
+          : null;
       if (traceId) {
         session.currentTurnTraceId = traceId;
       }

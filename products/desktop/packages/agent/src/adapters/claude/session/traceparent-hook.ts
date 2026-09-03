@@ -15,8 +15,11 @@
  *
  * `hook_response` carries no field identifying which settings source declared
  * a hook (`hook_name` is just the event name), so a per-session random nonce
- * in the stderr prefix is the only discriminator that stops a user/repo
- * `UserPromptSubmit` hook from squatting this channel.
+ * in the stderr prefix keeps another `UserPromptSubmit` hook (user or repo
+ * settings) from colliding with this channel by accident. It is not a
+ * security boundary: the nonce rides the CLI's `--settings` argv, readable by
+ * any process on the machine, and a repo hook already runs with the session's
+ * full privileges.
  */
 
 import { randomBytes } from "node:crypto";
@@ -42,27 +45,27 @@ export function buildTraceparentHookSettingsJson(nonce: string): string {
 /**
  * Parses the hook's stderr into the gateway's `$ai_trace_id` form: the
  * traceparent's 32-hex trace id rendered as a UUID, matching the gateway's
- * `str(UUID(hex=...))`. Returns undefined for anything else, including a
+ * `str(UUID(hex=...))`. Returns null for anything else, including a
  * missing/mismatched nonce and the all-zero id the W3C spec reserves for
  * "no trace".
  */
 export function traceIdFromHookStderr(
   stderr: string,
   nonce: string | undefined,
-): string | undefined {
+): string | null {
   if (!nonce) {
-    return undefined;
+    return null;
   }
   const prefix = `${TRACEPARENT_STDERR_PREFIX}${nonce}=`;
   if (!stderr.startsWith(prefix)) {
-    return undefined;
+    return null;
   }
   const traceparent = stderr.slice(prefix.length).trim();
   const match = /^[0-9a-f]{2}-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}$/.exec(
     traceparent,
   );
   if (!match || /^0{32}$/.test(match[1])) {
-    return undefined;
+    return null;
   }
   const hex = match[1];
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;

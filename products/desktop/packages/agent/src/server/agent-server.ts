@@ -5537,13 +5537,16 @@ ${commonInstructions}
   }
 
   /** The per-turn gateway trace id the Claude adapter reports via `PromptResponse._meta`. */
-  private promptResultTraceId(result: PromptResponse): string | undefined {
+  private promptResultTraceId(result: PromptResponse): string | null {
     const traceId = (result._meta as { traceId?: unknown } | undefined)
       ?.traceId;
-    return typeof traceId === "string" ? traceId : undefined;
+    return typeof traceId === "string" ? traceId : null;
   }
 
-  private broadcastTurnComplete(stopReason: string, traceId?: string): void {
+  private broadcastTurnComplete(
+    stopReason: string,
+    traceId: string | null = null,
+  ): void {
     if (!this.session) return;
     if (this.adapterEmittedTurnComplete) {
       this.adapterEmittedTurnComplete = false;

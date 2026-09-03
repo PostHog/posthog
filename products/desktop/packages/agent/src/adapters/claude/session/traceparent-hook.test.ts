@@ -26,24 +26,24 @@ describe("traceparent hook", () => {
     [
       "the all-zero trace id the W3C spec reserves for 'no trace'",
       `traceparent:${NONCE}=00-00000000000000000000000000000000-b7ad6b7169203331-01`,
-      undefined,
+      null,
     ],
-    ["an empty TRACEPARENT env", `traceparent:${NONCE}=`, undefined],
-    ["a malformed value", `traceparent:${NONCE}=not-a-traceparent`, undefined],
+    ["an empty TRACEPARENT env", `traceparent:${NONCE}=`, null],
+    ["a malformed value", `traceparent:${NONCE}=not-a-traceparent`, null],
     [
       "another hook echoing a valid traceparent without the session nonce",
       "traceparent=00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
-      undefined,
+      null,
     ],
     [
       "another hook guessing a wrong nonce",
       "traceparent:ffffffffffffffff=00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
-      undefined,
+      null,
     ],
     [
       "output that is not from this hook",
       "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
-      undefined,
+      null,
     ],
   ])("handles %s", (_case, stderr, expected) => {
     expect(traceIdFromHookStderr(stderr, NONCE)).toBe(expected);
@@ -55,7 +55,7 @@ describe("traceparent hook", () => {
         `traceparent:${NONCE}=00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01`,
         undefined,
       ),
-    ).toBe(undefined);
+    ).toBeNull();
   });
 
   it("declares a command hook that writes to stderr, never to model context", () => {

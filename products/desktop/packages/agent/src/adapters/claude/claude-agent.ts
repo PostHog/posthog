@@ -948,6 +948,17 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       // turn whose hook never fired cannot inherit the previous turn's id.
       const traceId = session.currentTurnTraceId;
       session.currentTurnTraceId = undefined;
+      if (
+        !traceId &&
+        session.traceparentHookInstalled &&
+        !turn.isLocalOnlyCommand
+      ) {
+        // Loud on purpose: an SDK or CLI change that stops surfacing hook
+        // output would otherwise degrade feedback attribution silently.
+        this.logger.warn("Gateway turn settled without a trace id", {
+          sessionId: session.sdkSessionId,
+        });
+      }
       turn.resolve(
         traceId
           ? { ...result, _meta: { ...(result._meta ?? {}), traceId } }
@@ -2870,6 +2881,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       },
       taskState,
       traceparentHookNonce,
+      traceparentHookInstalled:
+        typeof options.extraArgs?.settings === "string" &&
+        options.extraArgs.settings.includes(traceparentHookNonce),
 
       // Custom properties
       cwd,
