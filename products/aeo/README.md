@@ -6,8 +6,8 @@ Everything is built from existing machinery:
 
 - **Prompt execution (Track A)** goes through the AI gateway (`AI_GATEWAY_URL`) using the providers' native web-search tools, so the citations are the models' real ones. Every call emits a `$ai_generation` event carrying cost, which lands in the gateway-key owner's project (not the checked team's) tagged with `team_id` for attribution. Citations are parsed from the **live response**, because the gateway's captured events intentionally drop web-search result payloads, so the cited URLs exist nowhere else.
 - **Breadth (Track B)** uses Exa `/answer` — its citations are Exa's own (a proxy, not a measurement of ChatGPT/Claude behavior), useful as a cheap retrievability check and as a comparison baseline against Track A.
-- **Storage**: the citation records are ordinary events (one `$aeo_citation_check` per prompt × engine × run); the prompt set is one small Postgres table (`posthog_aeo_prompt`). No new event/ClickHouse tables.
-- **Alerting** is a per-team signals scout (see `scout/SKILL.md`) that reads those events and files inbox/Slack reports on citation-rate drops or spikes. The scout treats every string on a check event as untrusted: check events are captured with the project's public token, and the engine-derived fields carry third-party text by nature, so counts drive the finding and text is only ever quoted inertly.
+- **Storage**: the citation record is a Postgres table read through HogQL as `system.aeo_citation_checks`, so insights, the SQL editor, the query API, and MCP all read it while the runner stays the only writer. Events were the first design and were wrong for this: anyone holding a project's public capture token can submit them, which would let a stranger forge citation results and feed text to the alerting scout. The prompt set is a second small table (`posthog_aeo_prompt`). No new ClickHouse tables.
+- **Alerting** is a per-team signals scout (see `scout/SKILL.md`) that reads that table and files inbox/Slack reports on citation-rate drops or spikes. Engine-derived columns carry third-party text by nature, so the runner strips invisible characters and LLM framing markers before writing (`posthog/security/llm_prompt_sanitization.py`), and the scout drives findings from counts while quoting text inertly.
 - **The prompt set** is written by hand or imported from a CSV, so every prompt sent to an engine is one a person reviewed. Deriving prompts from first-party data (signup free-text, AI-landed pages, AI-crawled paths, search-console queries) is deliberately out of this POC: those sources put visitor-supplied text into a live engine call, and they need the prompt-injection handling the rest of our AI tooling has first.
 
 ## Setup
@@ -38,18 +38,18 @@ python manage.py run_aeo_citation_checks --team-id <id> --limit 3 --dry-run
 python manage.py run_aeo_citation_checks --team-id <id>
 ```
 
-## The event
+## The table
 
-`$aeo_citation_check` — one per prompt × engine × run:
+`system.aeo_citation_checks` — one row per prompt × engine × run, read-only in HogQL:
 
-| Property                                                                 | Meaning                                                                                                             |
+| Column                                                                   | Meaning                                                                                                             |
 | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `aeo_run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source` | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                               |
+| `run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source`     | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                               |
 | `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, or `exa-answer`.                                                          |
 | `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                      |
 | `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record.                                                                                                |
 | `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic exposes retrieved results; others don't).                                 |
-| `check_failed`, `error`                                                  | Engine failure — kept as events so the scout can tell "engine broke" from "citations disappeared".                  |
+| `check_failed`, `error`                                                  | Engine failure — recorded so the scout can tell "engine broke" from "citations disappeared".                        |
 | `cost_usd` / `gateway_trace_id`                                          | Exa cost, or the trace id joining to the gateway's `$ai_generation` event (which carries token + web-search costs). |
 
 ## The join (the product thesis)
@@ -58,10 +58,10 @@ Per cited URL path: citations → AI-agent crawls → AI-channel sessions → co
 
 ```sql
 -- citation rate per engine per day
-SELECT toStartOfDay(timestamp) AS day, properties.engine AS engine,
-       countIf(properties.cited = 'true') / countIf(properties.check_failed = 'false') AS citation_rate
-FROM events
-WHERE event = '$aeo_citation_check' AND timestamp >= now() - INTERVAL 30 DAY
+SELECT toStartOfDay(created_at) AS day, engine,
+       countIf(cited) / countIf(NOT check_failed) AS citation_rate
+FROM system.aeo_citation_checks
+WHERE created_at >= now() - INTERVAL 30 DAY
 GROUP BY day, engine ORDER BY day
 
 -- crawls for a cited path (asset noise and bulk fetchers excluded)
@@ -81,4 +81,4 @@ Roughly \$2–4/day at 50 prompts × 3 engines × 1 run/day: provider web-search
 
 ## Out of scope
 
-Seeding prompts from first-party data, sentiment/quality scoring, rank tracking, competitor share-of-voice, new ClickHouse tables, consumer-surface (web UI) checking, multi-tenant rollout.
+Seeding prompts from first-party data, a UI for the prompt set, sentiment/quality scoring, rank tracking, competitor share-of-voice, new ClickHouse tables, consumer-surface (web UI) checking, multi-tenant rollout.

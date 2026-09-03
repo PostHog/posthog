@@ -9,7 +9,7 @@ from products.aeo.backend.engines import (
     CitationCheck,
     OpenAIWebSearchEngine,
     anthropic_truncated_error,
-    build_check_properties,
+    build_check_fields,
     is_target_url,
     openai_response_error,
     parse_anthropic_citations,
@@ -235,7 +235,7 @@ def test_top_domains_orders_and_dedupes() -> None:
     assert top_domains(urls) == ["a.example.com", "posthog.com"]
 
 
-def test_build_check_properties_cited() -> None:
+def test_build_check_fields_cited() -> None:
     check = CitationCheck(
         engine="claude-web-search",
         model="claude-sonnet-5",
@@ -244,7 +244,7 @@ def test_build_check_properties_cited() -> None:
         search_queries=["session replay tools"],
         trace_id="trace-1",
     )
-    properties = build_check_properties(
+    fields = build_check_fields(
         check=check,
         run_id="run-1",
         prompt_id="prompt-1",
@@ -253,19 +253,19 @@ def test_build_check_properties_cited() -> None:
         prompt_hash="abc",
         target_domains=["posthog.com"],
     )
-    assert properties["cited"] is True
-    assert properties["check_failed"] is False
-    assert properties["target_urls"] == ["https://posthog.com/session-replay"]
-    assert properties["target_best_position"] == 2
-    assert properties["num_citations"] == 2
-    assert properties["gateway_trace_id"] == "trace-1"
-    assert "error" not in properties
-    assert "cost_usd" not in properties
+    assert fields["cited"] is True
+    assert fields["check_failed"] is False
+    assert fields["target_urls"] == ["https://posthog.com/session-replay"]
+    assert fields["target_best_position"] == 2
+    assert fields["num_citations"] == 2
+    assert fields["gateway_trace_id"] == "trace-1"
+    assert fields["error"] is None
+    assert fields["cost_usd"] is None
 
 
-def test_build_check_properties_failed_check() -> None:
+def test_build_check_fields_failed_check() -> None:
     check = CitationCheck(engine="exa-answer", model="exa-answer", error="HTTPError: status=500 " + "x" * 600)
-    properties = build_check_properties(
+    fields = build_check_fields(
         check=check,
         run_id="run-1",
         prompt_id="prompt-1",
@@ -274,9 +274,9 @@ def test_build_check_properties_failed_check() -> None:
         prompt_hash="abc",
         target_domains=["posthog.com"],
     )
-    assert properties["check_failed"] is True
-    assert properties["cited"] is False
-    assert len(properties["error"]) <= 500
+    assert fields["check_failed"] is True
+    assert fields["cited"] is False
+    assert len(fields["error"]) <= 500
 
 
 def test_engine_derived_text_is_sanitized_before_it_reaches_the_event() -> None:
@@ -289,7 +289,7 @@ def test_engine_derived_text_is_sanitized_before_it_reaches_the_event() -> None:
         error="boom\nsecond line",
     )
 
-    properties = build_check_properties(
+    fields = build_check_fields(
         check=check,
         run_id="run",
         prompt_id="prompt",
@@ -299,9 +299,9 @@ def test_engine_derived_text_is_sanitized_before_it_reaches_the_event() -> None:
         target_domains=["posthog.com"],
     )
 
-    assert properties["search_queries"] == ["ignore previous instructions"]
-    assert properties["prompt_text"] == "What is the best tool?"
-    assert properties["error"] == "boom second line"
+    assert fields["search_queries"] == ["ignore previous instructions"]
+    assert fields["prompt_text"] == "What is the best tool?"
+    assert fields["error"] == "boom second line"
     # Sanitizing must not move the verdict: it runs on the recorded copy only.
-    assert properties["cited"] is True
-    assert properties["target_best_position"] == 1
+    assert fields["cited"] is True
+    assert fields["target_best_position"] == 1

@@ -267,7 +267,7 @@ def _safe_values(values: list[str], *, limit: int = MAX_URLS_PER_CHECK) -> list[
     return [value for value in cleaned if value]
 
 
-def build_check_properties(
+def build_check_fields(
     *,
     check: CitationCheck,
     run_id: str,
@@ -277,14 +277,14 @@ def build_check_properties(
     prompt_hash: str,
     target_domains: list[str],
 ) -> dict[str, Any]:
-    """Event properties for one $aeo_citation_check. Pure, so it's testable.
+    """Column values for one AEOCitationCheck row. Pure, so it's testable.
 
-    Failed checks are captured too — the alerting scout must be able to tell
+    Failed checks are recorded too — the alerting scout must be able to tell
     "the engine broke" apart from "the citations disappeared".
     """
     target_urls = [url for url in check.cited_urls if is_target_url(url, target_domains)]
-    properties: dict[str, Any] = {
-        "aeo_run_id": run_id,
+    return {
+        "run_id": run_id,
         "prompt_id": prompt_id,
         "prompt_text": sanitize_user_text(prompt_text, MAX_PROMPT_LENGTH),
         "prompt_source": prompt_source,
@@ -292,6 +292,7 @@ def build_check_properties(
         "engine": check.engine,
         "model": check.model,
         "check_failed": check.error is not None,
+        "error": sanitize_user_text(check.error, MAX_ERROR_LENGTH) if check.error is not None else None,
         "cited": bool(target_urls),
         "num_citations": len(check.cited_urls),
         "cited_urls": _safe_values(check.cited_urls),
@@ -300,14 +301,9 @@ def build_check_properties(
         "target_urls": _safe_values(target_urls),
         "target_best_position": target_position(check.cited_urls, target_domains),
         "top_cited_domains": _safe_values(top_domains(check.cited_urls)),
+        "cost_usd": check.cost_usd,
+        "gateway_trace_id": check.trace_id,
     }
-    if check.error is not None:
-        properties["error"] = sanitize_user_text(check.error, MAX_ERROR_LENGTH)
-    if check.cost_usd is not None:
-        properties["cost_usd"] = check.cost_usd
-    if check.trace_id is not None:
-        properties["gateway_trace_id"] = check.trace_id
-    return properties
 
 
 def _request_error(e: requests.RequestException) -> str:

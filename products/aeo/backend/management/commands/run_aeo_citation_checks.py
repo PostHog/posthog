@@ -19,7 +19,7 @@ ENGINES_BY_NAME = {
 class Command(BaseCommand):
     help = (
         "Run AEO citation checks for a team. "
-        "Smoke test (runs engines, captures nothing): --limit 3 --dry-run. "
+        "Smoke test (runs engines, records nothing): --limit 3 --dry-run. "
         "Note: engines make real, billed API calls even with --dry-run."
     )
 
@@ -31,7 +31,7 @@ class Command(BaseCommand):
             type=str,
             help="Comma-separated subset of: claude,openai,exa. Default: all configured.",
         )
-        parser.add_argument("--dry-run", action="store_true", help="Run engines but capture no events.")
+        parser.add_argument("--dry-run", action="store_true", help="Run engines but record no checks.")
 
     def handle(self, *args: Any, **options: Any) -> None:
         try:
@@ -52,7 +52,7 @@ class Command(BaseCommand):
             team,
             engines=engines,
             limit=options["limit"],
-            capture=not options["dry_run"],
+            record=not options["dry_run"],
         )
 
         for check in checks:

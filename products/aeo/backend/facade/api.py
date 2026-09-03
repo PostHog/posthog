@@ -14,7 +14,7 @@ from products.aeo.backend.runner import run_citation_checks
 
 def run_citation_checks_for_team(team_id: int) -> CitationRunSummary:
     """Run the team's active prompt set against every configured answer engine
-    and capture one $aeo_citation_check event per prompt x engine."""
+    and record one citation check per prompt x engine."""
     team = Team.objects.get(id=team_id)
     summary, _ = run_citation_checks(team)
     return summary

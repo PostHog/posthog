@@ -1,10 +1,13 @@
 """The AEO citation runner: execute the prompt set against every configured
-answer engine and capture one `$aeo_citation_check` event per prompt x engine.
+answer engine and record one citation check per prompt x engine.
 
-The citation record is ordinary events, queryable in HogQL, chartable in
-insights, and readable by the alerting scout, with no new storage. Gateway
-engines additionally get a `$ai_generation` event per call (emitted by the
-gateway itself) carrying cost and web-search fees. That event lands in the
+The record is rows in `posthog_aeo_citation_check`, exposed to HogQL as
+`system.aeo_citation_checks`. Insights, the SQL editor, the query API, and MCP
+all read it, and the runner is the only writer — an events-based record would
+have been forgeable by anyone holding the project's public capture token.
+
+Gateway engines additionally get a `$ai_generation` event per call (emitted by
+the gateway itself) carrying cost and web-search fees. That event lands in the
 gateway-key owner's project, not the checked team's, and carries the
 `aeo_prompt_id` / `team_id` custom properties for attribution.
 """
@@ -18,18 +21,13 @@ from django.conf import settings
 
 import structlog
 
-from posthog.api.capture import CaptureInternalError, capture_batch_internal
 from posthog.models.team import Team
 
-from products.aeo.backend.engines import CitationEngine, available_engines, build_check_properties
+from products.aeo.backend.engines import CitationEngine, available_engines, build_check_fields
 from products.aeo.backend.facade.contracts import CitationRunSummary
-from products.aeo.backend.models import AEOPrompt
+from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 
 logger = structlog.get_logger(__name__)
-
-EVENT_NAME = "$aeo_citation_check"
-EVENT_SOURCE = "aeo_citation_runner"
-DISTINCT_ID = "aeo_citation_runner"
 
 DEFAULT_MAX_PROMPTS_PER_RUN = 50
 
@@ -39,14 +37,13 @@ def run_citation_checks(
     *,
     engines: Optional[list[CitationEngine]] = None,
     limit: Optional[int] = None,
-    capture: bool = True,
+    record: bool = True,
 ) -> tuple[CitationRunSummary, list[dict[str, Any]]]:
-    """Run every active prompt against every engine; capture the results.
+    """Run every active prompt against every engine; record the results.
 
-    Returns (summary, per-check event properties). Events are captured per
-    prompt so an interrupted run keeps the checks it already paid for. With
-    capture=False the engines still run (and cost money) but nothing is
-    captured — that's the smoke-test mode.
+    Returns (summary, per-check field values). Rows are written per prompt so an
+    interrupted run keeps the checks it already paid for. With record=False the
+    engines still run (and cost money) but nothing is written — smoke-test mode.
     """
     engines = engines if engines is not None else available_engines()
     if not engines:
@@ -66,11 +63,11 @@ def run_citation_checks(
     target_domains: list[str] = settings.AEO_TARGET_DOMAINS
     checks: list[dict[str, Any]] = []
     engine_failures = 0
-    events_captured = 0
-    capture_failures = 0
+    rows_written = 0
+    write_failures = 0
 
     for prompt in prompts:
-        prompt_events: list[dict[str, Any]] = []
+        prompt_rows: list[AEOCitationCheck] = []
         for engine in engines:
             trace_id = str(uuid.uuid4())
             check = engine.run(
@@ -94,7 +91,7 @@ def run_citation_checks(
                     prompt_id=str(prompt.id),
                     error=check.error,
                 )
-            properties = build_check_properties(
+            fields = build_check_fields(
                 check=check,
                 run_id=run_id,
                 prompt_id=str(prompt.id),
@@ -103,18 +100,17 @@ def run_citation_checks(
                 prompt_hash=prompt.prompt_hash,
                 target_domains=target_domains,
             )
-            prompt_events.append({"event": EVENT_NAME, "distinct_id": DISTINCT_ID, "properties": properties})
-            checks.append(properties)
+            prompt_rows.append(AEOCitationCheck(team=team, **fields))
+            checks.append(fields)
 
-        if capture and prompt_events:
-            # Flush per prompt so a mid-run crash keeps the completed checks.
+        if record and prompt_rows:
+            # Write per prompt so a mid-run crash keeps the completed checks.
             try:
-                result = capture_batch_internal(events=prompt_events, token=team.api_token, event_source=EVENT_SOURCE)
-                result.raise_for_status()
-                events_captured += len(prompt_events)
-            except CaptureInternalError as e:
-                capture_failures += len(prompt_events)
-                logger.exception("aeo_citation_capture_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])
+                AEOCitationCheck.objects.bulk_create(prompt_rows)
+                rows_written += len(prompt_rows)
+            except Exception as e:
+                write_failures += len(prompt_rows)
+                logger.exception("aeo_citation_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])
 
     summary = CitationRunSummary(
         team_id=team.id,
@@ -124,8 +120,8 @@ def run_citation_checks(
         checks=len(checks),
         engine_failures=engine_failures,
         cited=sum(1 for check in checks if check["cited"]),
-        events_captured=events_captured,
-        capture_failures=capture_failures,
+        rows_written=rows_written,
+        write_failures=write_failures,
     )
     logger.info(
         "aeo_citation_run_complete",
@@ -135,8 +131,8 @@ def run_citation_checks(
         checks=summary.checks,
         engine_failures=summary.engine_failures,
         cited=summary.cited,
-        events_captured=summary.events_captured,
-        capture_failures=summary.capture_failures,
+        rows_written=summary.rows_written,
+        write_failures=summary.write_failures,
     )
     return summary, checks
 
@@ -150,7 +146,7 @@ def _empty_summary(team: Team, error: str) -> CitationRunSummary:
         checks=0,
         engine_failures=0,
         cited=0,
-        events_captured=0,
-        capture_failures=0,
+        rows_written=0,
+        write_failures=0,
         error=error,
     )

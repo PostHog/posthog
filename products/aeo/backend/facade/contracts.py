@@ -19,6 +19,6 @@ class CitationRunSummary:
     checks: int
     engine_failures: int
     cited: int
-    events_captured: int
-    capture_failures: int
+    rows_written: int
+    write_failures: int
     error: str | None = None

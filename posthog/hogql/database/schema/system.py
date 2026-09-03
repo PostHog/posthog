@@ -38,6 +38,7 @@ from posthog.scopes import APIScopeObject
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
+from products.aeo.backend.facade.hogql import aeo_citation_checks
 from products.customer_analytics.backend.facade.hogql import (
     account_channel_summaries,
     account_custom_property_values,
@@ -2869,6 +2870,7 @@ class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
         "accounts": TableNode(name="accounts", table=accounts),
+        "aeo_citation_checks": TableNode(name="aeo_citation_checks", table=aeo_citation_checks),
         "_account_tagged_items": TableNode(name="_account_tagged_items", table=account_tagged_items, hidden=True),
         "_account_resource_notebooks": TableNode(
             name="_account_resource_notebooks", table=account_resource_notebooks, hidden=True
