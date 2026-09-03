@@ -400,7 +400,9 @@ def send_invite(invite_id: str, delivery_key: str | None = None) -> None:
         template_name=template_name,
         template_context={
             "invite": invite,
-            "expiry_date": (timezone.now() + datetime.timedelta(days=INVITE_DAYS_VALIDITY)).strftime(
+            # A resend mails an invite created days earlier, and the row expires from its own
+            # age, so the deadline must come from `created_at` rather than from send time.
+            "expiry_date": (invite.created_at + datetime.timedelta(days=INVITE_DAYS_VALIDITY)).strftime(
                 "%B %d, %Y at %H:%M %Z"
             ),
             "inviter_first_name": inviter_name,
