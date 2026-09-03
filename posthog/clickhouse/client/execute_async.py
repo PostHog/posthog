@@ -119,7 +119,7 @@ class QueryStatusManager:
         self.redis_client.hset(self.handle_key, mapping=fields)
         self.redis_client.expire(self.handle_key, settings.CACHED_RESULTS_TTL)
 
-    def _status_from_handle(self) -> QueryStatus:
+    def _status_from_handle(self, resolve_cached_results: bool) -> QueryStatus:
         raw_handle = self.redis_client.hgetall(self.handle_key)
         if not raw_handle:
             raise QueryNotFoundError(f"Query {self.query_id} not found for team {self.team_id}")
@@ -134,6 +134,11 @@ class QueryStatusManager:
                 error_message=handle.get("error_message") or None,
                 error_code=handle.get("error_code") or None,
             )
+        if complete and not resolve_cached_results:
+            # The enqueue dedup check only needs to know the earlier run is over. Reading the
+            # cache entry here would put a cache lookup, and for large entries an S3 read, on
+            # the enqueue path of every query whose earlier run left a stale dedup mapping.
+            return QueryStatus(id=self.query_id, team_id=self.team_id, complete=True, error=False)
         cache_key = handle.get("cache_key")
         if complete and cache_key:
             entry = QueryCache(team_id=self.team_id, cache_key=cache_key).lookup().entry
@@ -195,11 +200,11 @@ class QueryStatusManager:
             logger.exception("Clickhouse Status Check Failed", error=e)
             return None
 
-    def get_query_status(self, show_progress: bool = False) -> QueryStatus:
+    def get_query_status(self, show_progress: bool = False, resolve_cached_results: bool = True) -> QueryStatus:
         byte_results = self._get_results()
 
         if not byte_results:
-            return self._status_from_handle()
+            return self._status_from_handle(resolve_cached_results)
 
         loaded = json.loads(byte_results)
         # Drop unknown keys so a status written by a newer deploy (with extra fields) doesn't fail
@@ -419,7 +424,7 @@ def enqueue_process_query_task(
         if cache_key:
             existing_query_id = manager.get_running_query_by_cache_key(cache_key)
             if existing_query_id:
-                query_status = get_query_status(team.id, existing_query_id)
+                query_status = get_query_status(team.id, existing_query_id, resolve_cached_results=False)
                 if not query_status.complete:
                     # Only deduplicate against a query that is still in progress
                     posthoganalytics.capture(
@@ -488,12 +493,14 @@ def enqueue_process_query_task(
     return query_status
 
 
-def get_query_status(team_id: int, query_id: str, show_progress: bool = False) -> QueryStatus:
+def get_query_status(
+    team_id: int, query_id: str, show_progress: bool = False, resolve_cached_results: bool = True
+) -> QueryStatus:
     """
     Abstracts away the manager for any caller and returns a QueryStatus object
     """
     manager = QueryStatusManager(query_id, team_id)
-    return manager.get_query_status(show_progress=show_progress)
+    return manager.get_query_status(show_progress=show_progress, resolve_cached_results=resolve_cached_results)
 
 
 def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> str:
