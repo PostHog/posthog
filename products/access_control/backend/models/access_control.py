@@ -12,6 +12,12 @@ class AccessControl(UUIDTModel):
                 name="unique resource per target",
             )
         ]
+        indexes = [
+            # The unique constraint above leads on `resource`, so it cannot serve a lookup that
+            # already knows the team. Permission resolution reads the rules of one team for one
+            # resource kind.
+            models.Index(fields=["team", "resource"], name="ee_accessc_team_resource_idx"),
+        ]
 
     team = models.ForeignKey(
         "posthog.Team",

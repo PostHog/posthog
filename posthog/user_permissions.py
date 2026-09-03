@@ -2,6 +2,8 @@ from functools import cached_property
 from typing import Any, Optional, cast
 from uuid import UUID
 
+from django.db.models import Q
+
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.organization_caching import get_cached_organization_memberships
@@ -113,15 +115,31 @@ class UserPermissions:
     @cached_property
     def _prefetched_access_controls(self) -> dict[int, list[dict[str, Any]]]:
         """
-        Prefetch all AccessControl entries for teams in user's organizations.
-        Returns a dict mapping team_id to list of access control entries.
+        Prefetch the project AccessControl entries that can apply to this user, for teams in the
+        user's organizations. Returns a dict mapping team_id to list of access control entries.
+
+        Only three kinds of row change the outcome in
+        `UserTeamPermissions.effective_membership_level_for_parent_membership`: a row that names one
+        of this user's memberships, a row that names one of their roles, and the team default row
+        that names neither. The query leaves out the rules of the other members, because the caller
+        discards them. Without that filter, the row count grows with the member count of the
+        organization, multiplied by its team count.
         """
         from products.access_control.backend.models.access_control import AccessControl
 
         organization_ids = list(self.organizations.keys())
-        # Get all access controls for teams in these organizations
+        membership_ids = [membership.id for membership in self.organization_memberships.values()]
+        role_ids = [
+            role_id
+            for organization_role_ids in self._prefetched_role_ids_by_organization.values()
+            for role_id in organization_role_ids
+        ]
         access_controls = AccessControl.objects.filter(
-            team__organization_id__in=organization_ids, resource="project"
+            Q(organization_member_id__in=membership_ids)
+            | Q(role_id__in=role_ids)
+            | Q(organization_member_id=None, role_id=None),
+            team__organization_id__in=organization_ids,
+            resource="project",
         ).values("team_id", "resource_id", "organization_member_id", "role_id", "access_level")
 
         # Group by team_id
@@ -208,16 +226,17 @@ class UserTeamPermissions:
         if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
             return self._capped_at_admin(organization_membership.level)
 
+        # Organization admins and owners always have access. Checked before the rules are read,
+        # because no project rule can change the answer for them.
+        if organization_membership.level >= OrganizationMembership.Level.ADMIN:
+            return self._capped_at_admin(organization_membership.level)
+
         # Project rules for this team, from prefetched data
         access_controls = [
             ac
             for ac in self.p._prefetched_access_controls.get(self.team.id, [])
             if ac["resource_id"] == str(self.team.id)
         ]
-
-        # Organization admins and owners always have access
-        if organization_membership.level >= OrganizationMembership.Level.ADMIN:
-            return self._capped_at_admin(organization_membership.level)
 
         # Role-backed project AccessControl rows only take effect if the organization has
         # the ROLE_BASED_ACCESS feature — same gate as the UI's "Roles" block on the
