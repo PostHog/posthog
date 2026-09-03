@@ -14,8 +14,10 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, Team, User
 
-from products.access_control.backend.facade import api as access_control_api
-from products.access_control.backend.facade import contracts as access_control_contracts
+from products.access_control.backend.facade import (
+    api as access_control_api,
+    contracts as access_control_contracts,
+)
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.facade.contracts import (

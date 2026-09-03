@@ -332,7 +332,7 @@ class CustomerTaskAPI(APIBaseTest):
             organization_member=other_membership,
             access_level="editor",
         ).exists()
-        assert self.client.get(f"{self.url}{assigned_id}/").status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.get(f"{self.url}{assigned_id}/").status_code == status.HTTP_403_FORBIDDEN
 
     def test_assignee_cannot_cross_account_visibility(self) -> None:
         assignee = User.objects.create_and_join(self.organization, "account-assignee@example.com", "testpassword")
