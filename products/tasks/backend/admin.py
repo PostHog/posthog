@@ -1,6 +1,7 @@
 import logging
 from typing import cast
 
+from django import forms
 from django.contrib import admin, messages
 from django.db.models import QuerySet
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
@@ -8,12 +9,14 @@ from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 
+from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.storage import object_storage
 
 from . import loop_service
+from .logic.services.ai_run_defaults import validate_ai_run_preferences
 from .loop_lifecycle import DISABLED_REASON_ADMIN_PAUSED, pause_loop
-from .models import Loop, LoopTrigger, SandboxSnapshot, Task, TaskRun
+from .models import Loop, LoopTrigger, SandboxSnapshot, Task, TaskRun, TeamTasksConfig, UserTasksConfig
 from .visibility import task_run_visibility_q, task_visibility_q
 
 logger = logging.getLogger(__name__)
@@ -230,3 +233,76 @@ class LoopTriggerAdmin(admin.ModelAdmin):
         for trigger in queryset:
             loop_service.delete_loop_trigger_schedule(trigger)
         super().delete_queryset(request, queryset)
+
+
+_AI_RUN_PREFERENCE_KEYS = ("runtime_adapter", "model", "reasoning_effort")
+
+
+class _TasksConfigAdminForm(forms.ModelForm):
+    """Shared form for the two tasks-config admins. Runs the same checks as the API
+    write path (`update_team_ai_run_preferences` / `update_user_ai_run_preferences`),
+    so an admin edit cannot store a payload the resolver would reject or skip."""
+
+    def clean_team(self):
+        team = self.cleaned_data["team"]
+        # Preference rows are keyed on the canonical (project root) team; a row keyed on an
+        # environment team is never read by the resolver.
+        if team is not None and team.parent_team_id is not None:
+            raise forms.ValidationError(
+                "Preferences are keyed on the project root team. "
+                f"Pick the parent team (id {team.parent_team_id}) instead of this environment team."
+            )
+        return team
+
+    def clean_ai_run_preferences(self):
+        prefs = self.cleaned_data.get("ai_run_preferences")
+        if not prefs:
+            return prefs
+        if not isinstance(prefs, dict):
+            raise forms.ValidationError("Must be a JSON object.")
+        unknown = sorted(set(prefs) - set(_AI_RUN_PREFERENCE_KEYS))
+        if unknown:
+            raise forms.ValidationError(
+                f"Unknown keys: {', '.join(unknown)}. Allowed: {', '.join(_AI_RUN_PREFERENCE_KEYS)}."
+            )
+        non_strings = sorted(key for key, value in prefs.items() if not isinstance(value, str))
+        if non_strings:
+            raise forms.ValidationError(f"Values must be strings: {', '.join(non_strings)}.")
+        validate_ai_run_preferences(prefs.get("runtime_adapter"), prefs.get("model"), prefs.get("reasoning_effort"))
+        return prefs
+
+    def _post_clean(self) -> None:
+        # Unique-constraint validation queries through the model's default manager, which for
+        # UserTasksConfig is fail-closed and raises without a team context. Admin requests have
+        # none, so scope model validation to the team picked in the form.
+        team = self.cleaned_data.get("team")
+        if team is None:
+            super()._post_clean()
+            return
+        with team_scope(team.id):
+            super()._post_clean()
+
+
+@admin.register(TeamTasksConfig)
+class TeamTasksConfigAdmin(admin.ModelAdmin):
+    form = _TasksConfigAdminForm
+    list_display = ("team", "ai_run_preferences", "created_at", "updated_at")
+    search_fields = ("team__name", "team__organization__name")
+    readonly_fields = ("created_at", "updated_at")
+    autocomplete_fields = ("team",)
+    list_select_related = ("team",)
+    show_full_result_count = False
+
+
+@admin.register(UserTasksConfig)
+class UserTasksConfigAdmin(admin.ModelAdmin):
+    form = _TasksConfigAdminForm
+    list_display = ("id", "team", "user", "ai_run_preferences", "created_at", "updated_at")
+    search_fields = ("team__name", "user__email")
+    readonly_fields = ("id", "created_at", "updated_at")
+    autocomplete_fields = ("team", "user")
+    show_full_result_count = False
+
+    def get_queryset(self, request: HttpRequest):
+        # Admin has no team context; UserTasksConfig's default manager is fail-closed.
+        return UserTasksConfig.objects.unscoped().select_related("team", "user")
