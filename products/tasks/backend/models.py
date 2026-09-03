@@ -1029,6 +1029,10 @@ class Task(DeletedMetaFields, models.Model):
         extra_state: dict[str, Any] = {}
         if slack_thread_url:
             extra_state["slack_thread_url"] = slack_thread_url
+        if slack_thread_context:
+            # Reply context controls presentation and MCP response shapes. It must stay
+            # separate from interaction_origin, which controls credential resolution.
+            extra_state["slack_reply_context"] = True
         if interaction_origin:
             extra_state["interaction_origin"] = interaction_origin
         elif slack_thread_context:
