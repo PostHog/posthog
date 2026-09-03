@@ -460,12 +460,14 @@ tools:
             at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports
             breakdown by metric kind (success/failure) or name, and time range filtering. For email engagement, read
             email_opened and email_link_clicked against (email_sent - email_untracked): email_untracked counts sends
-            with open/click tracking off, which can never register an open or a click.
+            with open/click tracking off, which can never register an open or a click. Pass version=<n> to read one
+            published version instead of the workflow's whole history - that is how you tell whether a change helped, by
+            comparing the version before it with the version after it.
     workflows-suggest:
         operation: hog_flows_proposals_create
         enabled: true
         scopes:
-            - hog_flow:write
+            - hog_flow_proposal:write
         annotations:
             readOnly: false
             destructive: false

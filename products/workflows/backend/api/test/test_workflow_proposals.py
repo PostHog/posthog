@@ -352,6 +352,18 @@ class TestWorkflowProposals(APIBaseTest):
         # An archived workflow drops out even though someone opted it in: its metrics are history.
         assert [row["id"] for row in listed.json()["results"]] == [opted_in]
 
+    def test_metrics_can_be_read_for_one_version(self, _mock_flag):
+        # The evidence behind a suggestion is per version, and a producer reads it over the API. The
+        # unversioned read is every version at once, which cannot answer "did this change help".
+        flow_id = self._create_active_flow()
+
+        whole_history = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/metrics/totals")
+        one_version = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/metrics/totals?version=1")
+
+        assert whole_history.status_code == 200, whole_history.json()
+        assert one_version.status_code == 200, one_version.json()
+        assert "totals" in one_version.json()
+
     def test_provenance_comes_from_the_transport_not_the_payload(self, _mock_flag):
         flow_id = self._create_active_flow()
         response = self.client.post(
@@ -501,6 +513,44 @@ class TestWorkflowProposals(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
         assert response.json()["after"]["version"] == 2
+
+    def test_suggesting_takes_its_own_scope_not_workflow_write(self, _mock_flag):
+        # A producer must be able to suggest without holding the scope that publishes, updates or
+        # test-sends a workflow — that is what keeps an autonomous run from putting mail in front of
+        # real people.
+        flow_id = self._create_active_flow()
+        payload = {
+            "title": "Point the webhook somewhere that answers",
+            "rationale": "Every call to the current URL failed over the last week.",
+            "content": {"actions": [_trigger_action(), _webhook_action(url="https://proposed.example.com")]},
+            "evidence": {"metric": "failure rate", "current_value": 1.0, "n": 240, "guardrails": []},
+            "base_version": 1,
+            "source_type": "scout",
+        }
+        suggest_only = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="producer",
+            user=self.user,
+            secure_value=hash_key_value(suggest_only),
+            scopes=["hog_flow:read", "hog_flow_proposal:write"],
+        )
+        self.client.logout()
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            payload,
+            format="json",
+            headers={"authorization": f"Bearer {suggest_only}"},
+        )
+        assert created.status_code == 201, created.json()
+
+        # The same key cannot publish what it suggested.
+        published = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {},
+            headers={"authorization": f"Bearer {suggest_only}"},
+        )
+        assert published.status_code == 403, published.json()
 
     def test_a_partial_action_list_is_refused(self, _mock_flag):
         flow_id = self._create_active_flow()

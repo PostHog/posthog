@@ -99,6 +99,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'heatmap:write',
     'hog_flow:read',
     'hog_flow:write',
+    'hog_flow_proposal:read',
+    'hog_flow_proposal:write',
     'hog_function:read',
     'hog_function:write',
     'ingestion_warning:read',

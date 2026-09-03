@@ -13,6 +13,7 @@ from posthog.api.utils import action
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.schema_enums import ProductKey
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -51,6 +52,20 @@ class AppMetricsTotalsResponseSerializer(DataclassSerializer):
         dataclass = AppMetricsTotalsResponse
 
 
+@frozen
+class MetricSeries:
+    """Which app-metric rows a read covers. Both fields are strings, so naming them keeps a caller
+    from passing the id where the source goes."""
+
+    app_source: str
+    app_source_id: str
+
+
+# Every hog flow metric is mirrored under this app source with the version appended to the flow id,
+# which is what makes a per-version read possible. Written by the CDP worker's monitoring service.
+HOG_FLOW_VERSION_APP_SOURCE = "hog_flow_version"
+
+
 class AppMetricsRequestSerializer(serializers.Serializer):
     after = serializers.CharField(
         required=False,
@@ -84,6 +99,13 @@ class AppMetricsRequestSerializer(serializers.Serializer):
         required=False,
         default="kind",
         help_text="Group the series by metric 'name' or 'kind'. Defaults to 'kind'.",
+    )
+    version = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "Read one workflow version's metrics instead of the workflow's whole history. Workflow "
+            "metrics only; ignored elsewhere. Use it to compare a change against the version before it."
+        ),
     )
 
 
@@ -468,10 +490,11 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         after_date, _, _ = relative_date_parse_with_delta_mapping(params.get("after", "-7d"), team.timezone_info)
         before_date, _, _ = relative_date_parse_with_delta_mapping(params.get("before", "-0d"), team.timezone_info)
 
+        series = self._metric_series_for(obj, params.get("version"))
         data = fetch_app_metrics_trends(
             team_id=self.team_id,  # type: ignore
-            app_source=self.app_source,
-            app_source_id=str(obj.id),
+            app_source=series.app_source,
+            app_source_id=series.app_source_id,
             # From request params
             instance_id=instance_id,
             interval=params.get("interval", "day"),
@@ -484,6 +507,17 @@ class AppMetricsMixin(viewsets.GenericViewSet):
 
         serializer = AppMetricResponseSerializer(instance=data)
         return Response(serializer.data)
+
+    def _metric_series_for(self, obj, version: int | None) -> "MetricSeries":
+        """Which app-metric series to read: the object's whole history, or one workflow version.
+
+        Every hog flow metric is mirrored under `hog_flow_version` with the version appended to the
+        id, which is what makes "before and after this change" answerable at all. Nothing mirrors
+        hog function metrics that way, so a version there would silently read an empty series.
+        """
+        if version is not None and self.app_source == "hog_flow":
+            return MetricSeries(app_source=HOG_FLOW_VERSION_APP_SOURCE, app_source_id=f"{obj.id}/{version}")
+        return MetricSeries(app_source=self.app_source, app_source_id=str(obj.id))
 
     @extend_schema(parameters=[AppMetricsRequestSerializer], responses=AppMetricsTotalsResponseSerializer)
     @action(detail=True, methods=["GET"], url_path="metrics/totals")
@@ -512,10 +546,11 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         if params.get("before"):
             before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], team.timezone_info)
 
+        series = self._metric_series_for(obj, params.get("version"))
         data = fetch_app_metric_totals(
             team_id=self.team_id,  # type: ignore
-            app_source=self.app_source,
-            app_source_id=str(obj.id),
+            app_source=series.app_source,
+            app_source_id=series.app_source_id,
             # From request params
             after=after_date,
             before=before_date,

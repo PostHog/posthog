@@ -997,6 +997,12 @@ export const HogFlowsMetricsRetrieveQueryParams = () => zod.object({
         ),
     kind: zod.string().min(1).optional().describe("Comma-separated metric kinds to filter by, e.g. 'success,failure'."),
     name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
+    version: zod
+        .number()
+        .optional()
+        .describe(
+            "Read one workflow version's metrics instead of the workflow's whole history. Workflow metrics only; ignored elsewhere. Use it to compare a change against the version before it."
+        ),
 })
 
 /**

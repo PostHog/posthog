@@ -4077,11 +4077,12 @@ class HogFlowViewSet(
                 return ["hog_flow:read"]
             return ["hog_flow:write"]
         if self.action == "proposals":
-            # Listing suggestions is workflow-read; authoring one is a workflow write, since approving
-            # it stages content into the draft.
+            # Listing suggestions is workflow-read. Authoring one takes its own narrow scope rather
+            # than `hog_flow:write`, so a producer can suggest without also being able to publish,
+            # update or test-send the workflow it is suggesting about.
             if request.method in ("GET", "HEAD", "OPTIONS"):
                 return ["hog_flow:read"]
-            return ["hog_flow:write"]
+            return ["hog_flow_proposal:write"]
         if self.action in ("batch_jobs", "schedules"):
             # Dispatching (or scheduling) fans out to persons and renders person properties into
             # outbound messages, so it's person-data access on top of the workflow write - same
