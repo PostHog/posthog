@@ -4,7 +4,6 @@ import { reportAgeHours } from "./engagement";
 
 export interface ReportListSnapshotEntry {
   rank: number;
-  title: string | null;
   createdAt: string | null;
   priority: string | null;
   actionability: string | null;
@@ -26,7 +25,6 @@ export function snapshotReportList(
             report.id,
             {
               rank: index,
-              title: report.title,
               createdAt: report.created_at,
               priority: report.priority ?? null,
               actionability: report.actionability ?? null,
@@ -48,7 +46,6 @@ export function buildBulkActionEvents(
     const entry = snapshot.byId.get(reportId);
     return {
       report_id: reportId,
-      report_title: entry?.title ?? null,
       report_age_hours: reportAgeHours(entry?.createdAt),
       action_type: actionType,
       surface: "toolbar",
@@ -66,7 +63,6 @@ export type DetailActionExtra = Partial<
   Omit<
     InboxReportActionProperties,
     | "report_id"
-    | "report_title"
     | "report_age_hours"
     | "action_type"
     | "surface"
@@ -92,7 +88,6 @@ export function buildDetailActionEvent(
 ): DetailActionEvent {
   return {
     report_id: report.id,
-    report_title: report.title,
     report_age_hours: reportAgeHours(report.created_at),
     action_type: actionType,
     surface: "detail_pane",

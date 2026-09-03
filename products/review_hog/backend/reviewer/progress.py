@@ -233,19 +233,15 @@ class ResolutionRunState:
     needs_attention: int = 0
 
 
-def resolution_states(team_id: int, reports: list[ReviewReport]) -> dict[str, ResolutionRunState]:
-    """Each report's latest resolution run — resolving or died-partway — derived from artefacts.
+def _latest_created_at(queryset: QuerySet) -> dict[str, datetime]:
+    rows = queryset.values_list("report_id").annotate(latest=Max("created_at")).values_list("report_id", "latest")
+    return {str(report_id): latest for report_id, latest in rows}
 
-    The run's `resolution_run` artefact (written at prepare) anchors it: the run's progress is its
-    queued threads' `thread_verdict` rows written since, its completion is a closing run `note`
-    (author `review_hog_resolution`) written since, and its liveness is the report's overall
-    artefact activity against the staleness window — the same signal `_in_progress_report_ids`
-    uses for review turns, so the two can't disagree about "visibly moving".
 
-    A report is absent from the result when it has no resolution run, its latest run completed
-    (closing note present), or a newer review turn superseded it (a `pr_snapshot` written after the
-    run anchor — that turn's own progress takes over the row).
-    """
+def _load_resolution_runs(
+    team_id: int, reports: list[ReviewReport]
+) -> dict[str, tuple[ResolutionRunArtefact, datetime]]:
+    """The latest `resolution_run` anchor per report, dropping unparseable and empty runs."""
     runs: dict[str, tuple[ResolutionRunArtefact, datetime]] = {}
     run_rows = (
         ReviewReportArtefact.objects.for_team(team_id)
@@ -266,21 +262,26 @@ def resolution_states(team_id: int, reports: list[ReviewReport]) -> dict[str, Re
             continue
         if run.total > 0:
             runs[report_id] = (run, row["created_at"])
-    if not runs:
-        return {}
+    return runs
 
-    def _latest_after(queryset: QuerySet) -> dict[str, datetime]:
-        rows = queryset.values_list("report_id").annotate(latest=Max("created_at")).values_list("report_id", "latest")
-        return {str(report_id): latest for report_id, latest in rows}
 
+def _live_resolution_runs(
+    team_id: int, runs: dict[str, tuple[ResolutionRunArtefact, datetime]]
+) -> tuple[dict[str, tuple[ResolutionRunArtefact, datetime]], dict[str, datetime]]:
+    """Keep only runs still in flight, and return each report's latest artefact activity.
+
+    A run drops out when a newer review turn superseded it (a `pr_snapshot` after the run anchor) or
+    it completed (a closing run `note` after the anchor). Activity liveness reuses the same signal
+    `_in_progress_report_ids` uses for review turns, so the two can't disagree about "visibly moving".
+    """
     scoped = ReviewReportArtefact.objects.for_team(team_id).filter(report_id__in=list(runs))
-    snapshot_latest = _latest_after(scoped.filter(type=ReviewReportArtefact.ArtefactType.PR_SNAPSHOT))
-    note_latest = _latest_after(
+    snapshot_latest = _latest_created_at(scoped.filter(type=ReviewReportArtefact.ArtefactType.PR_SNAPSHOT))
+    note_latest = _latest_created_at(
         scoped.filter(type=ReviewReportArtefact.ArtefactType.NOTE)
         .annotate(note_author=KeyTextTransform("author", _content_json()))
         .filter(note_author=RESOLUTION_RUN_NOTE_AUTHOR)
     )
-    activity_latest = _latest_after(scoped.exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME))
+    activity_latest = _latest_created_at(scoped.exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME))
 
     live: dict[str, tuple[ResolutionRunArtefact, datetime]] = {}
     for report_id, (run, started_at) in runs.items():
@@ -288,13 +289,18 @@ def resolution_states(team_id: int, reports: list[ReviewReport]) -> dict[str, Re
         completed = note_latest.get(report_id) is not None and note_latest[report_id] >= started_at
         if not superseded and not completed:
             live[report_id] = (run, started_at)
-    if not live:
-        return {}
+    return live, activity_latest
 
-    # Latest verdict per thread within each live run (rows come oldest-first, so later rows win) —
-    # scoped to the run's own queued threads, because redelivering a prior run's verdict also
-    # appends rows during this run. Only delivered verdicts (`reply_posted`) count: a judged thread
-    # whose GitHub writes failed has no reply yet, so it must not read as settled.
+
+def _thread_verdicts(
+    team_id: int, live: dict[str, tuple[ResolutionRunArtefact, datetime]]
+) -> dict[str, dict[str, tuple[str, bool]]]:
+    """Latest verdict per thread within each live run (rows come oldest-first, so later rows win).
+
+    Scoped to the run's own queued threads, because redelivering a prior run's verdict also appends
+    rows during this run. Only delivered verdicts (`reply_posted`) count: a judged thread whose
+    GitHub writes failed has no reply yet, so it must not read as settled.
+    """
     verdicts: dict[str, dict[str, tuple[str, bool]]] = {report_id: {} for report_id in live}
     verdict_rows = (
         ReviewReportArtefact.objects.for_team(team_id)
@@ -320,6 +326,30 @@ def resolution_states(team_id: int, reports: list[ReviewReport]) -> dict[str, Re
             verdict_row["outcome"],
             verdict_row["reply_posted"] == "true",
         )
+    return verdicts
+
+
+def resolution_states(team_id: int, reports: list[ReviewReport]) -> dict[str, ResolutionRunState]:
+    """Each report's latest resolution run — resolving or died-partway — derived from artefacts.
+
+    The run's `resolution_run` artefact (written at prepare) anchors it: the run's progress is its
+    queued threads' `thread_verdict` rows written since, its completion is a closing run `note`
+    (author `review_hog_resolution`) written since, and its liveness is the report's overall
+    artefact activity against the staleness window.
+
+    A report is absent from the result when it has no resolution run, its latest run completed
+    (closing note present), or a newer review turn superseded it (a `pr_snapshot` written after the
+    run anchor — that turn's own progress takes over the row).
+    """
+    runs = _load_resolution_runs(team_id, reports)
+    if not runs:
+        return {}
+
+    live, activity_latest = _live_resolution_runs(team_id, runs)
+    if not live:
+        return {}
+
+    verdicts = _thread_verdicts(team_id, live)
 
     cutoff = timezone.now() - IN_PROGRESS_STALE_AFTER
     reports_by_id = {str(report.id): report for report in reports}

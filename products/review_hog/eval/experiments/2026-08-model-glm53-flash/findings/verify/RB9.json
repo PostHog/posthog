@@ -1,0 +1,6 @@
+{
+    "id": "RB9",
+    "real": false,
+    "source": "fresh",
+    "reasoning": "No near-verbatim 8-line duplicate exists. review_pr.py:202-209 documents flag semantics (relaxes exactly two gates, default-closed); review_pr.py:587-589 explains draft-review timing; review_local.py:316-321 documents flag transport via hosted context JSON and engine parity; reviewer.py:684-691 documents prompt-block rendering. Overlap is clause-level only ('positively linked to a PostHog Code signals implementation task', 'defaults closed'), and the comments cross-reference each other (review_pr.py:204 names review_local.py; review_local.py:320-321 names Pipeline parity). The 'slight difference' cited as drift is each comment covering a distinct concern, not divergent copies of one block."
+}

@@ -39,7 +39,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: mocks.channels, isLoading: false }),
-  useChannelMutations: () => ({ deleteChannel: vi.fn(), isDeleting: false }),
+  useChannelMutations: () => ({
+    deleteChannel: vi.fn(),
+    isDeleting: false,
+    updateAutoArchive: vi.fn(),
+    isUpdatingAutoArchive: false,
+  }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelStars", () => ({
   useChannelStarToggle: () => ({
@@ -260,6 +265,22 @@ describe("ChannelsList", () => {
     // advertised now that the switcher popover is gone.
     expect(me.parentElement?.textContent).toMatch(/personal(⌘|Ctrl)/);
   });
+
+  it.each(["personal", "engineering"])(
+    "offers automatic archiving for the %s space",
+    async (spaceName) => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(
+        screen.getByRole("button", { name: `Options for ${spaceName}` }),
+      );
+
+      expect(
+        await screen.findByRole("menuitem", { name: "Auto-archive: off…" }),
+      ).toBeVisible();
+    },
+  );
 
   describe("group headings", () => {
     beforeEach(() => {

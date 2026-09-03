@@ -1,40 +1,16 @@
 import {
-  ArrowsClockwise,
-  ArrowsLeftRight,
-  Brain,
-  ChatCircle,
   Command,
-  FileText,
-  Globe,
   type Icon,
   MagnifyingGlass,
   Minus,
-  PencilSimple,
   Plus,
-  Terminal,
-  Trash,
-  Wrench,
 } from "@phosphor-icons/react";
 import { cn } from "@posthog/quill";
 import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import { Box, Text } from "@radix-ui/themes";
-import type { CodeToolKind, ToolCall, ToolCallContent } from "../../types";
+import type { ToolCall, ToolCallContent } from "../../types";
 import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
-
-/** Tool icon by `ToolCall.kind`. Shared by the per-tool views and the tool-group icon strip. */
-const kindIcons: Record<CodeToolKind, Icon> = {
-  read: FileText,
-  edit: PencilSimple,
-  delete: Trash,
-  move: ArrowsLeftRight,
-  search: MagnifyingGlass,
-  execute: Terminal,
-  think: Brain,
-  fetch: Globe,
-  switch_mode: ArrowsClockwise,
-  question: ChatCircle,
-  other: Wrench,
-};
+import { iconForToolKind } from "./toolIcons";
 
 /** Tool icon by agent tool name, for tools without a generic `kind`. */
 const toolNameIcons: Record<string, Icon> = {
@@ -49,8 +25,7 @@ export function iconForToolCall(
 ): Icon {
   return (
     (agentToolName && toolNameIcons[agentToolName]) ||
-    (toolCall.kind && kindIcons[toolCall.kind]) ||
-    Wrench
+    iconForToolKind(toolCall.kind)
   );
 }
 

@@ -18,6 +18,7 @@ import {
   shapeExperimentPreview,
   shapeExperimentResults,
   shapeFlagPreview,
+  shapeInboxReportPreview,
   shapePersonPreview,
   shapeRecordingPreview,
   shapeSurveyPreview,
@@ -404,7 +405,7 @@ describe("evidence preview shaping", () => {
       name: "TypeError in CouponValidator",
       status: "pending_release",
       first_seen: "2024-01-03T10:00:00Z",
-    } as Schemas.ErrorTrackingIssueFull);
+    } as Schemas.ErrorTrackingIssueRead);
     expect(preview.detail).toMatch(/^First seen Jan 3/);
     expect(preview.status).toEqual({
       label: "Pending release",
@@ -792,6 +793,29 @@ describe("evidence preview shaping", () => {
     expect(preview.title).toBe("Ticket #841");
   });
 
+  it("summarizes an Inbox report separately from a support ticket", () => {
+    const preview = shapeInboxReportPreview({
+      id: "rep-1",
+      title: "Checkout latency increased",
+      summary: "Requests became slower after the latest release.",
+      status: "pending_input",
+      priority: "P2",
+      signal_count: 4,
+      total_weight: 4,
+      artefact_count: 2,
+      source_products: ["error_tracking"],
+      created_at: "2026-01-02T10:00:00Z",
+      updated_at: "2026-01-03T10:00:00Z",
+    });
+
+    expect(preview).toMatchObject({
+      title: "Checkout latency increased",
+      detail: "Requests became slower after the latest release.",
+      status: { label: "Pending input", tone: "caution" },
+      facts: ["P2", "4 signals", "Error tracking"],
+    });
+  });
+
   it("identifies a person by name or email and carries the uuid for links", () => {
     expect(
       shapePersonPreview({
@@ -875,7 +899,16 @@ describe("evidence preview shaping", () => {
         detail: "Enabled · Old rollout",
         facts: ["100% rollout"],
       },
-      { status: "stale", reason: "Rolled out to 100% for at least 30 days" },
+      {
+        status: "stale",
+        reason: "Rolled out to 100% for at least 30 days",
+        rollout: {
+          effectively_full_rollout: true,
+          has_targeting_conditions: false,
+          max_rollout_percentage: 100,
+          is_multivariate: false,
+        },
+      },
       [
         ["2024-01-01", 900000],
         ["2024-01-02", 1200000],

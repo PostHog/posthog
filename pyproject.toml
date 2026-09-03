@@ -49,14 +49,14 @@ dependencies = [
     "django-redis==7.0.0",
     "django-structlog[celery]~=10.1.0",
     "django-two-factor-auth~=1.18.0",
-    "djangorestframework~=3.16.1",
+    "djangorestframework~=3.17.2",
     "djangorestframework-csv~=3.0.2",
     "djangorestframework-dataclasses~=1.4.0",
     "dlt==1.18.2",
     "dnspython==2.6.1",
     "drf-exceptions-hog==0.4.0",
     "drf-extensions~=0.8.0",
-    "drf-spectacular~=0.29.0",
+    "drf-spectacular~=0.30.0",
     "geoip2==4.6.0",
     "google-ads==31.2.0",
     "google-cloud-bigquery==3.26",
@@ -100,7 +100,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=5.29.6",
-    "posthoganalytics==7.44.2",
+    "posthoganalytics==7.45.2",
     "polars==1.37.1",
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
@@ -206,7 +206,7 @@ dependencies = [
     "wrapt==1.17.3",
     "limits==5.8.0",
     "deltalite==0.1.7",
-    "posthog-hogland==0.3.1",
+    "posthog-hogland==0.4.1",
 ]
 
 [dependency-groups]
@@ -238,7 +238,7 @@ dev = [
     "ipython~=9.3.0",
     "mypy~=2.1.0",
     "mypy-extensions~=1.1.0",
-    "ty==0.0.29",
+    "ty==0.0.74",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
     "orjson==3.11.9",
@@ -449,6 +449,17 @@ section-order = [
 "posthog" = ["posthog"]
 "products" = ["products"]
 
+[tool.djlint]
+profile = "django"
+extension = "html"
+indent = 4
+# Formatting covers every Django template; linting is scoped to the email ones, so these
+# exclusions are read against those. H021 inline styles and H023 entity references are how
+# HTML email has to be written, since mail clients strip stylesheets and render bare
+# characters inconsistently. H016 title and H030 meta description are page rules that mean
+# nothing in an email.
+ignore = "H021,H023,H016,H030"
+
 [tool.dagster]
 python_version = "3.13"
 
@@ -506,6 +517,10 @@ exclude = [
     "posthog/schema.py",
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",
+    # PEP 723 scripts with their own deps; mypy excludes these dirs too
+    "products/*/skills/*/scripts/**",
+    "products/stamphog/packages/**",
+    "tools/**",
     "products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/**",
     "rust/deltalite/python/**",
 ]
@@ -713,6 +728,7 @@ ignore_imports = [
     "products.cohorts.backend.routes -> products.cohorts.backend.api.staff_tools",
     "products.conversations.backend.routes -> products.conversations.backend.api",
     "products.dashboards.backend.routes -> products.dashboards.backend.api.dashboard",
+    "products.dashboards.backend.routes -> products.dashboards.backend.api.dashboard_saved_view",
     "products.dashboards.backend.routes -> products.dashboards.backend.api.dashboard_templates",
     "products.early_access_features.backend.routes -> products.early_access_features.backend.api",
     "products.exports.backend.routes -> products.exports.backend.api.exports",
@@ -746,6 +762,7 @@ ignore_imports = [
     "products.signals.backend.routes -> products.signals.backend.views",
     "products.signals.backend.routes -> products.signals.backend.scout_chat",
     "products.signals.backend.routes -> products.signals.backend.scout_harness.views",
+    "products.signals.backend.routes -> products.signals.backend.scout_suggestions_api",
     "products.skills.backend.routes -> products.skills.backend.api.community_skills",
     "products.skills.backend.routes -> products.skills.backend.api.marketplace_views",
     "products.skills.backend.routes -> products.skills.backend.api.skills",
@@ -757,6 +774,7 @@ ignore_imports = [
     "products.web_analytics.backend.routes -> products.web_analytics.backend.api.web_analytics_path_cleaning_suggestions",
     "products.workflows.backend.routes -> products.workflows.backend.api.hog_flow",
     "products.workflows.backend.routes -> products.workflows.backend.api.hog_flow_template",
+    "products.workflows.backend.routes -> products.workflows.backend.api.workflow_scout_runs",
     "products.workflows.backend.routes -> products.workflows.backend.api.workflow_tasks",
 ]
 
@@ -807,12 +825,14 @@ too-many-positional-arguments = "ignore"  # Django metaprogramming signatures
 # Dual mypy+ty — mypy still runs, so its artifacts are legitimate
 redundant-cast = "ignore"  # casts needed by mypy that ty resolves
 unused-type-ignore-comment = "ignore"  # type: ignore comments required by mypy
+unused-ignore-comment = "error"  # default is warn, which does not fail CI; error keeps stale ty: ignore directives out
 
 # Django lazy imports and settings indirection
 possibly-missing-submodule = "ignore"
 
 # DRF serializer pattern — validate/update/create overrides are idiomatic
 invalid-method-override = "ignore"
+invalid-attribute-override = "ignore"  # Django manager/field overrides (e.g. `objects`)
 
 # Conditional base classes (e.g. EnterpriseEventQuery | EventQuery pattern)
 unsupported-base = "ignore"
@@ -843,3 +863,10 @@ deprecated = "ignore"
 # These rules catch real bugs in new code, so they stay enabled.
 # invalid-type-form is the exception: generated code + ty limitations on valid patterns.
 invalid-type-form = "ignore"
+
+[[tool.ty.overrides]]
+# Scanner schemas are built with create_model at runtime, so every kwarg looks extra to ty
+include = ["products/replay_vision/backend/tests/test_scanners.py"]
+
+[tool.ty.overrides.rules]
+pydantic-discarded-extra-argument = "ignore"

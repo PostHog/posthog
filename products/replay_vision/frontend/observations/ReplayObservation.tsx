@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
     IconArrowLeft,
     IconArrowRight,
+    IconChevronRight,
     IconClock,
     IconCollapse,
     IconExpand,
@@ -22,6 +23,7 @@ import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
@@ -66,6 +68,7 @@ import {
 } from '../replay_scanners/types'
 import { scannerLabel } from '../utils/observation'
 import { ObservationLabelControl } from './ObservationLabelControl'
+import { ObservationPinnedProperties } from './ObservationPinnedProperties'
 import { neighborFilterParams, observationDetailUrl, replayObservationLogic } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
@@ -100,6 +103,34 @@ function AutoSeekToTime({
         seekedForTrigger.current = trigger
     }, [startMs, endMs, ms, trigger, playerKey, sessionRecordingId])
     return null
+}
+
+// A reader opens an observation for the result, not the prompt they configured. Collapse the prompt to one
+// peek line so the verdict and reasoning stay above the fold.
+function PromptRow({ prompt }: { prompt: string }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    return (
+        <div>
+            <button
+                type="button"
+                className="flex items-center gap-0.5 text-xs text-muted mb-0.5 hover:text-default"
+                onClick={() => setExpanded(!expanded)}
+                aria-expanded={expanded}
+                data-attr="vision-observation-prompt-toggle"
+            >
+                <IconChevronRight className={cn('transition-transform', expanded && 'rotate-90')} />
+                Prompt
+            </button>
+            <p
+                className={cn(
+                    'text-sm m-0 leading-snug',
+                    expanded ? 'text-default whitespace-pre-wrap' : 'text-muted line-clamp-1'
+                )}
+            >
+                {prompt}
+            </p>
+        </div>
+    )
 }
 
 export function ReplayObservationSceneComponent(): JSX.Element {
@@ -384,11 +415,6 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     <ScannerTypeBadge scannerType={scannerType} />
                                 </LabeledRow>
                             )}
-                            {prompt && scannerType !== 'summarizer' && (
-                                <LabeledRow label="Prompt">
-                                    <p className="text-sm text-default m-0 leading-snug">{prompt}</p>
-                                </LabeledRow>
-                            )}
                             <LabeledRow label={scannerType ? SUCCEEDED_OUTPUT_LABEL[scannerType] : ''}>
                                 <ObservationPrimaryOutput
                                     observation={observation}
@@ -397,6 +423,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     copyable
                                 />
                             </LabeledRow>
+                            {prompt && scannerType !== 'summarizer' && <PromptRow prompt={prompt} />}
                             {observation.completed_at && (
                                 <LabeledRow label="Event">
                                     <Link to={urls.event(observation.id, observation.completed_at)}>
@@ -438,6 +465,8 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     </section>
                 )}
             </div>
+
+            <ObservationPinnedProperties sessionId={observation.session_id} />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <LemonCard className="p-4" hoverEffect={false}>

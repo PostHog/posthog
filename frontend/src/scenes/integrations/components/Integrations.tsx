@@ -14,10 +14,10 @@ import { Integration } from './Integration'
 
 export { GithubIntegration, GitHubInstallationLink } from './GithubIntegration'
 
-export function GitLabIntegration(): JSX.Element {
+export function GitLabIntegration({ centered }: { centered?: boolean } = {}): JSX.Element {
     const [isOpen, setIsOpen] = useState<boolean>(false)
     return (
-        <Integration kind="gitlab">
+        <Integration kind="gitlab" centered={centered}>
             <LemonButton type="secondary" onClick={() => setIsOpen(true)}>
                 Connect project
             </LemonButton>
@@ -26,22 +26,24 @@ export function GitLabIntegration(): JSX.Element {
     )
 }
 
-export function LinearIntegration({ next }: { next?: string }): JSX.Element {
-    return <OAuthIntegration kind="linear" connectText="Connect workspace" next={next} />
+export function LinearIntegration({ next, centered }: { next?: string; centered?: boolean }): JSX.Element {
+    return <OAuthIntegration kind="linear" connectText="Connect workspace" next={next} centered={centered} />
 }
 
-export function JiraIntegration({ next }: { next?: string }): JSX.Element {
-    return <OAuthIntegration kind="jira" connectText="Connect site" next={next} />
+export function JiraIntegration({ next, centered }: { next?: string; centered?: boolean }): JSX.Element {
+    return <OAuthIntegration kind="jira" connectText="Connect site" next={next} centered={centered} />
 }
 
 const OAuthIntegration = ({
     kind,
     connectText,
     next,
+    centered,
 }: {
     kind: IntegrationKind
     connectText: string
     next?: string
+    centered?: boolean
 }): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
     const settingsPath = next ?? urls.settings('environment-integrations')
@@ -51,7 +53,7 @@ const OAuthIntegration = ({
     })
 
     return (
-        <Integration kind={kind}>
+        <Integration kind={kind} centered={centered}>
             <LemonButton type="secondary" disableClientSideRouting to={authorizationUrl}>
                 {connectText}
             </LemonButton>

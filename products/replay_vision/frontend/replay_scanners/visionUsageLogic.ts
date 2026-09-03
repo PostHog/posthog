@@ -1,30 +1,60 @@
-import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { IntervalType } from '~/types'
-
-import { visionScannersList, visionScannersPartialUpdate } from '../generated/api'
-import { refreshVisionQuota } from '../logics/visionQuotaLogic'
+import {
+    environmentVisionQuotaSpendSeriesRetrieve,
+    visionScannersList,
+    visionScannersPartialUpdate,
+} from '../generated/api'
+import type { VisionQuotaApi, VisionSpendSeriesApi } from '../generated/api.schemas'
+import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { fleetContributions } from '../utils/quotaContributions'
+import { hasCreditLimit } from '../utils/quotaProjection'
+import { currentQuotaScenario } from '../utils/quotaScenarios'
+import { type SpendVerdict, spendVerdict } from '../utils/spendVerdict'
 import type { ReplayScanner } from './types'
 
-export type SpendChartInterval = Extract<IntervalType, 'day' | 'week' | 'month'>
+/** Settled credit spend per UTC day of the current billing period, oldest first, zero-filled through today. */
+export type SpendSeries = VisionSpendSeriesApi['days']
 
 interface visionUsageLogicValues {
     usageScanners: ReplayScanner[]
     usageScannersLoading: boolean
-    spendChartInterval: SpendChartInterval
     togglingScannerIds: string[]
+    spendSeriesResponse: VisionSpendSeriesApi | null
+    spendSeriesResponseLoading: boolean
+    spendSeries: SpendSeries | null
+    spendSeriesLoading: boolean
+    spendSeriesFailed: boolean
+    quota: VisionQuotaApi | null
+    displayQuota: VisionQuotaApi | null
+    onFreePlan: boolean
+    verdict: SpendVerdict
+    usageRows: ReplayScanner[]
+    hiddenScannerCount: number
+    usageRowsTotalCredits: number
+    resetsOn: dayjs.Dayjs | null
+    daysToReset: number | null
+    projectedTotalCredits: number | null
+    projectedPctOfLimit: number | null
 }
 
 interface visionUsageLogicActions {
     loadUsageScanners: () => { value: true }
     loadUsageScannersSuccess: (usageScanners: ReplayScanner[]) => { usageScanners: ReplayScanner[] }
-    setSpendChartInterval: (interval: SpendChartInterval) => { interval: SpendChartInterval }
     toggleScannerEnabled: (scanner: ReplayScanner) => { scanner: ReplayScanner }
     setScannerEnabled: (id: string, enabled: boolean) => { id: string; enabled: boolean }
     finishTogglingScanner: (id: string) => { id: string }
+    loadSpendSeries: () => void
+    loadSpendSeriesSuccess: (spendSeriesResponse: VisionSpendSeriesApi | null) => {
+        spendSeriesResponse: VisionSpendSeriesApi | null
+    }
+    loadSpendSeriesFailure: (error: string) => { error: string }
+    loadQuotaSuccess: (quota: VisionQuotaApi | null) => { quota: VisionQuotaApi | null }
 }
 
 export type visionUsageLogicType = MakeLogicType<visionUsageLogicValues, visionUsageLogicActions>
@@ -35,14 +65,33 @@ export type visionUsageLogicType = MakeLogicType<visionUsageLogicValues, visionU
 // per-row enable toggle can update the list optimistically without a refetch.
 export const visionUsageLogic = kea<visionUsageLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'visionUsageLogic']),
+    connect(() => ({
+        values: [visionQuotaLogic, ['quota', 'displayQuota', 'onFreePlan']],
+        actions: [visionQuotaLogic, ['loadQuotaSuccess']],
+    })),
     actions({
         loadUsageScanners: true,
         loadUsageScannersSuccess: (usageScanners: ReplayScanner[]) => ({ usageScanners }),
-        setSpendChartInterval: (interval: SpendChartInterval) => ({ interval }),
         toggleScannerEnabled: (scanner: ReplayScanner) => ({ scanner }),
         setScannerEnabled: (id: string, enabled: boolean) => ({ id, enabled }),
         finishTogglingScanner: (id: string) => ({ id }),
     }),
+    loaders(() => ({
+        // The series names its own period, so it loads alongside the quota instead of waiting behind it.
+        spendSeriesResponse: [
+            null as VisionSpendSeriesApi | null,
+            {
+                loadSpendSeries: async (): Promise<VisionSpendSeriesApi | null> => {
+                    const scenario = currentQuotaScenario()
+                    if (scenario) {
+                        return scenario.dailySpend
+                    }
+                    const teamId = teamLogic.values.currentTeamId
+                    return teamId ? await environmentVisionQuotaSpendSeriesRetrieve(String(teamId)) : null
+                },
+            },
+        ],
+    })),
     reducers({
         usageScanners: [
             [] as ReplayScanner[],
@@ -59,12 +108,6 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
                 loadUsageScannersSuccess: () => false,
             },
         ],
-        spendChartInterval: [
-            'day' as SpendChartInterval,
-            {
-                setSpendChartInterval: (_, { interval }) => interval,
-            },
-        ],
         togglingScannerIds: [
             [] as string[],
             {
@@ -73,9 +116,81 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
                 finishTogglingScanner: (state, { id }) => state.filter((toggling) => toggling !== id),
             },
         ],
+        spendSeriesFailed: [
+            false,
+            {
+                loadSpendSeries: () => false,
+                loadSpendSeriesFailure: () => true,
+            },
+        ],
+    }),
+    selectors({
+        spendSeries: [
+            (s) => [s.spendSeriesResponse],
+            (response: VisionSpendSeriesApi | null): SpendSeries | null => response?.days ?? null,
+        ],
+        spendSeriesLoading: [(s) => [s.spendSeriesResponseLoading], (loading: boolean): boolean => loading],
+        verdict: [
+            (s) => [s.displayQuota, s.onFreePlan],
+            (quota: VisionQuotaApi | null, onFreePlan: boolean): SpendVerdict =>
+                spendVerdict(quota, fleetContributions(quota), { onFreePlan }),
+        ],
+        // Rows that cost something this period or are set to: idle disabled scanners only add noise.
+        usageRows: [
+            (s) => [s.usageScanners],
+            (usageScanners: ReplayScanner[]): ReplayScanner[] =>
+                usageScanners.filter(
+                    (scanner) =>
+                        scanner.credits_this_month > 0 ||
+                        (scanner.enabled && (scanner.estimated_monthly_credits ?? 0) > 0)
+                ),
+        ],
+        hiddenScannerCount: [
+            (s) => [s.usageScanners, s.usageRows],
+            (usageScanners: ReplayScanner[], usageRows: ReplayScanner[]): number =>
+                usageScanners.length - usageRows.length,
+        ],
+        usageRowsTotalCredits: [
+            (s) => [s.usageRows],
+            (usageRows: ReplayScanner[]): number => usageRows.reduce((sum, s) => sum + s.credits_this_month, 0),
+        ],
+        resetsOn: [
+            (s) => [s.displayQuota],
+            // UTC, like the ledger's day buckets and the chart axis, so every surface names the same reset day.
+            (quota: VisionQuotaApi | null): dayjs.Dayjs | null =>
+                quota?.period_end ? dayjs.utc(quota.period_end) : null,
+        ],
+        daysToReset: [
+            (s) => [s.resetsOn],
+            (resetsOn: dayjs.Dayjs | null): number | null =>
+                resetsOn ? Math.max(resetsOn.startOf('day').diff(dayjs.utc().startOf('day'), 'day'), 0) : null,
+        ],
+        // What the period will actually cost: spend stops at the limit, so demand past it is not billed.
+        projectedTotalCredits: [
+            (s) => [s.displayQuota, s.verdict],
+            (quota: VisionQuotaApi | null, verdict: SpendVerdict): number | null => {
+                const demand = verdict.projectedDemandCredits
+                if (demand === null) {
+                    return null
+                }
+                return hasCreditLimit(quota) ? Math.min(demand, quota.credit_limit) : demand
+            },
+        ],
+        projectedPctOfLimit: [
+            (s) => [s.displayQuota, s.projectedTotalCredits],
+            (quota: VisionQuotaApi | null, projectedTotalCredits: number | null): number | null =>
+                hasCreditLimit(quota) && quota.credit_limit > 0 && projectedTotalCredits !== null
+                    ? Math.round((projectedTotalCredits / quota.credit_limit) * 100)
+                    : null,
+        ],
     }),
     listeners(({ actions, values }) => ({
         loadUsageScanners: async () => {
+            const scenario = currentQuotaScenario()
+            if (scenario?.usageScanners) {
+                actions.loadUsageScannersSuccess(scenario.usageScanners as unknown as ReplayScanner[])
+                return
+            }
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 actions.loadUsageScannersSuccess([])
@@ -88,7 +203,7 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
                 })
                 actions.loadUsageScannersSuccess((response.results ?? []) as unknown as ReplayScanner[])
             } catch {
-                // Keep whatever list is already shown; the table's own empty/loaded state stays consistent.
+                // Keep the list already shown; the table's own empty/loaded state stays consistent.
                 actions.loadUsageScannersSuccess(values.usageScanners)
             }
         },
@@ -112,8 +227,23 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
                 actions.finishTogglingScanner(scanner.id)
             }
         },
+        // Quota refetches after scanner toggles keep the same period, and settled daily spend doesn't
+        // move with them, so a loaded series is only refreshed when the period changes. A failed load
+        // is not retried on every refetch either; the chart offers a retry instead.
+        loadQuotaSuccess: ({ quota }) => {
+            const loaded = values.spendSeriesResponse
+            if (
+                quota?.period_start &&
+                loaded &&
+                !values.spendSeriesLoading &&
+                dayjs.utc(loaded.period_start).valueOf() !== dayjs.utc(quota.period_start).valueOf()
+            ) {
+                actions.loadSpendSeries()
+            }
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadUsageScanners()
+        actions.loadSpendSeries()
     }),
 ])

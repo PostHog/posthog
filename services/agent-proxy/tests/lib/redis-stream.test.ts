@@ -11,6 +11,7 @@
 
 import { describe, it, expect } from 'vitest'
 
+import { STREAM_COMPLETED_TTL_SECONDS, STREAM_WATCHED_TTL_SECONDS } from '@/lib/constants.js'
 import {
     TaskRunRedisStream,
     getStreamKey,
@@ -20,6 +21,7 @@ import {
     getHeartbeatKey,
     getFirstCommandKey,
     getFirstActivityKey,
+    getWatchedKey,
 } from '@/lib/redis-stream.js'
 import {
     TaskRunStreamError,
@@ -426,12 +428,18 @@ class FakePipeline {
 
 let _runCounter = 0
 
-function newStream(redis?: FakeRedis): { stream: TaskRunRedisStream; redis: FakeRedis; streamKey: string } {
+function newStream(
+    redis?: FakeRedis,
+    opts?: { presenceGated?: boolean }
+): { stream: TaskRunRedisStream; redis: FakeRedis; streamKey: string } {
     const r = redis ?? new FakeRedis()
     _runCounter++
     const runId = `test-run-${_runCounter}`
     const streamKey = getStreamKey(runId)
-    const stream = new TaskRunRedisStream(streamKey, r as unknown as import('ioredis').Redis, { timeout: 60 })
+    const stream = new TaskRunRedisStream(streamKey, r as unknown as import('ioredis').Redis, {
+        timeout: 60,
+        presenceGated: opts?.presenceGated ?? false,
+    })
     return { stream, redis: r, streamKey }
 }
 
@@ -483,11 +491,11 @@ describe('redis-stream', () => {
         it('accepts seq=1 as the first event (seq=0 is the initial sentinel)', async () => {
             const { stream, redis, streamKey } = newStream()
 
-            const id = await stream.writeEventWithSequence({ type: 'msg' }, 1)
+            const write = await stream.writeEventWithSequence({ type: 'msg' }, 1)
 
-            expect(id).not.toBeNull()
-            expect(typeof id).toBe('string')
-            expect(id!.length).toBeGreaterThan(0)
+            expect(write.accepted).toBe(true)
+            expect(typeof write.streamId).toBe('string')
+            expect(write.streamId!.length).toBeGreaterThan(0)
             // last-seq key updated
             expect(redis.getStringValue(getSequenceKey(streamKey))).toBe('1')
             // event written to stream
@@ -503,21 +511,22 @@ describe('redis-stream', () => {
             const id2 = await stream.writeEventWithSequence({ type: 'b' }, 2)
             const id3 = await stream.writeEventWithSequence({ type: 'c' }, 3)
 
-            expect(id1).not.toBeNull()
-            expect(id2).not.toBeNull()
-            expect(id3).not.toBeNull()
+            expect(id1.streamId).not.toBeNull()
+            expect(id2.streamId).not.toBeNull()
+            expect(id3.streamId).not.toBeNull()
             expect(redis.getStringValue(getSequenceKey(streamKey))).toBe('3')
             expect(redis.readStreamData(streamKey)).toHaveLength(3)
         })
 
-        it('returns null for a duplicate sequence (already accepted)', async () => {
+        it('reports not-accepted for a duplicate sequence (already accepted)', async () => {
             const { stream, redis, streamKey } = newStream()
 
             const first = await stream.writeEventWithSequence({ type: 'first' }, 1)
             const dup = await stream.writeEventWithSequence({ type: 'duplicate' }, 1)
 
-            expect(first).not.toBeNull()
-            expect(dup).toBeNull()
+            expect(first.streamId).not.toBeNull()
+            expect(dup.accepted).toBe(false)
+            expect(dup.streamId).toBeNull()
             // Only the original event in stream
             const data = redis.readStreamData(streamKey)
             expect(data).toHaveLength(1)
@@ -525,12 +534,13 @@ describe('redis-stream', () => {
             expect(redis.getStringValue(getSequenceKey(streamKey))).toBe('1')
         })
 
-        it('returns null for seq=0 (treated as already accepted / initial sentinel)', async () => {
+        it('reports not-accepted for seq=0 (treated as already accepted / initial sentinel)', async () => {
             const { stream } = newStream()
 
             const result = await stream.writeEventWithSequence({ type: 'zero' }, 0)
 
-            expect(result).toBeNull()
+            expect(result.accepted).toBe(false)
+            expect(result.streamId).toBeNull()
         })
 
         it('throws TaskRunStreamSequenceGap when seq skips ahead', async () => {
@@ -635,6 +645,80 @@ describe('redis-stream', () => {
     })
 
     // -----------------------------------------------------------------------
+    // presence gating
+    // -----------------------------------------------------------------------
+
+    describe('presence gating', () => {
+        it.each([
+            { name: 'gated and unwatched skips the mirror', presenceGated: true, watched: false, mirrored: false },
+            { name: 'gated and watched mirrors', presenceGated: true, watched: true, mirrored: true },
+            { name: 'ungated always mirrors', presenceGated: false, watched: false, mirrored: true },
+        ])('$name', async ({ presenceGated, watched, mirrored }) => {
+            const { stream, redis, streamKey } = newStream(undefined, { presenceGated })
+            if (watched) {
+                await stream.markWatched()
+            }
+
+            const write = await stream.writeEventWithSequence({ type: 'msg' }, 1)
+
+            expect(write.accepted).toBe(true)
+            expect(write.streamId !== null).toBe(mirrored)
+            expect(redis.readStreamData(streamKey)).toEqual(mirrored ? [{ type: 'msg' }] : [])
+            expect(redis.getStringValue(getSequenceKey(streamKey))).toBe('1')
+        })
+
+        it('keeps advancing the sequence across a skip so a later watched write is not a gap', async () => {
+            const { stream, redis, streamKey } = newStream(undefined, { presenceGated: true })
+
+            const skipped = await stream.writeEventWithSequence({ type: 'first' }, 1)
+            await stream.markWatched()
+            const mirrored = await stream.writeEventWithSequence({ type: 'second' }, 2)
+
+            expect(skipped.accepted).toBe(true)
+            expect(skipped.streamId).toBeNull()
+            expect(mirrored.streamId).not.toBeNull()
+            expect(redis.readStreamData(streamKey)).toEqual([{ type: 'second' }])
+            expect(redis.getStringValue(getSequenceKey(streamKey))).toBe('2')
+        })
+
+        it('markWatched sets the watched key with the shared TTL', async () => {
+            const { stream, redis, streamKey } = newStream(undefined, { presenceGated: true })
+
+            await stream.markWatched()
+
+            expect(redis.getStringValue(getWatchedKey(streamKey))).toBe('1')
+            const expiry = redis.getExpiryMs(getWatchedKey(streamKey))
+            expect(expiry).not.toBeNull()
+            expect(expiry!).toBeLessThanOrEqual(Date.now() + STREAM_WATCHED_TTL_SECONDS * 1000)
+        })
+
+        it.each([
+            {
+                name: 'markCompleteAfterSequence',
+                write: (stream: TaskRunRedisStream) => stream.markCompleteAfterSequence(1),
+                sentinel: { type: 'STREAM_STATUS', status: 'complete' },
+            },
+            {
+                name: 'markComplete',
+                write: (stream: TaskRunRedisStream) => stream.markComplete(),
+                sentinel: { type: 'STREAM_STATUS', status: 'complete' },
+            },
+            {
+                name: 'markError',
+                write: (stream: TaskRunRedisStream) => stream.markError('boom'),
+                sentinel: { type: 'STREAM_STATUS', status: 'error', error: 'boom' },
+            },
+        ])('$name still writes its sentinel while unwatched', async ({ write, sentinel }) => {
+            const { stream, redis, streamKey } = newStream(undefined, { presenceGated: true })
+            await stream.writeEventWithSequence({ type: 'msg' }, 1)
+
+            await write(stream)
+
+            expect(redis.readStreamData(streamKey)).toEqual([sentinel])
+        })
+    })
+
+    // -----------------------------------------------------------------------
     // markComplete
     // -----------------------------------------------------------------------
 
@@ -668,7 +752,7 @@ describe('redis-stream', () => {
             expect(data).toHaveLength(1)
         })
 
-        it('refreshes stream TTL on completion', async () => {
+        it('drops stream TTL to the drain window on completion', async () => {
             const { stream, redis, streamKey } = newStream()
 
             await stream.markComplete()
@@ -676,6 +760,20 @@ describe('redis-stream', () => {
             const exp = redis.getExpiryMs(streamKey)
             expect(exp).not.toBeNull()
             expect(exp!).toBeGreaterThan(Date.now())
+            expect(exp!).toBeLessThanOrEqual(Date.now() + STREAM_COMPLETED_TTL_SECONDS * 1000)
+        })
+
+        it('drops stream TTL to the drain window when already completed', async () => {
+            const { stream, redis, streamKey } = newStream()
+
+            await stream.writeEvent({ type: 'msg' })
+            await redis.set(getCompletedKey(streamKey), '1')
+
+            await stream.markComplete()
+
+            const exp = redis.getExpiryMs(streamKey)
+            expect(exp).not.toBeNull()
+            expect(exp!).toBeLessThanOrEqual(Date.now() + STREAM_COMPLETED_TTL_SECONDS * 1000)
         })
     })
 
@@ -774,7 +872,7 @@ describe('redis-stream', () => {
             expect((error as string).length).toBe(500)
         })
 
-        it('refreshes stream TTL when writing the error sentinel', async () => {
+        it('drops stream TTL to the drain window when writing the error sentinel', async () => {
             const { stream, redis, streamKey } = newStream()
 
             await stream.markError('oops')
@@ -782,6 +880,18 @@ describe('redis-stream', () => {
             const exp = redis.getExpiryMs(streamKey)
             expect(exp).not.toBeNull()
             expect(exp!).toBeGreaterThan(Date.now())
+            expect(exp!).toBeLessThanOrEqual(Date.now() + STREAM_COMPLETED_TTL_SECONDS * 1000)
+        })
+
+        it('sets the completed key so later sequenced writes are rejected', async () => {
+            const { stream, redis, streamKey } = newStream()
+
+            await stream.markError('oops')
+
+            expect(redis.getStringValue(getCompletedKey(streamKey))).toBe('1')
+            await expect(stream.writeEventWithSequence({ type: 'late' }, 1)).rejects.toThrow(
+                TaskRunStreamAlreadyCompleted
+            )
         })
     })
 

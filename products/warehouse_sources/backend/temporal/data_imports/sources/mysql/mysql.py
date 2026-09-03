@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     compute_projected_columns,
     project_arrow_columns,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SourceMetadata,
     SQLSourceImplementation,
@@ -606,6 +607,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
                 or _is_transient_connect_broken_pipe(e)
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
+                or _is_transient_tiproxy_unavailable(e)
                 or _is_transient_too_many_connections(e)
                 or _is_transient_cant_create_thread(e)
             ):
@@ -659,6 +661,22 @@ def _is_transient_vitess_reparent(e: BaseException) -> bool:
     return _VITESS_REPARENT_TOKEN in " ".join(str(arg) for arg in e.args)
 
 
+# TiProxy (TiDB's connection proxy) surfaces this 1105 error when it cannot reach a TiDB
+# node due to a failover, a restart, or a momentary network blip. It arrives during the
+# MySQL auth handshake: TiProxy accepts the TCP connection but then cannot route to a
+# backend TiDB node and sends back ER_UNKNOWN_ERROR (1105) with this fixed message. Like
+# the Vitess `code = Unavailable` case above (same error code, same proxy-layer pattern),
+# a fresh attempt recovers once a healthy TiDB node is available.
+_TIPROXY_UNAVAILABLE_TOKEN = "TiProxy fails to connect to TiDB"
+
+
+def _is_transient_tiproxy_unavailable(e: BaseException) -> bool:
+    """Return True if TiProxy could not reach a TiDB backend due to a transient failure."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    return _TIPROXY_UNAVAILABLE_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
 def _is_transient_metadata_query_reset(e: BaseException) -> bool:
     """Return True if a metadata query's connection was reset mid-query — a transient blip.
 
@@ -706,6 +724,7 @@ def _retry_on_transient_tablet_unavailable(
             if attempt >= max_attempts or not (
                 _is_transient_tablet_unavailable(e)
                 or _is_transient_vitess_reparent(e)
+                or _is_transient_tiproxy_unavailable(e)
                 or _is_transient_metadata_query_reset(e)
             ):
                 raise
@@ -1521,12 +1540,9 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     # the query actually returned instead of failing the batch build.
                     read_schema = restrict_schema_to_columns(arrow_schema, column_names)
 
-                    while True:
-                        # use chunk_size to fetch rows instead of DEFAULT_CHUNK_SIZE
-                        batch = ss_cursor.fetchmany(chunk_size)
-                        if not batch:
-                            break
-
+                    for batch in fetch_row_batches(
+                        ss_cursor.fetchmany, max_rows=chunk_size, byte_bounded=inputs.byte_bounded_extraction
+                    ):
                         yield table_from_iterator(
                             (dict(zip(column_names, row)) for row in batch),
                             read_schema,

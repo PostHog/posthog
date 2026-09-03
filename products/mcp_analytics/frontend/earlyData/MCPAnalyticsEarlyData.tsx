@@ -280,7 +280,12 @@ function ChecklistCard(): JSX.Element {
                         <div>
                             <div className="text-base font-medium">{item.title}</div>
                             <div className="text-muted text-sm">
-                                {item.detail} {item.status !== 'ok' ? <Link to={item.docsUrl}>Learn more</Link> : null}
+                                {item.detail}{' '}
+                                {item.appLink ? (
+                                    <Link to={item.appLink.to}>{item.appLink.label}</Link>
+                                ) : item.status !== 'ok' ? (
+                                    <Link to={item.docsUrl}>Learn more</Link>
+                                ) : null}
                             </div>
                         </div>
                     </div>

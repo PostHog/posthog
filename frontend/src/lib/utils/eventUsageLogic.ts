@@ -9,7 +9,6 @@ import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
-import type { DashboardAddTileType } from 'scenes/dashboard/dashboardAddTileTypes'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import type { SelfDrivingOnboardingStepId } from 'scenes/onboarding/onboardingEventUsageLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
@@ -78,6 +77,8 @@ import {
     Survey,
     SurveyQuestionType,
 } from '~/types'
+
+import type { DashboardAddTileType } from 'products/dashboards/frontend/types'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'

@@ -294,7 +294,7 @@ export const savedCaptureCreate = async (
     options?: RequestInit
 ): Promise<HeatmapScreenshotResponseApi> => {
     const formData = new FormData()
-    if (savedHeatmapCaptureRequestApi.image !== undefined) {
+    if (savedHeatmapCaptureRequestApi.image !== undefined && savedHeatmapCaptureRequestApi.image !== null) {
         formData.append(`image`, savedHeatmapCaptureRequestApi.image)
     }
     if (savedHeatmapCaptureRequestApi.width !== undefined) {

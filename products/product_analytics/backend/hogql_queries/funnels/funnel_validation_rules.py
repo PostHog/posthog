@@ -4,7 +4,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import FunnelsQuery, FunnelVizType, StepOrderValue
 
-from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
+from posthog.hogql_queries.utils.entities import is_equal, is_superset
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
 

@@ -90,7 +90,7 @@ export function subjectDetailUrl(check: DataQualityOverviewCheckApi): string | n
 
 export const ROW_ACTIONS_ID_PREFIX = 'data-quality-check-actions-'
 export const SUBJECT_DISCLOSURE_ID_PREFIX = 'data-quality-subject-disclosure-'
-export const BROWSE_ACTION_ID = 'data-quality-browse-subjects'
+export const NEW_CHECK_ACTION_ID = 'data-quality-overview-new-check'
 
 export function rowActionsId(checkId: string): string {
     return `${ROW_ACTIONS_ID_PREFIX}${checkId}`
@@ -120,7 +120,7 @@ export function focusCandidatesAfterDelete(groups: SubjectGroup[], subjectKey: s
         ...(siblings.length ? [subjectDisclosureId(subjectKey)] : []),
         ...(groups[groupIndex + 1] ? [subjectDisclosureId(groups[groupIndex + 1].subjectKey)] : []),
         ...(groupIndex > 0 ? [subjectDisclosureId(groups[groupIndex - 1].subjectKey)] : []),
-        BROWSE_ACTION_ID,
+        NEW_CHECK_ACTION_ID,
     ]
 }
 

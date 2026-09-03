@@ -9,6 +9,8 @@ export interface ShellCreateCommandInput {
   command: string;
   cwd: string;
   taskId?: string;
+  additionalEnv?: Record<string, string>;
+  unsetEnv?: string[];
 }
 
 export interface ShellResizeInput {

@@ -14,8 +14,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.insights.utils.utils import get_response_hogql
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
+from posthog.hogql_queries.utils.utils import get_response_hogql
 
 
 class BoxPlotTrendsQueryRunner(TrendsQueryRunner):

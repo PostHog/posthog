@@ -3,7 +3,7 @@ import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -27,8 +27,9 @@ import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/typ
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
+import { SupportMarkdown } from '../../components/Editor'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
-import { SlaDisplay } from '../../components/SlaDisplay'
+import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { AIPanel } from './AIPanel'
@@ -109,6 +110,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         feedbackByMessageId,
         editingMessageId,
         discussionsEnabled,
+        fullEmailContent,
+        fullEmailContentLoading,
+        fullEmailMessageId,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
     // (the ticket row carries them through on navigation). Preserve them on the
@@ -132,6 +136,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         startEditingMessage,
         cancelEditingMessage,
         deleteMessage,
+        loadFullEmail,
+        closeFullEmail,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
@@ -230,6 +236,17 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 resourceType={{ type: 'conversation' }}
                 forceBackTo={ticketListBackTo(searchParams)}
             />
+            <LemonModal title="Full email" isOpen={fullEmailMessageId !== null} onClose={closeFullEmail}>
+                {fullEmailContentLoading ? (
+                    <div className="flex h-40 items-center justify-center">
+                        <Spinner />
+                    </div>
+                ) : (
+                    <div className="max-h-96 overflow-y-auto break-words text-sm">
+                        <SupportMarkdown disableImages>{fullEmailContent ?? ''}</SupportMarkdown>
+                    </div>
+                )}
+            </LemonModal>
 
             <div className="flex flex-col lg:flex-row items-start lg:min-h-0 lg:flex-1">
                 <div
@@ -275,6 +292,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onEditMessage={startEditingMessage}
                         onDeleteMessage={deleteMessage}
                         onCancelEdit={cancelEditingMessage}
+                        fullEmailLoadingMessageId={fullEmailContentLoading ? fullEmailMessageId : null}
+                        onViewFullEmail={loadFullEmail}
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} className="z-20" />

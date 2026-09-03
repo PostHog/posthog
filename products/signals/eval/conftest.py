@@ -18,7 +18,7 @@ from posthog.models import Organization, Team
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 # Initialize posthoganalytics default_client so the LLM wrapper (which requires it) works
-posthoganalytics.default_client = Posthog(  # ty: ignore[invalid-assignment]
+posthoganalytics.default_client = Posthog(
     os.environ.get("POSTHOG_PROJECT_API_KEY", "phx_unused"),
     host=os.environ.get("POSTHOG_HOST", "http://localhost:8010"),
     disabled=True,

@@ -26,7 +26,10 @@ const SHOW_ACTIONS_TOOL_DESCRIPTION =
   "on its own. Pass `report_id` to open one report instead of the whole inbox. " +
   "Offer only what the person actually wants to do next, in the order they " +
   "would want it. Buttons that decorate an answer are noise, so skip the call " +
-  "entirely when there is nothing worth clicking.";
+  "entirely when there is nothing worth clicking. " +
+  "The buttons are drawn where you call the tool, so write the text they " +
+  "follow from first and call this after it. Calling it before the text puts " +
+  "the buttons above the message that explains them.";
 
 /**
  * Offers the user buttons; it does not press them. The handler only

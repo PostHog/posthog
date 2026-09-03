@@ -158,10 +158,21 @@
 # name: TestBlastRadius.test_user_blast_radius_with_group_key_property.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count(DISTINCT group_key)
+  SELECT count(DISTINCT groups.group_key) AS `count(DISTINCT key)`
   FROM groups
-  WHERE team_id = 99999
-    AND group_type_index = 0
+  WHERE and(equals(groups.team_id, 99999), equals(groups.group_type_index, 0))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_group_key_property.2
@@ -177,6 +188,26 @@
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
   WHERE and(equals(groups.team_id, 99999), equals(groups.index, 0), ilike(groups.key, '%org:%'))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_group_key_property.3
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT groups.group_key) AS `count(DISTINCT key)`
+  FROM groups
+  WHERE and(equals(groups.team_id, 99999), equals(groups.group_type_index, 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -222,10 +253,21 @@
 # name: TestBlastRadius.test_user_blast_radius_with_groups.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count(DISTINCT group_key)
+  SELECT count(DISTINCT groups.group_key) AS `count(DISTINCT key)`
   FROM groups
-  WHERE team_id = 99999
-    AND group_type_index = 0
+  WHERE and(equals(groups.team_id, 99999), equals(groups.group_type_index, 0))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries
@@ -259,10 +301,21 @@
 # name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count(DISTINCT group_key)
+  SELECT count(DISTINCT groups.group_key) AS `count(DISTINCT key)`
   FROM groups
-  WHERE team_id = 99999
-    AND group_type_index = 0
+  WHERE and(equals(groups.team_id, 99999), equals(groups.group_type_index, 0))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts
@@ -745,6 +798,7 @@
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
+         "posthog_taggeditem"."project_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -1699,10 +1753,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL

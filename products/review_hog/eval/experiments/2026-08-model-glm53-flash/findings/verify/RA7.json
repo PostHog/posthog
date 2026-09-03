@@ -1,0 +1,6 @@
+{
+    "id": "RA7",
+    "real": false,
+    "source": "fresh",
+    "reasoning": "Refuted. The late-binding pitfall needs a loop or post-registration reassignment; receivers.py has neither. pr_url (:93), acting_user_id (:111), and stamphog_pr_url (:130) are locals of one handle_task_run_saved invocation, each bound once and never reassigned before the lambdas at :116-125 and :131-139 register. A rapid second save fires a fresh receiver invocation with its own locals and closures - it cannot mutate the first invocation's cells, and a DB overwrite of output.pr_url never changes an already-captured Python string. instance.team_id/.id and task.signal_report_id, read at callback time, are stable across saves. Each callback dispatches exactly its own save's value. The claim is also wrong that both lambdas reference stamphog_pr_url - only the second (:133) does."
+}

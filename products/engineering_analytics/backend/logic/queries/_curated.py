@@ -195,7 +195,7 @@ class CuratedGitHubSource:
 
         ``created_floor`` adds the raw-string scan floor inside the builder — callers must register
         {job_created_floor} (see run_started_floor_constant). A windowed caller needs it: the builder's
-        ``is_rerun_copy`` window blocks an outer ``created_at_raw`` predicate from pruning the scan."""
+        ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it."""
         if not self._tables.workflow_jobs:
             return None
         return f"({workflow_jobs.build_query(self._tables.workflow_jobs, created_floor=created_floor)})"
@@ -317,8 +317,8 @@ class CuratedGitHubSource:
         ``created_floor`` adds the raw-string scan floor inside the jobs builder — callers must
         register {job_created_floor} (see run_windowed_job_created_floor_constant, the right slack for
         the run-windowed predicates every cost query uses). Every windowed caller wants it: the cost
-        source's window predicates read the RUN's columns and so can never prune the jobs scan, which
-        the ``is_rerun_copy`` window would otherwise sort in full on every call.
+        source's window predicates read the RUN's columns and so can never prune the jobs scan, and
+        the ``is_rerun_copy`` duplicate scan would otherwise aggregate the full history on every call.
         """
         if not self._tables.workflow_jobs:
             return None
