@@ -4182,7 +4182,7 @@ ${unsupportedDeliverable}`;
     return `${preamble}
 - For Slack deliverables, create a living artifact before claiming delivery. POST to \`${endpoint}\` with \`$POSTHOG_PERSONAL_API_KEY\`; choose adapter \`slack_canvas\`, \`slack_message\`, \`slack_file\`, or \`document_connector\`. Use \`adapter=slack_file\` with \`content_base64\` for binary deliverables such as .xlsx/.pdf/.docx, or \`source_artifact_id\` / \`source_storage_path\` for a file you already uploaded as a \`type=output\` run artifact.
 - To update a prior deliverable, GET the returned artifact id or POST new \`content\`, \`content_base64\`, or source artifact fields to \`${endpoint}<artifact_id>/edit/\`.${chartBullets}
-- Do not paste living-artifact Slack file links or permalinks into your final Slack answer unless the user explicitly asks for the URL. The Slack relay attaches pending file artifacts to your final answer automatically, so mention the artifact by name only if useful.
+- Do not paste living-artifact Slack file links, canvas links, or permalinks into your final Slack answer unless the user explicitly asks for the URL. Every artifact you create is attached to your final answer automatically, each with its own title and a button to open it, so do not announce it ("I created a canvas…") or restate its title. Mention it by name only where the sentence needs it.
 - If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead.`;
   }
 

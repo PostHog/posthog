@@ -7,7 +7,7 @@ task failure.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from temporalio import activity
 
@@ -16,6 +16,9 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.temporal.slack_relay.object_tags import rewrite_object_tags_for_slack
+
+if TYPE_CHECKING:
+    from products.tasks.backend.logic.services.living_artifacts import PreparedSlackArtifacts
 
 logger = get_logger(__name__)
 
@@ -115,23 +118,68 @@ def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> 
         logger.warning("slack_app_append_agent_design_steps_failed", error=str(e))
 
 
+def _pending_artifacts_for_stream(run_id: Optional[str]) -> Optional["PreparedSlackArtifacts"]:
+    """The run's prepared artifact cards, or ``None`` when there is nothing to show.
+
+    A streamed reply never passes through the relay activity, so this is the only place
+    a run under the agent-design flag delivers what it produced. The cheap database check
+    comes first: preparing calls Slack, and most turns produce no artifact at all.
+    """
+    from products.tasks.backend.logic.services.living_artifacts import (
+        has_pending_slack_artifacts,
+        prepare_pending_slack_artifacts,
+    )
+    from products.tasks.backend.models import TaskRun
+
+    if not run_id:
+        return None
+    run = TaskRun.objects.filter(id=run_id).first()
+    if run is None or not has_pending_slack_artifacts(run):
+        return None
+    return prepare_pending_slack_artifacts(run)
+
+
 @activity.defn
 @close_db_connections
 def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> None:
-    """Mark the last step complete, stream the final answer, append @-mention, close."""
+    """Mark the last step complete, stream the final answer, show the run's artifacts,
+    append @-mention, close."""
     from products.slack_app.backend.services.slack_messages import load_run_footer
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+    from products.tasks.backend.logic.services.living_artifacts import (
+        capture_slack_artifact_delivery,
+        confirm_prepared_slack_artifacts,
+        deliver_pending_slack_artifacts,
+        share_prepared_slack_files,
+    )
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
         handler = SlackThreadHandler(context)
         handler.run_footer = load_run_footer(input.run_id)
-        handler.stop_status_stream(
+        prepared = _pending_artifacts_for_stream(input.run_id)
+        appended = handler.stop_status_stream(
             ts=input.ts,
             complete_task_id=input.complete_task_id,
             complete_task_title=input.complete_task_title,
             complete_task_details=input.complete_task_details,
             final_markdown=_rewrite_object_tags(input.final_markdown, context.integration_id),
+            artifact_blocks=prepared.card_blocks() if prepared else None,
         )
+        if prepared is None:
+            return
+        if appended:
+            confirm_prepared_slack_artifacts(prepared)
+            share_prepared_slack_files(prepared)
+            capture_slack_artifact_delivery(prepared)
+            return
+        if prepared.cards:
+            # Slack refused the cards inside the stream. They still have to reach the
+            # thread, so post them as their own message below the streamed reply. That
+            # path re-reads what is still pending, which is every card and every file.
+            deliver_pending_slack_artifacts(prepared.run)
+            return
+        share_prepared_slack_files(prepared)
+        capture_slack_artifact_delivery(prepared)
     except Exception as e:
         logger.warning("slack_app_stop_agent_design_stream_failed", error=str(e))

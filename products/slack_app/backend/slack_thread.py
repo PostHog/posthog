@@ -394,37 +394,45 @@ class SlackThreadHandler:
         complete_task_title: str | None = None,
         complete_task_details: str | None = None,
         final_markdown: str | None = None,
-    ) -> None:
+        artifact_blocks: list[dict[str, Any]] | None = None,
+    ) -> bool:
         """Final flush: mark the last plan-block step complete, stream the final
         answer as markdown_text chunks (this is what STAYS in the message body),
-        append a trailing @-mention for one notification, then chat.stopStream.
+        show the run's artifacts, append a trailing @-mention for one notification,
+        then chat.stopStream. Returns whether the artifact blocks landed, which is
+        what tells the caller it may mark those artifacts delivered.
+
+        The artifacts go in their own append, between the answer and the mention.
+        Their blocks are the only ones here Slack could reject, so sharing an append
+        with the answer would let a bad card take the reply down with it.
 
         The provenance footer closes the message. It arrives as a `blocks` chunk
         because a `context` block is the only way to get muted text, and it goes
         after the mention so the ping stays adjacent to the prose it answers."""
-        final_chunks: list[dict[str, Any]] = []
+        answer_chunks: list[dict[str, Any]] = []
         if complete_task_id and complete_task_title:
-            final_chunks.append(
+            answer_chunks.append(
                 _task_update_chunk(complete_task_id, complete_task_title, "complete", complete_task_details)
             )
         if final_markdown:
             for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(final_markdown)):
-                final_chunks.append({"type": "markdown_text", "text": piece})
+                answer_chunks.append({"type": "markdown_text", "text": piece})
+        self._append_stream_chunks(ts, answer_chunks, "slack_app_status_stream_final_append_failed")
+
+        artifacts_appended = bool(artifact_blocks) and self._append_stream_chunks(
+            ts,
+            [{"type": "blocks", "blocks": artifact_blocks}],
+            "slack_app_status_stream_artifact_append_failed",
+        )
+
+        closing_chunks: list[dict[str, Any]] = []
         if self.context.mentioning_slack_user_id:
             # Newlines keep the mention off the tail of the last streamed prose chunk.
-            final_chunks.append({"type": "markdown_text", "text": f"\n\n<@{self.context.mentioning_slack_user_id}>"})
+            closing_chunks.append({"type": "markdown_text", "text": f"\n\n<@{self.context.mentioning_slack_user_id}>"})
         footer = self._footer_block()
         if footer:
-            final_chunks.append({"type": "blocks", "blocks": [footer]})
-        if final_chunks:
-            try:
-                self._get_client().chat_appendStream(
-                    channel=self.context.channel,
-                    ts=ts,
-                    chunks=final_chunks,
-                )
-            except Exception as e:
-                logger.warning("slack_app_status_stream_final_append_failed", error=str(e))
+            closing_chunks.append({"type": "blocks", "blocks": [footer]})
+        self._append_stream_chunks(ts, closing_chunks, "slack_app_status_stream_final_append_failed")
         if footer:
             self._append_trailing_blocks(ts)
         try:
@@ -434,6 +442,22 @@ class SlackThreadHandler:
             )
         except Exception as e:
             logger.warning("slack_app_status_stream_stop_failed", error=str(e))
+        return artifacts_appended
+
+    def _append_stream_chunks(self, ts: str, chunks: list[dict[str, Any]], failure_log_key: str) -> bool:
+        """Append one batch to an open stream, reporting whether it landed."""
+        if not chunks:
+            return False
+        try:
+            self._get_client().chat_appendStream(
+                channel=self.context.channel,
+                ts=ts,
+                chunks=chunks,
+            )
+        except Exception as e:
+            logger.warning(failure_log_key, error=str(e))
+            return False
+        return True
 
     def post_or_update_progress(self, stage: str, task_url: str | None = None) -> None:
         """Post a new progress message or update the existing one.
