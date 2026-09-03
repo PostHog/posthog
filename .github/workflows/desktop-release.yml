@@ -15,6 +15,7 @@ jobs:
         timeout-minutes: 10
         permissions:
             contents: write
+            actions: write
         steps:
             - name: Get app token
               id: app-token
@@ -44,6 +45,23 @@ jobs:
                     gh release create "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --draft \
                       --title "desktop-v$APP_VERSION" --notes "Release v$APP_VERSION (build in progress)"
                   fi
+
+            # Five desktop workflows share the depot-macos-26 pool, so a release can
+            # sit in the queue longer than it takes to build. Cache warming is the one
+            # with no deadline: it seeds caches for PR jobs and re-runs on the next
+            # master push, so evict it and let the publish-macos matrix have the slots.
+            - name: Yield the macOS pool from cache warming
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  gh run list --repo "$GITHUB_REPOSITORY" --workflow desktop-warm-caches.yml \
+                    --limit 20 --json databaseId,status \
+                    --jq '.[] | select(.status == "in_progress" or .status == "queued") | .databaseId' |
+                  while read -r run_id; do
+                    echo "Cancelling in-flight cache warm run $run_id"
+                    gh run cancel "$run_id" --repo "$GITHUB_REPOSITORY" || true
+                  done
 
     publish-macos:
         needs: [prepare-release]
@@ -238,7 +256,11 @@ jobs:
               if: matrix.arch == 'x64'
               run: pgrep -xq oahd || sudo softwareupdate --install-rosetta --agree-to-license
 
+            # A healthy run is ~20s native and ~4m30s under Rosetta. Without a cap a
+            # wedged launch spends the per-test timeout plus teardown on all four
+            # tests, ~36 minutes, and the job cap then skips finalize-release.
             - name: Smoke test packaged app
+              timeout-minutes: ${{ matrix.arch == 'x64' && 12 || 5 }}
               env:
                   CI: true
                   E2E_APP_ARCH: ${{ matrix.arch }}

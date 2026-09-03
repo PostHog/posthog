@@ -194,7 +194,11 @@ jobs:
               if: matrix.arch == 'x64'
               run: pgrep -xq oahd || sudo softwareupdate --install-rosetta --agree-to-license
 
+            # A healthy run is ~20s native and ~4m30s under Rosetta. Without a cap a
+            # wedged launch spends the per-test timeout plus teardown on all four
+            # tests, ~36 minutes, and holds a shared macOS runner for all of it.
             - name: Smoke test packaged app
+              timeout-minutes: ${{ matrix.arch == 'x64' && 12 || 5 }}
               env:
                   CI: true
                   E2E_APP_ARCH: ${{ matrix.arch }}
