@@ -249,7 +249,15 @@ class ErrorTrackingIssueFingerprintV2(UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique_fingerprint_for_team")]
+        constraints = [
+            # The included columns are what the ingestion fingerprint lookup selects, so it
+            # reads the index alone and never fetches from the heap.
+            models.UniqueConstraint(
+                fields=["team", "fingerprint"],
+                include=["id", "issue", "version"],
+                name="unique_fingerprint_for_team_covering",
+            ),
+        ]
         db_table = "posthog_errortrackingissuefingerprintv2"
 
 
