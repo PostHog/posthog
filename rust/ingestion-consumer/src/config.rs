@@ -196,6 +196,16 @@ pub struct Config {
     #[envconfig(from = "CONSUMER_ORDER_SENTINEL_ENABLED", default = "true")]
     pub consumer_order_sentinel_enabled: bool,
 
+    // ---- Offset ledger ----
+    /// Kill switch for the shadow offset ledger. The ledger accounts every
+    /// delivered offset and reports where its frontier disagrees with the
+    /// offset the consumer commits; it never changes what is committed.
+    /// Off, the consumer builds no ledger: nothing is charged, settled,
+    /// forgotten on rebalance, or reported. Disable it only if its
+    /// accounting or metrics are implicated in a problem.
+    #[envconfig(from = "CONSUMER_OFFSET_LEDGER_SHADOW_ENABLED", default = "true")]
+    pub consumer_offset_ledger_shadow_enabled: bool,
+
     // ---- Worker transport ----
     /// Comma-separated list of worker HTTP URLs. Readiness probes hit these
     /// directly; each worker's gRPC stream address is derived from its URL's

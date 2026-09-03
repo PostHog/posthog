@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { APP_SERVER_METHODS, APP_SERVER_NOTIFICATIONS } from "./protocol";
 
 const state = vi.hoisted(() => ({
-  account: null as { type: string } | null,
+  account: null as { type: string; email?: string; planType?: string } | null,
   failLogout: false,
   kill: vi.fn(),
   onExit: undefined as (() => void) | undefined,
@@ -88,11 +88,29 @@ describe("Codex account", () => {
   it("uses the normal machine login and accepts only ChatGPT accounts", async () => {
     state.account = { type: "chatgpt" };
 
-    await expect(hasCodexChatgptLogin(options)).resolves.toBe(true);
+    await expect(hasCodexChatgptLogin(options)).resolves.toMatchObject({
+      loggedIn: true,
+    });
     expect(state.spawnOptions?.useMachineAuth).toBe(true);
 
     state.account = { type: "apiKey" };
-    await expect(hasCodexChatgptLogin(options)).resolves.toBe(false);
+    await expect(hasCodexChatgptLogin(options)).resolves.toMatchObject({
+      loggedIn: false,
+    });
+  });
+
+  it("surfaces the connected account's email and plan", async () => {
+    state.account = {
+      type: "chatgpt",
+      email: "user@posthog.com",
+      planType: "team",
+    };
+
+    await expect(hasCodexChatgptLogin(options)).resolves.toEqual({
+      loggedIn: true,
+      email: "user@posthog.com",
+      planType: "team",
+    });
   });
 
   it("finishes login from the app-server notification", async () => {

@@ -209,6 +209,27 @@ const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     keywords: ["responders", "scouts", "signal sources", "setup agent"],
   },
   {
+    category: "task-agent-defaults",
+    label: "Project default",
+    keywords: [
+      "default model",
+      "team default",
+      "reasoning effort",
+      "claude",
+      "codex",
+    ],
+  },
+  {
+    category: "task-agent-defaults",
+    label: "My default",
+    keywords: [
+      "default model",
+      "my model",
+      "personal default",
+      "reasoning effort",
+    ],
+  },
+  {
     category: "signals",
     label: "Self-driving",
     keywords: ["signals", "sources", "autostart", "base branches"],

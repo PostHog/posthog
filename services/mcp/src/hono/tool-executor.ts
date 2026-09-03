@@ -178,12 +178,13 @@ export class ToolExecutor {
             return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
         }
 
+        const tool = preBuilt.build()
         return this.callTool(
             {
                 name: toolName,
-                schema: preBuilt.base.schema,
-                handler: (ctx, args) => preBuilt.base.handler(ctx, args),
-                _meta: preBuilt.base._meta,
+                schema: tool.schema,
+                handler: (ctx, args) => tool.handler(ctx, args),
+                _meta: tool._meta,
             },
             callParams,
             state,
@@ -233,7 +234,7 @@ export class ToolExecutor {
         const validation = tool.schema.safeParse(toolArgs, { reportInput: true })
         if (!validation.success) {
             toolCallsTotal.inc({ tool: tool.name, status: 'validation_error' })
-            const message = formatInputValidationError(tool.name, validation.error)
+            const message = formatInputValidationError(tool.name, validation.error, toolArgs, tool.schema)
             // Emit the same errored `$mcp_tool_call` the exec path emits for an
             // identical rejection. Without it, direct-mode ('tools') schema
             // rejections are absent from analytics entirely — so every

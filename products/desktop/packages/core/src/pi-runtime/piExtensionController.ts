@@ -258,7 +258,10 @@ export class PiExtensionController {
       return;
     }
 
-    if (error !== undefined) {
+    if (
+      error !== undefined &&
+      !String(error).includes("Pi session not found for task")
+    ) {
       this.dispatch(taskId, {
         type: "notification",
         notification: {

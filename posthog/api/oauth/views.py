@@ -2124,6 +2124,12 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             # RFC 7662 Section 2.2: expired tokens MUST return {"active": false}
             if not access_token.is_valid():
                 return JsonResponse({"active": False}, status=200)
+            # Deactivating a user drops their login sessions but leaves their OAuth tokens
+            # intact, and callers that authorize on this response rather than merely describe a
+            # token (the Streamlit proxy is one) would keep letting them in until it expires.
+            # `user` is null for a client-credentials grant, which has no resource owner.
+            if access_token.user is not None and not access_token.user.is_active:
+                return JsonResponse({"active": False}, status=200)
             data = {
                 "active": True,
                 "token_type": "access_token",
@@ -2146,6 +2152,8 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
         if refresh_token:
             if credential_client_id and getattr(refresh_token.application, "client_id", None) != credential_client_id:
+                return JsonResponse({"active": False}, status=200)
+            if not refresh_token.user.is_active:
                 return JsonResponse({"active": False}, status=200)
             # Refresh tokens lack scope and exp fields on AbstractRefreshToken,
             # so we only return the fields that are available

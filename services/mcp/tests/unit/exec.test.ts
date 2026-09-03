@@ -21,6 +21,7 @@ import {
     parseExecCallInnerToolName,
 } from '@/tools/exec'
 import { ExecHelpCatalog } from '@/tools/exec-help'
+import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { withInformationalResponse } from '@/tools/tool-utils'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
@@ -1107,6 +1108,22 @@ describe('exec tool', () => {
             expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
         })
 
+        it('reminds agents to inspect the catalog before matching data-domain tools', async () => {
+            const exec = createExec([
+                makeMockTool({ name: 'metric-list' }),
+                makeMockTool({ name: 'metric-describe' }),
+                makeMockTool({ name: 'data-catalog-metric-run' }),
+                makeMockTool({ name: 'billing-usage-get', title: 'Get billable usage' }),
+            ])
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search billing' })) as string)
+
+            expect(result.matches).toEqual(['billing-usage-get'])
+            expect(result.hint).toContain('metric-list')
+            expect(result.hint).toContain('metric-describe')
+            expect(result.hint).toContain('data-catalog-metric-run')
+        })
+
         it('ranks tools for a multi-word plain-language query that a single regex would miss', async () => {
             // /create dashboard insight/i matches no tool literally; routing to
             // ranked search is the whole point of this command.
@@ -1560,6 +1577,142 @@ describe('exec tool', () => {
 
             expect(message).toMatch(/parameter "tags": /)
             expect(message).not.toContain('undefined')
+        })
+
+        // A tool whose whole payload sits under one required object is the shape
+        // agents flatten most often, and zod strips the misplaced keys — so
+        // "sent everything, unwrapped" and "sent nothing" both arrive as a bare
+        // `missing required parameter`. These lock in the disambiguation.
+        describe('a required object parameter the caller flattened', () => {
+            const wrapperSchema = z.object({
+                query: z.object({
+                    dateRange: z.object({ date_from: z.string() }).optional(),
+                    orderBy: z.enum(['latest', 'earliest']).optional(),
+                    limit: z.number().optional(),
+                }),
+            })
+
+            const formatFor = (input: unknown): string => {
+                const result = wrapperSchema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+                return formatInputValidationError('query-logs', result.error!, input, wrapperSchema)
+            }
+
+            it('tells the caller to nest the fields it sent at the top level', () => {
+                const message = formatFor({ dateRange: { date_from: '-1h' }, limit: 10 })
+
+                expect(message).toBe(
+                    'Invalid input for "query-logs": missing required parameter: query; the fields you sent belong inside it, so resend them as {"query": {...}}'
+                )
+            })
+
+            it('still identifies the nesting when the nested fields have their own errors', () => {
+                // Without this the caller fixes `orderBy`, resends flattened, and
+                // fails again on the same ambiguous message.
+                const message = formatFor({ orderBy: 'newest', limit: 10 })
+
+                expect(message).toContain('resend them as {"query": {...}}')
+            })
+
+            it.each([
+                ['an empty input, which is a caller that sent nothing', {}],
+                ['keys the nested schema does not declare', { nonsense: 1, alsoNonsense: 2 }],
+                ['a non-object input', 'just a string'],
+            ])('does not claim a nesting mistake for %s', (_label, input) => {
+                expect(formatFor(input)).not.toContain('resend them')
+            })
+
+            it('names only schema-declared fields, never the values the caller sent', () => {
+                const message = formatFor({ dateRange: { date_from: 'secret-value' } })
+
+                expect(message).not.toContain('secret-value')
+            })
+
+            it('keeps the bare message when the caller gives no input or schema to compare', () => {
+                const input = { dateRange: { date_from: '-1h' } }
+                const result = wrapperSchema.safeParse(input, { reportInput: true })
+
+                expect(formatInputValidationError('query-logs', result.error!)).toBe(
+                    'Invalid input for "query-logs": missing required parameter: query'
+                )
+            })
+
+            describe('a required parameter missing while undeclared keys were sent', () => {
+                const SOME_UUID = '00000000-0000-4000-8000-000000000000'
+
+                const formatFor = (toolName: string, input: unknown): string => {
+                    const tool = GENERATED_TOOL_MAP[toolName]!()
+                    const result = tool.schema.safeParse(input, { reportInput: true })
+                    expect(result.success).toBe(false)
+                    return formatInputValidationError(toolName, result.error!, input, tool.schema)
+                }
+
+                it.each([
+                    ['vision-scanners-get', 'scanner_id'],
+                    ['vision-observations-retrieve', 'observation_id'],
+                ])('names the key %s dropped, so the caller can see it was not read', (toolName, sentKey) => {
+                    expect(formatFor(toolName, { [sentKey]: SOME_UUID })).toBe(
+                        `Invalid input for "${toolName}": missing required parameter: id; this tool ignored these keys it does not accept: "${sentKey}"`
+                    )
+                })
+
+                it('does not tell the caller to resend a scanner id as an observation id', () => {
+                    // `vision-observations-retrieve` does not declare `scanner_id`, and its
+                    // `id` has no format constraint. Matching the two by name suffix would
+                    // advise reusing a value that identifies a different entity.
+                    const message = formatFor('vision-observations-retrieve', { scanner_id: SOME_UUID })
+
+                    expect(message).toContain('"scanner_id"')
+                    expect(message).not.toContain('resend')
+                    expect(message).not.toContain('as "id"')
+                })
+
+                it('does not name a value the caller sent', () => {
+                    expect(formatFor('vision-scanners-get', { scanner_id: SOME_UUID })).not.toContain(SOME_UUID)
+                })
+
+                it('stays quiet when every key the caller sent is a real field of the tool', () => {
+                    // `vision-scanners-observations-get` declares `scanner_id`, so nothing
+                    // was dropped: the caller omitted the observation id rather than
+                    // having a key silently discarded.
+                    expect(formatFor('vision-scanners-observations-get', { scanner_id: SOME_UUID })).toBe(
+                        'Invalid input for "vision-scanners-observations-get": missing required parameter: id'
+                    )
+                })
+
+                it('keeps the bare message for a caller that sent nothing at all', () => {
+                    expect(formatFor('vision-scanners-get', {})).toBe(
+                        'Invalid input for "vision-scanners-get": missing required parameter: id'
+                    )
+                })
+
+                it('says nothing was ignored when the schema rejected the keys instead', () => {
+                    // This tool's schema is strict, so `hash` was refused rather than dropped.
+                    expect(formatFor('change-requests-approve-execute', { hash: 'x', confirmation: 'confirm' })).toBe(
+                        'Invalid input for "change-requests-approve-execute": missing required parameter: confirmation_hash; unexpected property: hash'
+                    )
+                })
+
+                it('caps how many keys it names so the analytics message stays bounded', () => {
+                    const input = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`junk_${i}`, i]))
+                    const message = formatFor('vision-scanners-get', input)
+
+                    expect(message.match(/junk_/g)).toHaveLength(5)
+                })
+            })
+
+            it('fires for the real generated query-logs tool, not just a stand-in schema', () => {
+                // Guards the assumption behind this whole branch: that the shipped
+                // tool really does wrap its payload in one required `query` object.
+                const tool = GENERATED_TOOL_MAP['query-logs']!()
+                const input = { dateRange: { date_from: '-1h' }, limit: 10 }
+                const result = tool.schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                expect(formatInputValidationError('query-logs', result.error!, input, tool.schema)).toContain(
+                    'resend them as {"query": {...}}'
+                )
+            })
         })
     })
 })

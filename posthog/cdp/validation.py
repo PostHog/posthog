@@ -549,6 +549,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "task_repository",
             "task_mcp_installations",
             "signals_scout",
+            "task_skills",
         ]
     )
     key = serializers.CharField()
@@ -682,6 +683,9 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "signals_scout":
             if not isinstance(value, str):
                 raise serializers.ValidationError({"input": "Value must be a scout skill name."})
+        elif item_type == "task_skills":
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                raise serializers.ValidationError({"input": "Value must be a list of skill names."})
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
