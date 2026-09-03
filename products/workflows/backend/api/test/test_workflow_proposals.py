@@ -524,6 +524,7 @@ class TestWorkflowProposals(APIBaseTest):
             "rationale": "Every call to the current URL failed over the last week.",
             "content": {"actions": [_trigger_action(), _webhook_action(url="https://proposed.example.com")]},
             "evidence": {"metric": "failure rate", "current_value": 1.0, "n": 240, "guardrails": []},
+            "base_version": 1,
             "source_type": "scout",
         }
         suggest_only = generate_random_token_personal()
