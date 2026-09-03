@@ -35,11 +35,6 @@ class TrinoTargetUnavailable(RuntimeError):
     pass
 
 
-def _reject_pure_compilation(error: Exception, *, feature_code: str) -> None:
-    TRINO_PURE_REJECTION_TOTAL.labels(feature_code=feature_code).inc()
-    raise error
-
-
 def get_ready_trino_catalog_name(organization_id: str) -> str | None:
     """Return the control-plane-owned catalog only after its Trino target is ready."""
     from products.managed_warehouse.backend.presentation.views import _request  # noqa: PLC0415
@@ -117,66 +112,17 @@ def compile_hogql_to_trino_sql(
             transpile_hogql_to_trino,
         )
 
-        from posthog.schema_enums import PersonsOnEventsMode  # noqa: PLC0415
         from posthog.week_start_day import WeekStartDay  # noqa: PLC0415
-
-        if query.filters is not None:
-            _reject_pure_compilation(
-                TrinoLoweringError(
-                    "TRINO_PURE_FILTERS_UNSUPPORTED",
-                    "query filters",
-                    detail="Query filters require Django semantic expansion.",
-                ),
-                feature_code="TRINO_PURE_FILTERS_UNSUPPORTED",
-            )
-        if query.variables:
-            _reject_pure_compilation(
-                TrinoLoweringError(
-                    "TRINO_PURE_VARIABLES_UNSUPPORTED",
-                    "query variables",
-                    detail="Query variables require Django semantic expansion.",
-                ),
-                feature_code="TRINO_PURE_VARIABLES_UNSUPPORTED",
-            )
-
-        modifiers = query.modifiers
-        explicitly_set_modifiers = set(modifiers.model_fields_set) if modifiers is not None else set()
-        supported_modifiers = {"personsOnEventsMode", "convertToProjectTimezone"}
-        unsupported_modifiers = explicitly_set_modifiers - supported_modifiers
-        if unsupported_modifiers:
-            unsupported = ", ".join(sorted(unsupported_modifiers))
-            _reject_pure_compilation(
-                TrinoLoweringError(
-                    "TRINO_PURE_MODIFIER_UNSUPPORTED",
-                    "query modifier",
-                    detail=f"Pure Trino transpilation does not support these modifiers: {unsupported}.",
-                ),
-                feature_code="TRINO_PURE_MODIFIER_UNSUPPORTED",
-            )
-        persons_mode = modifiers.personsOnEventsMode if modifiers is not None else None
-        if persons_mode not in (None, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS):
-            mode_name = persons_mode.value if persons_mode is not None else "unset"
-            _reject_pure_compilation(
-                TrinoLoweringError(
-                    "TRINO_PERSONS_ON_EVENTS_MODE_UNSUPPORTED",
-                    f"personsOnEventsMode={mode_name}",
-                    detail=(
-                        "Trino compilation supports only personsOnEventsMode=person_id_override_properties_on_events."
-                    ),
-                ),
-                feature_code="TRINO_PERSONS_ON_EVENTS_MODE_UNSUPPORTED",
-            )
 
         additional_tables = catalog_manifest.tables if catalog_manifest is not None else ()
         if any(table.logical_name in {"events", "persons"} for table in additional_tables):
-            _reject_pure_compilation(
-                TrinoLoweringError(
-                    "TRINO_PURE_CORE_TABLE_OVERRIDE",
-                    "core table manifest",
-                    detail="Managed warehouse compilation owns the events and persons physical mappings.",
-                ),
-                feature_code="TRINO_PURE_CORE_TABLE_OVERRIDE",
+            error = TrinoLoweringError(
+                "TRINO_PURE_CORE_TABLE_OVERRIDE",
+                "core table manifest",
+                detail="Managed warehouse compilation owns the events and persons physical mappings.",
             )
+            TRINO_PURE_REJECTION_TOTAL.labels(feature_code=error.feature_code).inc()
+            raise error
         pure_manifest = TrinoCatalogManifest(
             tables=(
                 TrinoManifestTable(
@@ -197,7 +143,9 @@ def compile_hogql_to_trino_sql(
                 query.query,
                 manifest=pure_manifest,
                 values=query.values,
-                convert_to_project_timezone=(modifiers.convertToProjectTimezone if modifiers is not None else None),
+                filters=query.filters,
+                variables=query.variables,
+                modifiers=query.modifiers,
                 include_hogql=include_hogql,
             )
         except TrinoLoweringError as error:
