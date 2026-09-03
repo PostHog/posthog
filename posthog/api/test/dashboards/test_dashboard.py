@@ -2962,6 +2962,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "widget": None,
                 "text": {
                     "body": "hello world",
+                    "tile_type": "text",
                     "created_by": None,
                     "dashboard_tiles": [
                         {"dashboard_id": dashboard_id, "deleted": None, "id": ANY},
