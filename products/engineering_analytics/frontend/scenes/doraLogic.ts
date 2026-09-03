@@ -61,6 +61,7 @@ export interface doraLogicValues {
     granularity: DoraGranularity | null
     openToDeployBuckets: BoxPlotBucket[]
     openToMergeBuckets: BoxPlotBucket[]
+    selectedEnvironments: string[]
     showAllLeadTimeStages: boolean
 }
 
@@ -110,6 +111,7 @@ export interface doraLogicMeta {
         frequencyCounts: (dora: DoraOverviewApi | null) => number[]
         frequencyIsoLabels: (dora: DoraOverviewApi | null) => string[]
         environmentScopeLabel: (dora: DoraOverviewApi | null, environments: string[]) => string
+        selectedEnvironments: (dora: DoraOverviewApi | null, environments: string[]) => string[]
         environmentOptions: (
             dora: DoraOverviewApi | null,
             environments: string[]
@@ -255,6 +257,17 @@ export const doraLogic = kea<doraLogicType>([
                       : dora.environment_scope === 'persistent'
                         ? 'all persistent environments'
                         : dora.environment_scope,
+        ],
+        // What the picker shows as chosen: the user's picks, else the names the backend's default
+        // scope resolved to, so the default reads as a selection the user can edit.
+        selectedEnvironments: [
+            (s) => [s.dora, s.environments],
+            (dora: DoraOverviewApi | null, environments: string[]): string[] =>
+                environments.length
+                    ? environments
+                    : !dora || dora.environment_scope === 'persistent'
+                      ? []
+                      : dora.environment_scope.split(', '),
         ],
         // With environments selected, environment_scope echoes the picks, so the resolved default
         // can only be offered while the selection is empty; picked names stay selectable options.
