@@ -1,6 +1,6 @@
 import api from 'lib/api'
 
-import { hogql } from '~/queries/utils'
+import { HogQLQueryString, hogql } from '~/queries/utils'
 import { AnyPropertyFilter } from '~/types'
 
 import { FILTER_QUERY_MAX_ROWS, SAFE_ID_RE, TRACE_MEMBER_EVENTS } from './constants'
@@ -16,6 +16,53 @@ export interface FilterMatchedItemIdsParams {
     filterTestAccounts: boolean
     /** ClickHouse query tag, so the scene that issued the query stays visible in query logs. */
     scene: string
+}
+
+/**
+ * A trace matches when any of its events matches, so test every event that belongs to a trace.
+ * Reading only `$ai_generation` dropped every clustered trace with no generation in the window.
+ * Generation items are `$ai_generation` event UUIDs — the SDK does not set `$ai_generation_id` on
+ * the event, so match the `uuid` column the way cluster metrics do.
+ */
+function buildFilterQuery(
+    level: ClusteringLevel,
+    ids: string[],
+    windowStart: string,
+    windowEnd: string
+): HogQLQueryString {
+    if (level === 'generation') {
+        return hogql`
+            SELECT DISTINCT toString(uuid) AS item_id
+            FROM events
+            WHERE event = '$ai_generation'
+                AND timestamp >= parseDateTimeBestEffort(${windowStart})
+                AND timestamp <= parseDateTimeBestEffort(${windowEnd})
+                AND uuid IN ${ids}
+                AND {filters}
+            LIMIT ${ids.length}
+        `
+    }
+    return hogql`
+        SELECT DISTINCT properties.$ai_trace_id AS item_id
+        FROM events
+        WHERE event IN ${TRACE_MEMBER_EVENTS}
+            AND timestamp >= parseDateTimeBestEffort(${windowStart})
+            AND timestamp <= parseDateTimeBestEffort(${windowEnd})
+            AND properties.$ai_trace_id IN ${ids}
+            AND {filters}
+        LIMIT ${ids.length}
+    `
+}
+
+function toItemIdSet(results: unknown[] | undefined): Set<string> {
+    const matched = new Set<string>()
+    for (const row of results || []) {
+        const id = (row as unknown[])[0]
+        if (typeof id === 'string' && id) {
+            matched.add(id)
+        }
+    }
+    return matched
 }
 
 /**
@@ -58,32 +105,8 @@ export async function loadFilterMatchedItemIds({
         return null
     }
 
-    // A trace matches when any of its events matches, so test every event that belongs to a trace.
-    // Reading only `$ai_generation` dropped every clustered trace with no generation in the window.
-    // Generation items are `$ai_generation` event UUIDs — the SDK does not set `$ai_generation_id`
-    // on the event, so match the `uuid` column the way cluster metrics do.
     const response = await api.queryHogQL(
-        level === 'generation'
-            ? hogql`
-                SELECT DISTINCT toString(uuid) AS item_id
-                FROM events
-                WHERE event = '$ai_generation'
-                    AND timestamp >= parseDateTimeBestEffort(${windowStart})
-                    AND timestamp <= parseDateTimeBestEffort(${windowEnd})
-                    AND uuid IN ${safeIds}
-                    AND {filters}
-                LIMIT ${safeIds.length}
-            `
-            : hogql`
-                SELECT DISTINCT properties.$ai_trace_id AS item_id
-                FROM events
-                WHERE event IN ${TRACE_MEMBER_EVENTS}
-                    AND timestamp >= parseDateTimeBestEffort(${windowStart})
-                    AND timestamp <= parseDateTimeBestEffort(${windowEnd})
-                    AND properties.$ai_trace_id IN ${safeIds}
-                    AND {filters}
-                LIMIT ${safeIds.length}
-            `,
+        buildFilterQuery(level, safeIds, windowStart, windowEnd),
         { productKey: 'llm_analytics', scene },
         {
             queryParams: {
@@ -96,12 +119,5 @@ export async function loadFilterMatchedItemIds({
         }
     )
 
-    const matched = new Set<string>()
-    for (const row of response.results || []) {
-        const id = (row as unknown[])[0]
-        if (typeof id === 'string' && id) {
-            matched.add(id)
-        }
-    }
-    return matched
+    return toItemIdSet(response.results)
 }
