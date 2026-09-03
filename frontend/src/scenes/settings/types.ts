@@ -123,6 +123,7 @@ export type SettingId =
     | 'core-memory'
     | 'correlation-analysis'
     | 'csp-reporting'
+    | 'custom-bot-definitions'
     | 'customer-analytics-accounts'
     | 'customer-analytics-calendar-sync'
     | 'customer-analytics-dashboard-events'

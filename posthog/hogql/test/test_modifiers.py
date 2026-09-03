@@ -84,6 +84,24 @@ class TestModifiers(BaseTest):
         modifiers = create_default_modifiers_for_team(self.team)
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
 
+    def test_unparseable_custom_bot_definitions_are_dropped(self):
+        # modifiers is hand-editable JSON (e.g. Django admin), so an entry that is not a rule object
+        # can reach here. It has to be dropped, not kept — a non-dict entry would otherwise crash
+        # every classification query when compile_definitions reads its fields.
+        self.team.modifiers = {
+            "customBotDefinitions": [
+                "not-a-rule",
+                {"pattern": "no name so invalid"},
+                {"id": "1", "name": "Acme", "key": "$raw_user_agent", "pattern": "AcmeBot", "matcher": "contains"},
+            ]
+        }
+        self.team.save()
+
+        modifiers = create_default_modifiers_for_team(self.team)
+
+        assert modifiers.customBotDefinitions is not None
+        assert [d.name for d in modifiers.customBotDefinitions] == ["Acme"]
+
     @patch(
         # _person_on_events_person_id_override_properties_on_events is normally determined by feature flag
         "posthog.models.team.Team._person_on_events_person_id_override_properties_on_events",
