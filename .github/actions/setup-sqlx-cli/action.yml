@@ -6,9 +6,9 @@ description: |
 
     Owns the Rust toolchain it needs. The cache key is a version pin, so a hit is
     the normal outcome and nothing is compiled; a caller that installs Rust up
-    front pays for it on every job to cover the rare miss. ci-e2e-playwright.yml
-    calls this action with no Rust anywhere in the workflow, so before this the
-    first miss there had no compiler to build with.
+    front pays for it on every job to cover the rare miss. Installing it here also
+    reaches callers that never installed one, such as ci-e2e-playwright.yml, which
+    would otherwise build against whatever unpinned Rust the runner image ships.
 
 inputs:
     version:
