@@ -108,6 +108,10 @@ describe('api-error', () => {
             expect(shouldReportApiFailure(error)).toBe(expected)
         })
 
+        it('does not report a 404 from a load action, whose scene renders its own NotFound', () => {
+            expect(shouldReportApiFailure({ status: 404 }, { isLoadAction: true })).toBe(false)
+        })
+
         // The hand-written cases above use literals; this proves the shape `fromResponse` actually
         // builds (`code` lifted off the response body) classifies the same way.
         it('reads the code off a constructed ApiError', async () => {
