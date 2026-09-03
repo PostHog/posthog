@@ -1,3 +1,4 @@
+import time
 from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any, Optional
@@ -5,10 +6,19 @@ from typing import Any, Optional
 from unittest import TestCase
 from unittest.mock import patch
 
-from confluent_kafka import KafkaException
+from confluent_kafka import KafkaError, KafkaException
 from parameterized import parameterized
 
-from posthog.kafka_client.dlq_replay import REPLAY_COUNT_HEADER, _throttle_delay, build_replay_headers, drain_dlq
+from posthog.kafka_client.dlq_replay import (
+    REPLAY_COUNT_HEADER,
+    _sleep_until,
+    _throttle_delay,
+    build_replay_headers,
+    drain_dlq,
+)
+
+REBALANCE_IN_PROGRESS = KafkaError.REBALANCE_IN_PROGRESS  # type: ignore[attr-defined]
+TIMED_OUT = KafkaError._TIMED_OUT  # type: ignore[attr-defined]
 
 
 class BuildReplayHeadersTest(TestCase):
@@ -237,24 +247,64 @@ class DrainDlqTest(TestCase):
         assert consumer.commits == 1
         assert [record["value"] for record in producer.produced] == [b"first"]
 
-    def test_empty_polls_without_assignment_do_not_end_the_run(self) -> None:
+    @parameterized.expand(
+        [
+            ("waits_out_the_join_rebalance", [[], [], [FakeMessage(b"one")]], [[], [], ["tp"], ["tp"]], 60.0, 1),
+            ("gives_up_when_never_assigned", [], [], 0.0, 0),
+        ]
+    )
+    def test_empty_polls_without_an_assignment(
+        self,
+        _name: str,
+        batches: list[list[FakeMessage]],
+        assignments: list[list[str]],
+        unassigned_timeout_seconds: float,
+        expected_replayed: int,
+    ) -> None:
         producer = FakeProducer()
-        consumer = FakeConsumer(
-            batches=[[], [], [FakeMessage(b"one")]],
-            assignments=[[], [], ["tp"], ["tp"]],
+        consumer = FakeConsumer(batches=batches, assignments=assignments)
+
+        result, _ = self._drain(
+            [],
+            producer,
+            consumer=consumer,
+            idle_polls=2,
+            unassigned_timeout_seconds=unassigned_timeout_seconds,
         )
 
-        result, _ = self._drain([], producer, consumer=consumer, idle_polls=2)
+        assert result["replayed"] == expected_replayed
 
-        assert result["replayed"] == 1
-
-    def test_commit_failure_from_rebalance_does_not_crash_the_run(self) -> None:
+    @parameterized.expand(
+        [
+            ("rebalance_keeps_going", REBALANCE_IN_PROGRESS, 0, [b"one", b"two"]),
+            ("other_failure_stops_the_run", TIMED_OUT, 1, [b"one"]),
+        ]
+    )
+    def test_commit_failure(self, _name: str, code: int, expected_errors: int, expected_produced: list[bytes]) -> None:
         producer = FakeProducer()
-        consumer = FakeConsumer([[FakeMessage(b"one")]], commit_error=KafkaException())
+        consumer = FakeConsumer(
+            [[FakeMessage(b"one")], [FakeMessage(b"two")]],
+            commit_error=KafkaException(KafkaError(code)),
+        )
 
         result, _ = self._drain([], producer, consumer=consumer)
 
-        assert result["replayed"] == 1
+        assert result["errors"] == expected_errors
+        assert [record["value"] for record in producer.produced] == expected_produced
+
+
+class SleepUntilTest(TestCase):
+    def test_stops_sleeping_once_a_stop_is_requested(self) -> None:
+        calls = {"n": 0}
+
+        def should_stop() -> bool:
+            calls["n"] += 1
+            return calls["n"] > 2
+
+        with patch("posthog.kafka_client.dlq_replay.time.sleep") as sleep:
+            _sleep_until(time.monotonic() + 30.0, should_stop, slice_seconds=0.01)
+
+        assert sleep.call_count == 2
 
 
 class ThrottleDelayTest(TestCase):
