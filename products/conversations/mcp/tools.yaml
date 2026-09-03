@@ -233,8 +233,8 @@ tools:
             List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example
             the per-team views named "Team <name>". Returns each view's short_id and name; a view opens in the app at
             /support/tickets?view=<short_id>. To get the tickets a view contains, pass its short_id as the `view`
-            parameter of conversations-tickets-list. Saved filters are omitted here; read them for a single view
-            with conversations-views-retrieve.
+            parameter of conversations-tickets-list. Saved filters are omitted here; read them for a single view with
+            conversations-views-retrieve.
         response:
             include:
                 - short_id
