@@ -33,6 +33,15 @@ type ActiveAction = "copy_summary" | "switch" | null;
 
 export function ModelSwitchCacheDialog({
   open,
+  ...props
+}: ModelSwitchCacheDialogProps): ReactElement | null {
+  if (!open) return null;
+
+  return <OpenModelSwitchCacheDialog open {...props} />;
+}
+
+function OpenModelSwitchCacheDialog({
+  open,
   fromModelLabel,
   toModelId,
   toModelLabel,
@@ -135,7 +144,7 @@ export function ModelSwitchCacheDialog({
                 {taskUsage !== undefined && (
                   <div className="flex items-center justify-between gap-4">
                     <Text className="text-[12px] text-muted-foreground">
-                      Session cost so far
+                      Estimated task cost so far
                     </Text>
                     <Text className="shrink-0 font-medium text-[12px] text-foreground tabular-nums">
                       {formatCostUsd(taskUsage.total_cost_usd)}
