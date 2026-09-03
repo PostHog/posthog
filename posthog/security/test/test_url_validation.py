@@ -13,6 +13,13 @@ def force_prod(monkeypatch):
     monkeypatch.setattr(uv, "is_dev_mode", lambda: False)
 
 
+@pytest.fixture
+def enforce_destination_validation(settings):
+    # By default, we bypass URL and host validation in tests. We want to test the validation
+    # logic, so we opt back in.
+    settings.FORCE_URL_VALIDATION = True
+
+
 class TestUrlValidation:
     def test_resolve_host_ips_uses_bounded_lifetime(self, monkeypatch):
         class Answers:
@@ -117,6 +124,114 @@ class TestUrlValidation:
         settings.FORCE_URL_VALIDATION = False
         ok, err = uv.is_url_allowed("http://localhost")
         assert ok and err is None
+
+    @pytest.mark.parametrize(
+        "resolved_ips, expected_error",
+        [
+            ({ipaddress.ip_address("10.0.0.1")}, "internal IP"),
+            (set(), "Could not resolve"),
+            ({ipaddress.ip_address("93.184.216.34")}, None),
+        ],
+    )
+    def test_validate_external_host_enforced(
+        self, monkeypatch, enforce_destination_validation, resolved_ips, expected_error
+    ):
+        # This path resolves and judges IPs itself rather than calling is_url_allowed, so the
+        # cases above do not cover it. A host that resolves to no IPs is rejected, because
+        # there is then nothing to judge it by.
+        monkeypatch.setattr(uv, "resolve_host_ips", lambda host: resolved_ips)
+        if expected_error is None:
+            uv.validate_external_host("db.example.com")
+        else:
+            with pytest.raises(ValueError, match=expected_error):
+                uv.validate_external_host("db.example.com")
+
+    @pytest.mark.parametrize(
+        "url, resolved_ip, should_raise",
+        [
+            ("http://127.0.0.1", None, True),
+            ("https://example.com", "93.184.216.34", False),
+        ],
+    )
+    def test_validate_external_url_enforced(
+        self, monkeypatch, enforce_destination_validation, url, resolved_ip, should_raise
+    ):
+        # This path takes its rules from is_url_allowed, so what is under test is the
+        # translation of its verdict: a blocked one has to raise, an allowed one has to return.
+        if resolved_ip is not None:
+            monkeypatch.setattr(uv, "resolve_host_ips", lambda host: {ipaddress.ip_address(resolved_ip)})
+        if should_raise:
+            with pytest.raises(ValueError):
+                uv.validate_external_url(url)
+        else:
+            uv.validate_external_url(url)
+
+    @pytest.mark.parametrize(
+        "dev_mode, test_mode, force, bypassed",
+        [
+            (True, False, False, True),  # local dev
+            (False, True, False, True),  # in tests
+            (False, True, True, False),  # override using FORCE_URL_VALIDATION
+            (False, False, False, False),  # production
+        ],
+    )
+    def test_validate_external_url_and_host_bypass_validation_only_in_dev_and_test(
+        self, monkeypatch, settings, dev_mode, test_mode, force, bypassed
+    ):
+        monkeypatch.setattr(uv, "is_dev_mode", lambda: dev_mode)
+        settings.TEST = test_mode
+        settings.FORCE_URL_VALIDATION = force
+
+        if bypassed:
+            uv.validate_external_host("10.0.0.1")
+            uv.validate_external_url("http://localhost:9000")
+        else:
+            with pytest.raises(ValueError):
+                uv.validate_external_host("10.0.0.1")
+            with pytest.raises(ValueError):
+                uv.validate_external_url("http://localhost:9000")
+
+    @pytest.mark.parametrize(
+        "host, expected_reason",
+        [
+            ("db.corp", "Internal domain pattern blocked"),  # the suffix loop
+            ("metadata.google.internal", "Local/metadata host"),  # exact match, a separate branch
+            ("DB.CORP", "Internal domain pattern blocked"),  # matching is case sensitive
+            ("db.corp.", "Internal domain pattern blocked"),  # a root dot must not hide a suffix
+            ("localhost.", "Local/Loopback host not allowed"),  # nor an exact match
+        ],
+    )
+    def test_host_and_url_paths_agree_on_internal_names(self, enforce_destination_validation, host, expected_reason):
+        with pytest.raises(ValueError, match=expected_reason):
+            uv.validate_external_host(host)
+        allowed, reason = uv.is_url_allowed(f"https://{host}")
+        assert not allowed
+        assert expected_reason in (reason or "")
+
+    @pytest.mark.parametrize(
+        "validate, value",
+        [
+            (uv.validate_external_url, "not-a-url"),
+            (uv.validate_external_url, "javascript:alert(1)"),
+            (uv.validate_external_url, "ftp://internal"),
+            (uv.validate_external_url, "https://"),
+            (uv.validate_external_host, ""),
+            (uv.validate_external_host, "   "),
+        ],
+    )
+    def test_malformed_target_is_rejected_even_where_validation_is_bypassed(self, validate, value):
+        # No enforce_destination_validation here on purpose; the form of a target does not
+        # depend on the environment.
+        with pytest.raises(ValueError):
+            validate(value)
+
+    @pytest.mark.parametrize("value", [None, 123])
+    def test_non_string_target_is_a_client_error(self, value):
+        # A non-string has to read as bad input rather than surface as a TypeError
+        with pytest.raises(ValueError):
+            uv.validate_external_host(value)
+        with pytest.raises(ValueError):
+            uv.validate_external_url(value)
 
     @pytest.mark.parametrize(
         "resolved_ip",
