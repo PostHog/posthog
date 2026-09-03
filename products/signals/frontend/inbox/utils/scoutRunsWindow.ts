@@ -456,8 +456,22 @@ export const RUN_INTERVAL_OPTIONS: RunIntervalOption[] = [
 ]
 
 export const SCOUT_DAILY_AT_SCHEDULE_MODE = 'daily_at'
+export const SCOUT_WEEKLY_ON_SCHEDULE_MODE = 'weekly_on'
 export const SCOUT_CUSTOM_CRON_SCHEDULE_MODE = 'custom_cron'
 export const DEFAULT_SCOUT_DAILY_TIME = '09:00'
+
+/** Cron day-of-week numbers, offered from Monday so the working week reads first. */
+export const SCOUT_WEEKDAY_OPTIONS: { value: string; label: string }[] = [
+    { value: '1', label: 'Monday' },
+    { value: '2', label: 'Tuesday' },
+    { value: '3', label: 'Wednesday' },
+    { value: '4', label: 'Thursday' },
+    { value: '5', label: 'Friday' },
+    { value: '6', label: 'Saturday' },
+    { value: '0', label: 'Sunday' },
+]
+
+export const DEFAULT_SCOUT_WEEKLY_DAY = '1'
 
 interface ScoutScheduleFields {
     run_interval_minutes: number
@@ -468,11 +482,24 @@ export function getScoutScheduleMode(config: ScoutScheduleFields): string {
     if (!config.run_cron_schedule) {
         return String(config.run_interval_minutes)
     }
-    return dailyCronToTime(config.run_cron_schedule) ? SCOUT_DAILY_AT_SCHEDULE_MODE : SCOUT_CUSTOM_CRON_SCHEDULE_MODE
+    if (dailyCronToTime(config.run_cron_schedule)) {
+        return SCOUT_DAILY_AT_SCHEDULE_MODE
+    }
+    if (weeklyCronToDayTime(config.run_cron_schedule)) {
+        return SCOUT_WEEKLY_ON_SCHEDULE_MODE
+    }
+    return SCOUT_CUSTOM_CRON_SCHEDULE_MODE
 }
 
-export function getScoutScheduleOptions(config: ScoutScheduleFields): { value: string; label: string }[] {
-    const scheduleMode = getScoutScheduleMode(config)
+/**
+ * `customCronEditable` says whether the surface can edit a raw expression. Where it cannot, the
+ * custom option only appears for a config that already carries one, so the picker still shows what
+ * the scout runs on.
+ */
+export function getScoutScheduleOptions(
+    config: ScoutScheduleFields,
+    { customCronEditable = false }: { customCronEditable?: boolean } = {}
+): { value: string; label: string }[] {
     const options = RUN_INTERVAL_OPTIONS.map((option) => ({
         value: String(option.minutes),
         label: option.label,
@@ -484,11 +511,11 @@ export function getScoutScheduleOptions(config: ScoutScheduleFields): { value: s
         })
     }
     options.push({ value: SCOUT_DAILY_AT_SCHEDULE_MODE, label: 'Daily at a set time' })
-    if (scheduleMode === SCOUT_CUSTOM_CRON_SCHEDULE_MODE) {
-        options.push({
-            value: SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
-            label: `Custom (${config.run_cron_schedule})`,
-        })
+    options.push({ value: SCOUT_WEEKLY_ON_SCHEDULE_MODE, label: 'Weekly on a set day' })
+    if (customCronEditable) {
+        options.push({ value: SCOUT_CUSTOM_CRON_SCHEDULE_MODE, label: 'Custom cron' })
+    } else if (getScoutScheduleMode(config) === SCOUT_CUSTOM_CRON_SCHEDULE_MODE) {
+        options.push({ value: SCOUT_CUSTOM_CRON_SCHEDULE_MODE, label: `Custom (${config.run_cron_schedule})` })
     }
     return options
 }
@@ -524,6 +551,132 @@ export function dailyCronToTime(cron: string | null | undefined): string | null 
 export function timeToDailyCron(time: string): string {
     const [hours, minutes] = time.split(':')
     return `${Number(minutes)} ${Number(hours)} * * *`
+}
+
+/**
+ * "30 9 * * 4" → `{ day: '4', time: '09:30' }` when the cron is a plain weekly slot (the shape the
+ * settings form writes). Multi-day and month-restricted expressions return null and are edited as
+ * raw cron instead.
+ */
+export function weeklyCronToDayTime(cron: string | null | undefined): { day: string; time: string } | null {
+    const match = cron?.trim().match(/^(\d{1,2}) (\d{1,2}) \* \* ([0-6])$/)
+    if (!match) {
+        return null
+    }
+    return { day: match[3], time: `${match[2].padStart(2, '0')}:${match[1].padStart(2, '0')}` }
+}
+
+/** `('4', '09:30')` → "30 9 * * 4" — the inverse of `weeklyCronToDayTime`. */
+export function dayTimeToWeeklyCron(day: string, time: string): string {
+    const [hours, minutes] = time.split(':')
+    return `${Number(minutes)} ${Number(hours)} * * ${day}`
+}
+
+/** Longest cron expression the config API stores. */
+export const SCOUT_CRON_MAX_LENGTH = 100
+
+/** Shortest gap the scheduler allows between two runs, the same floor as `run_interval_minutes`. */
+const SCOUT_CRON_MIN_GAP_MINUTES = 30
+
+const CRON_MONTH_NAMES = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+const CRON_DAY_NAMES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+type CronFieldParse = { kind: 'values'; values: number[] } | { kind: 'unmodeled' } | { kind: 'invalid' }
+
+function cronFieldNumber(token: string, offset: number, names: string[] | undefined): number | null {
+    const named = names?.indexOf(token.toLowerCase())
+    if (named !== undefined && named >= 0) {
+        return named + offset
+    }
+    return /^\d{1,2}$/.test(token) ? Number(token) : null
+}
+
+/**
+ * The values a single cron field matches. `unmodeled` covers the syntax this check does not
+ * model (`L`, `W`, `#`, `?`): the backend decides those, because a client that guessed would
+ * refuse an expression the scheduler accepts.
+ */
+function parseCronField(field: string, min: number, max: number, names?: string[]): CronFieldParse {
+    if (!field || /[^0-9a-zA-Z*/,-]/.test(field)) {
+        return { kind: 'unmodeled' }
+    }
+    const values = new Set<number>()
+    for (const part of field.split(',')) {
+        const [spec, stepToken, ...extra] = part.split('/')
+        if (extra.length > 0 || spec === undefined) {
+            return { kind: 'invalid' }
+        }
+        const step = stepToken === undefined ? 1 : Number(stepToken)
+        if (!Number.isInteger(step) || step < 1) {
+            return { kind: 'invalid' }
+        }
+        let from = min
+        let to = max
+        if (spec !== '*') {
+            const bounds = spec.split('-')
+            if (bounds.length > 2) {
+                return { kind: 'invalid' }
+            }
+            const parsed = bounds.map((token) => cronFieldNumber(token, min === 0 ? 0 : 1, names))
+            if (parsed.some((value) => value === null || value < min || value > max)) {
+                return { kind: 'invalid' }
+            }
+            from = parsed[0] as number
+            // "5/10" is an open-ended step from 5, while a bare "5" is that one value.
+            to = bounds.length === 2 ? (parsed[1] as number) : stepToken === undefined ? from : max
+            // A wrapping range like "22-2" is an extension some parsers take and others reject.
+            if (to < from) {
+                return { kind: 'unmodeled' }
+            }
+        }
+        for (let value = from; value <= to; value += step) {
+            values.add(value)
+        }
+    }
+    return { kind: 'values', values: [...values].sort((a, b) => a - b) }
+}
+
+/**
+ * Why `expression` is not an acceptable scout cron schedule, or null when it is. Mirrors the four
+ * rules the config API applies (`cron_schedule_error`) so the picker rejects a typo before the
+ * PATCH. Expressions using syntax this check does not model pass and are left to the backend.
+ */
+export function scoutCronScheduleError(expression: string): string | null {
+    const expr = expression.trim()
+    if (expr.length > SCOUT_CRON_MAX_LENGTH) {
+        return `Cron expressions must be ${SCOUT_CRON_MAX_LENGTH} characters or fewer.`
+    }
+    const fields = expr.split(/\s+/)
+    const invalidShape = 'Enter a five-field cron expression, like 0 9 * * 1-5.'
+    if (fields.length !== 5) {
+        return invalidShape
+    }
+    const minutes = parseCronField(fields[0], 0, 59)
+    const hours = parseCronField(fields[1], 0, 23)
+    const daysOfMonth = parseCronField(fields[2], 1, 31)
+    const months = parseCronField(fields[3], 1, 12, CRON_MONTH_NAMES)
+    const daysOfWeek = parseCronField(fields[4], 0, 7, CRON_DAY_NAMES)
+    const parsedFields = [minutes, hours, daysOfMonth, months, daysOfWeek]
+    if (parsedFields.some((field) => field.kind === 'invalid')) {
+        return invalidShape
+    }
+    // Cron matches day-of-month OR day-of-week, so a restricted weekday keeps the schedule alive
+    // whatever the day-of-month field says.
+    if (fields[2] !== '*' && fields[4] === '*' && daysOfMonth.kind === 'values' && months.kind === 'values') {
+        const occurs = months.values.some((month) => daysOfMonth.values.some((day) => day <= DAYS_IN_MONTH[month - 1]))
+        if (!occurs) {
+            return 'This schedule never matches a real date. Check the day and month.'
+        }
+    }
+    if (minutes.kind === 'values' && hours.kind === 'values') {
+        const slots = hours.values.flatMap((hour) => minutes.values.map((minute) => hour * 60 + minute))
+        const gaps = slots.slice(1).map((slot, index) => slot - slots[index])
+        if (gaps.some((gap) => gap < SCOUT_CRON_MIN_GAP_MINUTES)) {
+            return `Runs must be at least ${SCOUT_CRON_MIN_GAP_MINUTES} minutes apart.`
+        }
+    }
+    return null
 }
 
 /** Short form for row badges: "hourly", "every 3h". */

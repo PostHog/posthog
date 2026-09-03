@@ -16,7 +16,7 @@ import type {
 import { signalsScoutCreate } from 'products/signals/frontend/generated/api'
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { SCOUT_DAILY_AT_SCHEDULE_MODE } from '../utils/scoutRunsWindow'
+import { SCOUT_DAILY_AT_SCHEDULE_MODE, SCOUT_WEEKLY_ON_SCHEDULE_MODE } from '../utils/scoutRunsWindow'
 import { ScoutCreateModalLogicProps, scoutCreateModalLogic, scoutCreateModalLogicKey } from './scoutCreateModalLogic'
 
 jest.mock('products/signals/frontend/generated/api', () => ({
@@ -156,6 +156,7 @@ describe('scoutCreateModalLogic', () => {
             description: 'Investigates recurring checkout failures.',
             body: 'Inspect checkout failure signals and report meaningful regressions.',
             dailyTime: '09:00',
+            weeklyDay: '1',
             config: {
                 enabled: false,
                 emit: false,
@@ -305,6 +306,41 @@ describe('scoutCreateModalLogic', () => {
                     tags: [],
                     mcp_gateway_server_ids: [],
                 },
+            })
+        )
+    })
+
+    it('submits a weekly day and run time as a cron schedule', async () => {
+        mockSignalsScoutCreate.mockResolvedValue(CREATED_SCOUT)
+        logic = scoutCreateModalLogic({
+            logicKey: 'weekly-scout',
+            initialValues: {
+                name: 'signals-scout-checkout-failures',
+                description: 'Investigates recurring checkout failures.',
+                body: 'Inspect checkout failure signals and report meaningful regressions.',
+            },
+            onClose,
+            onCreated,
+        })
+        logic.mount()
+
+        logic.actions.setScoutCreateScheduleMode(SCOUT_WEEKLY_ON_SCHEDULE_MODE)
+        logic.actions.setScoutCreateWeeklyDay('4')
+        logic.actions.setScoutCreateDailyTime('14:45')
+
+        await expectLogic(logic).toMatchValues({
+            scoutCreateForm: expect.objectContaining({
+                weeklyDay: '4',
+                dailyTime: '14:45',
+                config: expect.objectContaining({ run_cron_schedule: '45 14 * * 4' }),
+            }),
+        })
+        await expectLogic(logic, () => logic.actions.submitScoutCreateForm()).toFinishAllListeners()
+
+        expect(mockSignalsScoutCreate).toHaveBeenCalledWith(
+            String(MOCK_TEAM_ID),
+            expect.objectContaining({
+                config: expect.objectContaining({ run_cron_schedule: '45 14 * * 4' }),
             })
         )
     })

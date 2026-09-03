@@ -5,7 +5,7 @@ import {
 } from "@phosphor-icons/react";
 import type { ScoutConfig } from "@posthog/api-client/posthog-client";
 import {
-  formatRunIntervalShort,
+  formatScoutScheduleShort,
   prettifyScoutSkillName,
   type ScoutRollup,
   scoutSkillSlug,
@@ -107,7 +107,7 @@ export function ScoutRowCard({
           <DryRunBadge config={config} />
           <ScoutLifecycleBadge config={config} />
           <Text className="whitespace-nowrap text-[11px] text-gray-10">
-            {formatRunIntervalShort(config.run_interval_minutes)}
+            {formatScoutScheduleShort(config)}
           </Text>
           {rollup && rollup.emittedCount > 0 ? (
             <Text className="whitespace-nowrap text-[11px] text-gray-10">

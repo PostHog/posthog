@@ -13,6 +13,7 @@ export interface ScoutConfigUpdate {
   enabled?: boolean;
   emit?: boolean;
   run_interval_minutes?: number;
+  run_cron_schedule?: string | null;
   auto_pause_exempt?: boolean;
 }
 
@@ -20,6 +21,7 @@ const CONFIG_SETTINGS = [
   "enabled",
   "emit",
   "run_interval_minutes",
+  "run_cron_schedule",
   "auto_pause_exempt",
 ] as const;
 

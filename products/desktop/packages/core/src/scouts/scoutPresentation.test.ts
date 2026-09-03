@@ -4,13 +4,16 @@ import {
   buildScoutCreatorIndex,
   computeFleetSummary,
   computeScoutRollups,
+  dayTimeToWeeklyCron,
   deriveRunFailureKind,
   deriveRunOutcome,
   deriveScoutLifecycle,
   formatRunDuration,
   formatRunInterval,
   formatRunIntervalShort,
+  formatScoutScheduleShort,
   getScoutOrigin,
+  getScoutScheduleMode,
   isRunStuck,
   isScoutCreatedByUser,
   listScoutCreatorOptions,
@@ -18,14 +21,19 @@ import {
   prettifyScoutSkillName,
   runDurationSeconds,
   runMatchesFilter,
+  SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
+  SCOUT_DAILY_AT_SCHEDULE_MODE,
+  SCOUT_WEEKLY_ON_SCHEDULE_MODE,
   type ScoutOrigin,
   type ScoutRunFilter,
   scoutCreatorDisplayName,
   scoutCreatorKey,
+  scoutCronScheduleError,
   scoutRunOutcomeLabel,
   scoutSkillNameFromSlug,
   scoutSkillSlug,
   sortConfigsForDisplay,
+  weeklyCronToDayTime,
 } from "./scoutPresentation";
 
 const NOW = new Date("2026-06-10T12:00:00Z");
@@ -691,5 +699,66 @@ describe("creators", () => {
       ]);
       expect(options.every((option) => !option.isCurrentUser)).toBe(true);
     });
+  });
+});
+
+describe("schedule modes", () => {
+  it.each([
+    ["a rolling interval", null, 1440, "daily"],
+    ["a plain daily cron", "0 9 * * *", 1440, "daily at 09:00"],
+    ["a weekly cron", "30 8 * * 4", 1440, "thursdays at 08:30"],
+    ["a cron the presets cannot name", "0 9 * * 1-5", 1440, "0 9 * * 1-5"],
+  ])("labels %s", (_label, cron, minutes, expected) => {
+    expect(
+      formatScoutScheduleShort({
+        run_interval_minutes: minutes as number,
+        run_cron_schedule: cron as string | null,
+      }),
+    ).toBe(expected);
+  });
+
+  it.each([
+    ["a rolling interval", null, "1440"],
+    ["a plain daily cron", "0 9 * * *", SCOUT_DAILY_AT_SCHEDULE_MODE],
+    ["a single weekday cron", "30 8 * * 4", SCOUT_WEEKLY_ON_SCHEDULE_MODE],
+    ["a weekday-range cron", "0 9 * * 1-5", SCOUT_CUSTOM_CRON_SCHEDULE_MODE],
+  ])("reads %s as its own mode", (_label, cron, expected) => {
+    expect(
+      getScoutScheduleMode({
+        run_interval_minutes: 1440,
+        run_cron_schedule: cron as string | null,
+      }),
+    ).toBe(expected);
+  });
+
+  it("round-trips a weekly day and time through the cron it writes", () => {
+    expect(dayTimeToWeeklyCron("4", "08:30")).toBe("30 8 * * 4");
+    expect(weeklyCronToDayTime("30 8 * * 4")).toEqual({
+      day: "4",
+      time: "08:30",
+    });
+  });
+
+  it.each([
+    ["0 9 * * 1-5"],
+    ["30 8 * * 1,4"],
+    ["0 9 1 * *"],
+    ["0 9,17 * * *"],
+    ["0 9 * * MON"],
+    ["0 9 * * 5#2"],
+  ])("accepts %s", (expression) => {
+    expect(scoutCronScheduleError(expression)).toBeNull();
+  });
+
+  it.each([
+    ["0 9 * *", "Enter a five-field cron expression, like 0 9 * * 1-5."],
+    ["70 9 * * *", "Enter a five-field cron expression, like 0 9 * * 1-5."],
+    [
+      "0 0 31 2 *",
+      "This schedule never matches a real date. Check the day and month.",
+    ],
+    ["*/20 * * * *", "Runs must be at least 30 minutes apart."],
+  ])("refuses %s", (expression, expected) => {
+    expect(scoutCronScheduleError(expression)).toBe(expected);
   });
 });

@@ -103,14 +103,35 @@ describe('ScoutConfigForm', () => {
         unmount()
     })
 
-    it('shows an unexpressible cron as a read-only custom mode without a time picker', () => {
+    it('saves a weekly run day and keeps the run time', () => {
         const onUpdate = jest.fn()
-        const { container, getByText, unmount } = render(
-            <ScoutConfigForm config={{ ...config, run_cron_schedule: '0 9 * * 1-5' }} onUpdate={onUpdate} />
+        const { getByLabelText, getByText, container, unmount } = render(
+            <ScoutConfigForm config={{ ...config, run_cron_schedule: '30 8 * * 1' }} onUpdate={onUpdate} />
         )
 
-        expect(container.querySelector('input[type="time"]')).toBeNull()
-        expect(getByText('Custom (0 9 * * 1-5)')).toBeTruthy()
+        expect(container.querySelector<HTMLInputElement>('input[type="time"]')?.value).toBe('08:30')
+
+        fireEvent.click(getByLabelText('signals-scout-general run day'))
+        fireEvent.click(getByText('Thursday'))
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { run_cron_schedule: '30 8 * * 4' })
+        unmount()
+    })
+
+    it('edits a day-restricted cron in place and refuses one the scheduler would reject', () => {
+        const onUpdate = jest.fn()
+        const { getByLabelText, getByText, unmount } = render(
+            <ScoutConfigForm config={{ ...config, run_cron_schedule: '0 9 1 2 *' }} onUpdate={onUpdate} />
+        )
+        const input = getByLabelText('signals-scout-general cron expression')
+
+        fireEvent.change(input, { target: { value: '0,15 9 * * *' } })
+        fireEvent.blur(input)
+        expect(getByText('Runs must be at least 30 minutes apart.')).toBeTruthy()
+        expect(onUpdate).not.toHaveBeenCalled()
+
+        fireEvent.change(input, { target: { value: '0 9 * * 1-5' } })
+        fireEvent.blur(input)
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { run_cron_schedule: '0 9 * * 1-5' })
         unmount()
     })
 
