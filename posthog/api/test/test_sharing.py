@@ -8,7 +8,9 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, patch
 
 from django.core.exceptions import ImproperlyConfigured
+from django.db import connection
 from django.http import HttpResponse
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.timezone import now
 
@@ -180,6 +182,23 @@ class TestSharing(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         mock_record_access.assert_called_once_with(expected_access_method)
+
+    @mock_exporter_template
+    def test_resolving_a_share_token_does_not_join_resource_tables(self) -> None:
+        config = SharingConfiguration.objects.create(team=self.team, dashboard=self.dashboard, enabled=True)
+
+        with CaptureQueriesContext(connection) as context:
+            response = self.client.get(f"/shared/{config.access_token}")
+
+        assert response.status_code == status.HTTP_200_OK
+        token_lookups = [
+            query["sql"]
+            for query in context.captured_queries
+            if "posthog_sharingconfiguration" in query["sql"] and "access_token" in query["sql"]
+        ]
+        assert token_lookups
+        for sql in token_lookups:
+            assert " JOIN " not in sql.upper()
 
     @freeze_time("2022-01-01")
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")

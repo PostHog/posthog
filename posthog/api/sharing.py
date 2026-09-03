@@ -916,18 +916,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         access_token = self.kwargs.get("access_token", "").split(".")[0]
         if access_token:
             try:
-                sharing_configuration = (
-                    SharingConfiguration.objects.select_related(
-                        "dashboard",
-                        "insight",
-                        "recording",
-                        "notebook",
-                        "interviewee_context",
-                        "interviewee_context__topic",
-                    )
-                    .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
-                    .get(access_token=access_token)
-                )
+                # No select_related: a share points at one resource, so joining every relation makes
+                # the database read four tables that can never match. Django loads the one non-null
+                # relation on first access instead.
+                sharing_configuration = SharingConfiguration.objects.filter(
+                    Q(expires_at__isnull=True) | Q(expires_at__gt=now())
+                ).get(access_token=access_token)
             except SharingConfiguration.DoesNotExist:
                 raise NotFound()
 
