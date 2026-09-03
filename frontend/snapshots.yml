@@ -7820,6 +7820,18 @@ snapshots:
         hash: v1.k794b7964.434383db5739f05638540be4be2f7671cdb35cca73c32df11f324feb17f3685c.suVpXuPkYmQJtBx6L0JVf4p_bj929kIWSY2fds0lPfw
     scenes-app-notebooks-components-notebook-select-button--with-slow-network-response--light:
         hash: v1.k794b7964.678b0f73befa0690622fd5eb7a920f5c25919af7a9b516a08756e866b37de352.QhzKGfEQA_MQykTL8uuyOryngt75iNv9BydvL5ckPjQ
+    scenes-app-notebooks-kernel-info--running-on-a-preset--dark:
+        hash: v1.k794b7964.d62b25b6e0f4fff01b9df44f2f40e0b24cf7e6329dca8e9f6091ad9ea88f017d.wdVwj4YTiAv4gmWs6lmZTH6lWwlUqSbogrXazNvRfI8
+    scenes-app-notebooks-kernel-info--running-on-a-preset--light:
+        hash: v1.k794b7964.ebc33548c9baf8e642e685eae0264bb557ba88ceb8032bba24eb834005089bc2.SF6y4mNNp--Yrl7XCZXa2SyGyDxM_tkiOrQROWAlouk
+    scenes-app-notebooks-kernel-info--stopped-on-docker--dark:
+        hash: v1.k794b7964.d62b25b6e0f4fff01b9df44f2f40e0b24cf7e6329dca8e9f6091ad9ea88f017d.dvIvjZF5xvw5NpLVzfIks8i7MFnIDcvnG2Fpd92Y-Go
+    scenes-app-notebooks-kernel-info--stopped-on-docker--light:
+        hash: v1.k794b7964.ebc33548c9baf8e642e685eae0264bb557ba88ceb8032bba24eb834005089bc2.Fu-cPnrGmbGNohBcFtwNqF_ueQnGg0sMTFXSY0pwCc4
+    scenes-app-notebooks-kernel-info--tuned-by-hand--dark:
+        hash: v1.k794b7964.d62b25b6e0f4fff01b9df44f2f40e0b24cf7e6329dca8e9f6091ad9ea88f017d.rthWhOQfoKEqDMuIGx_ZOmvmroexiFo8wln3H6uwFFw
+    scenes-app-notebooks-kernel-info--tuned-by-hand--light:
+        hash: v1.k794b7964.ebc33548c9baf8e642e685eae0264bb557ba88ceb8032bba24eb834005089bc2.vMOgc8ABwVSTG1B4eojy8V3xDViIPDZj3BmBVCkvXyc
     scenes-app-notebooks-nodes-customer-journey--all-steps-completed--dark:
         hash: v1.k794b7964.21a8db46b074c796548d4e0fc63caf6443807d16fc5bf18de4d8702336870cd8.F16rPJkkmnadbRylNt9D1y4vd-_qggONDZaX0ErA27g
     scenes-app-notebooks-nodes-customer-journey--all-steps-completed--light:
