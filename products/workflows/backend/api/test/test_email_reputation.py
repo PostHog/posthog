@@ -10,12 +10,14 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team
+from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models import HogFlow, HogFlowBatchJob
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.providers.ses import IspDailyPoint, IspSendingMetrics
 
 
 class TestEmailReputationAPI(APIBaseTest):
@@ -37,19 +39,32 @@ class TestEmailReputationAPI(APIBaseTest):
         )
 
     def _get_reputation(
-        self, totals_by_source: dict, query: str = "", aws_tenant: dict | None | Exception = None
+        self,
+        totals_by_source: dict,
+        query: str = "",
+        aws_tenant: dict | None | Exception = None,
+        isp_metrics: list | Exception | None = None,
+        isp_flag_enabled: bool = True,
     ) -> dict:
         provider = MagicMock()
         if isinstance(aws_tenant, Exception):
             provider.get_tenant_reputation.side_effect = aws_tenant
         else:
             provider.get_tenant_reputation.return_value = aws_tenant
+        if isinstance(isp_metrics, Exception):
+            provider.get_identity_isp_metrics.side_effect = isp_metrics
+        else:
+            provider.get_identity_isp_metrics.return_value = isp_metrics or []
         with (
             patch(
                 "products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_source",
                 return_value=totals_by_source,
             ),
             patch("products.workflows.backend.api.hog_flow.SESProvider", return_value=provider),
+            patch(
+                "products.workflows.backend.api.hog_flow._isp_breakdown_enabled",
+                return_value=isp_flag_enabled,
+            ),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation{query}")
         assert response.status_code == status.HTTP_200_OK
@@ -68,6 +83,9 @@ class TestEmailReputationAPI(APIBaseTest):
             "aws": None,
             "reputation": None,
             "workflows": [],
+            "isps": [],
+            "isp_shared_domains": [],
+            "isp_withheld_domains": [],
             "email_sending_suspended": False,
             "email_sending_suspended_at": None,
             "email_sending_suspension_reason": "",
@@ -251,6 +269,204 @@ class TestEmailReputationAPI(APIBaseTest):
         assert data["email_sending_suspended_at"] == suspended_at.isoformat().replace("+00:00", "Z")
         assert data["email_sending_suspension_reason"] == "critical bounce rate"
 
+    def _verify_sending_domain(self, domain: str = "mail.example.com") -> None:
+        Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id=domain,
+            config={"domain": domain, "provider": "ses", "verified": True},
+        )
+
+    def test_reputation_endpoint_returns_the_per_provider_breakdown(self):
+        self._verify_sending_domain()
+
+        body = self._get_reputation(
+            {},
+            isp_metrics=[
+                IspSendingMetrics(
+                    isp="Gmail",
+                    emails_sent=900,
+                    delivery_rate=0.97,
+                    bounce_rate=0.01,
+                    complaint_rate=None,
+                    daily=(IspDailyPoint(date="2026-08-01", emails_sent=900, delivery_rate=0.97, bounce_rate=0.01),),
+                ),
+                IspSendingMetrics(
+                    isp="Yahoo",
+                    emails_sent=100,
+                    delivery_rate=0.99,
+                    bounce_rate=0.0,
+                    complaint_rate=0.002,
+                    daily=(),
+                ),
+            ],
+        )
+
+        assert body["isps"] == [
+            {
+                "isp": "Gmail",
+                "emails_sent": 900,
+                "delivery_rate": 0.97,
+                "bounce_rate": 0.01,
+                # Null rather than 0 — Gmail runs no feedback loop, so a complaint rate would be
+                # a number we can't actually measure.
+                "complaint_rate": None,
+                "unavailable": [],
+                "daily": [
+                    {
+                        "date": "2026-08-01",
+                        "emails_sent": 900,
+                        "delivery_rate": 0.97,
+                        "bounce_rate": 0.01,
+                    }
+                ],
+            },
+            {
+                "isp": "Yahoo",
+                "emails_sent": 100,
+                "delivery_rate": 0.99,
+                "bounce_rate": 0.0,
+                "complaint_rate": 0.002,
+                "unavailable": [],
+                "daily": [],
+            },
+        ]
+
+    @parameterized.expand(
+        [
+            ("sibling verified on the same domain", True, ["mail.example.com"]),
+            ("sibling not verified yet", False, []),
+        ]
+    )
+    def test_reputation_endpoint_names_domains_a_sibling_project_also_sends_from(
+        self, _name: str, sibling_verified: bool, expected: list[str]
+    ):
+        self._verify_sending_domain()
+        sibling = Team.objects.create(organization=self.organization, name="Sibling")
+        Integration.objects.create(
+            team=sibling,
+            kind="email",
+            integration_id="mail.example.com",
+            config={"domain": "mail.example.com", "provider": "ses", "verified": sibling_verified},
+        )
+
+        body = self._get_reputation({}, isp_metrics=[])
+
+        assert body["isp_shared_domains"] == expected
+
+    def test_reputation_endpoint_omits_domains_only_this_project_sends_from(self):
+        self._verify_sending_domain()
+        self._verify_sending_domain("solo.example.com")
+        sibling = Team.objects.create(organization=self.organization, name="Sibling")
+        Integration.objects.create(
+            team=sibling,
+            kind="email",
+            integration_id="mail.example.com",
+            config={"domain": "mail.example.com", "provider": "ses", "verified": True},
+        )
+
+        body = self._get_reputation({}, isp_metrics=[])
+
+        assert body["isp_shared_domains"] == ["mail.example.com"]
+
+    @parameterized.expand(
+        [
+            ("sibling project hidden from the caller", "none", [], ["mail.example.com"]),
+            ("sibling project the caller can open", "member", ["mail.example.com"], []),
+        ]
+    )
+    def test_reputation_endpoint_withholds_a_domain_a_hidden_project_also_sends_from(
+        self, _name: str, sibling_access: str, expected_shared: list[str], expected_withheld: list[str]
+    ):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self._verify_sending_domain()
+        sibling = Team.objects.create(organization=self.organization, name="Sibling")
+        Integration.objects.create(
+            team=sibling,
+            kind="email",
+            integration_id="mail.example.com",
+            config={"domain": "mail.example.com", "provider": "ses", "verified": True},
+        )
+        AccessControl.objects.create(
+            team=sibling, resource="project", resource_id=str(sibling.id), access_level=sibling_access
+        )
+        member = User.objects.create_and_join(self.organization, f"sibling-{sibling_access}@posthog.com", "testtest")
+        self.client.force_login(member)
+
+        body = self._get_reputation(
+            {},
+            isp_metrics=[
+                IspSendingMetrics(
+                    isp="Gmail",
+                    emails_sent=900,
+                    delivery_rate=0.97,
+                    bounce_rate=0.01,
+                    complaint_rate=None,
+                    daily=(),
+                )
+            ],
+        )
+
+        assert body["isp_shared_domains"] == expected_shared
+        assert body["isp_withheld_domains"] == expected_withheld
+        # A withheld domain is never queried, so the provider rows go with it.
+        assert [row["isp"] for row in body["isps"]] == ([] if expected_withheld else ["Gmail"])
+
+    def test_reputation_endpoint_still_loads_when_the_provider_breakdown_fails(self):
+        # The breakdown is an addition to the rates display; SES being unreachable must not take
+        # the whole reputation page down with it.
+        self._verify_sending_domain()
+
+        body = self._get_reputation(
+            {"src": {"email_sent": 100, "email_bounced_hard": 1}},
+            isp_metrics=Exception("SES timeout"),
+        )
+
+        assert body["isps"] == []
+        assert body["reputation"]["emails_sent"] == 100
+
+    def test_reputation_endpoint_shows_no_breakdown_while_another_request_is_refreshing_it(self):
+        # One refresh is 150 metric queries over 15 sequential SES calls, and the endpoint reloads on
+        # every search keystroke, so a cold key must admit one request rather than all of them.
+        self._verify_sending_domain()
+        provider = MagicMock()
+        provider.get_tenant_reputation.return_value = None
+        with (
+            patch("products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_source", return_value={}),
+            patch("products.workflows.backend.api.hog_flow.SESProvider", return_value=provider),
+            patch("products.workflows.backend.api.hog_flow._isp_breakdown_enabled", return_value=True),
+            patch("products.workflows.backend.api.hog_flow.cache.add", return_value=False),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["isps"] == []
+        assert provider.get_identity_isp_metrics.call_count == 0
+
+    def test_reputation_endpoint_withholds_the_breakdown_without_the_feature_flag(self):
+        self._verify_sending_domain()
+
+        body = self._get_reputation(
+            {"src": {"email_sent": 100, "email_bounced_hard": 1}},
+            isp_metrics=[
+                IspSendingMetrics(
+                    isp="Gmail",
+                    emails_sent=90,
+                    delivery_rate=0.99,
+                    bounce_rate=0.01,
+                    complaint_rate=None,
+                    daily=(),
+                )
+            ],
+            isp_flag_enabled=False,
+        )
+
+        assert body["isps"] == []
+        assert body["reputation"]["emails_sent"] == 100
+
 
 @pytest.mark.ee
 class TestEmailReputationAccessControl(APIBaseTest):
@@ -293,12 +509,24 @@ class TestEmailReputationAccessControl(APIBaseTest):
             "reputation_impact": "HIGH",
             "findings": [],
         }
+        provider.get_identity_isp_metrics.return_value = [
+            IspSendingMetrics(
+                isp="Gmail",
+                emails_sent=100,
+                delivery_rate=0.9,
+                bounce_rate=0.05,
+                complaint_rate=None,
+                daily=(),
+            )
+        ]
         with (
             patch(
                 "products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_source",
                 return_value={str(flow.id): {"email_sent": 100, "email_bounced_hard": 5}},
             ),
             patch("products.workflows.backend.api.hog_flow.SESProvider", return_value=provider),
+            # Enabled, so what the assertion below tests is the access-control gate, not the flag.
+            patch("products.workflows.backend.api.hog_flow._isp_breakdown_enabled", return_value=True),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
 
@@ -306,4 +534,5 @@ class TestEmailReputationAccessControl(APIBaseTest):
         data = response.json()
         assert data["aws"] is None
         assert data["reputation"] is None
+        assert data["isps"] == []
         assert [row["hog_flow_id"] for row in data["workflows"]] == [str(flow.id)]
