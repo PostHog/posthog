@@ -17,6 +17,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
@@ -26,6 +27,7 @@ from posthog.email import (
     _send_email,
     _send_via_http,
     _send_via_smtp,
+    _TransientHTTPError,
     get_email_team_and_org_context,
     sanitize_email_properties,
 )
@@ -274,33 +276,90 @@ class TestEmail(BaseTest):
 
         self.assertEqual(mock_backend_cls.call_args.kwargs.get("timeout"), 17)
 
+    @parameterized.expand(
+        [
+            ("transient_timeout", requests.exceptions.ReadTimeout("read timed out"), requests.exceptions.ReadTimeout),
+            (
+                "transient_connection",
+                requests.exceptions.ConnectionError("refused"),
+                requests.exceptions.ConnectionError,
+            ),
+            ("transient_5xx", MagicMock(status_code=502, text="bad gateway"), _TransientHTTPError),
+            ("permanent_4xx", MagicMock(status_code=400, text="bad request"), None),
+        ]
+    )
     @patch("posthog.email.requests.post")
-    def test_send_via_http_failed_metric_counts_undelivered_recipients(self, mock_post) -> None:
-        # `failed` must count every recipient that didn't get through (the failing one + any not yet
-        # attempted), per recipient like `sent` — not once per batch — or the alertable failure rate
-        # under-reports multi-recipient batches.
+    def test_send_via_http_error_retry_classification(self, name, outcome, expected_exc, mock_post) -> None:
+        # Transient failures (network timeouts/connection errors + provider 5xx) re-raise so the
+        # task's autoretry fires instead of silently dropping a password reset; a 4xx stays swallowed
+        # (never retried). Both record one failed metric and never mark the recipient delivered.
+        if isinstance(outcome, Exception):
+            mock_post.side_effect = outcome
+        else:
+            mock_post.return_value = outcome
+
+        failed_labels = {"outcome": "failed", "transport": "http"}
+        before = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
+
+        kwargs: dict[str, Any] = {
+            "to": [{"raw_email": f"{name}@posthog.com"}],
+            "campaign_key": f"http_retry_{name}",
+            "template_name": "2fa_enabled",
+            "properties": {},
+        }
+        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
+            if expected_exc is not None:
+                with self.assertRaises(expected_exc):
+                    _send_via_http(**kwargs)
+            else:
+                _send_via_http(**kwargs)
+
+        after = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+        record = MessagingRecord.objects.filter(campaign_key=f"http_retry_{name}").first()
+        if record is not None:
+            self.assertIsNone(record.sent_at)
+
+    @patch("posthog.email.requests.post")
+    def test_send_via_http_transient_batch_failure(self, mock_post) -> None:
+        # A transient failure aborts the batch and re-raises for autoretry. `failed` counts every
+        # recipient that didn't get through (the failing one + those not yet attempted), per recipient
+        # like `sent`. A recipient already delivered keeps its sent_at, so the retry skips it.
         ok = MagicMock(status_code=200)
         ok.json.return_value = {}
-        bad = MagicMock(status_code=500, text="boom")
-        mock_post.side_effect = [ok, bad]
+        mock_post.side_effect = [ok, requests.exceptions.ReadTimeout("hung mid-batch")]
 
         failed_labels = {"outcome": "failed", "transport": "http"}
         before = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
 
         with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
-            _send_via_http(
-                to=[
-                    {"raw_email": "a@posthog.com"},
-                    {"raw_email": "b@posthog.com"},
-                    {"raw_email": "c@posthog.com"},
-                ],
-                campaign_key="http_failcount",
-                template_name="2fa_enabled",
-                properties={},
-            )
+            with self.assertRaises(requests.exceptions.ReadTimeout):
+                _send_via_http(
+                    to=[
+                        {"raw_email": "a@posthog.com"},
+                        {"raw_email": "b@posthog.com"},
+                        {"raw_email": "c@posthog.com"},
+                    ],
+                    campaign_key="http_batch_transient",
+                    template_name="2fa_enabled",
+                    properties={},
+                )
 
         after = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
         self.assertEqual(after - before, 2.0)  # b failed + c never attempted; a succeeded
+
+        a = MessagingRecord.objects.filter(
+            email_hash__in=get_email_hashes("a@posthog.com"), campaign_key="http_batch_transient"
+        ).first()
+        self.assertIsNotNone(a.sent_at)  # committed before the failure → a retry skips it
+        b = MessagingRecord.objects.filter(
+            email_hash__in=get_email_hashes("b@posthog.com"), campaign_key="http_batch_transient"
+        ).first()
+        self.assertIsNone(b.sent_at)  # POST failed → never marked, retried fresh
+        c = MessagingRecord.objects.filter(
+            email_hash__in=get_email_hashes("c@posthog.com"), campaign_key="http_batch_transient"
+        ).first()
+        self.assertIsNone(c)  # loop aborted before c was reached
 
     @patch("posthoganalytics.capture")
     @patch("posthog.email.requests.post")
@@ -392,12 +451,14 @@ class TestEmail(BaseTest):
             )
             message.add_recipient("test@posthog.com")
 
-            # The error should be caught and logged, not raised
+            # A 4xx is permanent: caught and logged, not raised into autoretry.
             message.send(send_async=False)
 
-            # Verify the message wasn't marked as sent
+            # The record may exist (claimed before the POST) but must never be marked sent, so a
+            # later send for the same campaign is not skipped.
             record = MessagingRecord.objects.filter(campaign_key="test_campaign").first()
-            self.assertIsNone(record)
+            if record is not None:
+                self.assertIsNone(record.sent_at)
 
     def test_sanitize_email_properties(self) -> None:
         # Test with various types of input including potential HTML injection
