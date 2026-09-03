@@ -59,7 +59,7 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
                 />
             )
 
-            expect(screen.getByText('Session recording is turned off for this project')).toBeInTheDocument()
+            expect(screen.getByText('PostHog told the SDK not to record this session')).toBeInTheDocument()
         })
 
         it('renders recorder_not_started headline for a bare disabled snapshot', () => {

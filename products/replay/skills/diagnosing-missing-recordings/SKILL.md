@@ -93,7 +93,7 @@ The verdicts in priority order:
 2. **Ad blocked (script)** (`$sdk_debug_recording_script_not_loaded = true`) — browser extension blocking the recorder script from loading
 3. **Recorder error** (`rrweb_error` in the statuses, or `$sdk_debug_replay_rrweb_error` set) — the recorder started and threw
 4. **Config pending** (`awaiting_config` / `pending_config` / `missing_config`) — the SDK is waiting for, or failed to load, replay config
-5. **Disabled** (`$session_recording_remote_config.enabled = false`) — replay turned off for the project. This, not the status string, is the proof
+5. **Disabled** (`$session_recording_remote_config.enabled = false`) — PostHog returned replay as off. This, not the status string, is the proof. It does not say why: project settings or a recordings quota limit both produce it
 6. **URL blocked** (`paused` in the statuses) — the page URL is on the project's blocked URLs list, so recording is suppressed there
 7. **Trigger pending** (trigger statuses are `trigger_pending`, none matched) — recording gated on trigger that never fired
 8. **Sampled out** (`$session_recording_start_reason = 'sampled_out'`) — excluded by sample rate
@@ -146,7 +146,7 @@ Based on the verdict, recommend specific actions:
 | Ad blocked           | User's browser extension is blocking rrweb. Suggest trying without ad blocker, or using a proxy/custom domain for the recorder script |
 | Recorder error       | Report the rrweb error. Ask for the SDK version and the page it happened on                                                           |
 | Config pending       | The SDK could not get replay config in time. Check for anything blocking the PostHog config request, including a reverse proxy        |
-| Disabled             | Replay is off for the project. Link to Settings > Session replay                                                                      |
+| Disabled             | PostHog returned replay as off. Check Settings > Session replay first, then billing for a recordings quota limit                      |
 | URL blocked          | The page URL is on the blocked URLs list. Review the blocked URLs in Settings > Session replay                                        |
 | Trigger pending      | The configured trigger (URL pattern, event, or feature flag) never matched. Review trigger configuration                              |
 | Sampled out          | Increase the sample rate in project settings, or use a trigger to guarantee capture for important sessions                            |

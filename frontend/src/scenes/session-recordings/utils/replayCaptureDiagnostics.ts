@@ -1,5 +1,7 @@
 import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
+
 export type DiagnosisVerdict =
     | 'captured'
     | 'ad_blocked'
@@ -168,6 +170,10 @@ function diagnoseSignals(properties: Record<string, any>, recordingStatus: unkno
         label: 'Open replay settings',
         to: urls.settings('project-replay'),
     }
+    const billingAction: SuggestedAction = {
+        label: 'Open billing',
+        to: urls.organizationBilling([ProductKey.SESSION_REPLAY]),
+    }
     const troubleshootingAction: SuggestedAction = {
         label: 'Read troubleshooting docs',
         to: TROUBLESHOOTING_URL,
@@ -244,16 +250,20 @@ function diagnoseSignals(properties: Record<string, any>, recordingStatus: unkno
         }
     }
 
+    // PostHog returns replay as off both when the project has it turned off and when the
+    // recordings quota is limited. The SDK stores both as `enabled: false`, so this property
+    // cannot say which one applied.
     if (replayEnabledRemotely === false) {
         return {
             verdict: 'disabled',
-            headline: 'Session recording is turned off for this project',
+            headline: 'PostHog told the SDK not to record this session',
             reasons: [
-                'PostHog told the SDK that replay is off, so the recorder never started.',
-                'Turn replay on in replay settings to capture new sessions.',
+                'When this event was captured, PostHog was returning replay as off, so the recorder never started.',
+                'Two things cause this: replay is turned off for the project, or the organization has reached its recording quota. This event does not say which one.',
+                'Check replay settings first. If replay is already on there, check billing for a recording limit.',
             ],
             rawSignals,
-            suggestedActions: [settingsAction, troubleshootingAction],
+            suggestedActions: [settingsAction, billingAction, troubleshootingAction],
         }
     }
 

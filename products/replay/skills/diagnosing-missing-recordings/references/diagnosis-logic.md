@@ -83,8 +83,11 @@ Typical causes:
 
 ### DISABLED
 
-Replay is turned off for the project. `$session_recording_remote_config.enabled` is `false`,
-which is the only proof of this. Fix it in Settings > Session replay.
+PostHog returned replay as off to the SDK, which `$session_recording_remote_config.enabled`
+records as `false`. Two causes produce that value and the property cannot tell them apart:
+replay is turned off in Settings > Session replay, or the organization has hit its recordings
+quota, which makes the backend force the same value. Check the setting first. If it is already
+on, check billing for a recording limit.
 
 ### URL_BLOCKED
 

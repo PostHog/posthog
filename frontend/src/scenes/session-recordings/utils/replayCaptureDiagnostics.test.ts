@@ -377,6 +377,16 @@ describe('diagnoseReplayCapture', () => {
         expect(labels).toContain('Read troubleshooting docs')
     })
 
+    it('does not blame project settings alone when replay comes back off', () => {
+        const result = diagnoseReplayCapture({
+            $recording_status: 'disabled',
+            $session_recording_remote_config: { enabled: false },
+        })
+        const text = [result.headline, ...result.reasons].join(' ')
+        expect(text).toMatch(/quota/i)
+        expect(result.suggestedActions.map((a) => a.label)).toContain('Open billing')
+    })
+
     it('does not include settings action for captured verdict', () => {
         const result = diagnoseReplayCapture({ $has_recording: true })
         const labels = result.suggestedActions.map((a) => a.label)
