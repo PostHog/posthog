@@ -1021,12 +1021,22 @@ export const EventsScanWarningReasonApi = {
     NoTimeBound: 'no_time_bound',
 } as const
 
+export type EventsScanWarningSourceApi = (typeof EventsScanWarningSourceApi)[keyof typeof EventsScanWarningSourceApi]
+
+export const EventsScanWarningSourceApi = {
+    Query: 'query',
+    TestAccountFilters: 'test_account_filters',
+    Filters: 'filters',
+    Unknown: 'unknown',
+} as const
+
 export interface EventsScanWarningApi {
     /** End offset of the `events` reference in the query text, when known */
     end?: number | null
     /** Human-readable warning shown to the user */
     message: string
     reason: EventsScanWarningReasonApi
+    source: EventsScanWarningSourceApi
     /** Start offset of the `events` reference in the query text, when known */
     start?: number | null
     /** Tells warning kinds apart in the shared `warnings` list */

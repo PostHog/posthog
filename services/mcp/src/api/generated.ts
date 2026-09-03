@@ -1105,12 +1105,23 @@ export namespace Schemas {
       NoTimeBound: 'no_time_bound',
     } as const;
 
+    export type EventsScanWarningSource = typeof EventsScanWarningSource[keyof typeof EventsScanWarningSource];
+
+
+    export const EventsScanWarningSource = {
+      Query: 'query',
+      TestAccountFilters: 'test_account_filters',
+      Filters: 'filters',
+      Unknown: 'unknown',
+    } as const;
+
     export interface EventsScanWarning {
       /** End offset of the `events` reference in the query text, when known */
       end?: number | null;
       /** Human-readable warning shown to the user */
       message: string;
       reason: EventsScanWarningReason;
+      source: EventsScanWarningSource;
       /** Start offset of the `events` reference in the query text, when known */
       start?: number | null;
       /** Tells warning kinds apart in the shared `warnings` list */
