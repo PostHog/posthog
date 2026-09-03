@@ -1,6 +1,18 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "after": {
+            "anyOf": [
+                {
+                    "maxLength": 512,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The `next` cursor from the previous page. Opaque. Ignored without page_size."
+        },
         "breakdowns": {
             "anyOf": [
                 {
@@ -34,6 +46,19 @@
             ],
             "description": "Time bucket size, one of \"day\" or \"week\". Default \"day\"."
         },
+        "page_size": {
+            "anyOf": [
+                {
+                    "maximum": 1000,
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown."
+        },
         "start_date": {
             "anyOf": [
                 {
@@ -55,6 +80,19 @@
                 }
             ],
             "description": "JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for every project this request can see: all org teams for full billing-access callers, or the member's visible/project-scoped teams for member read-only callers."
+        },
+        "top_projects": {
+            "anyOf": [
+                {
+                    "maximum": 200,
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Maximum number of projects to return, ranked by total spend, when breakdowns includes \"team\". The projects beyond it are folded into one \"All other projects (N)\" series rather than dropped, so the totals still add up to the real bill. Ignored without a team breakdown. Omit it to get every project, which is the default and the right choice for most questions. Set it only when an organization has enough projects that the full response is unwieldy, and say so in your answer, because a limited response names only the largest spenders."
         },
         "usage_types": {
             "anyOf": [
