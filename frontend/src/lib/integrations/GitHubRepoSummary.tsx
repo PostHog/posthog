@@ -3,6 +3,11 @@ import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { IconBranch } from 'lib/lemon-ui/icons'
 
+// The repository tooltip lists names inline; cap how many so a selected-scope installation with
+// hundreds of repositories can't paint a tooltip taller than the viewport. The popup bounds its
+// width, not its height, and a hover tooltip cannot scroll.
+const REPO_TOOLTIP_LIMIT = 20
+
 function manageInstallationUrl(installationId: string, accountType?: string, accountName?: string): string {
     return accountType === 'Organization' && accountName
         ? `https://github.com/organizations/${accountName}/settings/installations/${installationId}`
@@ -89,14 +94,18 @@ export function GitHubRepoSummary({
                 : `${repoNames.length} ${noun} accessible`
         const hiddenCount = repoNames.length - 3
         // The overflow count reads as a link and opens the GitHub page that controls repository
-        // access (the tooltip names every repository). It routes through `openInstallation` as a
-        // link-styled button, not a bare anchor, so a modifier or middle click can't reach GitHub
-        // before the callback state is seeded.
+        // access (its tooltip lists the accessible repositories, capped by REPO_TOOLTIP_LIMIT). It
+        // routes through `openInstallation` as a link-styled button, not a bare anchor, so a modifier
+        // or middle click can't reach GitHub before the callback state is seeded.
+        const tooltipRepoNames =
+            repoNames.length > REPO_TOOLTIP_LIMIT
+                ? `${repoNames.slice(0, REPO_TOOLTIP_LIMIT).join(', ')}, and ${repoNames.length - REPO_TOOLTIP_LIMIT} more`
+                : repoNames.join(', ')
         const overflow =
             hiddenCount > 0 ? (
                 <>
                     {' '}
-                    <Tooltip title={repoNames.join(', ')}>
+                    <Tooltip title={tooltipRepoNames}>
                         {openInstallation ? (
                             <Link onClick={openInstallation}>and {hiddenCount} more</Link>
                         ) : (
