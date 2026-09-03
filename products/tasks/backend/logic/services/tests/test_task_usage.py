@@ -150,6 +150,40 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
         # can tell it from a run that really spent nothing.
         assert costs == {priced_run: Decimal("3.5"), second_run: Decimal("4")}
 
+    def test_run_token_costs_omit_a_run_whose_generations_carry_no_cost(self) -> None:
+        # `$ai_total_cost_usd` is only written where a cost could be calculated, so a run made
+        # entirely of unpriced generations sums to null. Reporting that as 0 would tell staff the
+        # run was free, which is the one thing the caller must be able to rule out.
+        priced_run = "44444444-4444-4444-4444-444444444444"
+        unpriced_run = "55555555-5555-5555-5555-555555555555"
+        for task_run_id, cost in ((priced_run, 1.25), (unpriced_run, None), (unpriced_run, None)):
+            properties: dict[str, object] = {
+                "team_id": self.team.id,
+                "task_run_id": task_run_id,
+                "task_origin_product": "signals_scout",
+            }
+            if cost is not None:
+                properties["$ai_total_cost_usd"] = cost
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id=str(self.user.distinct_id),
+                timestamp=self.task.created_at + timedelta(seconds=1),
+                properties=properties,
+            )
+        flush_persons_and_events()
+
+        with self.settings(LLM_ANALYTICS_INTERNAL_TEAM_ID=self.team.id):
+            costs = task_usage.get_local_task_run_token_costs(
+                team_id=self.team.id,
+                origin_product="signals_scout",
+                task_run_ids=[UUID(priced_run), UUID(unpriced_run)],
+                generated_after=self.task.created_at,
+                product=Product.SIGNALS,
+            )
+
+        assert costs == {priced_run: Decimal("1.25")}
+
     def test_compute_cost_only_includes_billable_desktop_sessions(self) -> None:
         rate_start = datetime(2026, 8, 1, tzinfo=UTC)
         rate_card = ComputeRateCard(

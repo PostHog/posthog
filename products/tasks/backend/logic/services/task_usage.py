@@ -192,7 +192,10 @@ def get_local_task_run_token_costs(
     `ai_product` values (a signal report reports a different one per pipeline stage), and one
     `ai_product` spans several origin products. A run with no attributed generation is absent from
     the result rather than priced at zero, so a caller can tell it from a run that really spent
-    nothing.
+    nothing. A run whose generations all lack `$ai_total_cost_usd` is absent for the same reason:
+    the property is written only where a cost could be calculated, so the sum is null and the spend
+    is unknown, not zero. A run priced in part still reports the sum of what was priced, which is a
+    lower bound.
     """
     if not task_run_ids:
         return {}
@@ -222,7 +225,7 @@ def get_local_task_run_token_costs(
             team=_internal_llm_analytics_team(),
             query_type="TaskRunUsageTokenCost",
         )
-    return {str(row[0]): Decimal(str(row[1] or 0)) for row in (result.results or []) if row[0]}
+    return {str(row[0]): Decimal(str(row[1])) for row in (result.results or []) if row[0] and row[1] is not None}
 
 
 def _get_task_compute_cost(*, team_id: int, task_id: UUID) -> Decimal:
