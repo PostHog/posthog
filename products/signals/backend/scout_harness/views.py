@@ -1405,6 +1405,7 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     SignalScoutNote.Origin.REPORT_DISMISSAL,
                     SignalScoutNote.Origin.REPORT_DISCUSSION,
                     SignalScoutNote.Origin.REPORT_FEEDBACK,
+                    SignalScoutNote.Origin.REPORT_REVIEWER_CORRECTION,
                 )
             ),
         )

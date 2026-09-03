@@ -124,6 +124,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
+from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
     PullRequestChecksResponseSerializer,
@@ -3405,6 +3406,9 @@ def append_suggested_reviewers(
     if user_id is None:  # unreachable behind authentication, but keeps attribution honest
         raise serializers.ValidationError("Cannot attribute a reviewer edit to an anonymous user.")
     attribution = ArtefactAttribution.from_user(user_id)
+    # Read off the request here: scout note forwarding runs after commit, where there is no request.
+    scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+    scoped_team_id_tuple = tuple(scoped_team_ids) if scoped_team_ids is not None else None
 
     # Resolve any user_uuid → canonical github_login via team org membership.
     uuids_to_resolve = [str(e["user_uuid"]) for e in entries if e.get("user_uuid")]
@@ -3532,17 +3536,6 @@ def append_suggested_reviewers(
             content=SuggestedReviewers.model_validate(new_content),
             attribution=attribution,
         )
-        # on_commit so a rolled-back edit emits nothing, matching every other reviewer write path.
-        transaction.on_commit(
-            partial(
-                capture_suggested_reviewers_resolved,
-                team_id=team.id,
-                report_id=str(report_id),
-                github_logins=[entry["github_login"] for entry in new_content],
-                source="user_edit",
-            )
-        )
-
         # Human reviewer corrections are a routing signal (scouts query them via the
         # activity log to learn who owns an area), so log them — but only genuine
         # membership changes by a human, not agent writes or order-only rewrites.
@@ -3550,6 +3543,7 @@ def append_suggested_reviewers(
         # hand-crafted prior row may carry duplicates) so before/after read symmetrically.
         prior_logins = list(dict.fromkeys(prior_logins))
         new_logins = [entry["github_login"] for entry in new_content]
+        correction: ReviewerCorrection | None = None
         if attribution.kind == "user" and set(prior_logins) != set(new_logins):
             log_activity(
                 organization_id=None,
@@ -3586,7 +3580,53 @@ def append_suggested_reviewers(
                     actor_user_id=attribution.user_id,
                 )
 
+            # The same correction also steers the scouts that route on the logins it changed, which
+            # is the only return path a scout has for routing memory it already cached.
+            new_login_set = set(new_logins)
+            correction = ReviewerCorrection(
+                report_id=str(report_id),
+                added_logins=tuple(added_logins),
+                removed_logins=tuple(login for login in prior_logins if login not in new_login_set),
+                actor_user_id=user_id,
+                scoped_team_ids=scoped_team_id_tuple,
+            )
+
+        # on_commit so a rolled-back edit emits and steers nothing, matching every other reviewer
+        # write path.
+        transaction.on_commit(
+            partial(
+                _record_reviewer_edit,
+                team=team,
+                report_id=str(report_id),
+                github_logins=new_logins,
+                correction=correction,
+            )
+        )
+
     return new_artefact, seen
+
+
+def _record_reviewer_edit(
+    *,
+    team: Team,
+    report_id: str,
+    github_logins: list[str],
+    correction: ReviewerCorrection | None,
+) -> None:
+    """The post-commit tail of a reviewer edit: steer the scouts, then record what the edit did.
+
+    Forwarding runs first so the analytics event can report what it achieved. `correction` is None
+    for an agent write or an order-only rewrite, neither of which tells a scout anything.
+    """
+    forwarded = forward_reviewer_correction_note(team=team, correction=correction) if correction else None
+    capture_suggested_reviewers_resolved(
+        team_id=team.id,
+        report_id=report_id,
+        github_logins=github_logins,
+        source="user_edit",
+        correction_notes_written=len(forwarded.note_ids) if forwarded else None,
+        correction_note_targets=forwarded.targets_resolved if forwarded else None,
+    )
 
 
 @extend_schema_view(
