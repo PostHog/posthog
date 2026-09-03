@@ -26,7 +26,7 @@ export function computeMagnitudeAxisIds(datasets: readonly (readonly number[])[]
     const splitPositions = new Set(
         measured
             .slice(1)
-            .map((entry, k) => ({ pos: k + 1, gap: entry.magnitude - measured[k].magnitude }))
+            .map((entry, k) => ({ pos: k + 1, gap: entry.magnitude - (measured[k]?.magnitude ?? entry.magnitude) }))
             .filter(({ gap }) => gap >= MAGNITUDE_GAP)
             .sort((a, b) => b.gap - a.gap)
             .slice(0, MAX_Y_AXES - 1)
@@ -43,7 +43,7 @@ export function computeMagnitudeAxisIds(datasets: readonly (readonly number[])[]
         groupOf[seriesIndex] = group
     })
 
-    const idOf = new Map<number, string>(datasets.length ? [[groupOf[0], DEFAULT_Y_AXIS_ID]] : [])
+    const idOf = new Map<number, string>(groupOf.length ? [[groupOf[0] ?? 0, DEFAULT_Y_AXIS_ID]] : [])
     return groupOf.map((g) => {
         let id = idOf.get(g)
         if (!id) {
