@@ -164,6 +164,16 @@ class TestOAuthToken(StripeProvisioningTestBase):
             "error_description": "Authorization code was not issued for the Stripe Projects app",
         }
 
+    def test_refresh_rejected_when_user_deactivated(self):
+        first = self._request_bearer_token().json()
+
+        self.user.is_active = False
+        self.user.save()
+
+        res = self._post_token({"grant_type": "refresh_token", "refresh_token": first["refresh_token"]})
+        assert res.status_code == 400
+        assert res.json()["error"] == "invalid_grant"
+
     def test_refresh_token_from_non_stripe_app_not_rotatable(self):
         other_app = self._create_other_partner_app()
         refresh_value = generate_random_oauth_refresh_token(None)

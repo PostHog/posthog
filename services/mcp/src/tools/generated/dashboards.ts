@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/dashboards/api'
+import { DashboardTileCreateSchema } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
@@ -123,35 +124,18 @@ const dashboardCreate = (): ToolBase<
     },
 })
 
-const DashboardCreateTextTileSchema = () => {
-    const DashboardsCreateTextTileCreateBody = orvalSchemas.DashboardsCreateTextTileCreateBody()
-    const DashboardsCreateTextTileCreateParams = orvalSchemas.DashboardsCreateTextTileCreateParams()
-    return DashboardsCreateTextTileCreateParams.omit({ project_id: true })
-        .extend(DashboardsCreateTextTileCreateBody.shape)
-        .extend({ id: z.preprocess(castStringToInt, DashboardsCreateTextTileCreateParams.shape['id']) })
-}
+const DashboardCreateTileSchema = () => DashboardTileCreateSchema
 
-const dashboardCreateTextTile = (): ToolBase<
-    ReturnType<typeof DashboardCreateTextTileSchema>,
-    WithPostHogUrl<Schemas.DashboardTile>
-> => ({
-    name: 'dashboard-create-text-tile',
-    schema: DashboardCreateTextTileSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardCreateTextTileSchema>>) => {
+const dashboardCreateTile = (): ToolBase<ReturnType<typeof DashboardCreateTileSchema>, Schemas.DashboardTile> => ({
+    name: 'dashboard-create-tile',
+    schema: DashboardCreateTileSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardCreateTileSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.body !== undefined) {
-            body['body'] = params.body
-        }
-        if (params.layouts !== undefined) {
-            body['layouts'] = params.layouts
-        }
-        if (params.color !== undefined) {
-            body['color'] = params.color
-        }
+        const parsedParams = DashboardCreateTileSchema().parse(params)
+        const { id, ...body } = parsedParams
         const result = await context.api.request<Schemas.DashboardTile>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/create_text_tile/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(id))}/create_text_tile/`,
             body,
         })
         return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
@@ -782,7 +766,7 @@ const dashboardsMoveTilePartialUpdate = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-create': dashboardCreate,
-    'dashboard-create-text-tile': dashboardCreateTextTile,
+    'dashboard-create-tile': dashboardCreateTile,
     'dashboard-delete': dashboardDelete,
     'dashboard-delete-tile': dashboardDeleteTile,
     'dashboard-get': dashboardGet,

@@ -42,6 +42,9 @@ function DashboardEmptyActions({
     aiDisabledReason,
     dashboardWidgetsEnabled,
     onAddInsight,
+    onAddText,
+    onAddImage,
+    onAddButton,
     onAddWidget,
     push,
     onOpenAiWithPrompt,
@@ -52,6 +55,9 @@ function DashboardEmptyActions({
     aiDisabledReason: string | false
     dashboardWidgetsEnabled: boolean
     onAddInsight: () => void
+    onAddText: () => void
+    onAddImage: () => void
+    onAddButton: () => void
     onAddWidget: () => void
     push: (path: string) => void
     onOpenAiWithPrompt: (prompt: string) => void
@@ -99,9 +105,11 @@ function DashboardEmptyActions({
                                     overlay: (
                                         <LemonMenuOverlay
                                             items={getAddTileMenuItems({
-                                                dashboardId: dashboard.id,
                                                 dashboardWidgetsEnabled,
                                                 onAddInsight: handleAddInsight,
+                                                onAddText,
+                                                onAddImage,
+                                                onAddButton,
                                                 push,
                                                 setAddWidgetModalOpen: onAddWidget,
                                             })}
@@ -132,7 +140,8 @@ function DashboardEmptyActions({
 function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
-    const { setAddWidgetModalOpen } = useActions(dashboardLogic)
+    const { setAddWidgetModalOpen, openTextTileModal, openImageTileModal, openButtonTileModal } =
+        useActions(dashboardLogic)
     const { push } = useActions(router)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
@@ -174,6 +183,9 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
                     aiDisabledReason={aiDisabledReason}
                     dashboardWidgetsEnabled={dashboardWidgetsEnabled}
                     onAddInsight={showAddInsightToDashboardModal}
+                    onAddText={openTextTileModal}
+                    onAddImage={openImageTileModal}
+                    onAddButton={openButtonTileModal}
                     onAddWidget={() => setAddWidgetModalOpen(true)}
                     push={push}
                     onOpenAiWithPrompt={onOpenAiWithPrompt}
