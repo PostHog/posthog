@@ -39,7 +39,7 @@ from products.tasks.backend.metrics import (
     observe_github_webhook_pr_event_dropped,
     observe_github_webhook_task_run_lookup,
 )
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.pr_urls import merge_pr_output, read_pr_urls
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
 
@@ -109,15 +109,40 @@ def find_task_run(
     # Without this, a PR opened on an unrelated repo with a colliding branch name
     # (e.g. "main") gets attributed to whichever TaskRun shares that branch.
     if branch and repository:
+        # A self-driving implementation run stamps its server-generated head branch into
+        # PATCH-protected state (signals' auto_start). That stamp is the run->PR link no
+        # caller can forge, so resolve it before the generic branch legs below. Without
+        # this, a newer ReviewHog run whose checkout branch is the same head ref wins the
+        # branch match and every later webhook, misattributing the PR's lifecycle events.
+        # FAILED and CANCELLED runs and soft-deleted tasks are dropped; a COMPLETED run
+        # stays eligible because success flips the run to COMPLETED right after it opens
+        # the PR. The task_run_sd_branch_idx index covers this filter.
+        task_run = (
+            candidates.filter(
+                _run_repository_filter(repository),
+                state__self_driving_head_branch=branch,
+                task__deleted=False,
+            )
+            .exclude(status__in=(TaskRun.Status.FAILED, TaskRun.Status.CANCELLED))
+            .order_by("-created_at", "-id")
+            .select_related(*TASK_RUN_SELECT_RELATED)
+            .first()
+        )
+        if task_run:
+            return task_run
+
         # Wizard runs are excluded here: their `branch` column holds the checkout (base)
         # branch, so a same-repo PR whose head ref equals the base (e.g. "main") would
-        # otherwise claim the run before the dedicated leg below is consulted.
+        # otherwise claim the run before the dedicated leg below is consulted. ReviewHog
+        # runs are excluded too: they check out the PR head branch to review it but never
+        # author PRs, so they must never be a webhook target.
         task_run = (
             candidates.filter(
                 _run_repository_filter(repository),
                 branch=branch,
                 state__wizard_head_branch__isnull=True,
             )
+            .exclude(task__origin_product=Task.OriginProduct.REVIEW_HOG)
             .order_by("-created_at", "-id")
             .select_related(*TASK_RUN_SELECT_RELATED)
             .first()
@@ -135,6 +160,7 @@ def find_task_run(
                 output__head_branches__contains=[head_branch],
                 state__wizard_head_branch__isnull=True,
             )
+            .exclude(task__origin_product=Task.OriginProduct.REVIEW_HOG)
             .order_by("-created_at", "-id")
             .select_related(*TASK_RUN_SELECT_RELATED)
             .first()
