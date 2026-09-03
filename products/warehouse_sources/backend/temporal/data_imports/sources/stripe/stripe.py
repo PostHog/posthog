@@ -134,7 +134,8 @@ DAY_SECONDS = 24 * 60 * 60
 # Stripe types the meter event summary granularity as a literal, so the value carries the type.
 METER_SUMMARY_GROUPING_WINDOW: Literal["day"] = "day"
 # How far back the first sweep of the meter event summary table reaches. An append sync starts at
-# the newest day the table already holds, so this bounds the initial import only.
+# the newest day the table already holds, so this bounds the initial import only. The table's
+# canonical description states this number for the user, so a change here has to change that too.
 METER_SUMMARY_INITIAL_LOOKBACK_DAYS = 90
 
 _JSON_WHITESPACE = frozenset(b" \t\n\r\f\v")
