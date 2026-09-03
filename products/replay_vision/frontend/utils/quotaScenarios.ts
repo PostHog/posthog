@@ -204,18 +204,18 @@ const SCENARIOS: Record<string, () => Omit<QuotaScenario, 'key'>> = {
     // Large-limit org: a tiny free tier against a big cap, the case that crowded the axis.
     'big-limit': () => ({
         quota: buildQuota({
-            credit_limit: 500_000,
-            credits_used: 408_560,
-            remaining: 91_440,
-            projected_monthly_credits: 548_640,
-            scanners_monthly_credits: 548_640,
+            credit_limit: 240_000,
+            credits_used: 168_000,
+            remaining: 72_000,
+            projected_monthly_credits: 312_000,
+            scanners_monthly_credits: 312_000,
             backfills_committed_credits: 0,
-            free_monthly_credits: 2_500,
-            credits_settled: 408_560,
+            free_monthly_credits: 1_000,
+            credits_settled: 168_000,
             credits_reserved: 0,
         }),
-        usageScanners: scaleScanners(140, 140),
-        dailySpend: rampSpend(408_560),
+        usageScanners: scaleScanners(88, 88),
+        dailySpend: rampSpend(168_000),
     }),
     'no-limit': () => ({
         quota: buildQuota({ credit_limit: null, remaining: null }),

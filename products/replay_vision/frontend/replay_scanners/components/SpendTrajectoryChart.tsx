@@ -72,6 +72,21 @@ function Label({
     )
 }
 
+/** Marks a point on the line. HTML, so a stretched viewBox cannot flatten it into an ellipse. */
+function Dot({ x, y, color }: { x: number; y: number; color: string }): JSX.Element {
+    return (
+        <span
+            className="absolute size-1.5 rounded-full"
+            style={{
+                left: `${(x / WIDTH) * 100}%`,
+                top: `${(y / HEIGHT) * 100}%`,
+                transform: 'translate(-50%, -50%)',
+                background: color,
+            }}
+        />
+    )
+}
+
 /**
  * Cumulative spend across the period against the limit: a solid line to today, a dashed projection
  * to period end, and a dashed line where the limit sits. Spend pauses at the limit, so the drawn
@@ -195,10 +210,12 @@ function SpendTrajectoryChartInner({
 
     return (
         <div className="flex flex-col gap-1">
-            <div className="relative mx-auto w-full max-w-[860px]">
+            <div className="relative w-full">
+                {/* The box stretches to the card's width at a fixed height, so the chart stays wide and short. */}
                 <svg
                     viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-                    className="block h-auto w-full"
+                    preserveAspectRatio="none"
+                    className="block h-[210px] w-full"
                     role="img"
                     aria-label={`Cumulative spend this period: ${formatCreditCount(spentTotal)} so far, projected ${formatCreditCount(endValue)} by ${periodEnd.format('MMMM D')}${cap !== null ? `, limit ${formatCreditCount(cap)}` : ''}`}
                 >
@@ -210,6 +227,7 @@ function SpendTrajectoryChartInner({
                             x2={WIDTH - PAD_X}
                             y2={yForCredits(v)}
                             stroke="var(--border)"
+                            vectorEffect="non-scaling-stroke"
                             strokeWidth={0.5}
                             opacity={0.6}
                         />
@@ -223,6 +241,7 @@ function SpendTrajectoryChartInner({
                             x2={xForDay(day)}
                             y2={BASE + 3}
                             stroke="var(--border)"
+                            vectorEffect="non-scaling-stroke"
                             strokeWidth={1}
                         />
                     ))}
@@ -233,6 +252,7 @@ function SpendTrajectoryChartInner({
                             x2={WIDTH - PAD_X}
                             y2={limitY}
                             stroke={dangerVar}
+                            vectorEffect="non-scaling-stroke"
                             strokeWidth={1}
                             strokeDasharray="2 3"
                         />
@@ -244,6 +264,7 @@ function SpendTrajectoryChartInner({
                             x2={WIDTH - PAD_X}
                             y2={freeY}
                             stroke={mutedVar}
+                            vectorEffect="non-scaling-stroke"
                             strokeWidth={1}
                             strokeDasharray="2 3"
                             opacity={0.7}
@@ -261,6 +282,7 @@ function SpendTrajectoryChartInner({
                                 points={pointsAttr([origin, ...spentPoints])}
                                 fill="none"
                                 stroke="currentColor"
+                                vectorEffect="non-scaling-stroke"
                                 strokeWidth={1.5}
                                 strokeLinecap="round"
                             />
@@ -272,11 +294,11 @@ function SpendTrajectoryChartInner({
                                 points={pointsAttr([today, crossing])}
                                 fill="none"
                                 stroke={dangerVar}
+                                vectorEffect="non-scaling-stroke"
                                 strokeWidth={1.5}
                                 strokeDasharray="4 4"
                                 strokeLinecap="round"
                             />
-                            <circle cx={crossing.x} cy={crossing.y} r={3} fill={dangerVar} />
                         </>
                     ) : (
                         <>
@@ -284,16 +306,21 @@ function SpendTrajectoryChartInner({
                                 points={pointsAttr([today, end])}
                                 fill="none"
                                 stroke={pausedAtLimit ? dangerVar : statusVar}
+                                vectorEffect="non-scaling-stroke"
                                 strokeWidth={1.5}
                                 strokeDasharray="4 4"
                                 strokeLinecap="round"
                             />
-                            <circle cx={end.x} cy={end.y} r={3} fill={pausedAtLimit ? dangerVar : statusVar} />
                         </>
                     )}
-                    <circle cx={today.x} cy={today.y} r={3} fill="currentColor" />
                 </svg>
                 <div className="absolute inset-0 pointer-events-none" aria-hidden>
+                    <Dot x={today.x} y={today.y} color="currentColor" />
+                    {crossing ? (
+                        <Dot x={crossing.x} y={crossing.y} color={dangerVar} />
+                    ) : (
+                        <Dot x={end.x} y={end.y} color={pausedAtLimit ? dangerVar : statusVar} />
+                    )}
                     {yTicks.map((v) => (
                         <Label key={v} x={PAD_LEFT - 4} y={yForCredits(v)} anchor="end" className="text-muted">
                             {compactNumber(v)}
