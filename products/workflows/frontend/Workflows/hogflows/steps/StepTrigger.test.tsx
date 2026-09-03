@@ -1,7 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Node } from '@xyflow/react'
 import { BindLogic } from 'kea'
 
@@ -74,7 +73,7 @@ describe('StepTriggerConfiguration', () => {
         >['properties']
         renderTrigger(properties)
 
-        await userEvent.click(screen.getByRole('button', { name: 'Add trigger event' }))
+        fireEvent.click(screen.getByText('Add trigger event'))
 
         await waitFor(() => {
             const trigger = workflowLogic(LOGIC_PROPS).values.workflow.trigger as TriggerAction['config']
