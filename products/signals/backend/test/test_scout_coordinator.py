@@ -489,6 +489,22 @@ async def test_disabled_config_is_skipped(ateam):
     assert await _run_activity() == []
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_a_tick_that_plans_nothing_still_counts_itself(ateam):
+    # The zero-plan tick is the one that has to be counted: it is what a stalled fleet looks like,
+    # and the dispatch counters stay silent through it.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
+    await database_sync_to_async(_create_config)(ateam, "signals-scout-errors", enabled=False)
+
+    with patch(
+        "products.signals.backend.temporal.agentic.scout_coordinator.increment_coordinator_tick"
+    ) as increment_tick:
+        assert await _run_activity() == []
+
+    increment_tick.assert_called_once_with(0)
+
+
 # ── Auto-register: author a skill, get a scout ──────────────────────────────────
 
 
