@@ -27,7 +27,7 @@ from hogli_commands.workflow_lint.checks.cache_writes import (
 from hogli_commands.workflow_lint.checks.checkout_full_depth import CheckoutFullDepthCheck
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
-from hogli_commands.workflow_lint.checks.mcp_filter_coverage import McpFilterCoverageCheck
+from hogli_commands.workflow_lint.checks.mcp_filter_coverage import McpFilterCoverageCheck, _resolve
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
 from hogli_commands.workflow_lint.checks.pr_event_fanout import PrEventFanoutCheck
 from hogli_commands.workflow_lint.checks.required_gates import RequiredGateCheck
@@ -1640,6 +1640,27 @@ def _mcp_repo(
 def _coverage_issues(repo_root: Path, workflows_dir: Path, workflow: str) -> list[str]:
     result = McpFilterCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir))
     return [issue.message for issue in result.issues if issue.workflow == workflow]
+
+
+class TestMcpAliasResolution:
+    @pytest.mark.parametrize(
+        "alias, specifier, target",
+        [
+            ("products/*", "products/pa/frontend/x", "products/pa/frontend/x"),
+            ("@app/*/index", "@app/charts/index", "products/charts"),
+            ("@app/*/index", "@app//index", "products/"),
+            # The tail is empty and the end index is 0, which must not read as
+            # "slice to the end" and substitute the suffix for the wildcard.
+            ("*/index", "/index", "products/"),
+        ],
+    )
+    def test_substitutes_the_wildcard_tail(self, alias: str, specifier: str, target: str) -> None:
+        assert _resolve(specifier, {alias: ["products/*"]}) == [target]
+
+    def test_an_alias_without_a_wildcard_matches_whole(self) -> None:
+        aliases = {"@posthog/quill": ["packages/quill/dist/index.d.ts"]}
+        assert _resolve("@posthog/quill", aliases) == ["packages/quill/dist/index.d.ts"]
+        assert _resolve("@posthog/quill/extra", aliases) == []
 
 
 class TestMcpFilterCoverageCheck:

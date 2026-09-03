@@ -231,7 +231,8 @@ def _resolve(specifier: str, aliases: dict[str, list[str]]) -> list[str]:
                 return targets
             continue
         if specifier.startswith(prefix) and specifier.endswith(suffix):
-            tail = specifier[len(prefix) : len(specifier) - len(suffix) or None]
+            # endswith already bounds len(suffix), so the end index cannot go negative.
+            tail = specifier[len(prefix) : len(specifier) - len(suffix)]
             return [target.replace("*", tail) for target in targets]
     return []
 
