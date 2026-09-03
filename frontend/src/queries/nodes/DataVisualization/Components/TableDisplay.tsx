@@ -9,60 +9,59 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ChartDisplayType } from '~/types'
 
-import { dataVisualizationLogic } from '../dataVisualizationLogic'
+import { Column, dataVisualizationLogic } from '../dataVisualizationLogic'
 
-interface TableDisplayProps extends Pick<LemonSelectProps<ChartDisplayType>, 'disabledReason'> {}
+const DISPLAY_TYPE_LABELS: Record<ChartDisplayType, string> = {
+    [ChartDisplayType.Auto]: 'Auto',
+    [ChartDisplayType.ActionsLineGraph]: 'Line chart',
+    [ChartDisplayType.ActionsBar]: 'Bar chart',
+    [ChartDisplayType.ActionsUnstackedBar]: 'Unstacked bar chart',
+    [ChartDisplayType.ActionsStackedBar]: 'Stacked bar chart',
+    [ChartDisplayType.ActionsAreaGraph]: 'Area chart',
+    [ChartDisplayType.ActionsLineGraphCumulative]: 'Cumulative line chart',
+    [ChartDisplayType.BoldNumber]: 'Big number',
+    [ChartDisplayType.Metric]: 'Metric',
+    [ChartDisplayType.ActionsPie]: 'Pie chart',
+    [ChartDisplayType.ActionsDonut]: 'Donut chart',
+    [ChartDisplayType.ActionsBarValue]: 'Value chart',
+    [ChartDisplayType.ActionsTable]: 'Table',
+    [ChartDisplayType.WorldMap]: 'World map',
+    [ChartDisplayType.CalendarHeatmap]: 'Calendar heatmap',
+    [ChartDisplayType.TwoDimensionalHeatmap]: '2d heatmap',
+    [ChartDisplayType.BoxPlot]: 'Box plot',
+    [ChartDisplayType.SlopeGraph]: 'Slope graph',
+    [ChartDisplayType.ScatterPlot]: 'Scatter plot',
+}
 
-export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element => {
-    const { setVisualizationType } = useActions(dataVisualizationLogic)
-    const { autoVisualizationType, columns, numericalColumns, visualizationType } = useValues(dataVisualizationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+export function renderDisplayTypeLabel(displayType: ChartDisplayType, autoVisualizationType: ChartDisplayType): string {
+    const selectedLabel = DISPLAY_TYPE_LABELS[displayType] ?? displayType
 
+    if (displayType !== ChartDisplayType.Auto) {
+        return selectedLabel
+    }
+
+    const resolvedLabel = DISPLAY_TYPE_LABELS[autoVisualizationType] ?? autoVisualizationType
+    return `Auto (${resolvedLabel})`
+}
+
+export function getTableDisplayOptions(
+    columns: Column[],
+    numericalColumns: Column[],
+    autoVisualizationType: ChartDisplayType,
+    disabledReasonFor?: (displayType: ChartDisplayType) => string | undefined,
+    showBoxPlot = false
+): LemonSelectOptions<ChartDisplayType> {
     const canDisplayContinuousChart = columns.length > 1 && numericalColumns.length > 0
-    // Both scatter axes are numeric measures, so one numeric column can't fill both.
     const canDisplayScatterPlot = numericalColumns.length > 1
 
-    const displayTypeLabels: Record<ChartDisplayType, string> = {
-        [ChartDisplayType.Auto]: 'Auto',
-        [ChartDisplayType.ActionsLineGraph]: 'Line chart',
-        [ChartDisplayType.ActionsBar]: 'Bar chart',
-        [ChartDisplayType.ActionsUnstackedBar]: 'Unstacked bar chart',
-        [ChartDisplayType.ActionsStackedBar]: 'Stacked bar chart',
-        [ChartDisplayType.ActionsAreaGraph]: 'Area chart',
-        [ChartDisplayType.ActionsLineGraphCumulative]: 'Cumulative line chart',
-        [ChartDisplayType.BoldNumber]: 'Big number',
-        [ChartDisplayType.Metric]: 'Metric',
-        [ChartDisplayType.ActionsPie]: 'Pie chart',
-        [ChartDisplayType.ActionsDonut]: 'Donut chart',
-        [ChartDisplayType.ActionsBarValue]: 'Value chart',
-        [ChartDisplayType.ActionsTable]: 'Table',
-        [ChartDisplayType.WorldMap]: 'World map',
-        [ChartDisplayType.CalendarHeatmap]: 'Calendar heatmap',
-        [ChartDisplayType.TwoDimensionalHeatmap]: '2d heatmap',
-        [ChartDisplayType.BoxPlot]: 'Box plot',
-        [ChartDisplayType.SlopeGraph]: 'Slope graph',
-        [ChartDisplayType.ScatterPlot]: 'Scatter plot',
-    }
-
-    const renderDisplayTypeLabel = (displayType: ChartDisplayType): string => {
-        const selectedLabel = displayTypeLabels[displayType] ?? displayType
-
-        if (displayType !== ChartDisplayType.Auto) {
-            return selectedLabel
-        }
-
-        const resolvedLabel = displayTypeLabels[autoVisualizationType] ?? autoVisualizationType
-        return `Auto (${resolvedLabel})`
-    }
-
-    const options: LemonSelectOptions<ChartDisplayType> = [
+    const groups: LemonSelectOptions<ChartDisplayType> = [
         {
             title: 'Auto',
             options: [
                 {
                     value: ChartDisplayType.Auto,
                     icon: <IconTrends />,
-                    label: renderDisplayTypeLabel(ChartDisplayType.Auto),
+                    label: renderDisplayTypeLabel(ChartDisplayType.Auto, autoVisualizationType),
                 },
             ],
         },
@@ -77,7 +76,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                 {
                     value: ChartDisplayType.BoldNumber,
                     icon: <Icon123 />,
-                    label: 'Big Number',
+                    label: 'Big number',
                 },
             ],
         },
@@ -123,7 +122,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                         ? 'Requires at least two numeric columns, one for each axis'
                         : undefined,
                 },
-                ...(featureFlags[FEATURE_FLAGS.SQL_BOX_PLOT_INSIGHT]
+                ...(showBoxPlot
                     ? [
                           {
                               value: ChartDisplayType.BoxPlot,
@@ -143,20 +142,59 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
         },
     ]
 
+    if (!disabledReasonFor) {
+        return groups
+    }
+
+    return groups.map((group) => ({
+        ...group,
+        options: group.options.map((option) =>
+            'value' in option
+                ? { ...option, disabledReason: option.disabledReason ?? disabledReasonFor(option.value) }
+                : option
+        ),
+    }))
+}
+
+interface TableDisplayProps extends Pick<
+    LemonSelectProps<ChartDisplayType>,
+    'disabledReason' | 'fullWidth' | 'loading'
+> {
+    dataAttr?: string
+    disabledReasonFor?: (displayType: ChartDisplayType) => string | undefined
+}
+
+export const TableDisplay = ({
+    dataAttr = 'chart-filter',
+    disabledReason,
+    disabledReasonFor,
+    fullWidth,
+    loading,
+}: TableDisplayProps): JSX.Element => {
+    const { setVisualizationType } = useActions(dataVisualizationLogic)
+    const { autoVisualizationType, columns, numericalColumns, visualizationType } = useValues(dataVisualizationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     return (
         <LemonSelect
             disabledReason={disabledReason}
-            value={visualizationType}
-            renderButtonContent={() => renderDisplayTypeLabel(visualizationType)}
-            onChange={(value) => {
-                setVisualizationType(value)
-            }}
-            dropdownPlacement="bottom-end"
-            optionTooltipPlacement="left"
             dropdownMatchSelectWidth={false}
-            data-attr="chart-filter"
-            options={options}
+            dropdownPlacement="bottom-end"
+            fullWidth={fullWidth}
+            loading={loading}
+            onChange={setVisualizationType}
+            optionTooltipPlacement="left"
+            options={getTableDisplayOptions(
+                columns,
+                numericalColumns,
+                autoVisualizationType,
+                disabledReasonFor,
+                !!featureFlags[FEATURE_FLAGS.SQL_BOX_PLOT_INSIGHT]
+            )}
+            renderButtonContent={() => renderDisplayTypeLabel(visualizationType, autoVisualizationType)}
             size="small"
+            value={visualizationType}
+            data-attr={dataAttr}
         />
     )
 }

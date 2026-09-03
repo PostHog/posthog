@@ -1285,10 +1285,12 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["results"][0]["latest_run"]["id"], str(latest_run.id))
 
+        # Latest runs must come from one page-scoped DISTINCT ON query, not a correlated
+        # subquery that runs against posthog_task_run for every task row.
         task_run_sql = "\n".join(query["sql"] for query in ctx.captured_queries)
         self.assertIn('FROM "posthog_task_run"', task_run_sql)
-        self.assertIn('LIMIT 1) AS "_latest_run_id"', task_run_sql)
-        self.assertNotIn("DISTINCT ON", task_run_sql)
+        self.assertIn('DISTINCT ON ("posthog_task_run"."task_id")', task_run_sql)
+        self.assertNotIn('AS "_latest_run_id"', task_run_sql)
 
     def test_latest_run_tiebreaks_by_id(self):
         task = self.create_task("Tie-break task")
@@ -1827,8 +1829,9 @@ class TestTaskAPI(BaseTaskAPITest):
             ("no_selection", False, None, "acme/web"),
             # a persisted selection wins over the cascade, even when it names another repo
             ("persisted_repo", True, "acme/api", "acme/api"),
-            # a scout's deliberate no-repo must not fall through to the cascade
-            ("persisted_no_repo", True, None, None),
+            # a scout's no-repo selection is not authoritative for a human "Create PR" click, so it
+            # falls through to the cascade rather than making a task that can never push
+            ("persisted_no_repo", True, None, "acme/web"),
         ]
     )
     def test_create_signal_report_task_resolves_repository_when_none_provided(
@@ -1867,6 +1870,45 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["repository"], expected_repository)
+
+    def test_discussion_from_no_repo_report_stays_repo_less_and_exempt(self):
+        # A "Discuss" kickoff must not resolve a repository, even on a one-repo team with a NO_REPO
+        # selection artefact. A repository-backed report task loses the code-access exemption, so a
+        # caller without Desktop access would 403 on the discussion — the dead-end this path removes.
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="gh-cascade",
+            config={"installation_id": "gh-cascade"},
+            sensitive_config={},
+            repository_cache=[{"full_name": "acme/web", "name": "web", "id": 1}],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+        report = SignalReport.objects.create(team=self.team)
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+            content=RepoSelectionResult(repository=None, reason="test").model_dump_json(),
+        )
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Discuss report",
+                "description": "Let's discuss this report",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+                "signal_report_task_relationship": "discussion",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(response.json()["repository"])
+        self.assertTrue(tasks_facade.task_exempt_from_code_access(response.json()["id"], self.team.id))
 
     def test_create_task_with_signal_report_discussion_records_artefact_without_gate_row(self):
         from products.signals.backend.models import SignalReport, SignalReportTask
@@ -2139,24 +2181,41 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            # a live implementation claims the report's one slot
-            ("created_never_run", [], False, status.HTTP_429_TOO_MANY_REQUESTS),
-            ("run_in_progress", [("in_progress", None)], False, status.HTTP_429_TOO_MANY_REQUESTS),
-            ("run_completed", [("completed", None)], False, status.HTTP_429_TOO_MANY_REQUESTS),
+            # a live implementation claims the report's one slot, and the message says it is live
+            ("created_never_run", [], False, status.HTTP_429_TOO_MANY_REQUESTS, "already in progress"),
+            (
+                "run_in_progress",
+                [("in_progress", None)],
+                False,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "already in progress",
+            ),
+            # a shipped PR claims the slot for good, whatever status the run that shipped it ended on
             (
                 "failed_but_pr_shipped",
                 [("failed", "https://github.com/acme/web/pull/1")],
                 False,
                 status.HTTP_429_TOO_MANY_REQUESTS,
+                "already has a pull request",
             ),
-            # only a fully dead prior implementation (or a deleted task) releases the slot
-            ("all_runs_failed", [("failed", None), ("failed", None)], False, status.HTTP_201_CREATED),
-            ("run_cancelled_no_pr", [("cancelled", None)], False, status.HTTP_201_CREATED),
-            ("prior_task_deleted", [("in_progress", None)], True, status.HTTP_201_CREATED),
+            (
+                "completed_and_pr_shipped",
+                [("completed", "https://github.com/acme/web/pull/1")],
+                False,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "already has a pull request",
+            ),
+            # a prior implementation that ended with nothing to show (or a deleted task) releases it.
+            # `completed` counts: the agent stops without a PR when the fix would be wrong, and that
+            # used to lock the report out of ever being tried again.
+            ("all_runs_failed", [("failed", None), ("failed", None)], False, status.HTTP_201_CREATED, None),
+            ("run_cancelled_no_pr", [("cancelled", None)], False, status.HTTP_201_CREATED, None),
+            ("run_completed_no_pr", [("completed", None)], False, status.HTTP_201_CREATED, None),
+            ("prior_task_deleted", [("in_progress", None)], True, status.HTTP_201_CREATED, None),
         ]
     )
     def test_second_implementation_task_per_report_gated_on_prior_state(
-        self, _name, run_specs, prior_deleted, expected_status
+        self, _name, run_specs, prior_deleted, expected_status, expected_detail
     ):
         from products.signals.backend.models import SignalReport
 
@@ -2168,6 +2227,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, expected_status)
         if expected_status == status.HTTP_429_TOO_MANY_REQUESTS:
             self.assertEqual(response.json()["code"], "signal_report_task_cap")
+            self.assertIn(expected_detail, response.json()["error"])
             self.assertFalse(Task.objects.filter(title="Report task").exists())
 
     @parameterized.expand(
@@ -4932,7 +4992,16 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
 
 class TestTaskSummariesAPI(BaseTaskAPITest):
     SUMMARIES_URL = "/api/projects/@current/tasks/summaries/"
-    SUMMARY_FIELDS = {"id", "title", "repository", "created_at", "updated_at", "origin_product", "latest_run"}
+    SUMMARY_FIELDS = {
+        "id",
+        "title",
+        "repository",
+        "created_by_id",
+        "created_at",
+        "updated_at",
+        "origin_product",
+        "latest_run",
+    }
 
     def post_summaries(self, ids):
         return self.client.post(self.SUMMARIES_URL, {"ids": ids}, format="json")
@@ -4992,7 +5061,7 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         [payload] = response.json()["results"]
         self.assertEqual(
             payload["latest_run"],
-            {"status": valid_run.status, "environment": valid_run.environment},
+            {"id": str(valid_run.id), "status": valid_run.status, "environment": valid_run.environment},
         )
 
     @parameterized.expand(
@@ -5019,7 +5088,8 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         [payload] = response.json()["results"]
         self.assertEqual(set(payload.keys()), self.SUMMARY_FIELDS)
-        expected_run = {"status": run.status, "environment": run.environment} if run else None
+        self.assertEqual(payload["created_by_id"], self.user.id)
+        expected_run = {"id": str(run.id), "status": run.status, "environment": run.environment} if run else None
         self.assertEqual(payload["latest_run"], expected_run)
 
     def test_summaries_paginates_large_id_sets(self):

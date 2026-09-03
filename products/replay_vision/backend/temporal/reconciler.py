@@ -49,7 +49,6 @@ with workflow.unsafe.imports_passed_through():
         reap_backfill_schedules_activity,
         reap_childless_inline_scanners_activity,
         reap_orphaned_observations_activity,
-        reap_stuck_vision_action_runs_activity,
         upsert_scanner_schedule_activity,
     )
 
@@ -87,11 +86,9 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
         except Exception:
             workflow.logger.exception("replay_vision.reap_orphaned_observations_failed")
 
-        if workflow.patched("reap-stuck-vision-action-runs-2026-07"):
-            try:
-                await self._run_reaper(reap_stuck_vision_action_runs_activity)
-            except Exception:
-                workflow.logger.exception("replay_vision.reap_stuck_vision_action_runs_failed")
+        # Declared until no history carrying either marker can replay.
+        workflow.deprecate_patch("reap-stuck-vision-action-runs-2026-07")
+        workflow.deprecate_patch("drop-stuck-vision-action-run-reaper-2026-09")
 
         if workflow.patched("reap-childless-inline-scanners-2026-08"):
             try:

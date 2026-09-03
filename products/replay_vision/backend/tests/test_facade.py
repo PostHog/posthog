@@ -24,7 +24,7 @@ class TestFetchPageSessionObservations(APIBaseTest):
             name=name,
             scanner_type=scanner_type,
             scanner_config={"prompt": "summarize the session"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
 
     def _observation(self, scanner: ReplayScanner, session_id: str, model_output: dict) -> ReplayObservation:

@@ -24,7 +24,7 @@ export function TeamQuarantinedTestsTable({
             key: 'nodeid',
             className: 'w-full max-w-0',
             render: (_, row) => {
-                // Rust and Storybook rows carry no file path in Trunk's data.
+                // A test the repository could not place carries no file path to link to.
                 const url = row.trunkUrl ?? (row.file ? githubFileUrl(repository, row.file) : null)
                 return (
                     <TestIdCell

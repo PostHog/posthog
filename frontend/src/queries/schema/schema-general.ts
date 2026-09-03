@@ -9513,6 +9513,10 @@ export const externalDataSources = [
     'Coolify',
     'SocialPilot',
     'RoktAds',
+    'Strato',
+    'Medusa',
+    'Membrain',
+    'RecallAI',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -10058,6 +10062,7 @@ export enum ProductKey {
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
+    POSTHOG_AI_ONBOARDING = 'posthog_ai_onboarding',
     PRODUCT_ANALYTICS = 'product_analytics',
     PRODUCT_TOURS = 'product_tours',
     PULSE = 'pulse',
