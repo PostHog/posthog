@@ -230,6 +230,9 @@ export interface webAnalyticsHealthLogicActions {
             warning_count: number
         }
     } // eventUsageLogic
+    activateCheck: (check: HealthCheck) => {
+        check: HealthCheck
+    }
     loadHealthIssues: () => any
     loadHealthIssuesFailure: (
         error: string,
@@ -256,9 +259,6 @@ export interface webAnalyticsHealthLogicActions {
     }
     startCooldownCountdown: () => {
         value: true
-    }
-    activateCheck: (check: HealthCheck) => {
-        check: HealthCheck
     }
     trackActionClicked: (
         checkId: HealthCheckId,
