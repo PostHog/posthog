@@ -36,6 +36,52 @@ function exampleQueries(scanner: ReplayScanner | null): string[] {
     }
 }
 
+function suggestionDescription(crossScanner: boolean, fromObservations: boolean): string {
+    const subject = crossScanner ? 'your scanners' : 'this scanner'
+    if (fromObservations) {
+        return `Themes from what ${subject} observed recently.`
+    }
+    return `Examples to get started. Themes from what ${subject} observed appear after a few more sessions are analyzed.`
+}
+
+function QuerySection({
+    title,
+    description,
+    queries,
+    buttonType,
+    dataAttr,
+    onPick,
+}: {
+    title: string
+    description: string
+    queries: string[]
+    buttonType: 'secondary' | 'tertiary'
+    dataAttr: string
+    onPick: (query: string) => void
+}): JSX.Element {
+    return (
+        <div className="flex flex-col items-center gap-2">
+            <div>
+                <div className="font-semibold">{title}</div>
+                <div className="text-muted text-xs">{description}</div>
+            </div>
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+                {queries.map((query) => (
+                    <LemonButton
+                        key={query}
+                        type={buttonType}
+                        size="small"
+                        onClick={() => onPick(query)}
+                        data-attr={dataAttr}
+                    >
+                        {query}
+                    </LemonButton>
+                ))}
+            </div>
+        </div>
+    )
+}
+
 function countLabel(count: number, truncated: boolean): string {
     if (truncated) {
         return `Showing the top ${count === 1 ? 'match' : `${count} matches`}, best first`
@@ -150,42 +196,30 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                         <Spinner className="text-2xl" />
                     </div>
                 ) : (
-                    <div className="text-center text-muted pt-8 flex flex-col gap-3">
-                        <div>
+                    <div className="text-center pt-8 flex flex-col gap-6">
+                        <div className="text-muted">
                             {crossScanner
                                 ? 'Search everything your scanners have observed, ranked by how well it matches.'
                                 : 'Search everything this scanner has observed, ranked by how well it matches.'}
                         </div>
                         {recentQueries.length > 0 && (
-                            <div className="flex items-center justify-center gap-2 flex-wrap">
-                                <span>Recent</span>
-                                {recentQueries.map((recent) => (
-                                    <LemonButton
-                                        key={recent}
-                                        type="tertiary"
-                                        size="small"
-                                        onClick={() => runQuery(recent)}
-                                        data-attr="vision-search-recent"
-                                    >
-                                        {recent}
-                                    </LemonButton>
-                                ))}
-                            </div>
+                            <QuerySection
+                                title="Recent searches"
+                                description="Searches that returned results, saved in this browser."
+                                queries={recentQueries}
+                                buttonType="tertiary"
+                                dataAttr="vision-search-recent"
+                                onPick={runQuery}
+                            />
                         )}
-                        <div className="flex items-center justify-center gap-2 flex-wrap">
-                            <span>Try</span>
-                            {tryQueries.map((example) => (
-                                <LemonButton
-                                    key={example}
-                                    type="secondary"
-                                    size="small"
-                                    onClick={() => runQuery(example)}
-                                    data-attr="vision-search-example"
-                                >
-                                    {example}
-                                </LemonButton>
-                            ))}
-                        </div>
+                        <QuerySection
+                            title="Suggested searches"
+                            description={suggestionDescription(crossScanner, suggestedQueries.length > 0)}
+                            queries={tryQueries}
+                            buttonType="secondary"
+                            dataAttr="vision-search-example"
+                            onPick={runQuery}
+                        />
                     </div>
                 )
             ) : (
