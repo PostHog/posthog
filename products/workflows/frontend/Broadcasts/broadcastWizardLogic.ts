@@ -700,7 +700,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         setAudienceProperties: async (_, breakpoint) => {
             // Debounce so each filter keystroke doesn't fire a preview query.
             await breakpoint(500)
@@ -839,6 +839,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         },
         loadBroadcastSuccess: ({ broadcast }) => {
             if (!broadcast || values.hasHydrated) {
+                return
+            }
+            // The mirror of the redirect in workflowLogic: an ordinary workflow has steps this wizard
+            // cannot show, so hand it to the editor that can rather than rendering a partial view of it.
+            if (broadcast.kind !== 'broadcast' && props.id && props.id !== 'new') {
+                router.actions.replace(urls.workflow(props.id, 'workflow'))
                 return
             }
             actions.hydrateFromBroadcast(broadcast)

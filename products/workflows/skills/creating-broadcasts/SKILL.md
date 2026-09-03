@@ -5,7 +5,7 @@ description: 'Create and send a PostHog broadcast — a one-time or scheduled em
 
 # Creating broadcasts
 
-A **broadcast** is a one-time or scheduled email send to an audience — the customer.io-style "email everyone who matches these filters". Under the hood it is a workflow (`HogFlow`) with `kind: "broadcast"`: a `batch` trigger (the audience), exactly one `function_email` action (the email), and an `exit` action. Because it is a plain workflow, every tool from the **[building-workflows]** skill applies; this skill is the end-to-end recipe.
+A **broadcast** is a one-time or scheduled email send to an audience — the customer.io-style "email everyone who matches these filters". Under the hood it is a workflow (`HogFlow`) with `kind: "broadcast"`: a `batch` trigger (the audience), exactly one `function_email` action (the email), and an `exit` action. The **[building-workflows]** tools read and write it, but the shape is fixed: the API rejects any broadcast with a non-batch trigger, a second email, or any other step type, on `workflows-create`, `workflows-update` and `workflows-patch-graph` alike. `kind` is also immutable, so a broadcast cannot be turned into an ordinary workflow or the reverse. If the user wants a delay, a branch or a second message, build them an ordinary workflow instead; this skill is the end-to-end recipe for a broadcast.
 
 The cardinal rule: **a broadcast sends real email to real people, so never dispatch or schedule without showing the user the exact audience size and getting their explicit confirmation.** The tooling enforces this mechanically (see step 4), but the conversation must do it too.
 

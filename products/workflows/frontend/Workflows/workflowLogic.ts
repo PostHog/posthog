@@ -3978,6 +3978,12 @@ export const workflowLogic = kea<workflowLogicType>([
             actions.saveWorkflow(merged)
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
+            // A broadcast has its own editor, and the graph editor here would let someone add steps the
+            // broadcasts surface can neither show nor control. Send them to the page that owns it.
+            if (props.id && 'kind' in originalWorkflow && originalWorkflow.kind === 'broadcast') {
+                router.actions.replace(urls.broadcast(props.id))
+                return
+            }
             // This response is now the save baseline. Discarding a draft moves its stamp backwards,
             // so a copy kept from an earlier save would fence later saves too loosely.
             cache.lastSavedWorkflow = undefined

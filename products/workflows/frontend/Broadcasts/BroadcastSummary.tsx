@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconArrowLeft, IconCheck, IconExternal, IconX } from '@posthog/icons'
+import { IconArrowLeft, IconCheck, IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
@@ -298,15 +298,6 @@ export function BroadcastSummary(): JSX.Element {
                     </LemonButton>
                     {broadcastId && broadcast && (
                         <div className="flex items-center gap-2">
-                            <LemonButton
-                                type="tertiary"
-                                size="small"
-                                sideIcon={<IconExternal />}
-                                to={urls.workflow(broadcastId, 'workflow')}
-                                data-attr="broadcast-open-in-workflow-editor"
-                            >
-                                Open in workflow editor
-                            </LemonButton>
                             <More
                                 overlay={
                                     <>
