@@ -4,11 +4,14 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
+from parameterized import parameterized
+
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.logic.services.living_artifacts import create_living_artifact
 from products.tasks.backend.models import Task, TaskArtifact, TaskRun
@@ -46,11 +49,11 @@ class TestSlackAgentDesignStream(TestCase):
             f"The [checkout funnel](https://us.posthog.com/project/{self.team.id}/insights/9pQx3?unfurl=false) dropped."
         )
 
-    def _slack_run_with_canvas(self) -> tuple[TaskRun, TaskArtifact, MagicMock]:
+    def _slack_run(self) -> tuple[TaskRun, MagicMock]:
         user = User.objects.create(email="stream@example.com", distinct_id="stream-user")
         task = Task.objects.create(
             team=self.team,
-            title="Canvas task",
+            title="Artifact task",
             description="Write it up",
             origin_product=Task.OriginProduct.SLACK,
             created_by=user,
@@ -67,27 +70,110 @@ class TestSlackAgentDesignStream(TestCase):
             mentioning_slack_user_id="U1",
         )
         slack = MagicMock()
-        slack.api_call.return_value = {"canvas_id": "F900"}
+        slack.api_call.side_effect = lambda method, **_kwargs: {
+            "canvases.create": {"canvas_id": "F900"},
+            "files.getUploadURLExternal": {"upload_url": "https://files.slack.test/upload", "file_id": "F901"},
+            "files.completeUploadExternal": {"files": [{"id": "F901", "title": "signups.csv"}]},
+        }.get(method, {})
         slack_integration = MagicMock(client=slack)
         slack_integration.missing_scopes.return_value = set()
-        with patch(
-            "products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping",
-            return_value=slack_integration,
+        return run, slack_integration
+
+    def _canvas(self, run: TaskRun, slack_integration: MagicMock) -> TaskArtifact:
+        return self._create(
+            slack_integration,
+            run=run,
+            name="Daily active users",
+            artifact_type=TaskArtifact.ArtifactType.DOCUMENT,
+            content="# Daily active users",
+        )
+
+    def _chart(self, run: TaskRun, slack_integration: MagicMock) -> TaskArtifact:
+        asset = ExportedAsset.objects.create(team=self.team, export_format=ExportedAsset.ExportFormat.PNG)
+        return self._create(
+            slack_integration,
+            run=run,
+            name="Signups by week.png",
+            artifact_type=TaskArtifact.ArtifactType.FILE,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            content_bytes=b"png-bytes",
+            content_type="image/png",
+            export_asset_id=asset.id,
+        )
+
+    def _spreadsheet(self, run: TaskRun, slack_integration: MagicMock) -> TaskArtifact:
+        return self._create(
+            slack_integration,
+            run=run,
+            name="signups.csv",
+            artifact_type=TaskArtifact.ArtifactType.FILE,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            content="a,b\n1,2\n",
+            content_type="text/csv",
+        )
+
+    def _create(self, slack_integration: MagicMock, **kwargs) -> TaskArtifact:
+        with (
+            patch(
+                "products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping",
+                return_value=slack_integration,
+            ),
+            patch("posthog.storage.object_storage.write"),
+            patch("posthog.storage.object_storage.tag"),
         ):
-            artifact = create_living_artifact(
-                run=run,
-                name="Daily active users",
-                artifact_type=TaskArtifact.ArtifactType.DOCUMENT,
-                content="# Daily active users",
+            return create_living_artifact(**kwargs)
+
+    @parameterized.expand(
+        [
+            # A canvas is written before delivery runs, so its card is a title and a link.
+            ("canvas", "_canvas", ["section", "actions"]),
+            # A chart's image block points at a PostHog-hosted url, so nothing is uploaded.
+            ("chart_png", "_chart", ["section", "image"]),
+            # A non-image file has no card: Slack shares it as its own message.
+            ("csv_file", "_spreadsheet", []),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.stop_status_stream", return_value=True)
+    def test_streamed_reply_delivers_each_kind_of_pending_artifact(
+        self, _name, factory_name, expected_block_types, mock_stop
+    ) -> None:
+        # A streamed reply never reaches the relay activity, which used to be the only caller of
+        # artifact delivery — so every canvas, chart and file produced under the agent-design flag
+        # was staged and silently never posted.
+        run, slack_integration = self._slack_run()
+        artifact = getattr(self, factory_name)(run, slack_integration)
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping",
+                return_value=slack_integration,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.living_artifacts.slack_message_exists",
+                return_value=True,
+            ),
+            patch("posthog.storage.object_storage.read_bytes", return_value=b"payload"),
+            patch("products.tasks.backend.logic.services.living_artifacts.requests.post"),
+        ):
+            stop_slack_agent_design_stream(
+                StopSlackAgentDesignStreamInput(
+                    slack_thread_context={"integration_id": self.integration.id, "channel": "C1", "thread_ts": "1.0"},
+                    ts="2.0",
+                    final_markdown="Here it is.",
+                    run_id=str(run.id),
+                )
             )
-        return run, artifact, slack_integration
+
+        blocks = mock_stop.call_args.kwargs["artifact_blocks"] or []
+        assert [block["type"] for block in blocks] == expected_block_types
+
+        artifact.refresh_from_db()
+        assert artifact.location["delivery_status"] == "delivered"
 
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.stop_status_stream", return_value=True)
-    def test_streamed_reply_delivers_the_runs_pending_artifacts(self, mock_stop) -> None:
-        # A streamed reply never reaches the relay activity, which used to be the only caller of
-        # artifact delivery — so every chart and canvas produced under the agent-design flag was
-        # staged and silently never posted.
-        run, artifact, slack_integration = self._slack_run_with_canvas()
+    def test_streamed_canvas_card_carries_its_title_and_link(self, mock_stop) -> None:
+        run, slack_integration = self._slack_run()
+        self._canvas(run, slack_integration)
 
         with (
             patch(
@@ -103,24 +189,20 @@ class TestSlackAgentDesignStream(TestCase):
                 StopSlackAgentDesignStreamInput(
                     slack_thread_context={"integration_id": self.integration.id, "channel": "C1", "thread_ts": "1.0"},
                     ts="2.0",
-                    final_markdown="Here it is.",
                     run_id=str(run.id),
                 )
             )
 
         blocks = mock_stop.call_args.kwargs["artifact_blocks"]
-        assert [block["type"] for block in blocks] == ["section", "actions"]
         assert blocks[0]["text"]["text"] == "*Daily active users*"
         assert blocks[1]["elements"][0]["url"] == "https://app.slack.com/docs/T123/F900"
-
-        artifact.refresh_from_db()
-        assert artifact.location["delivery_status"] == "delivered"
 
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.stop_status_stream", return_value=False)
     def test_artifacts_stay_pending_when_the_stream_rejects_their_blocks(self, _mock_stop) -> None:
         # Slack has to accept the blocks chunk for the cards to exist in the thread. Marking them
         # delivered on a rejected append would drop them from every later attempt.
-        run, artifact, slack_integration = self._slack_run_with_canvas()
+        run, slack_integration = self._slack_run()
+        artifact = self._canvas(run, slack_integration)
 
         with (
             patch(
