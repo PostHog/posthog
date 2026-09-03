@@ -26,7 +26,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import (
-    BreakdownType,
     DataTableNode,
     DataVisualizationNode,
     DateRange,
@@ -56,7 +55,7 @@ from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_W
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
-from posthog.test.insight_queries import default_pageview_query, query_from_legacy_filters
+from posthog.test.insight_queries import default_pageview_query, insight_query
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -78,8 +77,8 @@ PAGEVIEW_QUERY_ANALYTICS_PROPERTIES = {
     "data_warehouse_entity_count": 0,
     "has_properties": False,
     "behavioral_filter_count": 0,
-    "filter_test_accounts": False,
-    "breakdown_type": BreakdownType.EVENT,
+    # No `breakdown_type` or `filter_test_accounts`: the query sets neither, and both are reported only
+    # when present. `test_insight_model.py` covers what they report for a query that does set them.
     "has_formula": False,
 }
 
@@ -239,7 +238,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with freeze_time("2021-08-23T12:00:00Z"):
             response_1 = self.client.post(
                 f"/api/projects/{self.team.id}/insights/",
-                {"name": "test", "query": query_from_legacy_filters({"events": [{"id": "$pageview"}]})},
+                {"name": "test", "query": default_pageview_query()},
                 headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
             )
             self.assertEqual(response_1.status_code, status.HTTP_201_CREATED)
@@ -333,7 +332,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with freeze_time("2021-10-21T12:00:00Z"):
             response_3 = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight_id}",
-                {"query": query_from_legacy_filters({"events": [{"id": "$autocapture"}]})},
+                {
+                    "query": insight_query(
+                        {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$autocapture"}]}
+                    )
+                },
             )
             self.assertEqual(response_3.status_code, status.HTTP_200_OK)
             self.assertLessEqual(
@@ -1269,11 +1272,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights",
             data={
                 "name": "a created dashboard",
-                "query": query_from_legacy_filters(
+                "query": insight_query(
                     {
-                        "events": [{"id": "$pageview"}],
-                        "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                        "date_from": "-90d",
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        "properties": [{"type": "event", "key": "$browser", "value": "Mac OS X"}],
+                        "dateRange": {"date_from": "-90d"},
                     }
                 ),
             },
@@ -1315,15 +1319,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_create_insight_with_no_names_logs_no_activity(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights",
-            data={
-                "query": query_from_legacy_filters(
-                    {
-                        "events": [{"id": "$pageview"}],
-                        "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                        "date_from": "-90d",
-                    }
-                )
-            },
+            data={"query": default_pageview_query()},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
@@ -1737,13 +1733,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights",
             data={
                 "derived_name": "pageview unique users",
-                "query": query_from_legacy_filters(
-                    {
-                        "events": [{"id": "$pageview"}],
-                        "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                        "date_from": "-90d",
-                    }
-                ),
+                "query": default_pageview_query(),
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -1867,37 +1857,16 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights",
             data={
-                "query": query_from_legacy_filters(
+                "query": insight_query(
                     {
-                        "insight": "FUNNELS",
-                        "events": [
-                            {
-                                "id": "$pageview",
-                                "math": None,
-                                "name": "$pageview",
-                                "type": "events",
-                                "order": 0,
-                                "properties": [],
-                                "math_hogql": None,
-                                "math_property": None,
-                            },
-                            {
-                                "id": "$rageclick",
-                                "math": None,
-                                "name": "$rageclick",
-                                "type": "events",
-                                "order": 2,
-                                "properties": [],
-                                "math_hogql": None,
-                                "math_property": None,
-                            },
+                        "kind": "FunnelsQuery",
+                        "series": [
+                            {"kind": "EventsNode", "event": "$pageview"},
+                            {"kind": "EventsNode", "event": "$rageclick"},
                         ],
-                        "display": "FunnelViz",
                         "interval": "day",
-                        "date_from": "-30d",
-                        "actions": [],
-                        "new_entity": [],
-                        "layout": "horizontal",
+                        "dateRange": {"date_from": "-30d"},
+                        "funnelsFilter": {"layout": "horizontal"},
                     }
                 ),
                 "name": "My Funnel One",
@@ -4673,7 +4642,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/",
             {
                 "name": "My test insight in folder",
-                "query": query_from_legacy_filters({"events": [{"id": "$pageview"}]}),
+                "query": default_pageview_query(),
                 "_create_in_folder": "Special Folder/Subfolder",
                 "saved": True,
             },
