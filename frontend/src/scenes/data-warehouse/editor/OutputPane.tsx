@@ -743,9 +743,11 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                             return <TZLabel time={value} timestampStyle="absolute" />
                         }
 
-                        const looksLikeJson =
-                            typeof value === 'string' && /^\s*[[{]/.test(value) && /[\]}]\s*$/.test(value)
-                        if (!looksLikeJson) {
+                        const parsedJson: unknown =
+                            typeof value === 'string' && cleanClickhouseType(type) === 'String'
+                                ? tryJsonParse(value)
+                                : null
+                        if (!parsedJson || typeof parsedJson !== 'object') {
                             return value
                         }
 
@@ -753,12 +755,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                             <button
                                 type="button"
                                 className="block h-full w-full truncate text-left"
-                                onClick={() => {
-                                    const parsedJson: unknown = tryJsonParse(value)
-                                    if (parsedJson && typeof parsedJson === 'object') {
-                                        setSelectedJson(parsedJson)
-                                    }
-                                }}
+                                onClick={() => setSelectedJson(parsedJson)}
                             >
                                 {value}
                             </button>
