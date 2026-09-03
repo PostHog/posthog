@@ -1179,12 +1179,23 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
     def test_customer_analytics_account_properties_compiles_dict_values_to_bytecode(self):
         # Without the opt-in into transpilation, the dict values ship without bytecode and the
         # Node runtime sets the literal placeholder string instead of the interpolated value.
+        clear_marker = {"__posthog_clear_property": True}
         inputs_schema = [{"key": "properties", "type": "customer_analytics_account_properties", "required": True}]
-        inputs = {"properties": {"value": {"Plan tier": "{event.properties.plan}", "MRR": "5000"}}}
+        inputs = {
+            "properties": {
+                "value": {
+                    "Plan tier": "{event.properties.plan}",
+                    "MRR": "5000",
+                    "Property to clear": clear_marker,
+                }
+            }
+        }
 
         validated = validate_inputs(inputs_schema, inputs)
 
         assert validated["properties"].get("bytecode") is not None
+        assert validated["properties"]["value"]["Property to clear"] == clear_marker
+        assert validated["properties"]["bytecode"]["Property to clear"] == clear_marker
 
     def test_customer_analytics_account_relationships_validates_assignment_dict(self):
         # Guards the type's registration in InputsSchemaItemSerializer's ChoiceField —
