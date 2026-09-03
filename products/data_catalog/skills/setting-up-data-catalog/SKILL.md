@@ -102,13 +102,14 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
    The `refresh` parameter on `posthog:data-catalog-metric-run` is a query-cache mode, not a drift fix —
    it does not re-snapshot the linked insight.
 
-5. **Retire a metric that should not exist.** Delete with `posthog:data-catalog-metric-delete` when the
-   metric duplicates another one, has been superseded, or measures something the team never wanted — not
-   when it is merely stale, wrongly defined, or badly named. For those, `posthog:data-catalog-metric-update`
-   keeps the metric's history and its `id`; `new_name` renames it in place. Deleting is the human's call, so
-   surface the metric and wait for a yes. Say what the delete costs: an approved metric loses its human
-   vouching, saved SQL and run URLs that name it stop resolving, and the freed name may later be claimed by
-   an unrelated metric, so a stored name is not a stable reference across a delete.
+5. **Retire a metric that should not exist.** Delete with the signed confirmation flow:
+   `posthog:data-catalog-metric-delete-prepare`, then `posthog:data-catalog-metric-delete-execute`. Use it when the
+   metric duplicates another one, has been superseded, or measures something the team never wanted — not when it is
+   merely stale, wrongly defined, or badly named. For those, `posthog:data-catalog-metric-update` keeps the metric's
+   history and its `id`; `new_name` renames it in place. Surface the prepared message, wait for the human to reply with
+   the literal word `confirm`, then call execute with only the signed confirmation fields. Say what the delete costs:
+   an approved metric loses its human vouching, saved SQL and run URLs that name it stop resolving, and the freed name
+   may later be claimed by an unrelated metric, so a stored name is not a stable reference across a delete.
 
 ## Related
 

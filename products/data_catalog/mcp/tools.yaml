@@ -149,7 +149,12 @@ tools:
             later metric can claim it, and anything that referenced the old name (saved SQL, run URLs, earlier tool
             results) stops resolving. Deleting an approved metric throws away a human-vouched definition. Ask the user
             before calling this, and prefer data-catalog-metric-update when the metric is merely wrong, stale, or badly
-            named - delete only when the metric should not exist at all.
+            named - delete only when the metric should not exist at all. The MCP workflow requires the user to reply
+            with the literal word 'confirm' before execution.
+        confirmed_action:
+            message: |
+                About to delete metric '{name}'. Reply 'confirm' to proceed.
+            action_label: delete metric
     data-catalog-metric-run:
         operation: data_catalog_metrics_run_create
         enabled: true
