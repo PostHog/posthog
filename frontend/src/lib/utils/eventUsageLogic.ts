@@ -1714,6 +1714,15 @@ export interface eventUsageLogicActions {
     reportMediaPreviewUploaded: (source: string) => {
         source: string
     }
+    reportNavItemClicked: (
+        item: string,
+        section: string,
+        itemType?: string | null
+    ) => {
+        item: string
+        itemType: string | null | undefined
+        section: string
+    }
     reportNavbarStarredItemAdded: (
         itemType: string,
         itemName: string
@@ -3155,6 +3164,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportUsageMetricCreated: () => true,
         reportUsageMetricUpdated: () => true,
         reportUsageMetricDeleted: () => true,
+        // left nav
+        reportNavItemClicked: (item: string, section: string, itemType?: string | null) => ({
+            item,
+            section,
+            itemType,
+        }),
         // navbar starred
         reportNavbarStarredItemAdded: (itemType: string, itemName: string) => ({
             itemType,
@@ -4808,6 +4823,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
             const eventName = delay ? 'person profile analyzed' : 'person profile viewed'
             posthog.capture(eventName, { delay })
+        },
+        reportNavItemClicked: ({ item, section, itemType }) => {
+            posthog.capture('nav item clicked', {
+                item,
+                section,
+                item_type: itemType ?? null,
+            })
         },
         reportNavbarStarredItemAdded: ({ itemType, itemName }) => {
             posthog.capture('navbar starred item added', {

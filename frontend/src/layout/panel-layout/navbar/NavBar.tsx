@@ -1,13 +1,13 @@
-import './Nav.scss'
+import './NavBar.scss'
 
 import { Tabs } from '@base-ui/react/tabs'
 import { cva } from 'cva'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { Suspense, useEffect, useRef } from 'react'
 
-import { IconApps, IconChat, IconChevronRight, IconPlusSmall } from '@posthog/icons'
+import { IconApps, IconChat, IconChevronRight } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -16,15 +16,12 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
-import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -38,9 +35,9 @@ import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 
 import { NavSearchBar, NavSearchButton } from '../../../lib/components/NavSearchButton/NavSearchButton'
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
-import { CreateMenu } from '../menus/CreateMenu'
-import { NavBarFooter } from '../NavBarFooter'
+import { NavBarFooter } from './NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
+import { FlatNavBrowse } from './tabs/flat-nav/FlatNavBrowse'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
 const NavTabChat = lazyWithRetry(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
 
@@ -106,14 +103,7 @@ const TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] =
     { id: 'chat', label: 'Chat', icon: <IconChat className="text-ai" /> },
 ]
 
-// Keeps newDashboardLogic mounted while the Create button is visible, so the "Start from scratch"
-// flow completes (and redirects) even after the menu closes and unmounts its own logic reference.
-function CreateMenuLogics(): null {
-    useMountedLogic(newDashboardLogic)
-    return null
-}
-
-export function Nav(): JSX.Element {
+export function NavBar(): JSX.Element {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const {
         toggleLayoutNavCollapsed,
@@ -133,7 +123,7 @@ export function Nav(): JSX.Element {
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { toggleCommand } = useActions(commandLogic)
     const { sidebarDensity } = useValues(uiCustomizationLogic)
-    const showCreateButton = useFeatureFlag('CREATE_BUTTON_NAV_EXPERIMENT', 'test')
+    const isFlatNavEnabled = useFeatureFlag('FLAT_NAV', 'test')
 
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'panel-layout-navbar',
@@ -248,36 +238,6 @@ export function Nav(): JSX.Element {
                     </div>
                 )}
 
-                {showCreateButton && (
-                    <div className={cn('px-2 py-1', isLayoutNavCollapsed && 'flex justify-center px-0')}>
-                        <CreateMenuLogics />
-                        <DropdownMenu
-                            onOpenChange={(open) => {
-                                if (open) {
-                                    posthog.capture('nav create button clicked')
-                                }
-                            }}
-                        >
-                            <DropdownMenuTrigger asChild>
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconPlusSmall />}
-                                    fullWidth={!isLayoutNavCollapsed}
-                                    center={!isLayoutNavCollapsed}
-                                    title={isLayoutNavCollapsed ? 'Create' : undefined}
-                                    data-attr="nav-create-button"
-                                >
-                                    {!isLayoutNavCollapsed ? 'Create' : null}
-                                </LemonButton>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent side="bottom" align="start" className="min-w-[220px]">
-                                <CreateMenu />
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    </div>
-                )}
-
                 <Tabs.Root
                     className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-hidden"
                     value={isLayoutNavCollapsed && navExperimentActiveTab === 'chat' ? 'home' : navExperimentActiveTab}
@@ -331,7 +291,7 @@ export function Nav(): JSX.Element {
 
                     <div className="flex-1 overflow-hidden relative">
                         <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
-                            <NavTabBrowse />
+                            {isFlatNavEnabled ? <FlatNavBrowse /> : <NavTabBrowse />}
                         </Tabs.Panel>
                         {/* Lazy until first activated: the visited list only ever grows, so once
                             mounted the panel never unmounts — keepMounted then preserves it across

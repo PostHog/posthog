@@ -29,11 +29,12 @@ import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/
 import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
+import { NavLink } from '~/layout/panel-layout/navbar/NavLink'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -45,7 +46,7 @@ import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-gen
 import { ActivityTab } from '~/types'
 
 import { BrowserLikeMenuItems } from '../../ProjectTree/menus/BrowserLikeMenuItems'
-import { PanelIndicatorIcon, SectionTrigger } from '../Nav'
+import { PanelIndicatorIcon, SectionTrigger } from '../NavBar'
 import { editToolsLogic } from './editToolsLogic'
 import { navRecentsLogic } from './navRecentsLogic'
 
@@ -178,6 +179,7 @@ export function NavTabBrowse(): JSX.Element {
     const { isEditMode, checkedTools } = useValues(editToolsLogic)
     const { enterEditMode, saveAndExitEditMode, toggleTool } = useActions(editToolsLogic)
     const { showConfigureHomeModal } = useActions(navigationLogic)
+    const { reportNavItemClicked } = useActions(eventUsageLogic)
     const currentPath = removeProjectIdIfPresent(pathname)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
@@ -221,7 +223,7 @@ export function NavTabBrowse(): JSX.Element {
                             icon={<IconHome />}
                             isCollapsed={isLayoutNavCollapsed}
                             data-attr="nav-item-home"
-                            onClick={() => posthog.capture('nav item clicked', { item: 'home' })}
+                            onClick={() => reportNavItemClicked('home', 'primary')}
                             sideAction={{
                                 onClick: () =>
                                     uiCustomizationEnabled
@@ -241,7 +243,7 @@ export function NavTabBrowse(): JSX.Element {
                             isCollapsed={isLayoutNavCollapsed}
                             data-attr="nav-item-inbox"
                             tag="beta"
-                            onClick={() => posthog.capture('nav item clicked', { item: 'inbox' })}
+                            onClick={() => reportNavItemClicked('inbox', 'primary')}
                         />
                     )}
 
@@ -251,7 +253,7 @@ export function NavTabBrowse(): JSX.Element {
                         icon={<IconClock />}
                         isCollapsed={isLayoutNavCollapsed}
                         data-attr="nav-item-activity"
-                        onClick={() => posthog.capture('nav item clicked', { item: 'activity' })}
+                        onClick={() => reportNavItemClicked('activity', 'primary')}
                     />
 
                     <div className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}>
@@ -356,6 +358,7 @@ export function NavTabBrowse(): JSX.Element {
                                                         className: 'group -outline-offset-2 pr-0',
                                                     }}
                                                     data-attr={`nav-recent-item-${item.id}`}
+                                                    onClick={() => reportNavItemClicked('recent', 'recents', item.type)}
                                                 >
                                                     <LinkListItem.Content
                                                         icon={iconForType(item.type as FileSystemIconType)}
@@ -450,6 +453,14 @@ export function NavTabBrowse(): JSX.Element {
                         ) : (
                             <ProjectTree
                                 root={!uiCustomizationEnabled && isEditMode ? 'products://' : 'custom-products://'}
+                                onItemClicked={(item) => {
+                                    // In edit mode a row click toggles a checkbox, which is not navigation
+                                    if (!uiCustomizationEnabled && isEditMode) {
+                                        return
+                                    }
+
+                                    reportNavItemClicked(item?.record?.path ?? 'unknown', 'tools')
+                                }}
                                 onlyTree
                                 treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'}
                                 selectModeOverride={!uiCustomizationEnabled && isEditMode ? 'multi' : undefined}

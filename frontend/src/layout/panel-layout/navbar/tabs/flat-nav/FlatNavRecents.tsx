@@ -1,13 +1,14 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
-import { navRecentsLogic } from '~/layout/panel-layout/ai-first/tabs/navRecentsLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
+import { NavLink } from '../../NavLink'
+import { navRecentsLogic } from '../navRecentsLogic'
 import { FlatNavSection } from './FlatNavSection'
 
 function getItemName(item: FileSystemEntry): string {
@@ -17,6 +18,7 @@ function getItemName(item: FileSystemEntry): string {
 
 export function FlatNavRecents(): JSX.Element {
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
+    const { reportNavItemClicked } = useActions(eventUsageLogic)
 
     return (
         <FlatNavSection label="Recents" info="Items you viewed recently, most recent first.">
@@ -36,6 +38,7 @@ export function FlatNavRecents(): JSX.Element {
                             icon={iconForType(item.type as FileSystemIconType)}
                             isCollapsed={false}
                             data-attr={`nav-recent-item-${item.id}`}
+                            onClick={() => reportNavItemClicked('recent', 'recents', item.type)}
                         />
                     ))
                 )}
