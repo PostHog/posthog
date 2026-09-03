@@ -29,7 +29,7 @@ import { filtersFromUniversalFilterGroups } from '../utils'
 
 export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
 
-// Unscored recordings use 0.36 server-side, so the strict cutoff excludes them.
+// The query maps unscored recordings to 0.36, so strict `>` avoids recommending sessions the scorer has not evaluated.
 export const RECOMMENDED_RECORDINGS_SURFACING_SCORE_THRESHOLD = 0.36
 
 export const DURATION_KEYS = new Set(['duration', 'active_seconds', 'inactive_seconds'])
