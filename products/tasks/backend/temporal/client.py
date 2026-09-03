@@ -20,6 +20,7 @@ from products.tasks.backend.constants import AGENT_OTEL_TELEMETRY_STATE_KEY, SAN
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled, is_native_steering_signals_enabled
 from products.tasks.backend.logic.services.dev_stack_image import DEV_STACK_IMAGE_NAME
+from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.metrics import AGENT_OTEL_TELEMETRY_STAMPED_TOTAL, observe_task_run_workflow_start
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.bake_dev_stack_image.workflow import BakeDevStackImageInput
@@ -102,6 +103,7 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
         handle_loop_run_terminal(task_run)
     except Exception:
         logger.warning("task_processing_start_failure_loop_bookkeeping_failed", extra={"run_id": run_id}, exc_info=True)
+    resume_workflow_step_for_run(task_run)
     return True
 
 
