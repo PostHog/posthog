@@ -332,8 +332,9 @@ def count_active_alert_destinations(*, team_id: int, alert_id: str, allowed_even
 
 
 # Webhook-style destination names embed the full webhook URL, whose path is a channel
-# credential (Slack/Discord/Teams webhook secret). Receipts flow into the API and the
-# History tooltip, so keep only the host.
+# credential (Slack/Discord/Teams webhook secret). Anything that shows such a name — a
+# receipt in the API, the History tooltip, or a read surface in another product — must
+# keep only the host.
 _URL_IN_NAME_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
 
 _DESTINATION_NAME_SEPARATOR = " → "
@@ -347,7 +348,8 @@ def _url_host(match: re.Match[str]) -> str:
         return "destination"
 
 
-def _receipt_safe_name(name: str) -> str:
+def redact_urls_in_name(name: str) -> str:
+    """Replace every URL in a free-text name with its host."""
     return _URL_IN_NAME_RE.sub(_url_host, name)
 
 
@@ -355,7 +357,7 @@ def _destination_display_name(name: str) -> str:
     # Names read "<product> — <alert> (<kind>) → <destination>"; keep the trailing
     # segment. rpartition, since an alert name may contain the separator too.
     _, _, destination = name.rpartition(_DESTINATION_NAME_SEPARATOR)
-    return _receipt_safe_name(destination or name)
+    return redact_urls_in_name(destination or name)
 
 
 def list_active_alert_destinations(
