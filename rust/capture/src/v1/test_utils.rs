@@ -705,6 +705,7 @@ pub struct TestStateBuilder {
     ai_gateway_signing_secret: Option<String>,
     ingestion_warning_emitter: Option<Arc<dyn common_ingestion_warnings::WarningEmitter>>,
     capture_mode: CaptureMode,
+    ai_max_event_bytes: u64,
 }
 
 impl Default for TestStateBuilder {
@@ -729,6 +730,7 @@ impl TestStateBuilder {
             ai_gateway_signing_secret: None,
             ingestion_warning_emitter: None,
             capture_mode: CaptureMode::Events,
+            ai_max_event_bytes: 0,
         }
     }
 
@@ -820,6 +822,12 @@ impl TestStateBuilder {
     /// Set the deployment capture mode (defaults to `Events`).
     pub fn with_capture_mode(mut self, mode: CaptureMode) -> Self {
         self.capture_mode = mode;
+        self
+    }
+
+    /// Set the per-event AI ceiling (defaults to `0`, which disables it).
+    pub fn with_ai_max_event_bytes(mut self, bytes: u64) -> Self {
+        self.ai_max_event_bytes = bytes;
         self
     }
 
@@ -933,7 +941,7 @@ impl TestStateBuilder {
             is_mirror_deploy: false,
             verbose_sample_percent: 0.0,
             ai_max_sum_of_parts_bytes: 100 * 1024 * 1024,
-            ai_max_event_bytes: 0,
+            ai_max_event_bytes: self.ai_max_event_bytes,
             body_chunk_read_timeout: None,
             body_read_chunk_size_kb: 64,
             capture_v1_max_compressed_body_bytes: 2 * 1024 * 1024,

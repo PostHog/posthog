@@ -270,7 +270,7 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                     )}
                     {!step.hideContinue && (
                         <div className="flex items-center gap-2">
-                            {step.id === 'install' && <ManualSetupButton />}
+                            {step.id === 'install' && <ManualSetupButton onAdvance={advance} />}
                             <LemonButton
                                 type="primary"
                                 status="alt"

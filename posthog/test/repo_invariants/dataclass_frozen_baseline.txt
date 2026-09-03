@@ -530,8 +530,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/drip/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/dropbox_sign/dropbox_sign.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/dropbox_sign/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/dub/dub.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/dub/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/dynamodb/dynamodb.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/dynamodb/tests/test_dynamodb.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/dynatrace/dynatrace.py

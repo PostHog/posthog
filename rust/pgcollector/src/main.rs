@@ -55,6 +55,7 @@ async fn main() -> Result<()> {
     let cfg = config::Config::load(&cli.config)?;
     let registry = collectors::Registry::load(cli.collectors_dir.as_deref())?;
     tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
         servers = cfg.servers.len(),
         collectors = registry.len(),
         "loaded config"
