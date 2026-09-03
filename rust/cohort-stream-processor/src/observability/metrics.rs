@@ -516,6 +516,12 @@ pub const PERSON_SEED_REKEY_HOP_CAPPED_TOTAL: &str = "cohort_person_seeds_rekey_
 /// Failed person-seed re-key produces; the seed offset is held (counter).
 pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
     "cohort_person_seeds_rekey_produce_failure_total";
+/// Single-leaf membership changes a seed apply derived from the persisted register with no stage-1
+/// transition behind them, labelled by `kind` (`entered`|`left`) (counter). Each one is a lag
+/// between what the store holds and what downstream was last told: a redelivery repairing a failed
+/// produce, or a register gap that predates the apply. **Expect a burst after a roll, then a rate
+/// near zero; a sustained rate means produces keep failing.**
+pub const SEED_REGISTER_REPAIRS_TOTAL: &str = "cohort_seed_register_repairs_total";
 /// The seed commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
 /// **Alert on a sustained non-zero level.**
 pub const SEED_HELD_OFFSET_GAUGE: &str = "seed_held_offset";
@@ -878,6 +884,10 @@ mod tests {
         assert_eq!(
             PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL,
             "cohort_person_seeds_rekey_produce_failure_total",
+        );
+        assert_eq!(
+            SEED_REGISTER_REPAIRS_TOTAL,
+            "cohort_seed_register_repairs_total"
         );
         // The held-offset gauge deliberately mirrors merge_held_offset/cascade_held_offset.
         assert_eq!(SEED_HELD_OFFSET_GAUGE, "seed_held_offset");

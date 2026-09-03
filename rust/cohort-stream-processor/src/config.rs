@@ -816,14 +816,16 @@ impl Config {
             );
         }
 
-        // A membership produce that fails after stage 1 commits drops the single-leaf change: the
-        // replayed seed merges to Unchanged and re-emits only composed flips. The reconcile
-        // snapshot is what repairs that, and it can, because the register row committed with
-        // stage 1 — but only if it is switched on.
+        // A seed path re-derives its own failed produce on redelivery, so reconcile is no longer
+        // its main repair path. Three classes still need it: the live path, which never holds a
+        // failed produce for redelivery; a cohort edit that changes what membership means; and a
+        // seed whose produce acked but whose post-ack register commit failed, if the leaf's truth
+        // then changes without minting a transition that would carry the correction.
         if self.cohort_seed_person_apply_enabled && !self.cohort_seed_reconcile_enabled {
             warn!(
-                "COHORT_SEED_PERSON_APPLY_ENABLED without COHORT_SEED_RECONCILE_ENABLED: a failed \
-                 membership produce drops its single-leaf change permanently, with no repair path.",
+                "COHORT_SEED_PERSON_APPLY_ENABLED without COHORT_SEED_RECONCILE_ENABLED: a live \
+                 event that fails its produce, a cohort edited mid-run, and a seed whose register \
+                 commit failed after its produce acked, have no repair path.",
             );
         }
 

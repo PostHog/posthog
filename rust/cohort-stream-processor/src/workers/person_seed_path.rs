@@ -26,7 +26,7 @@ use crate::observability::metrics::{
     PERSON_SEED_PRIOR_CORRUPT_TOTAL, PERSON_SEED_REKEYED_TOTAL, PERSON_SEED_REKEY_HOP_CAPPED_TOTAL,
     PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL, STAGE1_TRANSITIONS,
 };
-use crate::producer::{map_transition, CohortMembershipChange, MembershipSink};
+use crate::producer::{CohortMembershipChange, MembershipSink};
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::person_record::{
     apply_person_seed, person_seed_verdict, MatchedSet, PersonRecord, PersonSeedOutcome,
@@ -34,13 +34,16 @@ use crate::stage1::person_record::{
 };
 use crate::stage1::state::StateVariant;
 use crate::stage1::transition::LeafTransition;
-use crate::stage2::{single_leaf_transition_register_writes, stage_register_writes};
+use crate::stage2::Stage2State;
 use crate::store::{
-    PersonPrefix, PersonRecordKey, PersonRecords, ReadLane, StagedBatch, StoreError, StoreHandle,
+    PersonPrefix, PersonRecordKey, PersonRecords, ReadLane, Stage2Key, StagedBatch, StoreError,
+    StoreHandle,
 };
 use crate::workers::merge_path::MergeWorkerDeps;
 use crate::workers::seed_path::{hold, mark_processed, route_seed, tag_seed, SeedRoute};
-use crate::workers::stage2_path::{commit_stage2_writes, recompute_stage2};
+use crate::workers::stage2_path::{
+    commit_stage2_writes, diff_single_leaf_registers, recompute_stage2, FoldedLeaf, Stage2Recompute,
+};
 use crate::workers::worker::{
     first_cascades, produce_cascades, produce_membership, transition_metric_label,
 };
@@ -184,10 +187,28 @@ impl Apply<'_> {
         };
 
         let now_ms = Utc::now().timestamp_millis();
-        self.commit_stage1(filters, &record_key, &update, now_ms)
+        // Read the registers before the placeholders land, so a row this apply is about to place
+        // cannot be mistaken for one an earlier apply already told downstream about.
+        let folded = folded_leaves(&effective, person, &update, &prior);
+        let diff = diff_single_leaf_registers(
+            self.partition_id,
+            self.handle,
+            filters,
+            &folded,
+            now_ms,
+            self.last_updated,
+            ReadLane::Maintenance,
+        )
+        .await
+        .map_err(SeedHold::store("register read"))?;
+
+        self.commit_stage1(&record_key, &update, &diff.placeholders)
             .await?;
-        if recomposes(&update, verdict, &prior) {
-            self.emit(filters, &effective.leaves(person), &update, now_ms)
+        count_stage1_transitions(filters, update.transitions());
+        // A lagging register is its own reason to emit: the redelivery of a failed produce merges
+        // to `Unchanged` and mints nothing, so `recomposes` alone would stay silent.
+        if recomposes(&update, verdict, &prior) || !diff.recompute.is_empty() {
+            self.emit(filters, &effective.leaves(person), diff.recompute, now_ms)
                 .await?;
         }
         // Counted last: an emit failure holds the offset, and the redelivery re-derives the verdict
@@ -288,34 +309,24 @@ impl Apply<'_> {
         Ok(prior)
     }
 
-    /// One batch, so a register is never stranded without the matched set that justifies it.
+    /// One batch, so a placeholder register is never stranded without the record that justifies
+    /// it. The placeholders are the only registers written here: a real bit waits for its produce
+    /// to ack, while `false` says "downstream was never told" and needs no ack.
     async fn commit_stage1(
         &self,
-        filters: &TeamFilters,
         key: &PersonRecordKey,
         update: &RecordUpdate,
-        now_ms: i64,
+        placeholders: &[(Stage2Key, Stage2State)],
     ) -> Result<(), SeedHold> {
-        let RecordUpdate::Changed {
-            record,
-            transitions,
-        } = update
-        else {
-            return Ok(());
-        };
-
         let mut staged = StagedBatch::default();
-        staged.put::<PersonRecords>(key, &record.encode());
-        for transition in transitions {
-            stage_register_writes(
-                &mut staged,
-                single_leaf_transition_register_writes(
-                    filters,
-                    self.partition_id,
-                    transition,
-                    now_ms,
-                ),
-            );
+        if let RecordUpdate::Changed { record, .. } = update {
+            staged.put::<PersonRecords>(key, &record.encode());
+        }
+        for (key, state) in placeholders {
+            staged.put_stage2(key, &state.encode());
+        }
+        if staged.is_empty() {
+            return Ok(());
         }
         self.handle
             .commit(staged)
@@ -324,34 +335,34 @@ impl Apply<'_> {
     }
 
     /// Recomposes every evaluated leaf, not just the ones this seed flipped, so a crash between the
-    /// two commits heals on replay ([`recomposes`] is what admits the healing pass). The stage-2 bits
-    /// land only after both produces ack, which keeps a composed flip re-derivable instead of lost
-    /// against a flipped bit.
+    /// two commits heals on replay ([`recomposes`] is what admits the healing pass).
     ///
-    /// Single-leaf changes are not re-derivable that way: the replay merges to `Unchanged` and
-    /// mints no transition, so a failed membership produce drops them. Their register row did
-    /// commit with stage 1, which is what lets the reconcile snapshot repair them.
+    /// `registers` carries the single-leaf half the caller already diffed. Both halves commit only
+    /// after the produces ack, so every emitted change stays re-derivable: a composed flip from the
+    /// stored bit it did not advance, a single-leaf one from the register it did not advance.
     async fn emit(
         &self,
         filters: &TeamFilters,
         leaves: &[(LeafStateKey, Uuid)],
-        update: &RecordUpdate,
+        registers: Stage2Recompute,
         now_ms: i64,
     ) -> Result<(), SeedHold> {
-        let mut changes = single_leaf_changes(filters, update.transitions(), self.last_updated);
-        let recompute = recompute_stage2(
-            self.partition_id,
-            self.handle,
-            filters,
-            leaves,
-            now_ms,
-            self.last_updated,
-            ReadLane::Maintenance,
-        )
-        .await
-        .map_err(SeedHold::store("stage 2 recompute"))?;
-        changes.extend(recompute.changes.iter().cloned());
+        let mut recompute = registers;
+        recompute.extend(
+            recompute_stage2(
+                self.partition_id,
+                self.handle,
+                filters,
+                leaves,
+                now_ms,
+                self.last_updated,
+                ReadLane::Maintenance,
+            )
+            .await
+            .map_err(SeedHold::store("stage 2 recompute"))?,
+        );
 
+        let mut changes = recompute.changes.clone();
         tag_seed(&mut changes, self.seed.run_id());
         self.produce(changes).await?;
 
@@ -448,8 +459,8 @@ impl RecordUpdate {
 ///
 /// Residue: once a live event has overwritten a held attempt's zeroed fingerprints *and* the catalog
 /// has since rotated, the replay reads as an ordinary catalog-uncovered no-op and the composed bit
-/// is the reconcile snapshot's to repair — the same surface that already owns single-leaf changes
-/// lost to a failed produce.
+/// is the reconcile snapshot's to repair. The single-leaf half of the same replay is safe either
+/// way, because a lagging register admits the emit on its own.
 fn recomposes(update: &RecordUpdate, verdict: PersonSeedVerdict, prior: &PriorRecord) -> bool {
     matches!(update, RecordUpdate::Changed { .. })
         || verdict == PersonSeedVerdict::SkipLiveFresh
@@ -498,19 +509,47 @@ fn record_update(
     }
 }
 
-fn single_leaf_changes(
-    filters: &TeamFilters,
-    transitions: &[LeafTransition],
-    last_updated: &str,
-) -> Vec<CohortMembershipChange> {
-    let mut changes = Vec::new();
+/// The person leaves this apply leaves behind, with the membership the stored record implies.
+///
+/// A person with no stored record has none. Nothing was durably evaluated, so there is no register
+/// to diff and no placeholder worth writing. That is the dominant scan shape, a non-matching
+/// dormant person, which stays at one point read and no write. Anything downstream holds for such a
+/// person came from a record that has since gone, which is the orphan sweep's class, not this one's.
+fn folded_leaves(
+    effective: &EffectiveHashes,
+    person: Uuid,
+    update: &RecordUpdate,
+    prior: &PriorRecord,
+) -> Vec<FoldedLeaf> {
+    let matched = match (update, prior) {
+        (RecordUpdate::Changed { record, .. }, _) => Some(&record.matched),
+        (RecordUpdate::Unchanged, PriorRecord::Present(record)) => Some(&record.matched),
+        // An unreadable row reads as no matches, the way the composition reads it.
+        (RecordUpdate::Unchanged, PriorRecord::Corrupt) => None,
+        (RecordUpdate::Unchanged, PriorRecord::Absent) => return Vec::new(),
+    };
+    let transitions = update.transitions();
+    effective
+        .evaluated
+        .iter()
+        .map(|hash| FoldedLeaf {
+            leaf_state_key: LeafStateKey::for_person_property(hash),
+            person_id: person,
+            in_cohort: matched.is_some_and(|matched| matched.contains(hash)),
+            minted_transition: transitions
+                .iter()
+                .any(|transition| transition.condition_hash == *hash),
+        })
+        .collect()
+}
+
+/// Stage-1 flips, not emissions: the register diff owns what downstream is told.
+fn count_stage1_transitions(filters: &TeamFilters, transitions: &[LeafTransition]) {
     for transition in transitions {
         if let Some(kind) = transition_metric_label(filters, transition) {
             counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(1);
         }
-        changes.extend(map_transition(filters, transition, last_updated));
     }
-    changes
 }
 
 /// The seed's hashes projected onto the team's live person-property catalog.
@@ -677,6 +716,9 @@ mod tests {
         sink: CaptureSink,
         seed_sink: CaptureSeedTileSink,
         deps: MergeWorkerDeps,
+        /// Mints a strictly increasing stamp per run, the way a partition worker does, so a
+        /// re-emission wins LWW against the change it replaces.
+        clock: crate::producer::LastUpdatedClock,
     }
 
     impl Shell {
@@ -738,6 +780,7 @@ mod tests {
                 sink,
                 seed_sink,
                 deps,
+                clock: crate::producer::LastUpdatedClock::default(),
             }
         }
 
@@ -746,13 +789,14 @@ mod tests {
                 .seed_tracker
                 .mark_dispatched(partition_id as i32, offset + 1);
             let sink: Arc<dyn MembershipSink> = Arc::new(self.sink.clone());
+            let last_updated = self.clock.next();
             handle_person_seed(
                 partition_id,
                 &self.handle,
                 &self.catalog,
                 &sink,
                 &self.deps,
-                LAST_UPDATED,
+                &last_updated,
                 seed,
                 offset,
             )
@@ -799,6 +843,23 @@ mod tests {
             let key = PersonPrefix::new(partition_id, TEAM.0 as u64, person).record_key();
             self.store
                 .write_batch(|batch| batch.put::<PersonRecords>(&key, &record.encode()))
+                .unwrap();
+        }
+
+        /// The register row a live evaluation would have left beside `put_record`'s record.
+        fn put_register(&self, partition_id: u16, person: Uuid, cohort_id: u64, in_cohort: bool) {
+            let key = Stage2Key {
+                partition_id,
+                team_id: TEAM.0 as u64,
+                cohort_id,
+                person_id: person,
+            };
+            let state = Stage2State {
+                in_cohort,
+                last_evaluated_at_ms: now_ms(),
+            };
+            self.store
+                .write_batch(|b| b.put_stage2(&key, &state.encode()))
                 .unwrap();
         }
 
@@ -892,6 +953,7 @@ mod tests {
             redirect_dedup: Default::default(),
         };
         shell.put_record(partition_id, person, &live);
+        shell.put_register(partition_id, person, 1, true);
 
         // An older scan that would retract the hash.
         let seed = seed_for(person, &[PERSON_HASH], &[], now_ms() - 1_000);
@@ -906,8 +968,12 @@ mod tests {
         assert_eq!(shell.committable(partition_id), Some(1));
     }
 
+    /// The record carries the hash but no register row, the state left behind when the row is GC'd
+    /// or when the cohort post-dates the live evaluation that matched. A retraction must still be
+    /// emitted: an absent row cannot prove downstream was never told, and the minted `Left` is the
+    /// only thing that can retire a stale entry.
     #[tokio::test]
-    async fn a_newer_seed_retracts_a_stale_true_hash() {
+    async fn a_newer_seed_retracts_a_stale_true_hash_with_no_register_row() {
         let (person, partition_id) = dormant_person();
         let mut shell = Shell::new(mixed_cohorts());
         let stale = PersonRecord {
@@ -920,6 +986,7 @@ mod tests {
             redirect_dedup: Default::default(),
         };
         shell.put_record(partition_id, person, &stale);
+        assert!(shell.stage2(partition_id, person, 1).is_none());
 
         let seed = seed_for(person, &[PERSON_HASH], &[], 1_000 + MARGIN_MS + 1);
         shell.run(partition_id, &seed, 0).await;
@@ -931,6 +998,46 @@ mod tests {
             .is_empty());
         let changes = shell.sink.changes();
         assert_eq!(changes.len(), 1, "cohort 1 only: cohort 2 was never in");
+        assert_eq!(changes[0].cohort_id, 1);
+        assert_eq!(changes[0].status, MembershipStatus::Left);
+        assert!(!shell.stage2(partition_id, person, 1).unwrap().in_cohort);
+    }
+
+    /// The same retraction with its produce failing: the placeholder has to record that downstream
+    /// still holds the entry, or the redelivery merges to `Unchanged`, mints nothing, and the
+    /// `Left` is lost for good.
+    #[tokio::test]
+    async fn a_failed_retraction_over_an_absent_register_is_re_emitted_on_redelivery() {
+        let (person, partition_id) = dormant_person();
+        let mut shell = Shell::with_sinks(
+            mixed_cohorts(),
+            CaptureSink::failing_first(1),
+            CaptureSeedTileSink::new(),
+        );
+        let stale = PersonRecord {
+            last_seen_ms: 1_000,
+            stamp: Stamp::new(1_000, 0),
+            props_fingerprint: PropsFingerprint::of("{}"),
+            catalog_fingerprint: shell.filters.catalog_fingerprint,
+            matched: MatchedSet::from_iter([hash(PERSON_HASH).as_bytes()]),
+            applied_offsets: AppliedOffsets::default(),
+            redirect_dedup: Default::default(),
+        };
+        shell.put_record(partition_id, person, &stale);
+        let seed = seed_for(person, &[PERSON_HASH], &[], 1_000 + MARGIN_MS + 1);
+
+        shell.run(partition_id, &seed, 0).await;
+        assert_eq!(shell.committable(partition_id), None, "held for redelivery");
+        assert!(shell.sink.changes().is_empty());
+        assert!(
+            shell.stage2(partition_id, person, 1).unwrap().in_cohort,
+            "the placeholder records the entry downstream still holds",
+        );
+
+        shell.run(partition_id, &seed, 0).await;
+
+        let changes = shell.sink.changes();
+        assert_eq!(changes.len(), 1, "the redelivery re-derived the retraction");
         assert_eq!(changes[0].cohort_id, 1);
         assert_eq!(changes[0].status, MembershipStatus::Left);
         assert!(!shell.stage2(partition_id, person, 1).unwrap().in_cohort);
@@ -1043,6 +1150,11 @@ mod tests {
 
         assert!(shell.record(partition_id, person).is_none());
         assert!(shell.sink.changes().is_empty());
+        assert!(
+            shell.stage2(partition_id, person, 1).is_none(),
+            "no record means nothing was durably evaluated, so no register row is invented \
+             either, and store growth stays proportional to matchers",
+        );
         assert_eq!(shell.committable(partition_id), Some(1));
     }
 
@@ -1225,7 +1337,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_failed_membership_produce_holds_and_the_replay_re_derives_the_composed_flip() {
+    async fn a_failed_membership_produce_holds_and_the_replay_re_derives_both_halves() {
         let (person, partition_id) = dormant_person();
         let mut shell = Shell::with_sinks(
             mixed_cohorts(),
@@ -1245,16 +1357,33 @@ mod tests {
             shell.stage2(partition_id, person, 2).is_none(),
             "the composed bit must stay unwritten under a failed produce",
         );
+        assert_eq!(
+            shell
+                .stage2(partition_id, person, 1)
+                .map(|state| state.in_cohort),
+            Some(false),
+            "the single-leaf register holds its placeholder: downstream was never told",
+        );
 
         shell.run(partition_id, &seed, 3).await;
         let changes = shell.sink.changes();
         assert_eq!(
             changes.len(),
-            1,
-            "the Unchanged replay re-derives the composed flip only",
+            2,
+            "the Unchanged replay re-derives the single-leaf change and the composed flip",
         );
-        assert_eq!(changes[0].cohort_id, 2);
-        assert_eq!(changes[0].origin, Some(ChangeOrigin::Seed));
+        assert_eq!(
+            changes
+                .iter()
+                .map(|change| change.cohort_id)
+                .collect::<Vec<_>>(),
+            vec![1, 2],
+        );
+        assert!(changes
+            .iter()
+            .all(|change| change.origin == Some(ChangeOrigin::Seed)
+                && change.status == MembershipStatus::Entered));
+        assert!(shell.stage2(partition_id, person, 1).unwrap().in_cohort);
         assert!(shell.stage2(partition_id, person, 2).unwrap().in_cohort);
         assert_eq!(shell.committable(partition_id), Some(3));
     }
@@ -1293,7 +1422,54 @@ mod tests {
             shell.stage2(partition_id, person, 2).unwrap().in_cohort,
             "the live-fresh skip must still recompose the bit nothing else would ever write",
         );
+        let changes = shell.sink.changes();
+        assert_eq!(
+            changes
+                .iter()
+                .map(|change| change.cohort_id)
+                .collect::<Vec<_>>(),
+            vec![1, 2],
+            "the single-leaf change the failed produce lost is re-derived alongside it",
+        );
+        assert!(shell.stage2(partition_id, person, 1).unwrap().in_cohort);
         assert_eq!(shell.committable(partition_id), Some(3));
+    }
+
+    /// A cohort added over a record that predates it has no register row, so the next seed tells
+    /// downstream even though the merge is a no-op and mints no transition.
+    #[tokio::test]
+    async fn a_cohort_added_over_an_existing_record_enters_on_the_next_unchanged_seed() {
+        let (person, partition_id) = dormant_person();
+        let mut shell = Shell::new(mixed_cohorts());
+        let seed = seed_for(person, &[PERSON_HASH], &[PERSON_HASH], now_ms());
+
+        shell.run(partition_id, &seed, 0).await;
+        assert_eq!(
+            shell.sink.changes().len(),
+            1,
+            "cohort 1 only: no behavioral state"
+        );
+
+        // Cohort 3 arrives on the same person leaf, over a record it never saw evaluated.
+        let mut cohorts = mixed_cohorts();
+        cohorts.push((3, wrap(vec![person_leaf(PERSON_HASH)])));
+        shell.catalog = Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([(
+            TEAM,
+            build_filters(&cohorts),
+        )])));
+
+        shell.run(partition_id, &seed, 1).await;
+
+        let changes = shell.sink.changes();
+        assert_eq!(
+            changes.len(),
+            2,
+            "the replay is Unchanged but cohort 3 is new"
+        );
+        assert_eq!(changes[1].cohort_id, 3);
+        assert_eq!(changes[1].status, MembershipStatus::Entered);
+        assert!(shell.stage2(partition_id, person, 3).unwrap().in_cohort);
+        assert_eq!(shell.committable(partition_id), Some(2));
     }
 
     #[tokio::test]
