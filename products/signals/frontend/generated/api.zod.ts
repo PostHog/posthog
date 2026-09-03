@@ -954,6 +954,7 @@ export const signalsScoutEditReportBodyChartsMax = 20
 export const signalsScoutEditReportBodySuggestedPromptsItemMax = 200
 
 export const signalsScoutEditReportBodySuggestedPromptsMax = 3
+
 export const signalsScoutEditReportBodySupersedesImplementationDefault = false
 
 export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
