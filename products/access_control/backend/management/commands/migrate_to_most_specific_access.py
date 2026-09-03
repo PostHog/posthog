@@ -2,60 +2,56 @@ from typing import Any
 
 from django.core.management.base import BaseCommand
 
-from posthog.models.organization import Organization
-
-from products.access_control.backend.facade.resolution_preview import iter_resolution_changes
-from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.facade.resolution_migration import (
+    ResolutionSweep,
+    enable_most_specific_resolution,
+    sweep_pending_organizations,
+)
 
 
 class Command(BaseCommand):
     help = (
-        "Report readiness for most-specific access resolution across organizations that have access "
-        "rules: those that resolve differently first, then those where nothing changes, then those "
-        "that could not be evaluated (no active member to resolve as). Organizations with no rules "
-        "cannot resolve differently and are omitted. Read-only for now; migration comes later, so "
-        "--dry-run and a plain run print the same report."
+        "Switch organizations that the most-specific access resolution cannot affect over to it: "
+        "those whose access rules resolve the same under both resolutions, and those with no "
+        "rules. Organizations that resolve differently, and organizations with rules but no "
+        "active member to evaluate as, are reported and left on the legacy resolution. "
+        "Organizations already on the most-specific resolution are skipped."
     )
 
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument("--dry-run", action="store_true", help="Report only, migrate nothing")
 
     def handle(self, *args: Any, **options: Any) -> None:
-        totals: dict[Any, dict[str, int]] = {}
-        names: dict[Any, str] = {}
+        sweep = sweep_pending_organizations()
+        self._report(sweep)
 
-        for team, changes in iter_resolution_changes():
-            org_id = team.organization_id
-            names[org_id] = team.organization.name
-            counts = totals.setdefault(org_id, {"teams": 0, "changes": 0, "gains": 0, "loses": 0})
-            counts["teams"] += 1
-            counts["changes"] += len(changes)
-            counts["gains"] += sum(1 for change in changes if change.direction == "gains")
-            counts["loses"] += sum(1 for change in changes if change.direction == "loses")
+        unaffected_ids = sweep.unaffected_ids
+        if options["dry_run"]:
+            self.stdout.write(f"Dry run: {len(unaffected_ids)} organizations would be migrated")
+            return
+        updated = enable_most_specific_resolution(unaffected_ids)
+        self.stdout.write(f"Migrated {updated} organizations")
 
-        divergent = {org_id: counts for org_id, counts in totals.items() if counts["changes"] > 0}
-        unchanged = {org_id: counts for org_id, counts in totals.items() if counts["changes"] == 0}
-
-        self.stdout.write(f"{len(divergent)} organizations resolve differently")
-        for org_id, counts in sorted(divergent.items(), key=lambda item: -item[1]["changes"]):
+    def _report(self, sweep: ResolutionSweep) -> None:
+        self.stdout.write(f"{len(sweep.divergent)} organizations resolve differently (left on the legacy resolution)")
+        for readiness in sweep.divergent:
             self.stdout.write(
-                f"{org_id}\t{names[org_id]}\tteams={counts['teams']}\t"
-                f"changes={counts['changes']}\tgains={counts['gains']}\tloses={counts['loses']}"
+                f"{readiness.id}\t{readiness.name}\tteams={readiness.teams}\t"
+                f"changes={readiness.changes}\tgains={readiness.gains}\tloses={readiness.loses}"
             )
 
         self.stdout.write("")
-        self.stdout.write(f"{len(unchanged)} organizations where nothing changes")
-        for org_id, counts in sorted(unchanged.items(), key=lambda item: str(item[0])):
-            self.stdout.write(f"{org_id}\t{names[org_id]}\tteams={counts['teams']}")
+        self.stdout.write(f"{len(sweep.unchanged)} organizations with rules where nothing changes")
+        for readiness in sweep.unchanged:
+            self.stdout.write(f"{readiness.id}\t{readiness.name}\tteams={readiness.teams}")
 
-        # Organizations with rules that yielded no evaluation: no active member to resolve as
-        unevaluated = dict(
-            Organization.objects.filter(teams__id__in=AccessControl.objects.values("team_id"))
-            .exclude(id__in=totals.keys())
-            .distinct()
-            .values_list("id", "name")
-        )
         self.stdout.write("")
-        self.stdout.write(f"{len(unevaluated)} organizations could not be evaluated (no active member)")
-        for org_id, name in sorted(unevaluated.items(), key=lambda item: str(item[0])):
-            self.stdout.write(f"{org_id}\t{name}")
+        self.stdout.write(
+            f"{len(sweep.unevaluated)} organizations could not be evaluated (no active member, left on the legacy resolution)"
+        )
+        for ref in sweep.unevaluated:
+            self.stdout.write(f"{ref.id}\t{ref.name}")
+
+        self.stdout.write("")
+        self.stdout.write(f"{len(sweep.without_rules)} organizations with no access rules")
+        self.stdout.write("")
