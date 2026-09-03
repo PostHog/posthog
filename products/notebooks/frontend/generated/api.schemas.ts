@@ -769,6 +769,21 @@ export const LifecycleStatusEnumApi = {
 } as const
 
 /**
+ * * `generating_source` - generating_source
+ * * `reviewing_source` - reviewing_source
+ * * `publishing_source` - publishing_source
+ * * `unknown` - unknown
+ */
+export type FailurePhaseEnumApi = (typeof FailurePhaseEnumApi)[keyof typeof FailurePhaseEnumApi]
+
+export const FailurePhaseEnumApi = {
+    GeneratingSource: 'generating_source',
+    ReviewingSource: 'reviewing_source',
+    PublishingSource: 'publishing_source',
+    Unknown: 'unknown',
+} as const
+
+/**
  * * `queued` - queued
  * * `generating` - generating
  * * `publishing` - publishing
@@ -887,6 +902,18 @@ export interface WidgetStatusApi {
      * @nullable
      */
     error_detail?: string | null
+    /**
+     * Stable failure code for support and diagnostics.
+     * @nullable
+     */
+    error_code?: string | null
+    /** Generation step that failed, if a generation job failed.
+     *
+     * * `generating_source` - generating_source
+     * * `reviewing_source` - reviewing_source
+     * * `publishing_source` - publishing_source
+     * * `unknown` - unknown */
+    failure_phase?: FailurePhaseEnumApi | null
     /**
      * Short-lived URL for the selected widget version's preview.
      * @nullable
