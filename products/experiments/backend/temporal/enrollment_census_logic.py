@@ -9,12 +9,14 @@ anywhere in this module is False to True, and teams a human touched are never mo
 """
 
 from django.conf import settings
+from django.db import IntegrityError, transaction
 from django.db.models import Count
 
 import structlog
 
 from posthog.clickhouse.client import sync_execute
 from posthog.dataclasses import frozen
+from posthog.models.team import Team
 
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -233,7 +235,16 @@ def enroll_candidates(report: EnrollmentCensusReport) -> list[int]:
     for candidate in report.candidates:
         if len(enrolled) >= MAX_ENROLLMENTS_PER_RUN:
             break
-        config, _ = TeamExperimentsConfig.objects.get_or_create(team_id=candidate.stats.team_id)
+        # query_log_archive outlives team deletion: a deleted team's scans still qualify it,
+        # and creating a config for it would raise and abort the rest of the wave.
+        if not Team.objects.filter(id=candidate.stats.team_id).exists():
+            logger.info("experiment_precompute_enrollment_skipped_deleted_team", team_id=candidate.stats.team_id)
+            continue
+        try:
+            with transaction.atomic():
+                config, _ = TeamExperimentsConfig.objects.get_or_create(team_id=candidate.stats.team_id)
+        except IntegrityError:
+            continue
         if config.experiment_precomputation_enabled:
             continue
         if config.precomputation_enabled_set_by == TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL:

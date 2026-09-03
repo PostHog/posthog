@@ -173,3 +173,13 @@ class TestEnrollmentWrites(BaseTest):
 
         enabled = TeamExperimentsConfig.objects.filter(team=team, experiment_precomputation_enabled=True).exists()
         assert enabled == expect_write
+
+    def test_deleted_team_is_skipped_and_later_candidates_still_enroll(self):
+        fresh = self._team()
+        deleted_team_stats = _stats(team_id=999_999_999, total_read_bytes=9 * 10**12)
+        fresh_stats = _stats(team_id=fresh.id, total_read_bytes=6 * 10**12)
+        report = build_census_report([deleted_team_stats, fresh_stats], window_days=14)
+
+        enrolled = enroll_candidates(report)
+
+        assert enrolled == [fresh.id]
