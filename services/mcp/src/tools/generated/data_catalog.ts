@@ -324,6 +324,24 @@ const dataCatalogMetricCreate = (): ToolBase<
     },
 })
 
+const DataCatalogMetricDeleteSchema = () => {
+    const DataCatalogMetricsDestroyParams = orvalSchemas.DataCatalogMetricsDestroyParams()
+    return DataCatalogMetricsDestroyParams.omit({ project_id: true })
+}
+
+const dataCatalogMetricDelete = (): ToolBase<ReturnType<typeof DataCatalogMetricDeleteSchema>, unknown> => ({
+    name: 'data-catalog-metric-delete',
+    schema: DataCatalogMetricDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogMetricDeleteSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/`,
+        })
+        return result
+    },
+})
+
 const DataCatalogMetricRunSchema = () => {
     const DataCatalogMetricsRunCreateBody = orvalSchemas.DataCatalogMetricsRunCreateBody()
     const DataCatalogMetricsRunCreateParams = orvalSchemas.DataCatalogMetricsRunCreateParams()
@@ -723,6 +741,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-catalog-metric-approve-prepare': dataCatalogMetricApprovePrepare,
     'data-catalog-metric-approve-execute': dataCatalogMetricApproveExecute,
     'data-catalog-metric-create': dataCatalogMetricCreate,
+    'data-catalog-metric-delete': dataCatalogMetricDelete,
     'data-catalog-metric-run': dataCatalogMetricRun,
     'data-catalog-metric-update': dataCatalogMetricUpdate,
     'data-catalog-metrics-refresh-from-insight-create': dataCatalogMetricsRefreshFromInsightCreate,

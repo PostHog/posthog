@@ -134,6 +134,22 @@ tools:
             - created_source
         inject_body:
             created_source: ai_generated
+    data-catalog-metric-delete:
+        operation: data_catalog_metrics_destroy
+        enabled: true
+        scopes:
+            - data_catalog:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a catalog metric
+        description: >
+            Delete a canonical metric by name. The metric leaves the catalog and its name becomes available again, so a
+            later metric can claim it, and anything that referenced the old name (saved SQL, run URLs, earlier tool
+            results) stops resolving. Deleting an approved metric throws away a human-vouched definition. Ask the user
+            before calling this, and prefer data-catalog-metric-update when the metric is merely wrong, stale, or badly
+            named - delete only when the metric should not exist at all.
     data-catalog-metric-run:
         operation: data_catalog_metrics_run_create
         enabled: true
@@ -180,9 +196,6 @@ tools:
         enabled: false
     data-catalog-metrics-bulk-delete-create:
         operation: data_catalog_metrics_bulk_delete_create
-        enabled: false
-    data-catalog-metrics-destroy:
-        operation: data_catalog_metrics_destroy
         enabled: false
     data-catalog-metrics-refresh-from-insight-create:
         operation: data_catalog_metrics_refresh_from_insight_create
