@@ -214,7 +214,7 @@ const SCENARIOS: Record<string, () => Omit<QuotaScenario, 'key'>> = {
             credits_settled: 168_000,
             credits_reserved: 0,
         }),
-        usageScanners: scaleScanners(88, 88),
+        usageScanners: scaleScanners(168_000 / 1850, 312_000 / 2100),
         dailySpend: rampSpend(168_000),
     }),
     'no-limit': () => ({

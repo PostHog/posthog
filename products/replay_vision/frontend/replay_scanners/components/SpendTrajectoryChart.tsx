@@ -115,13 +115,13 @@ function SpendTrajectoryChartInner({
         cumulative.push({ day: clamp(dayEnd, 0, todayDay), value: runningTotal })
     }
     // The card header reads `credits_used`, so today's point is that number and the ledger only gives the
-    // curve its shape. The series is fetched alongside the quota and can be a moment newer, so clamping
-    // every point keeps the line from ending below itself.
+    // curve its shape. The series is fetched alongside the quota and can be a moment newer, so only the
+    // tail is pulled down to it: clamping every point would draw days of zero spend that never happened.
     const spentTotal = quota.credits_used
-    for (const [i, point] of cumulative.entries()) {
-        cumulative[i] = { ...point, value: Math.min(point.value, spentTotal) }
-    }
     if (cumulative.length > 0) {
+        for (let i = cumulative.length - 1; i >= 0 && cumulative[i].value > spentTotal; i--) {
+            cumulative[i] = { ...cumulative[i], value: spentTotal }
+        }
         cumulative[cumulative.length - 1] = { ...cumulative[cumulative.length - 1], value: spentTotal }
     }
 
@@ -215,9 +215,13 @@ function SpendTrajectoryChartInner({
                 <svg
                     viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
                     preserveAspectRatio="none"
-                    className="block h-[210px] w-full"
+                    className="block h-[200px] w-full"
                     role="img"
-                    aria-label={`Cumulative spend this period: ${formatCreditCount(spentTotal)} so far, projected ${formatCreditCount(endValue)} by ${periodEnd.format('MMMM D')}${cap !== null ? `, limit ${formatCreditCount(cap)}` : ''}`}
+                    aria-label={
+                        crossing
+                            ? `Cumulative spend this period: ${formatCreditCount(spentTotal)} so far, projected to reach the ${formatCreditCount(cap ?? 0)} limit around ${crossingDate}`
+                            : `Cumulative spend this period: ${formatCreditCount(spentTotal)} so far, projected ${formatCreditCount(endValue)} by ${periodEnd.format('MMMM D')}${cap !== null ? `, limit ${formatCreditCount(cap)}` : ''}`
+                    }
                 >
                     {yTicks.map((v) => (
                         <line
@@ -232,7 +236,15 @@ function SpendTrajectoryChartInner({
                             opacity={0.6}
                         />
                     ))}
-                    <line x1={PAD_LEFT} y1={TOP - 14} x2={PAD_LEFT} y2={BASE} stroke="var(--border)" strokeWidth={1} />
+                    <line
+                        x1={PAD_LEFT}
+                        y1={TOP - 14}
+                        x2={PAD_LEFT}
+                        y2={BASE}
+                        stroke="var(--border)"
+                        vectorEffect="non-scaling-stroke"
+                        strokeWidth={1}
+                    />
                     {xTicks.map((day) => (
                         <line
                             key={day}
@@ -270,7 +282,15 @@ function SpendTrajectoryChartInner({
                             opacity={0.7}
                         />
                     )}
-                    <line x1={PAD_LEFT} y1={BASE} x2={WIDTH - PAD_X} y2={BASE} stroke="var(--border)" strokeWidth={1} />
+                    <line
+                        x1={PAD_LEFT}
+                        y1={BASE}
+                        x2={WIDTH - PAD_X}
+                        y2={BASE}
+                        stroke="var(--border)"
+                        vectorEffect="non-scaling-stroke"
+                        strokeWidth={1}
+                    />
                     {drawSpentLine && (
                         <>
                             <polygon
