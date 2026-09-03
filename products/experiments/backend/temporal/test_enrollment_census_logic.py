@@ -134,7 +134,7 @@ class TestEnrollmentWrites(BaseTest):
             assert not TeamExperimentsConfig.objects.filter(team=team, experiment_precomputation_enabled=True).exists()
 
     def test_never_overrides_a_human_and_skips_enabled_without_burning_cap(self):
-        manually_disabled, already_enabled, fresh = self._team(), self._team(), self._team()
+        manually_disabled, already_enabled = self._team(), self._team()
         TeamExperimentsConfig.objects.update_or_create(
             team=manually_disabled,
             defaults={
@@ -149,11 +149,14 @@ class TestEnrollmentWrites(BaseTest):
                 "precomputation_enabled_set_by": TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL,
             },
         )
-        report = self._report_for([manually_disabled, already_enabled, fresh])
+        # More fresh teams than cap slots: if the two skipped teams burned slots,
+        # fewer than a full capful would enroll.
+        fresh_teams = [self._team() for _ in range(MAX_ENROLLMENTS_PER_RUN)]
+        report = self._report_for([manually_disabled, already_enabled, *fresh_teams])
 
         enrolled = enroll_candidates(report)
 
-        assert enrolled == [fresh.id]
+        assert enrolled == [team.id for team in fresh_teams]
         config = TeamExperimentsConfig.objects.get(team=manually_disabled)
         assert not config.experiment_precomputation_enabled
         assert config.precomputation_enabled_set_by == TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
