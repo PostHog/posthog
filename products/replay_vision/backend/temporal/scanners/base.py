@@ -132,6 +132,12 @@ class BaseScannerOutput(BaseModel, frozen=True):
         """Flatten with `scanner_output_*` keys for the event; `scanner_type` is excluded (already a top-level property via the snapshot)."""
         return {f"scanner_output_{k}": v for k, v in self.model_dump(mode="json", exclude={"scanner_type"}).items()}
 
+    def embedding_document(self) -> tuple[str, str] | None:
+        """The `(rendering, text)` embedded for semantic search, or None when there is nothing to embed.
+        Most scanner types explain themselves in `reasoning`; the summarizer overrides this."""
+        reasoning = getattr(self, "reasoning", "")
+        return ("reasoning", reasoning) if reasoning and reasoning.strip() else None
+
 
 class BaseScanner(BaseModel, frozen=True):
     """Common shape for every concrete scanner; subclasses bind `scanner_type`, `core_step_template`, and `llm_response_schema`.

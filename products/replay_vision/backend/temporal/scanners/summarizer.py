@@ -46,6 +46,10 @@ class SummarizerOutput(BaseScannerOutput, frozen=True):
     summary: str = ""
     summary_segments: list[Segment] = Field(default_factory=list)
 
+    def embedding_document(self) -> tuple[str, str] | None:
+        text = summary_embedding_text(self)
+        return ("summary", text) if text else None
+
 
 def summary_embedding_text(output: SummarizerOutput) -> str:
     """The single document embedded for search: title and body together, so a query can match either."""

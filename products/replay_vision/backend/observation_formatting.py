@@ -34,16 +34,23 @@ def describe_output(output: dict[str, Any]) -> str | None:
     return None
 
 
+def explanation_text(output: dict[str, Any]) -> str:
+    """The free text a scanner wrote about the session: monitors, scorers and classifiers reason, summarizers
+    summarize. Event-id citations are for the UI, so they are stripped here."""
+    explanation = output.get("reasoning") or output.get("summary")
+    if not isinstance(explanation, str):
+        return ""
+    return re.sub(r"\s+", " ", EVENT_ID_CITATION_RE.sub("", explanation)).strip()
+
+
 def format_line(obs: "ReplayObservation", output: dict[str, Any], *, show_scanner: bool) -> str:
     descriptor = describe_output(output)
-    explanation = output.get("reasoning") or output.get("summary")
-    if not isinstance(explanation, str) or not explanation.strip():
-        fallback = output.get("intent") or output.get("outcome")
-        explanation = fallback if isinstance(fallback, str) else ""
-    clean = re.sub(r"\s+", " ", EVENT_ID_CITATION_RE.sub("", explanation)).strip()[:SEARCH_SNIPPET_LIMIT]
+    clean = explanation_text(output)[:SEARCH_SNIPPET_LIMIT]
 
     prefix = f"{obs.created_at:%Y-%m-%d}"
     session = str(obs.session_id)
-    scanner_part = f" {obs.scanner.name}" if show_scanner and obs.scanner else ""
+    # `scanner_name` is annotated by the search hydration so no scanner row is joined; fall back to the relation.
+    scanner_name = getattr(obs, "scanner_name", None) or (obs.scanner.name if show_scanner and obs.scanner else "")
+    scanner_part = f" {scanner_name}" if show_scanner and scanner_name else ""
     descriptor_part = f" [{descriptor}]" if descriptor else ""
     return f"- (session {session}, {prefix}){scanner_part}{descriptor_part} {clean}".rstrip()

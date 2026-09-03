@@ -13,13 +13,14 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.core.cache import cache
+from django.db.models import F
 
 from asgiref.sync import sync_to_async
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.embedding_worker import async_generate_embedding, generate_embedding
+from posthog.api.embedding_worker import generate_embedding
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team import Team
@@ -101,11 +102,13 @@ class ObservationSearchFilters:
         tags: list[str] | None,
         min_score: float | None,
         max_score: float | None,
-        date_from: datetime | None = None,
-        date_to: datetime | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        timezone_info: ZoneInfo | None = None,
     ) -> "ObservationSearchFilters":
         """Normalize caller-supplied values: tags slugified to match the stored side, verdicts lowercased so
-        a casing slip doesn't silently match nothing. Both are order-preserving deduped."""
+        a casing slip doesn't silently match nothing. Both are order-preserving deduped. Date bounds parse
+        like the observation list's, in the project's timezone."""
         normalized_tags = list(dict.fromkeys(s for t in (tags or []) if (s := slugify_tag(t)))) or None
         normalized_verdict = list(dict.fromkeys(v.strip().lower() for v in (verdict or []) if v.strip())) or None
         return cls(
@@ -113,8 +116,8 @@ class ObservationSearchFilters:
             tags=normalized_tags,
             min_score=min_score,
             max_score=max_score,
-            date_from=date_from,
-            date_to=date_to,
+            date_from=parse_date_bound(date_from, timezone_info, end_of_range=False) if date_from else None,
+            date_to=parse_date_bound(date_to, timezone_info, end_of_range=True) if date_to else None,
         )
 
     def where_clauses(self, placeholders: dict[str, "ast.Expr"]) -> list[str]:
@@ -181,7 +184,7 @@ def rank_observations(
     """Closest observations by cosine distance, restricted to the given scanners and to the structured
     outcome filters via the embedding metadata, so filter and rank happen in a single query.
 
-    Rows farther than `MAX_MATCH_DISTANCE` are dropped, so an off-topic query returns nothing.
+    Rows farther than `MAX_MATCH_DISTANCE` are dropped before aggregation, so an off-topic query returns nothing.
 
     `min(...)` collapses an observation's multiple renderings to its single best-matching distance, so each
     observation appears once. Only rows written before summarizers embedded one document per observation
@@ -206,7 +209,8 @@ def rank_observations(
     }
     filter_clause = "".join(f"\n                  AND {clause}" for clause in filters.where_clauses(placeholders))
     # The distance layer wraps the capped candidate subquery so the 3072-dim dot product runs once per
-    # candidate row (min and argMin share the alias) and never on rows the cap already discarded.
+    # candidate row (min and argMin share the alias) and never on rows the cap already discarded. The ceiling
+    # sits on that layer too, so the aggregate only ever sees rows that are matches.
     hogql_query = f"""
         SELECT
             document_id,
@@ -225,9 +229,9 @@ def rank_observations(
                 ORDER BY timestamp DESC
                 LIMIT {{candidate_cap}}
             )
+            WHERE cosineDistance(embedding, {{embedding}}) <= {{max_distance}}
         )
         GROUP BY document_id
-        HAVING distance <= {{max_distance}}
         ORDER BY distance ASC
         LIMIT {{limit}}
     """
@@ -257,15 +261,18 @@ def fetch_ranked_observations(
         status=ObservationStatus.SUCCEEDED,
         id__in=ordered_ids,
     )
-    rows = hydrate_for_serialization(accessible_observations(access, team_id, rows)).select_related("scanner")
+    # `scanner_name` feeds the Max tool's line format without joining the scanner row's config blobs.
+    rows = hydrate_for_serialization(accessible_observations(access, team_id, rows)).annotate(
+        scanner_name=F("scanner__name")
+    )
     observations = {str(obs.id): obs for obs in rows}
     return [obs for observation_id in ordered_ids if (obs := observations.get(observation_id)) is not None]
 
 
-def parse_search_date(value: str, timezone_info: ZoneInfo, *, end_of_range: bool) -> datetime:
-    """Parse a caller-supplied bound the same way the observation list does: ISO 8601 or relative (`-7d`),
-    naive values in the project's timezone. A date-only upper bound covers its whole day."""
-    parsed = relative_date_parse(value, timezone_info)
+def parse_date_bound(value: str, timezone_info: ZoneInfo | None, *, end_of_range: bool) -> datetime:
+    """Parse a caller-supplied date bound: ISO 8601 or relative (`-7d`), naive values in the project's
+    timezone. A date-only upper bound covers its whole day. Shared by the observation list and search."""
+    parsed = relative_date_parse(value, timezone_info or ZoneInfo("UTC"))
     if end_of_range and not value.startswith(("-", "+")) and "T" not in value and ":" not in value:
         parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
     return parsed
@@ -299,8 +306,6 @@ def search_observations(
 ) -> ObservationSearchResponse:
     """Rank, hydrate, and slice: the one path both the HTTP endpoint and the Max tool call once they have
     resolved their scanner scope and query vector."""
-    if not scanner_ids:
-        return ObservationSearchResponse(results=[], truncated=False)
     rank_limit = limit * RANK_OVERFETCH_FACTOR
     matches = rank_observations(team, user, scanner_ids, query_vector, rank_limit, filters)
     match_by_id = {match.observation_id: match for match in matches}
@@ -335,12 +340,5 @@ def query_vector_for(team: Team, text: str) -> list[float]:
     return vector
 
 
-async def async_query_vector_for(team: Team, text: str) -> list[float]:
-    """Async twin of `query_vector_for` for callers already on the event loop."""
-    key = _query_vector_cache_key(text)
-    cached = await sync_to_async(cache.get, thread_sensitive=False)(key)
-    if cached is not None:
-        return cached
-    response = await async_generate_embedding(team, text, model=OBSERVATION_EMBEDDING_MODEL.value)
-    await sync_to_async(cache.set, thread_sensitive=False)(key, response.embedding, timeout=_QUERY_VECTOR_CACHE_TTL_S)
-    return response.embedding
+# The Max tool awaits this so the event loop stays free during the embedding round trip.
+async_query_vector_for = sync_to_async(query_vector_for, thread_sensitive=False)

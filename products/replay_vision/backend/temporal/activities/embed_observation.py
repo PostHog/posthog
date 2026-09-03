@@ -33,18 +33,14 @@ from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
-from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput, summary_embedding_text
 from products.replay_vision.backend.temporal.types import AnyScannerOutput, EmbedObservationInputs
 
 logger = structlog.get_logger(__name__)
 
 
 def _renderings_for(model_output: AnyScannerOutput) -> list[tuple[str, str]]:
-    """Map a scanner output to the `(rendering, content)` pair to embed."""
-    if isinstance(model_output, SummarizerOutput):
-        return [("summary", summary_embedding_text(model_output))]
-    # monitor / classifier / scorer all carry a free-text `reasoning` field.
-    return [("reasoning", model_output.reasoning)]
+    document = model_output.embedding_document()
+    return [document] if document else []
 
 
 def _result_metadata(model_output: AnyScannerOutput) -> dict[str, Any]:

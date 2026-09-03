@@ -6,6 +6,8 @@ import { IconSearch } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ObservationResultSummary } from '../components/ObservationCard'
@@ -41,7 +43,7 @@ function suggestionDescription(crossScanner: boolean, fromObservations: boolean)
     if (fromObservations) {
         return `Themes from what ${subject} observed recently.`
     }
-    return `Examples to get started. Themes from what ${subject} observed appear after a few more sessions are analyzed.`
+    return `Examples to get started. Themes from what ${subject} observed will appear here once more sessions are analyzed.`
 }
 
 function QuerySection({
@@ -144,7 +146,9 @@ function SearchResultCard({
 }
 
 export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | null }): JSX.Element {
-    const logic = observationSearchLogic({ scannerId: scanner?.id ?? null })
+    const { currentTeamId } = useValues(teamLogic)
+    const { dataProcessingApprovalDisabledReason } = useValues(aiConsentLogic)
+    const logic = observationSearchLogic({ scannerId: scanner?.id ?? null, teamId: currentTeamId })
     const {
         query,
         results,
@@ -173,7 +177,7 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                     placeholder="Describe what to look for"
                     value={query}
                     onChange={setQuery}
-                    onPressEnter={() => !searching && search()}
+                    onPressEnter={() => !searching && !dataProcessingApprovalDisabledReason && search()}
                     autoFocus
                     data-attr="vision-search-query"
                 />
@@ -181,7 +185,10 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                     type="primary"
                     onClick={() => search()}
                     loading={searching}
-                    disabledReason={!query.trim() ? 'Describe what to look for first' : undefined}
+                    disabledReason={
+                        dataProcessingApprovalDisabledReason ??
+                        (!query.trim() ? 'Describe what to look for first' : undefined)
+                    }
                     data-attr="vision-search-submit"
                 >
                     Search

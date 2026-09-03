@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
@@ -150,10 +151,28 @@ class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
             [scanner_id],
             embedding,
             10,
-            ObservationSearchFilters.from_raw(verdict=["yes"], tags=["abandoned cart"], min_score=1.0, max_score=3.0),
+            ObservationSearchFilters.from_raw(
+                verdict=["yes"],
+                tags=["abandoned cart"],
+                min_score=1.0,
+                max_score=3.0,
+                date_from=(now - timedelta(minutes=1)).isoformat(),
+                date_to=(now + timedelta(minutes=1)).isoformat(),
+            ),
         )
 
         self.assertEqual([m.observation_id for m in matches], [kept])
+
+        # The same rows fall outside a window that ends before they were embedded.
+        stale = rank_observations(
+            self.team,
+            self.user,
+            [scanner_id],
+            embedding,
+            10,
+            ObservationSearchFilters.from_raw(None, None, None, None, date_to=(now - timedelta(minutes=1)).isoformat()),
+        )
+        self.assertEqual(stale, [])
 
 
 class TestFetchRankedObservations(APIBaseTest):

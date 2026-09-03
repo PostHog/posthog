@@ -20,13 +20,14 @@ from products.replay_vision.backend.search_suggestions import (
     _build_user_content,
     _finalize,
     _LlmQueries,
+    merge_suggestions,
+    model_calls_today,
     refresh_scanner_suggestions,
+    scope_sources,
     stale_suggestion_candidates,
     stamp_search_viewed,
-    suggestions_for_scope,
 )
 from products.replay_vision.backend.temporal.activities.refresh_search_suggestions import (
-    calls_made_today,
     list_stale_search_suggestions_activity,
     refresh_scanner_search_suggestions_activity,
 )
@@ -81,14 +82,13 @@ class _SuggestionsTestCase(_VisionAPITestCase):
 
 
 class TestRefreshAndCandidates(_SuggestionsTestCase):
-    def test_candidates_need_a_recent_view_consent_and_enough_new_observations(self) -> None:
+    def test_candidates_need_a_recent_view_consent_and_a_new_observation(self) -> None:
         now = timezone.now()
         due = self._scanner("due", search_last_viewed_at=now)
         self._seed(due, MIN_NEW_OBSERVATIONS_FOR_REFRESH)
         unviewed = self._scanner("unviewed", search_last_viewed_at=now - VIEWED_WITHIN - dt.timedelta(days=1))
         self._seed(unviewed, MIN_NEW_OBSERVATIONS_FOR_REFRESH)
-        quiet = self._scanner("quiet", search_last_viewed_at=now)
-        self._seed(quiet, MIN_NEW_OBSERVATIONS_FOR_REFRESH - 1)
+        self._scanner("quiet", search_last_viewed_at=now)
         fresh = self._scanner("fresh", search_last_viewed_at=now, search_suggestions_generated_at=now)
         self._seed(fresh, MIN_NEW_OBSERVATIONS_FOR_REFRESH)
         # Refreshed a while ago, but nothing landed since its watermark.
@@ -111,7 +111,8 @@ class TestRefreshAndCandidates(_SuggestionsTestCase):
         scanner = self._scanner("checkout")
         self._seed(scanner, MIN_NEW_OBSERVATIONS_FOR_REFRESH)
         mock_generate.return_value = _LlmQueries(queries=["Coupon rejected at checkout"])
-        self.assertEqual(refresh_scanner_suggestions(scanner), ["coupon rejected at checkout"])
+        self.assertTrue(refresh_scanner_suggestions(scanner))
+        self.assertEqual(model_calls_today(), 1)
         scanner.refresh_from_db()
         newest = ReplayObservation.objects.filter(scanner=scanner).order_by("-created_at").first()
         assert newest is not None
@@ -125,6 +126,27 @@ class TestRefreshAndCandidates(_SuggestionsTestCase):
         scanner.refresh_from_db()
         self.assertEqual(scanner.search_suggestions, ["coupon rejected at checkout"])
 
+    @patch(_GENERATE_PATH)
+    def test_too_few_new_observations_skip_the_model_but_still_back_off(self, mock_generate: MagicMock) -> None:
+        now = timezone.now()
+        scanner = self._scanner(
+            "checkout",
+            search_last_viewed_at=now,
+            search_suggestions=["old phrase"],
+            search_suggestions_watermark=now - dt.timedelta(hours=1),
+        )
+        # Plenty before the watermark, too few after it.
+        self._seed(scanner, MIN_NEW_OBSERVATIONS_FOR_REFRESH, created_at=now - dt.timedelta(days=1))
+        self._seed(scanner, 1)
+        self.assertEqual([s.name for s in stale_suggestion_candidates(10)], ["checkout"])
+        self.assertFalse(refresh_scanner_suggestions(scanner))
+        mock_generate.assert_not_called()
+        self.assertEqual(model_calls_today(), 0)
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.search_suggestions, ["old phrase"])
+        # Stamped, so it is not re-picked at the head of every hourly run.
+        self.assertEqual(list(stale_suggestion_candidates(10)), [])
+
     @patch(_GENERATE_PATH, side_effect=SuggestionError("model down"))
     def test_activity_keeps_old_phrases_and_backs_off_on_model_failure(self, _mock: MagicMock) -> None:
         scanner = self._scanner("checkout", search_suggestions=["old phrase"], search_last_viewed_at=timezone.now())
@@ -136,7 +158,7 @@ class TestRefreshAndCandidates(_SuggestionsTestCase):
         scanner.refresh_from_db()
         self.assertEqual(scanner.search_suggestions, ["old phrase"])
         self.assertIsNotNone(scanner.search_suggestions_generated_at)
-        self.assertEqual(calls_made_today(), 1)
+        self.assertEqual(model_calls_today(), 1)
         self.assertEqual(list(stale_suggestion_candidates(10)), [])
 
     def test_listing_stops_at_the_daily_budget(self) -> None:
@@ -144,7 +166,7 @@ class TestRefreshAndCandidates(_SuggestionsTestCase):
         self._seed(scanner, MIN_NEW_OBSERVATIONS_FOR_REFRESH)
         self.assertEqual([e.scanner_id for e in list_stale_search_suggestions_activity()], [scanner.id])
         with patch(
-            "products.replay_vision.backend.temporal.activities.refresh_search_suggestions.calls_made_today",
+            "products.replay_vision.backend.temporal.activities.refresh_search_suggestions.model_calls_today",
             return_value=SEARCH_SUGGESTIONS_MAX_PER_DAY,
         ):
             self.assertEqual(list_stale_search_suggestions_activity(), [])
@@ -157,8 +179,12 @@ class TestReadingSuggestions(_SuggestionsTestCase):
         older = self._scanner("older", search_suggestions=["b", "d"], last_swept_at=now - dt.timedelta(days=1))
         empty = self._scanner("empty", last_swept_at=now + dt.timedelta(hours=1))
         ids = [str(s.id) for s in (newer, older, empty)]
-        self.assertEqual(suggestions_for_scope(self.team.id, ids), ["a", "b", "d"])
-        self.assertEqual(suggestions_for_scope(self.team.id, [str(older.id)]), ["b", "d"])
+        sources = scope_sources(self.team.id, ids)
+        # The empty scanner is a source too, so a view stamps it and it becomes eligible to refresh.
+        self.assertEqual([scanner_id for scanner_id, _ in sources], [str(empty.id), str(newer.id), str(older.id)])
+        self.assertEqual(merge_suggestions([stored for _, stored in sources]), ["a", "b", "d"])
+        single = scope_sources(self.team.id, [str(older.id)])
+        self.assertEqual(merge_suggestions([stored for _, stored in single]), ["b", "d"])
 
     def test_view_stamp_writes_once_per_window(self) -> None:
         scanner = self._scanner("checkout")

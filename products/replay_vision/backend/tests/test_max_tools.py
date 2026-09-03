@@ -100,6 +100,21 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
         # Query vectors are cached by text, so a mocked embedding must not leak between tests.
         cache.clear()
 
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_consent_off_short_circuits_before_any_cached_vector_is_used(self):
+        scanner = await self._scanner()
+        with (
+            patch("products.replay_vision.backend.max_tools.is_ai_data_processing_approved", return_value=False),
+            patch(_GENERATE_EMBEDDING_PATH, new_callable=AsyncMock) as mock_embed,
+            patch(_EXECUTE_HOGQL_PATH) as mock_execute,
+        ):
+            content, artifact = await self._tool()._arun_impl(query="anything", scanner_id=str(scanner.id))
+        assert artifact["error"] == "ai_consent_required"
+        assert "AI data processing" in content
+        mock_embed.assert_not_called()
+        mock_execute.assert_not_called()
+
     def _tool(self, context: dict | None = None) -> SearchReplayVisionObservationsTool:
         configurable: dict = {"team": self.team, "user": self.user}
         if context is not None:

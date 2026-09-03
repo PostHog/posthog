@@ -16,5 +16,5 @@ class RefreshSearchSuggestionsInputs(BaseModel, frozen=True):
 
 class RefreshSearchSuggestionsResult(BaseModel, frozen=True):
     refreshed: list[UUID] = []
+    skipped: list[UUID] = []
     failed: list[UUID] = []
-    budget_exhausted: bool = False

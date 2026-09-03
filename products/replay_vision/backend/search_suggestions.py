@@ -8,11 +8,12 @@ size. The endpoint only reads the stored phrases and records the view.
 """
 
 import uuid
+import hashlib
 import datetime as dt
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Count, F, Q, QuerySet
+from django.db.models import Exists, F, OuterRef, Q, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -21,9 +22,11 @@ from google.genai.types import GenerateContentConfig
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
+from posthog.utils import safe_cache_add
+
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
-from products.replay_vision.backend.observation_formatting import read_output
+from products.replay_vision.backend.observation_formatting import explanation_text, read_output
 
 from ee.hogai.utils.untrusted import neutralize_markup
 
@@ -42,8 +45,10 @@ _SAMPLE_CHARS = 280
 VIEWED_WITHIN = dt.timedelta(days=14)
 # Refresh no more often than this even for a busy, watched scanner.
 REFRESH_INTERVAL = dt.timedelta(hours=6)
-# The view stamp is one Postgres write per scanner per this window, whatever the page traffic.
+# The view stamp is one Postgres write per scope per this window, whatever the page traffic.
 _VIEW_STAMP_THROTTLE = dt.timedelta(hours=1)
+# Daily model-call counter across every refresh run, the backstop against a bug that makes every scanner look stale.
+_BUDGET_TTL_S = 2 * 24 * 3600
 # Cross-scanner search merges phrases from this many of the team's most recently active scanners.
 CROSS_SCANNER_SOURCES = 10
 _PER_SCANNER_IN_MERGE = 2
@@ -76,62 +81,54 @@ would describe what they are looking for (e.g. "coupon rejected at checkout", "g
 # ---- reading ----
 
 
-def suggestions_for_scope(team_id: int, scanner_ids: list[str]) -> list[str]:
-    """Stored phrases for one scanner, or a merge across the most recently active scanners in the scope."""
+def scope_sources(team_id: int, scanner_ids: list[str]) -> list[tuple[str, list[str]]]:
+    """The scanners a view of this scope draws from, with their stored phrases: one scanner, or the most
+    recently swept few of a cross-scanner scope. The same rows decide what is shown and what gets stamped as
+    viewed, so a scanner with nothing stored yet still becomes eligible to refresh."""
     if not scanner_ids:
         return []
-    rows = ReplayScanner.objects.filter(team_id=team_id, id__in=scanner_ids).exclude(search_suggestions=[])
-    if len(scanner_ids) == 1:
-        stored = rows.values_list("search_suggestions", flat=True).first()
-        return list(stored or [])[:MAX_SUGGESTED_QUERIES]
+    rows = ReplayScanner.objects.filter(team_id=team_id, id__in=scanner_ids)
+    if len(scanner_ids) > 1:
+        rows = rows.order_by(F("last_swept_at").desc(nulls_last=True))[:CROSS_SCANNER_SOURCES]
+    return [
+        (str(scanner_id), list(stored or [])) for scanner_id, stored in rows.values_list("id", "search_suggestions")
+    ]
+
+
+def merge_suggestions(stored_lists: list[list[str]]) -> list[str]:
+    """A single scanner shows its own phrases; a cross-scanner scope takes a couple from each source."""
+    if len(stored_lists) == 1:
+        return stored_lists[0][:MAX_SUGGESTED_QUERIES]
     merged: list[str] = []
     seen: set[str] = set()
-    for stored in rows.order_by(F("last_swept_at").desc(nulls_last=True)).values_list("search_suggestions", flat=True)[
-        :CROSS_SCANNER_SOURCES
-    ]:
-        for query in list(stored or [])[:_PER_SCANNER_IN_MERGE]:
+    for stored in stored_lists:
+        for query in stored[:_PER_SCANNER_IN_MERGE]:
             if query not in seen:
                 seen.add(query)
                 merged.append(query)
     return merged[:MAX_SUGGESTED_QUERIES]
 
 
-def scanners_feeding_scope(team_id: int, scanner_ids: list[str]) -> list[str]:
-    """The scanners whose phrases a view of this scope shows, so a view stamps only those."""
-    if len(scanner_ids) <= 1:
-        return scanner_ids
-    rows = (
-        ReplayScanner.objects.filter(team_id=team_id, id__in=scanner_ids)
-        .order_by(F("last_swept_at").desc(nulls_last=True))
-        .values_list("id", flat=True)[:CROSS_SCANNER_SOURCES]
-    )
-    return [str(scanner_id) for scanner_id in rows]
-
-
 def stamp_search_viewed(team_id: int, scanner_ids: list[str]) -> None:
-    """Record that someone looked at these scanners' suggestions, at most once per throttle window each."""
-    now = timezone.now()
-    due = [
-        scanner_id
-        for scanner_id in scanner_ids
-        if cache.add(
-            f"replay_vision:search_viewed:{team_id}:{scanner_id}", 1, timeout=int(_VIEW_STAMP_THROTTLE.total_seconds())
-        )
-    ]
-    if due:
-        ReplayScanner.objects.filter(team_id=team_id, id__in=due).update(search_last_viewed_at=now)
+    """Record that someone looked at these scanners' suggestions, at most once per throttle window per scope."""
+    if not scanner_ids:
+        return
+    scope = hashlib.sha256(",".join(sorted(scanner_ids)).encode("utf-8")).hexdigest()[:16]
+    if safe_cache_add(f"replay_vision:search_viewed:{team_id}:{scope}", 1, int(_VIEW_STAMP_THROTTLE.total_seconds())):
+        ReplayScanner.objects.filter(team_id=team_id, id__in=scanner_ids).update(search_last_viewed_at=timezone.now())
 
 
 # ---- refreshing ----
 
 
 def stale_suggestion_candidates(limit: int) -> QuerySet[ReplayScanner]:
-    """Scanners worth a model call: viewed recently, AI processing on, past the refresh interval, and holding
-    enough new observations since their watermark. Most recently viewed first."""
+    """Scanners worth a look this run: viewed recently, AI processing on, past the refresh interval, and holding
+    at least one observation newer than their watermark. Most recently viewed first. Whether there are enough
+    new observations to spend a model call on is decided per scanner in `refresh_scanner_suggestions`."""
     now = timezone.now()
-    new_observation = Q(observations__status=ObservationStatus.SUCCEEDED) & (
-        Q(search_suggestions_watermark__isnull=True) | Q(observations__created_at__gt=F("search_suggestions_watermark"))
-    )
+    newer_observation = ReplayObservation.objects.filter(
+        scanner_id=OuterRef("pk"), status=ObservationStatus.SUCCEEDED
+    ).filter(Q(created_at__gt=OuterRef("search_suggestions_watermark")) | Q(search_suggestions_watermark__isnull=True))
     return (
         ReplayScanner.objects.filter(
             search_last_viewed_at__gte=now - VIEWED_WITHIN,
@@ -141,46 +138,61 @@ def stale_suggestion_candidates(limit: int) -> QuerySet[ReplayScanner]:
             Q(search_suggestions_generated_at__isnull=True)
             | Q(search_suggestions_generated_at__lt=now - REFRESH_INTERVAL)
         )
-        .annotate(new_observations=Count("observations", filter=new_observation))
-        .filter(new_observations__gte=MIN_NEW_OBSERVATIONS_FOR_REFRESH)
+        .filter(Exists(newer_observation))
         .order_by("-search_last_viewed_at")[:limit]
     )
 
 
-def refresh_scanner_suggestions(scanner: ReplayScanner) -> list[str]:
-    """Generate and store phrases for one scanner from its most recent observations. Raises `SuggestionError`
-    when the model gave nothing usable; the stored phrases then stay as they were."""
+def _budget_key() -> str:
+    return f"replay_vision:search_suggestions:budget:{timezone.now():%Y-%m-%d}"
+
+
+def model_calls_today() -> int:
+    return int(cache.get(_budget_key()) or 0)
+
+
+def _count_model_call() -> None:
+    key = _budget_key()
+    try:
+        cache.incr(key)
+    except ValueError:
+        # First call of the day, or the key expired between checks: start the counter rather than fail the refresh.
+        cache.set(key, 1, timeout=_BUDGET_TTL_S)
+
+
+def refresh_scanner_suggestions(scanner: ReplayScanner) -> bool:
+    """Regenerate one scanner's phrases from the observations newer than its watermark. Returns False without a
+    model call when too few landed; either way the scanner is stamped so it waits a full interval before the
+    next look. Raises `SuggestionError` when the model gave nothing usable; the stored phrases then stay."""
     samples, watermark = _recent_observation_samples(scanner)
     if len(samples) < MIN_NEW_OBSERVATIONS_FOR_REFRESH:
-        return list(scanner.search_suggestions or [])
+        ReplayScanner.objects.filter(pk=scanner.pk).update(search_suggestions_generated_at=timezone.now())
+        return False
+    _count_model_call()
     parsed = _generate(
         user_content=_build_user_content(samples), team_id=scanner.team_id, distinct_id=f"scanner:{scanner.id}"
     )
-    queries = _finalize(parsed)
     ReplayScanner.objects.filter(pk=scanner.pk).update(
-        search_suggestions=queries,
+        search_suggestions=_finalize(parsed),
         search_suggestions_watermark=watermark,
         search_suggestions_generated_at=timezone.now(),
     )
-    return queries
+    return True
 
 
 def _observation_text(obs: ReplayObservation) -> str:
     output = read_output(obs)
-    if output is None:
-        return ""
-    text = output.get("summary") or output.get("reasoning") or ""
-    return " ".join(str(text).split())[:_SAMPLE_CHARS]
+    return explanation_text(output)[:_SAMPLE_CHARS] if output is not None else ""
 
 
 def _recent_observation_samples(scanner: ReplayScanner) -> tuple[list[str], dt.datetime | None]:
-    rows = list(
-        ReplayObservation.objects.filter(scanner_id=scanner.id, status=ObservationStatus.SUCCEEDED)
-        .order_by("-created_at")
-        .only("scanner_result", "created_at")[:_MAX_SAMPLES]
-    )
-    samples = [text for obs in rows if (text := _observation_text(obs))]
-    return samples, rows[0].created_at if rows else None
+    """Text of the newest observations since the watermark, and the created_at the next watermark moves to."""
+    rows = ReplayObservation.objects.filter(scanner_id=scanner.id, status=ObservationStatus.SUCCEEDED)
+    if scanner.search_suggestions_watermark is not None:
+        rows = rows.filter(created_at__gt=scanner.search_suggestions_watermark)
+    newest = list(rows.order_by("-created_at").only("scanner_result", "created_at")[:_MAX_SAMPLES])
+    samples = [text for obs in newest if (text := _observation_text(obs))]
+    return samples, newest[0].created_at if newest else None
 
 
 def _build_user_content(samples: list[str]) -> str:

@@ -53,8 +53,8 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
+from products.replay_vision.backend.temporal.scanners.base import BaseScannerOutput
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
-from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput, summary_embedding_text
 from products.replay_vision.backend.temporal.types import (
     OBSERVATION_PHASE_INDEX,
     OBSERVATION_PHASE_ORDER,
@@ -151,11 +151,7 @@ _SIDE_EFFECT_RETRY = common.RetryPolicy(
 
 
 def _has_embeddable_text(model_output: object) -> bool:
-    """Whether an observation carries text worth embedding — a summary, or a `reasoning` paragraph."""
-    if isinstance(model_output, SummarizerOutput):
-        return bool(summary_embedding_text(model_output))
-    reasoning = getattr(model_output, "reasoning", "")
-    return bool(reasoning and reasoning.strip())
+    return isinstance(model_output, BaseScannerOutput) and model_output.embedding_document() is not None
 
 
 # Provider-facing activities whose Temporal timeout means "provider slow", not a PostHog bug.

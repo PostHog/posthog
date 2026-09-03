@@ -52,7 +52,6 @@ from products.replay_vision.backend.search import (
     MAX_SEARCH_LIMIT,
     ObservationSearchFilters,
     async_query_vector_for,
-    parse_search_date,
     search_observations,
 )
 from products.replay_vision.backend.tag_suggestions import suggest_classifier_tags
@@ -412,14 +411,8 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
         if not query or not query.strip():
             return "No search query provided. Please describe what to look for.", {"error": "empty_query"}
 
-        timezone_info = self._team.timezone_info
         filters = ObservationSearchFilters.from_raw(
-            verdict,
-            tags,
-            min_score,
-            max_score,
-            date_from=parse_search_date(date_from, timezone_info, end_of_range=False) if date_from else None,
-            date_to=parse_search_date(date_to, timezone_info, end_of_range=True) if date_to else None,
+            verdict, tags, min_score, max_score, date_from, date_to, timezone_info=self._team.timezone_info
         )
         try:
             return await self._search(str(resolved_id) if resolved_id else None, query.strip(), filters, limit)

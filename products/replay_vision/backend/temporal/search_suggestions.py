@@ -13,7 +13,6 @@ from products.replay_vision.backend.temporal.constants import (
     REFRESH_SEARCH_SUGGESTIONS_TIMEOUT,
     SEARCH_SUGGESTIONS_CONCURRENCY,
     SEARCH_SUGGESTIONS_EXECUTION_TIMEOUT,
-    SEARCH_SUGGESTIONS_MAX_PER_RUN,
     SEARCH_SUGGESTIONS_REFRESH_INTERVAL,
     SEARCH_SUGGESTIONS_SCHEDULE_ID,
     SEARCH_SUGGESTIONS_WORKFLOW_ID,
@@ -66,9 +65,8 @@ class RefreshSearchSuggestionsWorkflow(PostHogWorkflow):
         outcomes = await asyncio.gather(*(refresh(entry) for entry in stale), return_exceptions=True)
         result = RefreshSearchSuggestionsResult(
             refreshed=[e.scanner_id for e, ok in zip(stale, outcomes) if ok is True],
-            failed=[e.scanner_id for e, ok in zip(stale, outcomes) if ok is not True],
-            # A full batch means candidates remain; the next hourly run picks them up.
-            budget_exhausted=len(stale) >= SEARCH_SUGGESTIONS_MAX_PER_RUN,
+            skipped=[e.scanner_id for e, ok in zip(stale, outcomes) if ok is False],
+            failed=[e.scanner_id for e, ok in zip(stale, outcomes) if isinstance(ok, BaseException)],
         )
         if result.failed:
             workflow.logger.warning(

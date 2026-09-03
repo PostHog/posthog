@@ -44,7 +44,7 @@ from products.replay_vision.backend.api.errors import ReplayVisionErrorSerialize
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum, split_csv
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
-from products.replay_vision.backend.consent import is_ai_data_processing_approved
+from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE, is_ai_data_processing_approved
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
 from products.replay_vision.backend.models.replay_observation import (
     IN_FLIGHT_STATUSES,
@@ -69,15 +69,14 @@ from products.replay_vision.backend.search import (
     MAX_SEARCH_LIMIT,
     ObservationSearchFilters,
     ObservationSearchResult,
-    parse_search_date,
     query_vector_for,
     search_observations,
 )
 from products.replay_vision.backend.search_suggestions import (
     MAX_SUGGESTED_QUERIES,
-    scanners_feeding_scope,
+    merge_suggestions,
+    scope_sources,
     stamp_search_viewed,
-    suggestions_for_scope,
 )
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
@@ -86,10 +85,6 @@ from products.tasks.backend.facade import api as tasks_facade
 from ee.hogai.utils.untrusted import as_untrusted_data
 
 logger = structlog.get_logger(__name__)
-
-
-# Error code the frontend keys on to point the user at the organization AI setting.
-AI_CONSENT_REQUIRED_CODE = "ai_data_processing_not_approved"
 
 
 class EmbeddingUnavailableError(APIException):
@@ -1111,14 +1106,14 @@ class ObservationSearchQuerySerializer(serializers.Serializer):
     date_from = serializers.CharField(
         required=False,
         help_text=(
-            "Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; "
+            "Only observations analyzed at or after this time. Accepts ISO 8601 or a relative date like `-7d`; "
             "values without an explicit offset are interpreted in the project's timezone."
         ),
     )
     date_to = serializers.CharField(
         required=False,
         help_text=(
-            "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; "
+            "Only observations analyzed at or before this time. Accepts ISO 8601 or a relative date like `-1d`; "
             "date-only values include the whole day, interpreted in the project's timezone."
         ),
     )
@@ -1286,22 +1281,14 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             # (requests.HTTPError) is a bug, not retryable, and should surface as a 500.
             logger.warning("replay_vision.observation_search.embedding_failed", team_id=self.team_id, exc_info=True)
             raise EmbeddingUnavailableError()
-        timezone_info = self.team.timezone_info
         filters = ObservationSearchFilters.from_raw(
             verdict=_csv_values(validated.get("verdict")),
             tags=_csv_values(validated.get("tags")),
             min_score=validated.get("min_score"),
             max_score=validated.get("max_score"),
-            date_from=(
-                parse_search_date(validated["date_from"], timezone_info, end_of_range=False)
-                if validated.get("date_from")
-                else None
-            ),
-            date_to=(
-                parse_search_date(validated["date_to"], timezone_info, end_of_range=True)
-                if validated.get("date_to")
-                else None
-            ),
+            date_from=validated.get("date_from"),
+            date_to=validated.get("date_to"),
+            timezone_info=self.team.timezone_info,
         )
         response = search_observations(
             self.team,
@@ -1312,7 +1299,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             validated["limit"],
             filters,
         )
-        return self._search_response(list(response.results), truncated=response.truncated)
+        return self._search_response(response.results, truncated=response.truncated)
 
     @extend_schema(
         parameters=[SearchSuggestionsQuerySerializer],
@@ -1330,8 +1317,10 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         params = SearchSuggestionsQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         scanner_ids = self._searchable_scanner_ids(params.validated_data.get("scanner_id"))
-        stamp_search_viewed(self.team_id, scanners_feeding_scope(self.team_id, scanner_ids))
-        queries = suggestions_for_scope(self.team_id, scanner_ids)
+        # One query decides both which scanners this view shows and which ones it marks as wanted.
+        sources = scope_sources(self.team_id, scanner_ids)
+        stamp_search_viewed(self.team_id, [scanner_id for scanner_id, _ in sources])
+        queries = merge_suggestions([stored for _, stored in sources])
         return Response(SearchSuggestionsResponseSerializer({"queries": queries}).data)
 
     def _search_response(self, results: list[ObservationSearchResult], truncated: bool = False) -> Response:
