@@ -295,6 +295,7 @@ POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
 # foreground streams.
 POSTHOG_EXEC_PERSIST_SUB_TOOLS: tuple[str, ...] = (
     "dashboard-create",
+    "dashboard-create-tile",
     "dashboard-create-text-tile",
     "dashboard-tile-copy",
     "dashboard-widgets-batch-add",

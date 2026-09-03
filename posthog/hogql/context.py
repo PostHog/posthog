@@ -8,6 +8,7 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.workload import Workload
+from posthog.week_start_day import WeekStartDay
 
 if TYPE_CHECKING:
     from posthog.schema import DataWarehouseSyncWarning, HogQLNotice, HogQLQueryModifiers
@@ -69,6 +70,9 @@ class HogQLContext:
     direct_postgres_connection_metadata: dict[str, Any] | None = None
     # Query-scoped mappings preserve resolved logical tables through Trino lowering.
     trino_table_locators: dict[str, tuple[str, str, str]] = field(default_factory=dict)
+    # Detached printer stages snapshot these values so they do not retain the schema database.
+    timezone: Optional[str] = None
+    week_start_day: Optional[WeekStartDay] = None
     # Set when the query executes against an external direct-SQL connection instead of PostHog's own cluster
     is_direct_query: bool = False
     # If set, will save string constants to this dict. Inlines strings into the query if None.

@@ -4007,6 +4007,41 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertFalse(data["active"])
 
+    @parameterized.expand(
+        [
+            ("access_token_deactivated_user", "access_token", "deactivated", False),
+            ("refresh_token_deactivated_user", "refresh_token", "deactivated", False),
+            # Client-credentials grants have no resource owner, so a userless access
+            # token must stay introspectable. OAuthRefreshToken.user is not nullable.
+            ("access_token_without_user", "access_token", "userless", True),
+        ]
+    )
+    def test_introspection_reflects_token_user_status(
+        self, _name: str, token_type: str, user_state: str, expected_active: bool
+    ):
+        access_token, refresh_token = self._create_access_and_refresh_tokens()
+        token = access_token if token_type == "access_token" else refresh_token
+
+        if user_state == "deactivated":
+            self.user.is_active = False
+            self.user.save()
+        else:
+            access_token.user = None
+            access_token.save()
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": token.token},
+            headers={
+                "Authorization": self.get_basic_auth_header(
+                    "test_confidential_client_id", "test_confidential_client_secret"
+                )
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["active"], expected_active)
+
     def test_self_introspection_with_revoked_token_fails(self):
         """A revoked (deleted) token cannot self-introspect."""
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")

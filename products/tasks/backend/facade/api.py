@@ -42,6 +42,7 @@ from django.db.models import (
     Min,
     Model,
     OuterRef,
+    Prefetch,
     Q,
     QuerySet,
     Subquery,
@@ -382,6 +383,21 @@ def _hedgehog_config(user: "User") -> dict | None:
         "accessories": config.get("accessories"),
         "skin": config.get("skin"),
     }
+
+
+# The User columns `_user_basic_info` reads; a field read outside this set triggers a
+# per-user deferred-load query wherever the queryset restricts to these columns.
+_TASK_CREATED_BY_FIELDS = (
+    "id",
+    "uuid",
+    "distinct_id",
+    "first_name",
+    "last_name",
+    "email",
+    "is_email_verified",
+    "hedgehog_config",
+    "role_at_organization",
+)
 
 
 def _user_basic_info(user: "User | None") -> contracts.TaskUserBasicInfo | None:
@@ -1541,10 +1557,15 @@ def create_run(
     mode: str = "background",
     extra_state: dict | None = None,
     branch: str | None = None,
+    acting_user_id: int | None = None,
 ) -> contracts.TaskRunDTO:
-    """Create a new run for an existing task (e.g. resuming an interactive sandbox session)."""
+    """Create a new run for an existing task (e.g. resuming an interactive sandbox session).
+
+    ``acting_user_id`` attributes the run to the user whose AI run preferences should apply
+    when ``extra_state`` pins no runtime selection; it falls back to the task's creator.
+    """
     task = Task.objects.get(id=task_id)
-    run = task.create_run(mode=mode, extra_state=extra_state, branch=branch)
+    run = task.create_run(mode=mode, extra_state=extra_state, branch=branch, acting_user_id=acting_user_id)
     return _task_run_to_dto(run, task=task)
 
 
@@ -4691,7 +4712,9 @@ def bootstrap_task_run(
         "Creating task run for task %s with mode=%s, branch=%s, environment=%s", task.id, mode, branch, environment
     )
     try:
-        run = task.create_run(environment=environment, mode=mode, branch=branch, extra_state=extra_state)
+        run = task.create_run(
+            environment=environment, mode=mode, branch=branch, extra_state=extra_state, acting_user_id=user_id
+        )
     except InvalidTaskOriginError as error:
         return contracts.TaskRunCreateResult(
             error=contracts.TaskRunValidationError(
@@ -5074,8 +5097,8 @@ def get_task_detail(
     """
     task = (
         _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility)
-        .select_related("created_by", "team", "github_integration", "github_user_integration")
-        .prefetch_related("runs")
+        .select_related("created_by")
+        .prefetch_related("runs", Prefetch("team", queryset=Team.objects.only("id", "name")))
         .filter(id=task_id)
         .first()
     )
@@ -5099,7 +5122,8 @@ def get_conversation_task_dtos(
     tasks = (
         Task.objects.filter(team_id=team_id, id__in=task_ids, deleted=False)
         .filter(task_visibility_q(user_id))
-        .select_related("created_by", "team")
+        .select_related("created_by")
+        .prefetch_related(Prefetch("team", queryset=Team.objects.only("id", "name")))
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
     )
     return {task.id: _task_detail_to_dto(task, include_latest_run=False) for task in tasks}
@@ -5379,36 +5403,36 @@ def _list_tasks_queryset(
     else:
         qs = qs.filter(archived=False)
 
-    qs = qs.select_related("created_by", "team", "github_integration", "github_user_integration").annotate(
-        _latest_run_id=Subquery(latest_run.values("id")[:1])
+    # The list DTO needs only two relations: ``created_by`` for ``_user_basic_info`` and
+    # ``team.name`` for the ``slug`` prefix (the integration FK ids are columns on the task row).
+    # Narrow prefetches keep the full ~100-column Team row and the full User row out of every
+    # task row. Latest runs are resolved per page in ``_tasks_to_dtos``, which avoids a
+    # correlated ``posthog_task_run`` subquery on every task row.
+    qs = qs.prefetch_related(
+        Prefetch("created_by", queryset=User.objects.only(*_TASK_CREATED_BY_FIELDS)),
+        Prefetch("team", queryset=Team.objects.only("id", "name")),
     )
 
     return qs
 
 
-def _latest_runs_by_id(run_ids: Iterable[UUID], team_id: int) -> dict[UUID, TaskRun]:
-    unique_run_ids = list(dict.fromkeys(run_ids))
-    if not unique_run_ids:
+def _latest_runs_by_task_id(task_ids: Iterable[UUID], team_id: int) -> dict[UUID, TaskRun]:
+    task_id_list = list(task_ids)
+    if not task_id_list:
         return {}
 
-    return {run.id: run for run in TaskRun.objects.filter(id__in=unique_run_ids, team_id=team_id)}
+    runs = (
+        TaskRun.objects.filter(team_id=team_id, task_id__in=task_id_list)
+        .order_by("task_id", "-created_at", "-id")
+        .distinct("task_id")
+    )
+    return {run.task_id: run for run in runs}
 
 
 def _tasks_to_dtos(tasks: Iterable[Task], team_id: int) -> list[contracts.TaskDetailDTO]:
     task_list = list(tasks)
-    latest_run_ids_by_task_id = {
-        task.id: latest_run_id
-        for task in task_list
-        if (latest_run_id := getattr(task, "_latest_run_id", None)) is not None
-    }
-    latest_runs_by_id = _latest_runs_by_id(latest_run_ids_by_task_id.values(), team_id)
-
-    dtos = []
-    for task in task_list:
-        latest_run_id = latest_run_ids_by_task_id.get(task.id)
-        latest_run = latest_runs_by_id.get(latest_run_id) if latest_run_id is not None else None
-        dtos.append(_task_detail_to_dto(task, latest_run=latest_run))
-    return dtos
+    latest_runs_by_task_id = _latest_runs_by_task_id((task.id for task in task_list), team_id)
+    return [_task_detail_to_dto(task, latest_run=latest_runs_by_task_id.get(task.id)) for task in task_list]
 
 
 def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[contracts.TaskDetailDTO]:
@@ -5505,7 +5529,7 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
     latest_run = (
         TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id)
         .order_by("-created_at", "-id")
-        .annotate(_data=JSONObject(status="status", environment="environment"))
+        .annotate(_data=JSONObject(id="id", status="status", environment="environment"))
     )
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
@@ -5517,7 +5541,9 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
     for task in tasks:
         raw = getattr(task, "_latest_run", None)
         latest = (
-            contracts.TaskLatestRunSummaryDTO(status=raw.get("status"), environment=raw.get("environment"))
+            contracts.TaskLatestRunSummaryDTO(
+                id=raw["id"], status=raw.get("status"), environment=raw.get("environment")
+            )
             if isinstance(raw, dict)
             else None
         )
@@ -5526,6 +5552,7 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
                 id=task.id,
                 title=task.title,
                 repository=task.repository,
+                created_by_id=task.created_by_id,
                 created_at=task.created_at,
                 updated_at=task.updated_at,
                 origin_product=task.origin_product,
@@ -5651,6 +5678,16 @@ def create_task(
     # which costs latency but can never hand over a Run booted under another product's budget or
     # PR-authorship rules.
     if warm_branch_provided and user_id is not None:
+        # Post-defaults comparison: warm runs are provisioned with the default triple
+        # filled in, so the requested selection must be resolved the same way to match.
+        warm_selection = _with_ai_run_defaults(
+            {"runtime_adapter": warm_runtime_adapter, "model": warm_model, "reasoning_effort": warm_reasoning_effort},
+            team_id=team_id,
+            acting_user_id=user_id,
+        )
+        warm_runtime_adapter = warm_selection.get("runtime_adapter")
+        warm_model = warm_selection.get("model")
+        warm_reasoning_effort = warm_selection.get("reasoning_effort")
         warm_run = _find_idling_warm_run(
             team_id,
             user_id,
@@ -6225,6 +6262,26 @@ def can_mint_readonly_github_token(team_id: int) -> bool:
     return _can_mint(team_id)
 
 
+def _with_ai_run_defaults(data: dict, *, team_id: int, acting_user_id: int | None, internal: bool = False) -> dict:
+    """A copy of ``data`` with the team/user default AI run triple filled in when it pins
+    no runtime selection (see ``resolve_ai_run_selection``).
+
+    Applied ahead of warm-run matching so requests and warm runs compare post-defaults —
+    a warm run provisioned under the default triple must match a submit that pinned
+    nothing. ``Task.create_run`` applies the same resolution as a safety net for every
+    other path, so this is deterministic double-resolution, not a divergence.
+    """
+    if internal:
+        return data
+    from products.tasks.backend.logic.services.ai_run_defaults import (  # noqa: PLC0415 — keep ORM-heavy logic services off the api import path
+        apply_ai_run_defaults,
+    )
+
+    updated = dict(data)
+    apply_ai_run_defaults(updated, team_id, acting_user_id)
+    return updated
+
+
 def _find_idling_warm_run(
     team_id: int,
     user_id: int | None,
@@ -6514,6 +6571,17 @@ def warm_task_sandbox(
         )
         if custom_image is None or not custom_image.is_ready:
             return None
+
+    # Resolve team/user defaults up front so the warm run is provisioned (and later
+    # matched) on the runtime the activating submit will effectively request.
+    warm_selection = _with_ai_run_defaults(
+        {"runtime_adapter": runtime_adapter, "model": model, "reasoning_effort": reasoning_effort},
+        team_id=team_id,
+        acting_user_id=user_id,
+    )
+    runtime_adapter = warm_selection.get("runtime_adapter")
+    model = warm_selection.get("model")
+    reasoning_effort = warm_selection.get("reasoning_effort")
 
     existing = _find_idling_warm_run(
         team_id,
@@ -6822,6 +6890,17 @@ def run_task(
 
         branch = autostart_base_branch_for_repository(
             team_id, task.repositories[0] if task.repositories else task.repository
+        )
+
+    if not resume_from_run_id:
+        # Fill team/user default AI run preferences before warm matching: a warm run
+        # provisioned under the default triple must still match a submit that pinned
+        # nothing. Resumes instead carry the previous run's selection (below).
+        validated_data = _with_ai_run_defaults(
+            validated_data,
+            team_id=task.team_id,
+            acting_user_id=user_id if user_id is not None else task.created_by_id,
+            internal=task.internal,
         )
 
     warm_run = _idling_warm_run_for_task(task)
@@ -7144,7 +7223,7 @@ def run_task(
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
     try:
         with transaction.atomic():
-            task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+            task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state, acting_user_id=user_id)
             if report_id_for_slot_check is not None:
                 enforce_report_implementation_rerun_cap(
                     team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
