@@ -13,8 +13,10 @@ import type {
     ErrorTrackingAlertCreateRequestApi,
     ErrorTrackingAlertPreviewApi,
     ErrorTrackingAlertPutRequestApi,
+    ErrorTrackingAlertThreadApi,
     ErrorTrackingAlertsListParams,
     ErrorTrackingAlertsPreviewRetrieveParams,
+    ErrorTrackingAlertsThreadsRetrieveParams,
     ErrorTrackingAssignmentRuleApi,
     ErrorTrackingAssignmentRuleCreateRequestApi,
     ErrorTrackingAssignmentRuleUpdateRequestApi,
@@ -267,6 +269,39 @@ export const errorTrackingAlertsPreviewRetrieve = async (
     options?: RequestInit
 ): Promise<ErrorTrackingAlertPreviewApi> => {
     return apiMutator<ErrorTrackingAlertPreviewApi>(getErrorTrackingAlertsPreviewRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingAlertsThreadsRetrieveUrl = (
+    projectId: string,
+    params: ErrorTrackingAlertsThreadsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/error_tracking/alerts/threads/?${stringifiedParams}`
+        : `/api/projects/${projectId}/error_tracking/alerts/threads/`
+}
+
+/**
+ * Slack threads that alerts have opened for one issue, newest first.
+ */
+export const errorTrackingAlertsThreadsRetrieve = async (
+    projectId: string,
+    params: ErrorTrackingAlertsThreadsRetrieveParams,
+    options?: RequestInit
+): Promise<ErrorTrackingAlertThreadApi[]> => {
+    return apiMutator<ErrorTrackingAlertThreadApi[]>(getErrorTrackingAlertsThreadsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

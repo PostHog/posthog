@@ -31220,6 +31220,36 @@ export namespace Schemas {
       enabled?: boolean;
     }
 
+    export interface ErrorTrackingAlertThread {
+      id: string;
+      alert_id: string;
+      alert_name: string;
+      channel_type: string;
+      /**
+         * Provider channel id the thread lives in.
+         * @nullable
+         */
+      channel: string | null;
+      /**
+         * Human-readable channel name, when stored.
+         * @nullable
+         */
+      channel_name: string | null;
+      /**
+         * Link to the thread in the provider; null while the root has not been posted.
+         * @nullable
+         */
+      external_url: string | null;
+      root_headline: string;
+      /** Recent lifecycle notifications delivered into the thread. */
+      delivered_count: number;
+      /** Last delivery error for the destination, empty when healthy. */
+      last_error: string;
+      consecutive_failures: number;
+      created_at: string;
+      updated_at: string;
+    }
+
     export interface ErrorTrackingAssignee {
       /** User ID or role UUID to filter by. */
       id: string | number;
@@ -94546,6 +94576,13 @@ export namespace Schemas {
       IssueSpiking: 'issue_spiking',
       IssueAssigned: 'issue_assigned',
     } as const;
+
+    export type ErrorTrackingAlertsThreadsRetrieveParams = {
+    /**
+     * Issue whose alert threads to list.
+     */
+    issue_id: string;
+    };
 
     export type ErrorTrackingAssignmentRulesListParams = {
     /**
