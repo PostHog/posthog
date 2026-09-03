@@ -24,6 +24,7 @@ export function ServerCard({
   const categoryLabel = MCP_CATEGORIES.find(
     (c) => c.id === server.category,
   )?.label;
+  const comingSoon = server.is_coming_soon === true;
 
   return (
     <div className="group relative rounded-md border border-gray-5 bg-gray-2 transition-colors hover:border-gray-7 hover:bg-gray-3">
@@ -49,6 +50,11 @@ export function ServerCard({
                   weight="fill"
                   className="shrink-0 text-green-10"
                 />
+              )}
+              {comingSoon && (
+                <Badge color="gray" variant="soft" size="1">
+                  Coming soon
+                </Badge>
               )}
             </Flex>
             {server.description && (
@@ -92,10 +98,10 @@ export function ServerCard({
             variant="solid"
             size="1"
             onClick={onConnect}
-            disabled={isInstalling}
+            disabled={isInstalling || comingSoon}
           >
             {isInstalling ? <Spinner size="1" /> : null}
-            Connect
+            {comingSoon ? "Coming soon" : "Connect"}
           </Button>
         )}
       </div>
