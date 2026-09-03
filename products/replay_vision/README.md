@@ -38,18 +38,19 @@ A scanner can also carry its own optional `credit_limit` for the same period, so
 
 **Scanner** (`/replay-vision/<scanner-id>`), seven tabs switched through `?tab=`. Overview is the default and writes no param.
 
-| Tab                | `?tab=`         | What it shows                                                                                                               |
-| ------------------ | --------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Overview           | `overview`      | At-a-glance panels: impact, verdict mix, top fixed and freeform tags, score distribution. Leads with the daily digest card. |
-| Observations       | `observations`  | The scanner's observations, filterable by status, verdict, tags, and date.                                                  |
-| On-demand          | `on-demand`     | Scan now: by session ID, or by picking from recent recordings.                                                              |
-| Backfills          | `backfills`     | The scanner's historical backfills: create one over a past window, watch progress, pause/resume.                            |
-| Configuration      | `configuration` | Read-only view of the scanner's current config.                                                                             |
-| Calibration        | `calibration`   | Thumbs up/down ratings, accuracy over time, feedback themes, and the AI prompt recommendation with its prompt test.         |
-| Digests and alerts | `actions`       | The vision actions bound to this scanner.                                                                                   |
+| Tab           | `?tab=`         | What it shows                                                                                                               |
+| ------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Overview      | `overview`      | At-a-glance panels: impact, verdict mix, top fixed and freeform tags, score distribution. Leads with the scout digest card. |
+| Observations  | `observations`  | The scanner's observations, filterable by status, verdict, tags, and date.                                                  |
+| On-demand     | `on-demand`     | Scan now: by session ID, or by picking from recent recordings.                                                              |
+| Backfills     | `backfills`     | The scanner's historical backfills: create one over a past window, watch progress, pause/resume.                            |
+| Configuration | `configuration` | Read-only view of the scanner's current config.                                                                             |
+| Calibration   | `calibration`   | Thumbs up/down ratings, accuracy over time, feedback themes, and the AI prompt recommendation with its prompt test.         |
+| Scouts        | `scouts`        | The scanner's signals scouts, including its daily digest.                                                                   |
+| Alerts        | `alerts`        | The scanner's alerts on the shared alerts platform.                                                                         |
 
 **Scanner editor** (`/replay-vision/<scanner-id>/<step>`) is a stepper rather than tabs: Template, Configure, Scan conditions (`triggers`), Self-driving.
-Observations, vision actions, and action runs each have their own scene under `/replay-vision/observations/…` and `/replay-vision/actions/…`.
+Observations have their own scene under `/replay-vision/observations/…`.
 
 Outside these scenes, the product also renders inside the session replay player: `ObservationsDock` shows what the team's scanners found about the recording being watched (standard players only — embedded, shared, and chromeless players skip every vision surface).
 
@@ -61,10 +62,10 @@ The template lives in `frontend/src/scenes/experiments/replayVisionScanner.ts` a
 
 ## Layout
 
-- `backend/models/` — `ReplayScanner`, `ReplayObservation`, `ReplayScannerBackfill`, observation labels (ratings), usage receipts, quota grants, prompt suggestions, vision actions.
-- `backend/api/` — DRF viewsets and serializers (scanners, observations, backfills, prompt suggestions, quota, vision actions, stats, live progress over SSE).
+- `backend/models/` — `ReplayScanner`, `ReplayObservation`, `ReplayScannerBackfill`, observation labels (ratings), usage receipts, quota grants, prompt suggestions.
+- `backend/api/` — DRF viewsets and serializers (scanners, observations, backfills, prompt suggestions, quota, stats, live progress over SSE).
 - `backend/queries/` — ClickHouse candidate selection (watermark + settle window + eligibility + sampling), the backfill's bounded descending walk and its exact count, and volume estimates.
-- `backend/temporal/` — the apply workflow and its activities, per-scanner sweep, per-backfill tick, schedule reconciler (+ observation and backfill-schedule reapers), estimate refresher, prompt evaluation, vision actions, and the Gemini file cleanup sweep.
+- `backend/temporal/` — the apply workflow and its activities, per-scanner sweep, per-backfill tick, schedule reconciler (+ observation and backfill-schedule reapers), estimate refresher, prompt evaluation, vision alerts, and the Gemini file cleanup sweep.
 - `backend/quota.py` + `backend/billing.py` — credit accounting: the per-model price table, the receipt ledger, the quota snapshot the meter reads, and the per-org credit-limit override described below.
 - `backend/enqueue_claims.py` — atomic slot claims that keep on-demand scans inside the in-flight caps.
 - `backend/embeddings.py` — the embedding identity shared by the write and search sides.
@@ -72,10 +73,9 @@ The template lives in `frontend/src/scenes/experiments/replayVisionScanner.ts` a
 - `backend/impact.py` — affected sessions and users per scanner, exportable as a static cohort.
 - `backend/tags.py` + `backend/tag_suggestions.py` — tag slug normalization and data-grounded vocabulary suggestions for classifiers.
 - `backend/max_tools.py` — Max AI tools (draft a scanner prompt, digest summaries, semantic search over observations).
-- `backend/scanner_access.py` — scanner-level RBAC shared by the API and the vision-action engine.
+- `backend/scanner_access.py` — scanner-level RBAC shared by the API and the alert engine.
 - `backend/facade/` — the cross-product entry point (session observations, formatted for Max reports).
 - `backend/admin.py` — Django admin registrations.
-- `backend/temporal/vision_actions/` + `backend/api/vision_actions.py` — scheduled follow-up actions over observations: group summaries and alerts, including the built-in daily digest.
 - `frontend/` — kea-first scenes and logics for the scanner management UI; `frontend/generated/` carries the generated API types.
 
 ## Per-org credit limit override

@@ -19,9 +19,8 @@ import { Breadcrumb } from '~/types'
 import { subscriptionsList, subscriptionsTestDeliveryCreate } from 'products/subscriptions/frontend/generated/api'
 import {
     SubscriptionsListResourceType,
-    SubscriptionTargetEnumApi,
+    SubscriptionsListTargetType,
     type PaginatedSubscriptionListApi,
-    type SubscriptionsListTargetType,
 } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import type { OrganizationType, UserType } from '../../../../frontend/src/types'
@@ -47,9 +46,16 @@ function getInitialSubscriptionsTab(): SubscriptionsTab {
 /** Query keys owned by the subscriptions list scene (merged into the router; other params are preserved). */
 const SUBSCRIPTIONS_URL_KEYS = ['tab', 'search', 'created_by', 'target_type', 'page'] as const
 
-/** Router may coerce numeric-looking query values; keep text fields as strings. */
-function urlSearchParamToString(value: unknown): string {
-    return `${value ?? ''}`
+function parseTargetTypeFilter(raw?: string): SubscriptionsListTargetType | null {
+    return Object.values(SubscriptionsListTargetType).find((targetType) => targetType === raw) ?? null
+}
+
+interface SubscriptionsSearchParams {
+    tab?: string
+    search?: string | number
+    created_by?: string
+    target_type?: string
+    page?: string | number
 }
 
 export interface SubscriptionsQueryFromUrl {
@@ -60,23 +66,21 @@ export interface SubscriptionsQueryFromUrl {
     page: number
 }
 
-function parseSubscriptionsSearchParams(searchParams: Record<string, unknown>): SubscriptionsQueryFromUrl {
+function parseSubscriptionsSearchParams(searchParams: SubscriptionsSearchParams): SubscriptionsQueryFromUrl {
     const rawTab = searchParams['tab']
     const tab: SubscriptionsTab = (Object.values(SubscriptionsTab) as string[]).includes(rawTab as string)
         ? (rawTab as SubscriptionsTab)
         : SubscriptionsTab.All
 
-    const search = urlSearchParamToString(searchParams['search'])
+    // Kea Router converts numeric-looking query values to numbers.
+    const search = String(searchParams['search'] ?? '')
 
-    let createdByUuid: string | null =
-        typeof searchParams['created_by'] === 'string' ? searchParams['created_by'] : null
+    let createdByUuid: string | null = searchParams['created_by'] ?? null
     if (tab === SubscriptionsTab.Mine) {
         createdByUuid = null
     }
 
-    const ttRaw = searchParams['target_type']
-    const targetTypeFilter: SubscriptionsListTargetType | null =
-        ttRaw === SubscriptionTargetEnumApi.Email || ttRaw === SubscriptionTargetEnumApi.Slack ? ttRaw : null
+    const targetTypeFilter = parseTargetTypeFilter(searchParams['target_type'])
 
     let page = 1
     const pageRaw = searchParams['page']

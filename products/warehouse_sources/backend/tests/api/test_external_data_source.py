@@ -55,6 +55,10 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.models.custom_oauth2_integration import CustomOAuth2Integration
+from products.warehouse_sources.backend.models.external_data_destination import (
+    ExternalDataDestination,
+    ExternalDataSourceDestination,
+)
 from products.warehouse_sources.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.warehouse_sources.backend.presentation.views.external_data_source import (
     DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE,
@@ -323,6 +327,84 @@ class TestExternalDataSource(APIBaseTest):
         # so a later default flip never changes their sync behavior
         source = ExternalDataSource.objects.get(id=payload["id"])
         self.assertEqual(source.api_version, "2024-09-30.acacia")
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_destinations_are_attached_before_the_first_sync_is_scheduled(self, _mock_validate):
+        # Extraction snapshots the destination set onto the run. Attaching after the schedule
+        # starts means the opening run writes to the warehouse alone, and reaching the chosen
+        # destination costs a full resync of every table.
+        integration = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.POSTGRESQL, integration_id="pg-1", config={}
+        )
+        destination = ExternalDataDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            type=ExternalDataDestination.Type.POSTGRES,
+            name="customer postgres",
+            integration=integration,
+            config={"database": "posthog", "schema": "export"},
+        )
+
+        attached_when_scheduled: list[list[str]] = []
+
+        def record_links(schemas):
+            source_ids = {schema.source_id for schema, _ in schemas}
+            attached_when_scheduled.append(
+                [
+                    str(link.destination_id)
+                    for link in ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(
+                        source_id__in=source_ids, enabled=True
+                    )
+                ]
+            )
+            return []
+
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_source.bulk_create_external_data_job_schedules",
+            side_effect=record_links,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "Stripe",
+                    "created_via": "web",
+                    "destination_ids": [str(destination.pk)],
+                    "payload": {
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                        "schemas": [{"name": "Customer", "should_sync": True, "sync_type": "full_refresh"}],
+                    },
+                },
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert attached_when_scheduled, "the schedules were never created"
+        assert str(destination.pk) in attached_when_scheduled[0]
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_a_source_created_without_destinations_is_unchanged(self, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [{"name": "Customer", "should_sync": True, "sync_type": "full_refresh"}],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert (
+            not ExternalDataSourceDestination.objects.for_team(self.team.pk)
+            .filter(source_id=response.json()["id"])
+            .exists()
+        )
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
