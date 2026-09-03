@@ -108,6 +108,7 @@ oauth_config:
       - chat:write
       - canvases:write
       - files:write
+      - reactions:read
       - reactions:write
       - users:read
       - users:read.email
@@ -122,6 +123,7 @@ settings:
       - app_mention
       - app_home_opened
       - message.channels
+      - reaction_added
   interactivity:
     is_enabled: true
     request_url: https://<you>-posthog.ngrok.dev/slack/interactivity-callback
@@ -141,6 +143,9 @@ Django must be up at that moment.
 > Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
 > the second redirect URL (`/complete/slack-link/`). Drop those if you don't want either feature
 > locally — they're behind the `slack-app-home` and `slack-app-oauth` flags.
+
+> `reaction_added` + `reactions:read` power thumbs-reaction feedback on agent replies. Without
+> them a 👍/👎 reaction on a reply records nothing, again with no error.
 
 > `message.channels` is what makes Slack deliver plain channel messages. Without it you get
 > `app_mention` only, so `@PostHog` works and everything driven by an untagged message —

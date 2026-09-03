@@ -616,6 +616,11 @@ export interface ProjectBackwardCompatBasicApi {
     readonly is_demo: boolean
     readonly timezone: string
     readonly access_control: boolean
+    /**
+     * Labels applied to this project.
+     * @items.maxLength 255
+     */
+    readonly tags: readonly string[]
 }
 
 export interface PaginatedProjectBackwardCompatBasicListApi {
@@ -1802,6 +1807,11 @@ export interface TeamWorkflowsConfigApi {
     email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
 }
 
+export interface TeamFeatureFlagPolicyConfigApi {
+    /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
+    require_tags?: boolean
+}
+
 /**
  * * `0` - Disabled
  * * `1` - Stateless
@@ -1817,7 +1827,10 @@ export const CookielessServerHashModeEnumApi = {
 } as const
 
 /**
- * Mixin for serializers to add user access control fields
+ * A project and its settings, including the settings that live on its passthrough Team.
+ *
+ * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+ * onto /api/projects/ never loses a field.
  */
 export interface ProjectBackwardCompatApi {
     readonly id: number
@@ -1834,6 +1847,11 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     product_description?: string | null
+    /**
+     * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly created_at: string
     readonly effective_membership_level: OrganizationMembershipLevelEnumApi
     readonly has_group_types: boolean
@@ -2616,6 +2634,7 @@ export interface ProjectBackwardCompatApi {
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).
@@ -2669,7 +2688,10 @@ export type PatchedProjectBackwardCompatApiProductIntentsItem = {
 export type PatchedProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
 
 /**
- * Mixin for serializers to add user access control fields
+ * A project and its settings, including the settings that live on its passthrough Team.
+ *
+ * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+ * onto /api/projects/ never loses a field.
  */
 export interface PatchedProjectBackwardCompatApi {
     readonly id?: number
@@ -2686,6 +2708,11 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     product_description?: string | null
+    /**
+     * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly created_at?: string
     readonly effective_membership_level?: OrganizationMembershipLevelEnumApi
     readonly has_group_types?: boolean
@@ -3468,6 +3495,7 @@ export interface PatchedProjectBackwardCompatApi {
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).
@@ -4940,6 +4968,19 @@ export interface OnboardingSkipRequestApi {
 }
 
 /**
+ * Request body for PATCH /api/users/@me/product_intro_seen.
+ */
+export interface PatchedProductIntroSeenApi {
+    /**
+     * Which key in `has_seen_product_intro_for` to set. Any string is accepted: besides the product keys, the map holds keys composed per team and keys for surfaces that are not products.
+     * @maxLength 128
+     */
+    product_key?: string
+    /** Whether the intro counts as seen. Send false to show it again. */
+    seen?: boolean
+}
+
+/**
  * * `ios` - iOS
  * * `android` - Android
  * * `web` - Web
@@ -5138,7 +5179,23 @@ export type OrganizationsProjectsListParams = {
      * A search term.
      */
     search?: string
+    /**
+     * Comma-separated tag names to filter by, for example `production,eu-region`. Names are trimmed and lowercased before matching. At most 20 distinct tags per request.
+     */
+    tags?: string
+    /**
+     * How to combine the `tags` filter. `all` (the default) returns projects carrying every listed tag; `any` returns projects carrying at least one.
+     */
+    tags_match?: OrganizationsProjectsListTagsMatch
 }
+
+export type OrganizationsProjectsListTagsMatch =
+    (typeof OrganizationsProjectsListTagsMatch)[keyof typeof OrganizationsProjectsListTagsMatch]
+
+export const OrganizationsProjectsListTagsMatch = {
+    All: 'all',
+    Any: 'any',
+} as const
 
 export type OrganizationsProjectsEventIngestionRestrictionsListParams = {
     /**
@@ -5402,3 +5459,5 @@ export type UsersLoginSessionsListParams = {
     email?: string
     is_staff?: boolean
 }
+
+export type UsersProductIntroSeenPartialUpdate200 = { [key: string]: boolean }

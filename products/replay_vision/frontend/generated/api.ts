@@ -70,6 +70,7 @@ import type {
     VisionScannersObservationsRetrieveParams,
     VisionScannersObservationsStatsRetrieveParams,
     VisionScannersPromptSuggestionsListParams,
+    VisionSpendSeriesApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -470,6 +471,20 @@ export const environmentVisionQuotaRetrieve = async (
     options?: RequestInit
 ): Promise<VisionQuotaApi> => {
     return apiMutator<VisionQuotaApi>(getEnvironmentVisionQuotaRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEnvironmentVisionQuotaSpendSeriesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/quota/spend_series/`
+}
+
+export const environmentVisionQuotaSpendSeriesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<VisionSpendSeriesApi> => {
+    return apiMutator<VisionSpendSeriesApi>(getEnvironmentVisionQuotaSpendSeriesRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
