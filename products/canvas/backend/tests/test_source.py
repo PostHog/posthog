@@ -138,6 +138,16 @@ class TestCanvasSourceAdapter(SimpleTestCase):
                 "forbidden_inline_script",
             ),
             (
+                "platform_token_in_stylesheet",
+                project(files={CANVAS_COMPONENT_PATH: CODE, "src/styles.css": ":root { --muted: #5d5a52; }"}),
+                "platform_token_redeclared",
+            ),
+            (
+                "platform_token_in_inline_style",
+                project(files={CANVAS_COMPONENT_PATH: CODE + "const css = `html.dark { --background:#141416 }`;"}),
+                "platform_token_redeclared",
+            ),
+            (
                 "file_too_large",
                 project(files={CANVAS_COMPONENT_PATH: "a" * (MAX_FILE_BYTES + 1)}),
                 "file_too_large",
@@ -192,6 +202,11 @@ class TestCanvasSourceAdapter(SimpleTestCase):
         )
         diagnostics = validate_source_project(candidate)
         self.assertNotIn("capability_missing_state", [d["code"] for d in diagnostics])
+
+    def test_own_css_variables_and_root_scoped_platform_tokens_pass(self):
+        css = ":root { --doc-muted: #5d5a52; --muted-foreground: #444; } .lead { color: var(--muted); }"
+        candidate = project(files={CANVAS_COMPONENT_PATH: CODE, "src/styles.css": css})
+        self.assertEqual(validate_source_project(candidate), [])
 
     def test_direct_network_calls_warn_but_stay_publishable(self):
         candidate = project(files={CANVAS_COMPONENT_PATH: CODE + "fetch(dynamicUrl);"})

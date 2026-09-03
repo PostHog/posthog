@@ -67,6 +67,33 @@ ALLOWED_CONFIG_SCHEMA_KEYWORDS = frozenset(
 
 # File extensions whose content is scanned as source code.
 _CODE_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx")
+# Files scanned for CSS custom property declarations: stylesheets plus code,
+# because inline <style> blocks and CSS-in-JS carry CSS as strings.
+_STYLE_EXTENSIONS = (".css", *_CODE_EXTENSIONS)
+
+# Quill design tokens that the bundled platform stylesheet (@posthog/quill
+# color-system.css) declares on the universal selector `*`, not on `:root`.
+# Every element then gets Quill's value directly, so an author's `:root` or
+# `html.dark` declaration of the same name never reaches any descendant and
+# text colored with `var(--muted)` silently becomes Quill's pale surface color.
+# Keep in sync with the `* { ... }` rule of the pinned Quill version.
+_PLATFORM_ELEMENT_TOKENS = frozenset(
+    {
+        "background",
+        "border",
+        "card",
+        "chrome",
+        "fill-expanded",
+        "fill-hover",
+        "fill-selected",
+        "input",
+        "muted",
+        "primary",
+    }
+)
+_PLATFORM_TOKEN_DECLARATION_RE = re.compile(
+    r"(?<![\w-])--(" + "|".join(sorted(_PLATFORM_ELEMENT_TOKENS)) + r")\s*[\"']?\s*:"
+)
 
 # The synthetic entry shell presented for pre-relational canvases whose only
 # source is a single stored React component.
@@ -293,6 +320,24 @@ def _validate_network_capabilities(path: str, content: str, declared_origins: se
                     line=_line_of(content, position),
                 )
             )
+    return diagnostics
+
+
+def _validate_platform_tokens(path: str, content: str) -> list[dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
+    for match in _PLATFORM_TOKEN_DECLARATION_RE.finditer(content):
+        token = match.group(1)
+        diagnostics.append(
+            diagnostic(
+                "error",
+                "platform_token_redeclared",
+                f"--{token} is a platform design token that the platform stylesheet sets on every element, "
+                f"so this declaration is ignored and text colored with var(--{token}) can become unreadable. "
+                f"Rename it, for example --canvas-{token}, or use the platform token without redefining it",
+                path=path,
+                line=_line_of(content, match.start()),
+            )
+        )
     return diagnostics
 
 
@@ -739,6 +784,8 @@ def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") 
         if not isinstance(content, str):
             continue
         diagnostics.extend(_validate_network_capabilities(path, content, declared_network_origins))
+        if path.endswith(_STYLE_EXTENSIONS):
+            diagnostics.extend(_validate_platform_tokens(path, content))
         if path.endswith(_CODE_EXTENSIONS):
             diagnostics.extend(_validate_code_file(path, content))
             diagnostics.extend(_validate_capabilities(path, content, capabilities))

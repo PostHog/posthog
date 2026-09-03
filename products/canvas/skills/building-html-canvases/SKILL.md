@@ -47,6 +47,12 @@ build pipeline's dependency admission ships.
   Define your colors as CSS variables under `:root { … }` with overrides under `html.dark { … }`,
   or use theme token utilities (`bg-background`, `text-foreground`, `border-border`) — never a
   light-only hardcoded color.
+- Give your own CSS variables a prefix (`--doc-bg`, `--doc-muted`). Never reuse a platform token
+  name: the bundled Quill stylesheet sets `--background`, `--border`, `--card`, `--chrome`,
+  `--input`, `--muted`, `--primary`, and `--fill-*` on every element, so a `:root` or `html.dark`
+  value with one of those names never reaches any element. A page that colors its text with its own
+  `--muted` then renders unreadable (pale text on a pale page). Validation rejects such a
+  declaration with `platform_token_redeclared`.
 - For canvas/WebGL drawing colors, read the resolved token at runtime
   (`getComputedStyle(document.documentElement).getPropertyValue("--primary")`) or your own CSS
   variables, and re-read on theme change if the scene is long-lived.
