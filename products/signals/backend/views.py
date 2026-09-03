@@ -3012,8 +3012,23 @@ class SignalReportViewSet(
         # bounds the access probes. Repositories that share an installation collapse into one query.
         batches: dict[int, tuple[GitHubIntegration, list[PullRequestRef]]] = {}
         for repository, repository_references in misses_by_repository.items():
-            github = self._github_for_ci_status_repository(repository)
+            try:
+                github = GitHubIntegration.first_for_team_repository(
+                    self.team.id, repository, source="signals_pr_ci_status", priority=Priority.NORMAL
+                )
+            except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
+                # The probe never reached GitHub, so nothing was learned about the repository. Same
+                # policy as a throttled fetch below: remember nothing and let the next poll ask again.
+                logger.info("signals.reports.pr_ci_statuses.lookup_throttled", repository=repository)
+                continue
+            except Exception:
+                logger.warning(
+                    "signals.reports.pr_ci_statuses.integration_lookup_failed", repository=repository, exc_info=True
+                )
+                continue
             if github is None:
+                # GitHub answered, and no installation reaches the repository. That is stable enough
+                # to remember, so the probe does not run again on every load and every poll.
                 self._remember_unreadable_pr_ci_statuses(repository_references)
                 continue
             _, pending = batches.setdefault(github.integration.id, (github, []))
@@ -3054,21 +3069,6 @@ class SignalReportViewSet(
 
     def _pr_ci_status_cache_key(self, reference: PullRequestRef) -> str:
         return f"signals:pr-ci-status:{self.team.id}:{reference.repository}:{reference.number}"
-
-    def _github_for_ci_status_repository(self, repository: str) -> GitHubIntegration | None:
-        """The team integration that can read `repository`, or None when none can, or when GitHub is
-        throttling us. Same connection boundary as `pr_checks`, and every failure is just no answer."""
-        try:
-            return GitHubIntegration.first_for_team_repository(
-                self.team.id, repository, source="signals_pr_ci_status", priority=Priority.NORMAL
-            )
-        except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
-            return None
-        except Exception:
-            logger.warning(
-                "signals.reports.pr_ci_statuses.integration_lookup_failed", repository=repository, exc_info=True
-            )
-            return None
 
     @extend_schema(
         responses={
