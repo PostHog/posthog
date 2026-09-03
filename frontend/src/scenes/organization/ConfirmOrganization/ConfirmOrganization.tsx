@@ -3,10 +3,10 @@ import { Form } from 'kea-forms'
 
 import { Link } from '@posthog/lemon-ui'
 
-import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -23,42 +23,35 @@ export const scene: SceneExport = {
 }
 
 export function ConfirmOrganization(): JSX.Element {
-    const { isConfirmOrganizationSubmitting, email, showNewOrgWarning } = useValues(confirmOrganizationLogic)
-    const { setShowNewOrgWarning } = useActions(confirmOrganizationLogic)
+    const { isConfirmOrganizationSubmitting, email, pendingInvite } = useValues(confirmOrganizationLogic)
+    const { signInWithDifferentAccount } = useActions(confirmOrganizationLogic)
 
     return (
         <BridgePage view="org-creation-confirmation">
             <h2>Create a new organization</h2>
             <OtherRegionHint />
-            <div className="flex-1">
-                <p className="text-center">
-                    <strong>
-                        Trying to join an existing organization? <br />
-                        {!showNewOrgWarning && (
-                            <Link
-                                onClick={() => {
-                                    setShowNewOrgWarning(true)
-                                }}
-                            >
-                                Read more
-                            </Link>
-                        )}
-                    </strong>
-                </p>
-                <AnimatedCollapsible collapsed={!showNewOrgWarning}>
-                    <div className="py-2">
-                        <p>
-                            If you're trying to join an existing organization, you should not create a new one. Some
-                            reasons that you may accidentally end up here are:
-                        </p>
-                        <ul className="list-disc pl-4">
-                            <li>You're logging in with the wrong email address</li>
-                            <li>Your PostHog account is at a different URL</li>
-                            <li>You need an invitation from a colleague</li>
-                        </ul>
-                    </div>
-                </AnimatedCollapsible>
-            </div>
+            <LemonBanner type="warning" className="mb-4">
+                <p className="font-semibold mb-1">You are signed in as {email || 'this account'}.</p>
+                {pendingInvite ? (
+                    <p className="mb-2">
+                        This email has a pending invite to {pendingInvite.organization_name}. Open your invite email to
+                        join it instead of creating a new organization.
+                    </p>
+                ) : (
+                    <p className="mb-2">
+                        To join an existing organization, do not create a new one here. You may have signed in with the
+                        wrong email, your team may use a different PostHog URL, or you may need an invite from a
+                        colleague.
+                    </p>
+                )}
+                <LemonButton
+                    type="secondary"
+                    onClick={signInWithDifferentAccount}
+                    data-attr="confirm-organization-different-account"
+                >
+                    Sign in with a different account
+                </LemonButton>
+            </LemonBanner>
 
             <Form
                 logic={confirmOrganizationLogic}
