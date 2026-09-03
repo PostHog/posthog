@@ -82,6 +82,10 @@ class AppStoreConnectPermissionError(Exception):
     """A 403 from App Store Connect: the key's role can't perform this call. Non-retryable."""
 
 
+class AppStoreConnectReportUnavailableError(Exception):
+    """No app generates this stream's analytics report, so the table can never gain a row. Non-retryable."""
+
+
 # 403 on a report or resource read. The key's role can't read this data, so the fix is a role
 # that can. `AppStoreConnectSource.get_non_retryable_errors` matches on this text to fail fast.
 APP_STORE_CONNECT_READ_FORBIDDEN_ERROR = (
@@ -102,6 +106,15 @@ APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR = (
 APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR = (
     "Your App Store Connect analytics report request stopped because of inactivity. Apple needs a "
     "new request, which only an Admin key can create. Give the key the Admin role, then reconnect."
+)
+
+# No app generates this stream's report, so the table can never gain a row. Apple starts a report
+# type only for an Admin key, so a key that reads reports but cannot start one leaves the table
+# empty. `AppStoreConnectSource.get_non_retryable_errors` matches on this text to fail fast.
+APP_STORE_CONNECT_ANALYTICS_REPORT_UNAVAILABLE_ERROR = (
+    "App Store Connect does not generate this analytics report for any of your apps, so this table "
+    "has no data to sync. Apple starts an analytics report only for a key with the Admin role. Give "
+    "the key the Admin role and reconnect, or unselect this table if your account cannot get this report."
 )
 
 # A sales or subscription report sync started without a vendor number. `/v1/salesReports` can't be
@@ -1152,6 +1165,8 @@ def _get_analytics_report(
     # is job-scoped (it survives retries of the same job, never the next scheduled run), so
     # the watermark has to carry cross-run progress by itself.
     instances_by_date: dict[date, list[tuple[str, str]]] = {}
+    apps_with_request = 0
+    apps_with_report = 0
     for app_id in app_ids:
         request_id, created_now = _ensure_report_request(session, token_provider, logger, app_id)
         if created_now:
@@ -1162,17 +1177,25 @@ def _get_analytics_report(
             continue
         if request_id is None:
             continue
+        apps_with_request += 1
 
         report_id = _find_analytics_report(session, token_provider, logger, config, request_id)
         if report_id is None:
             # An unavailable report degrades this table for this app; other apps and tables
             # are unaffected.
             continue
+        apps_with_report += 1
 
         for instance_id, processing_date in _analytics_instances(
             session, token_provider, logger, report_id, lower_bound
         ):
             instances_by_date.setdefault(processing_date, []).append((app_id, instance_id))
+
+    if apps_with_request and not apps_with_report:
+        # No app has this report, so the run would otherwise finish green and empty on every
+        # schedule, and the table would go stale with nothing to show for it. Apps whose request
+        # was just created are excluded: Apple needs a day or two to generate their first reports.
+        raise AppStoreConnectReportUnavailableError(APP_STORE_CONNECT_ANALYTICS_REPORT_UNAVAILABLE_ERROR)
 
     instances_fetched = 0
     for processing_date in sorted(instances_by_date):

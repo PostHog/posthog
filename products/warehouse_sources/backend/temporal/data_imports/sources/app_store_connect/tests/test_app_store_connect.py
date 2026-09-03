@@ -15,12 +15,14 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
+    APP_STORE_CONNECT_ANALYTICS_REPORT_UNAVAILABLE_ERROR,
     APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
     BASE_URL,
     JWT_AUDIENCE,
     JWT_LIFETIME_SECONDS,
     AppStoreConnectAuthError,
     AppStoreConnectPermissionError,
+    AppStoreConnectReportUnavailableError,
     AppStoreConnectResumeConfig,
     AppStoreConnectTokenProvider,
     AppStoreConnectUrlError,
@@ -772,12 +774,36 @@ class TestAnalyticsReportStreams:
         assert [row["processing_date"] for row in rows] == [date(2026, 8, 2)]
         assert _segments_url("I1") not in [url for url, _ in api.calls]
 
-    def test_unavailable_report_degrades_the_table_without_failing(self) -> None:
+    def test_report_missing_for_every_app_fails_the_sync(self) -> None:
+        # A green empty run repeats on every schedule and leaves the table silently stale.
         api = _analytics_api(
             reports=[_resource("analyticsReports", "REPX", name="Some Other Report", category="APP_USAGE")]
         )
 
-        assert _collect_analytics(api, _FakeManager()) == []
+        with pytest.raises(AppStoreConnectReportUnavailableError) as error:
+            _collect_analytics(api, _FakeManager())
+
+        assert APP_STORE_CONNECT_ANALYTICS_REPORT_UNAVAILABLE_ERROR in str(error.value)
+
+    def test_report_missing_for_one_app_still_syncs_the_others(self) -> None:
+        payload = _gzip_csv("Date,Sessions\n2026-08-02,5\n")
+        api = _analytics_api(
+            reports=[_resource("analyticsReports", "REPX", name="Some Other Report", category="APP_USAGE")]
+        )
+        api.bodies[APPS_URL] = _page([_resource("apps", "A1"), _resource("apps", "A2")])
+        api.bodies[f"{BASE_URL}/v1/apps/A2/analyticsReportRequests"] = _page(
+            [_resource("analyticsReportRequests", "REQ2", accessType="ONGOING", stoppedDueToInactivity=False)]
+        )
+        api.bodies[f"{BASE_URL}/v1/analyticsReportRequests/REQ2/reports"] = _page(
+            [_resource("analyticsReports", "REP2", name="App Sessions Standard", category="APP_USAGE")]
+        )
+        api.bodies[f"{BASE_URL}/v1/analyticsReports/REP2/instances"] = _page([_instance("I2", "2026-08-02")])
+        api.bodies[_segments_url("I2")] = _page([_segment("S2", "https://r.s3.amazonaws.com/2", payload)])
+        api.segment_payloads["https://r.s3.amazonaws.com/2"] = payload
+
+        rows = _collect_analytics(api, _FakeManager())
+
+        assert [(row["app_id"], row["processing_date"]) for row in rows] == [("A2", date(2026, 8, 2))]
 
     def test_instance_without_segments_stops_the_walk_at_that_date(self) -> None:
         # Emitting a later date past a not-ready gap would let the table watermark advance
