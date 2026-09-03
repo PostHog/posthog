@@ -13,7 +13,11 @@ interface SessionInitializingViewProps {
 
 const REVEAL_DELAY_MS = 2000;
 
-function copyFor(
+/**
+ * Status copy shared by every initializing surface, so a prompt rendered
+ * optimistically beside the same heading reads as one state.
+ */
+export function sessionInitializingCopy(
   executionTarget: "cloud" | "local",
   cloudStatus: TaskRunStatus | null | undefined,
 ): { heading: string; subtitle: string } {
@@ -49,7 +53,7 @@ export function SessionInitializingView({
   heading,
   subtitle,
 }: SessionInitializingViewProps) {
-  const copy = copyFor(executionTarget, cloudStatus);
+  const copy = sessionInitializingCopy(executionTarget, cloudStatus);
   const visibleHeading = heading ?? copy.heading;
   const visibleSubtitle = subtitle ?? copy.subtitle;
 

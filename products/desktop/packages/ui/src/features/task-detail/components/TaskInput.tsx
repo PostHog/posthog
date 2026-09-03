@@ -44,7 +44,6 @@ import {
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
-import { NEW_TASK_COMPOSER_FADE_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToInbox } from "@posthog/ui/router/navigationBridge";
@@ -1047,7 +1046,6 @@ export function TaskInput({
 
   const {
     isCreatingTask,
-    isExitingComposer,
     canSubmit,
     handleSubmit,
     additionalDirectories,
@@ -1385,16 +1383,8 @@ export function TaskInput({
                 // suggestions fade out (and back in when the prompt is cleared).
                 top: suggestions && suggestions.length > 0 ? "38%" : "50%",
                 transform: "translate(-50%, -50%)",
-                // Once the task is on its way, the whole composer fades out and
-                // the pending chat fades in over it.
-                opacity: isExitingComposer ? 0 : 1,
-                transitionProperty: "opacity",
-                transitionDuration: `${NEW_TASK_COMPOSER_FADE_MS}ms`,
-                transitionTimingFunction: "ease-out",
               }}
-              className={`absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2 ${
-                isExitingComposer ? "pointer-events-none" : ""
-              }`}
+              className="absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
             >
               <Flex
                 gap="2"

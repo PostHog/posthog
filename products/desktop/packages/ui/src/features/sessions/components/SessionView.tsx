@@ -53,7 +53,10 @@ import { PlanStatusBar } from "@posthog/ui/features/sessions/components/PlanStat
 import { QueuedMessagesDock } from "@posthog/ui/features/sessions/components/QueuedMessagesDock";
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { RawLogsView } from "@posthog/ui/features/sessions/components/raw-logs/RawLogsView";
-import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
+import {
+  SessionInitializingView,
+  sessionInitializingCopy,
+} from "@posthog/ui/features/sessions/components/SessionInitializingView";
 import { SideQuestionCard } from "@posthog/ui/features/sessions/components/SideQuestionCard";
 import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/SteerQueueToggle";
 import {
@@ -742,15 +745,23 @@ export function SessionView({
                 </Box>
               </>
             ) : isInitializing ? (
-              isCloud ? (
-                <SessionInitializingView
-                  executionTarget="cloud"
-                  cloudStatus={cloudStatus}
-                />
-              ) : pendingTaskPrompt?.promptText ? (
+              // The moved prompt record renders first so the submitted message
+              // is on screen before the transcript arrives, for cloud runs as
+              // well; the transcript then replaces it without a visual change.
+              pendingTaskPrompt?.promptText ? (
                 <PendingChatView
                   promptText={pendingTaskPrompt.promptText}
                   attachments={pendingTaskPrompt.attachments}
+                  statusText={
+                    isCloud
+                      ? sessionInitializingCopy("cloud", cloudStatus).heading
+                      : undefined
+                  }
+                />
+              ) : isCloud ? (
+                <SessionInitializingView
+                  executionTarget="cloud"
+                  cloudStatus={cloudStatus}
                 />
               ) : (
                 <Flex
