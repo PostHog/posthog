@@ -61,8 +61,7 @@ class SweepScannerWorkflow(PostHogWorkflow):
 
     @wf.run
     async def run(self, inputs: SweepScannerInputs) -> None:
-        # Every sweep that recorded the vision-action dispatch has long closed, so the legacy path
-        # is gone. The marker stays deprecated until no history carrying it can replay.
+        # Declared until no history carrying the marker can replay.
         wf.deprecate_patch("drop-vision-action-dispatch-2026-09")
 
         # Same heartbeat keeps the prompt recommendation fresh. The activity self-gates to at most one

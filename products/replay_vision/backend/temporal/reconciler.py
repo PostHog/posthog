@@ -86,8 +86,7 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
         except Exception:
             workflow.logger.exception("replay_vision.reap_orphaned_observations_failed")
 
-        # The stuck-run reaper went with vision actions. Both markers stay deprecated until no
-        # history carrying either can replay.
+        # Declared until no history carrying either marker can replay.
         workflow.deprecate_patch("reap-stuck-vision-action-runs-2026-07")
         workflow.deprecate_patch("drop-stuck-vision-action-run-reaper-2026-09")
 
@@ -180,7 +179,7 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
 
     async def _run_reaper(
         self,
-        reaper_activity: Callable[[], Any] | str,
+        reaper_activity: Callable[[], Any],
         *,
         heartbeat_timeout: dt.timedelta | None = None,
         start_to_close_timeout: dt.timedelta = REAPER_OP_TIMEOUT,
