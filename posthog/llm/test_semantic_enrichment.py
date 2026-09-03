@@ -11,6 +11,7 @@ from posthog.llm.semantic_enrichment import (
     MAX_OUTPUT_TOKENS,
     TruncatedCompletionError,
     _ChatClient,
+    _Completion,
     _MessagesClient,
     build_enrichment_client,
     generate_json_completion,
@@ -64,7 +65,7 @@ def _messages_response(text: str, *, stop_reason: str = "end_turn", usage: Magic
     return response
 
 
-def _chat_response(text: str, *, finish_reason: str = "stop") -> MagicMock:
+def _chat_response(text: str | None, *, finish_reason: str = "stop") -> MagicMock:
     response = MagicMock()
     choice = MagicMock(finish_reason=finish_reason)
     choice.message.content = text
@@ -292,7 +293,7 @@ class TestMessagesTextGuards:
     """The Messages leg is the one the cutover switches traffic onto, so its null defaults need the
     same pinning the chat leg's `content or ""` got."""
 
-    def _completion(self, blocks) -> object:
+    def _completion(self, blocks: list[MagicMock]) -> _Completion:
         sdk = MagicMock()
         response = _messages_response("")
         response.content = blocks
