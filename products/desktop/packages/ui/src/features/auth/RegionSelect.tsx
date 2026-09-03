@@ -18,7 +18,7 @@ interface RegionSelectProps {
 }
 
 const PRODUCTION_REGIONS: CloudRegion[] = ["us", "eu"];
-const DEVELOPMENT_REGIONS: CloudRegion[] = ["dev", "dev-cloud"];
+const DEVELOPMENT_REGIONS: CloudRegion[] = ["dev-cloud", "dev"];
 
 export function getSelectableRegions(includeDevRegion: boolean): CloudRegion[] {
   return includeDevRegion
