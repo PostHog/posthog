@@ -26,18 +26,23 @@ export function CustomerTaskAssigneeSelect({ task, logic }: CustomerTaskAssignee
             size="small"
             onChange={(user) => updateTask(task.id, { assigned_to_id: user?.id ?? null })}
         >
-            {(selected) => (
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    loading={saving}
-                    disabledReason={customerTaskEditDisabledReason(task) ?? (saving ? 'Saving' : undefined)}
-                    icon={selected ? <ProfilePicture user={selected} size="sm" /> : undefined}
-                    data-attr="customer-task-assignee"
-                >
-                    {selected ? fullName(selected) || selected.email : task.assigned_to ? 'Unknown user' : 'Unassigned'}
-                </LemonButton>
-            )}
+            {(selected) => {
+                // MemberSelect resolves selected from the organization member list, which loads
+                // only once its picker opens. The task carries the assignee, so read it instead.
+                const assignee = selected ?? task.assigned_to
+                return (
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        loading={saving}
+                        disabledReason={customerTaskEditDisabledReason(task) ?? (saving ? 'Saving' : undefined)}
+                        icon={assignee ? <ProfilePicture user={assignee} size="sm" /> : undefined}
+                        data-attr="customer-task-assignee"
+                    >
+                        {assignee ? fullName(assignee) || assignee.email : 'Unassigned'}
+                    </LemonButton>
+                )
+            }}
         </MemberSelect>
     )
 }

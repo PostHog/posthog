@@ -30,7 +30,7 @@ const accountlessTask: CustomerTaskApi = {
     name: 'Follow up',
     description: 'First line\nSecond line\nThird line',
     status: 'open',
-    assigned_to: null,
+    assigned_to: { id: 7, email: 'casey@example.com', first_name: 'Casey', last_name: 'Kim' },
     due_at: null,
     completed_at: null,
     completed_by: null,
@@ -84,6 +84,8 @@ describe('CustomerTasksTable', () => {
         const taskRow = taskName.closest('tr')
         expect(taskRow).not.toBeNull()
         expect(within(taskRow!).getByText('First line Second line Third line')).toBeInTheDocument()
+        // The member list loads only once a picker opens, so the row has to name the assignee itself.
+        expect(taskRow!.querySelector('[data-attr="customer-task-assignee"]')).toHaveTextContent('Casey Kim')
 
         fireEvent.click(taskName)
         expect(screen.getByText('Edit task')).toBeInTheDocument()
