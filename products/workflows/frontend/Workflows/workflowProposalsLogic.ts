@@ -131,6 +131,9 @@ export interface workflowProposalsLogicActions {
     setOptimisationUnreadable: (unreadable: boolean) => {
         unreadable: boolean
     }
+    setOptimisationUnreadable: (unreadable: boolean) => {
+        unreadable: boolean
+    }
     setOutcome: (
         proposalId: string,
         outcome: WorkflowProposalOutcomeApi
