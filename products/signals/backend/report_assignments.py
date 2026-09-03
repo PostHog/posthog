@@ -20,6 +20,11 @@ from products.signals.backend.models import InvalidStatusTransition, SignalRepor
 
 logger = structlog.get_logger(__name__)
 
+# The parser accepts any integer and any owner/repo length, but the columns are a positive bigint
+# and a bounded varchar — so a hand-crafted URL only fails once the row reaches Postgres.
+MAX_PR_NUMBER = 2**63 - 1
+MAX_REPOSITORY_LENGTH = SignalReportAssignment._meta.get_field("repository").max_length or 200
+
 CLAIMABLE_REPORT_STATUSES = frozenset(
     {
         SignalReport.Status.READY,
@@ -124,10 +129,15 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
     parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
     if parsed is None:
         raise InvalidPullRequestUrl("pr_url must be a GitHub pull request URL.")
+    if not 0 < parsed.number <= MAX_PR_NUMBER:
+        raise InvalidPullRequestUrl("pr_url must end in a positive pull request number.")
+    repository = parsed.repository.lower()
+    if len(repository) > MAX_REPOSITORY_LENGTH:
+        raise InvalidPullRequestUrl("pr_url repository name is too long.")
 
     details = PullRequestDetails(
         url=pr_url,
-        repository=parsed.repository.lower(),
+        repository=repository,
         number=parsed.number,
         state=SignalReportAssignment.PrState.UNKNOWN,
         merged=False,

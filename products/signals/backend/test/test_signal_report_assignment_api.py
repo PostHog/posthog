@@ -275,6 +275,23 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert released.json()["work_state"] == "in_review"
         assert released.json()["assignee"] is None
 
+    @parameterized.expand(
+        [
+            ("negative_number", "https://github.com/PostHog/posthog/pull/-5"),
+            ("zero_number", "https://github.com/PostHog/posthog/pull/0"),
+            ("number_above_bigint", "https://github.com/PostHog/posthog/pull/99999999999999999999999"),
+            ("overlong_repository", f"https://github.com/{'o' * 300}/posthog/pull/5"),
+        ]
+    )
+    def test_unstorable_pull_request_url_is_rejected(self, _name: str, pr_url: str):
+        report = self._create_report()
+
+        response = self.client.post(self._claim_url(report), data={"pr_url": pr_url}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "pr_url" in response.json()["attr"]
+        assert not SignalReportAssignment.all_teams.filter(report=report).exists()
+
     def test_release_and_pr_url_cannot_be_combined(self):
         report = self._create_report()
 
