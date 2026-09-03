@@ -3,9 +3,12 @@
 Finds teams whose experiment metric reads run as direct event scans only because the
 team is not enrolled in precomputation (`experiment_precompute_skip_reason = 'team_disabled'`),
 measures their pain over a trailing window, and reports the ones crossing the enrollment
-criteria. Report-only: this module never writes to `TeamExperimentsConfig`.
+criteria. In "enroll" mode (`EXPERIMENT_PRECOMPUTE_ENROLLMENT_MODE`) it also enables
+precomputation for a capped number of candidates per run. Additive only: the single write
+anywhere in this module is False to True, and teams a human touched are never modified.
 """
 
+from django.conf import settings
 from django.db.models import Count
 
 import structlog
@@ -14,6 +17,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.dataclasses import frozen
 
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -38,6 +42,13 @@ HARD_FAILURES_THRESHOLD = 5
 BUILD_CAP_EXCLUSION_BYTES = int(2.5 * 10**12)
 
 EXCLUSION_BUILD_BYTE_CAP = "build_byte_cap"
+
+ENROLLMENT_MODE_ENROLL = "enroll"
+
+# Enroll at most this many teams per daily run, worst (most bytes rescanned) first. Makes
+# the rollout gradual by construction: each wave gets a day of canary and query-perf
+# scrutiny before the next.
+MAX_ENROLLMENTS_PER_RUN = 5
 
 # Reads query_log_archive, not system.query_log: the archive outlives query_log's short
 # retention and stores log_comment as a typed JSON column. The lc_product prefilter keeps
@@ -212,6 +223,40 @@ def build_census_report(stats: list[TeamDirectScanStats], window_days: int) -> E
     )
 
 
+def enroll_candidates(report: EnrollmentCensusReport) -> list[int]:
+    """Enable precomputation for up to MAX_ENROLLMENTS_PER_RUN candidates, worst first.
+
+    Additive only: the single write is False to True with set_by="auto". Teams a human
+    touched (set_by="manual", in either direction) and already-enabled teams are skipped.
+    """
+    enrolled: list[int] = []
+    for candidate in report.candidates:
+        if len(enrolled) >= MAX_ENROLLMENTS_PER_RUN:
+            break
+        config, _ = TeamExperimentsConfig.objects.get_or_create(team_id=candidate.stats.team_id)
+        if config.experiment_precomputation_enabled:
+            continue
+        if config.precomputation_enabled_set_by == TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL:
+            logger.info(
+                "experiment_precompute_enrollment_skipped_manual",
+                team_id=candidate.stats.team_id,
+            )
+            continue
+        config.experiment_precomputation_enabled = True
+        config.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.AUTO
+        config.save(update_fields=["experiment_precomputation_enabled", "precomputation_enabled_set_by"])
+        enrolled.append(candidate.stats.team_id)
+        logger.info(
+            "experiment_precompute_enrollment_enrolled",
+            team_id=candidate.stats.team_id,
+            reasons=list(candidate.reasons),
+            total_read_bytes=candidate.stats.total_read_bytes,
+            running_experiments=candidate.running_experiments,
+            running_metrics=candidate.running_metrics,
+        )
+    return enrolled
+
+
 def run_enrollment_census_sync(window_days: int = CENSUS_WINDOW_DAYS) -> EnrollmentCensusReport:
     stats = fetch_direct_scan_stats(window_days)
     report = build_census_report(stats, window_days)
@@ -238,11 +283,17 @@ def run_enrollment_census_sync(window_days: int = CENSUS_WINDOW_DAYS) -> Enrollm
             max_read_bytes=excluded_team.stats.max_read_bytes,
             total_read_bytes=excluded_team.stats.total_read_bytes,
         )
+    enrolled: list[int] = []
+    if settings.EXPERIMENT_PRECOMPUTE_ENROLLMENT_MODE == ENROLLMENT_MODE_ENROLL:
+        enrolled = enroll_candidates(report)
+
     logger.info(
         "experiment_precompute_enrollment_census_finished",
         window_days=report.window_days,
         evaluated_teams=report.evaluated_teams,
         candidates=len(report.candidates),
         excluded=len(report.excluded),
+        mode=settings.EXPERIMENT_PRECOMPUTE_ENROLLMENT_MODE,
+        enrolled=enrolled,
     )
     return report
