@@ -385,15 +385,18 @@ def list_issue_threads(team_id: int, issue_id: UUID | str) -> QuerySet[ErrorTrac
     return (
         ErrorTrackingAlertThread.objects.for_team(team_id)
         .filter(issue_id=parsed_id)
-        .select_related("alert", "destination")
+        .select_related("alert", "destination", "destination__integration")
         .order_by("-created_at")
     )
 
 
-def slack_thread_url(external_ref: dict[str, Any]) -> str | None:
+def slack_thread_url(external_ref: dict[str, Any], workspace_id: str | None) -> str | None:
     channel = external_ref.get("channel")
     ts = external_ref.get("ts")
     if not channel or not ts:
         return None
-    # Slack's archive permalink; the workspace is resolved from the caller's session.
+    if workspace_id:
+        # Workspace-qualified deep link, so someone signed into several workspaces lands
+        # in the right one; the bare archive link resolves through their default.
+        return f"https://app.slack.com/client/{workspace_id}/{channel}/thread/{channel}-{ts}"
     return f"https://slack.com/archives/{channel}/p{str(ts).replace('.', '')}"
