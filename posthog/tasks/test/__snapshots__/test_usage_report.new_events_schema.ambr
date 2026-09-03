@@ -3,7 +3,7 @@
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-rails', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-aspnetcore', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 20:00:00'
   AND timestamp < '2022-01-10 22:00:00'
@@ -26,9 +26,11 @@
                                               'posthog-server',
                                               'posthog-react-native',
                                               'posthog-ruby',
+                                              'posthog-rails',
                                               'posthog-python',
                                               'posthog-php',
                                               'posthog-dotnet',
+                                              'posthog-aspnetcore',
                                               'posthog-elixir',
                                               'posthog-unity',
                                               'posthog-rs'))
@@ -40,7 +42,7 @@
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-rails', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-aspnetcore', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 22:00:00'
   AND timestamp < '2022-01-10 23:59:59'
@@ -63,9 +65,11 @@
                                               'posthog-server',
                                               'posthog-react-native',
                                               'posthog-ruby',
+                                              'posthog-rails',
                                               'posthog-python',
                                               'posthog-php',
                                               'posthog-dotnet',
+                                              'posthog-aspnetcore',
                                               'posthog-elixir',
                                               'posthog-unity',
                                               'posthog-rs'))
@@ -85,7 +89,8 @@
   FROM events_json PREWHERE timestamp >= '2022-01-10 00:00:00'
   AND timestamp < '2022-01-10 02:00:00'
   AND ifNull(properties.`$lib`, '') IN ('posthog-node',
-                                        'posthog-python')
+                                        'posthog-python',
+                                        'posthog-dotnet')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -110,7 +115,8 @@
   FROM events_json PREWHERE timestamp >= '2022-01-10 02:00:00'
   AND timestamp < '2022-01-10 04:00:00'
   AND ifNull(properties.`$lib`, '') IN ('posthog-node',
-                                        'posthog-python')
+                                        'posthog-python',
+                                        'posthog-dotnet')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -135,7 +141,8 @@
   FROM events_json PREWHERE timestamp >= '2022-01-10 04:00:00'
   AND timestamp < '2022-01-10 06:00:00'
   AND ifNull(properties.`$lib`, '') IN ('posthog-node',
-                                        'posthog-python')
+                                        'posthog-python',
+                                        'posthog-dotnet')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -160,7 +167,8 @@
   FROM events_json PREWHERE timestamp >= '2022-01-10 06:00:00'
   AND timestamp < '2022-01-10 08:00:00'
   AND ifNull(properties.`$lib`, '') IN ('posthog-node',
-                                        'posthog-python')
+                                        'posthog-python',
+                                        'posthog-dotnet')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -185,7 +193,8 @@
   FROM events_json PREWHERE timestamp >= '2022-01-10 08:00:00'
   AND timestamp < '2022-01-10 10:00:00'
   AND ifNull(properties.`$lib`, '') IN ('posthog-node',
-                                        'posthog-python')
+                                        'posthog-python',
+                                        'posthog-dotnet')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -210,7 +219,8 @@
   FROM events_json PREWHERE timestamp >= '2022-01-10 10:00:00'
   AND timestamp < '2022-01-10 12:00:00'
   AND ifNull(properties.`$lib`, '') IN ('posthog-node',
-                                        'posthog-python')
+                                        'posthog-python',
+                                        'posthog-dotnet')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -235,7 +245,8 @@
   FROM events_json PREWHERE timestamp >= '2022-01-10 12:00:00'
   AND timestamp < '2022-01-10 14:00:00'
   AND ifNull(properties.`$lib`, '') IN ('posthog-node',
-                                        'posthog-python')
+                                        'posthog-python',
+                                        'posthog-dotnet')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -260,7 +271,8 @@
   FROM events_json PREWHERE timestamp >= '2022-01-10 14:00:00'
   AND timestamp < '2022-01-10 16:00:00'
   AND ifNull(properties.`$lib`, '') IN ('posthog-node',
-                                        'posthog-python')
+                                        'posthog-python',
+                                        'posthog-dotnet')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -277,7 +289,7 @@
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-rails', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-aspnetcore', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 02:00:00'
   AND timestamp < '2022-01-10 04:00:00'
@@ -300,9 +312,11 @@
                                               'posthog-server',
                                               'posthog-react-native',
                                               'posthog-ruby',
+                                              'posthog-rails',
                                               'posthog-python',
                                               'posthog-php',
                                               'posthog-dotnet',
+                                              'posthog-aspnetcore',
                                               'posthog-elixir',
                                               'posthog-unity',
                                               'posthog-rs'))
@@ -322,7 +336,8 @@
   FROM events_json PREWHERE timestamp >= '2022-01-10 16:00:00'
   AND timestamp < '2022-01-10 18:00:00'
   AND ifNull(properties.`$lib`, '') IN ('posthog-node',
-                                        'posthog-python')
+                                        'posthog-python',
+                                        'posthog-dotnet')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -347,7 +362,8 @@
   FROM events_json PREWHERE timestamp >= '2022-01-10 18:00:00'
   AND timestamp < '2022-01-10 20:00:00'
   AND ifNull(properties.`$lib`, '') IN ('posthog-node',
-                                        'posthog-python')
+                                        'posthog-python',
+                                        'posthog-dotnet')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -372,7 +388,8 @@
   FROM events_json PREWHERE timestamp >= '2022-01-10 20:00:00'
   AND timestamp < '2022-01-10 22:00:00'
   AND ifNull(properties.`$lib`, '') IN ('posthog-node',
-                                        'posthog-python')
+                                        'posthog-python',
+                                        'posthog-dotnet')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -397,7 +414,8 @@
   FROM events_json PREWHERE timestamp >= '2022-01-10 22:00:00'
   AND timestamp < '2022-01-10 23:59:59'
   AND ifNull(properties.`$lib`, '') IN ('posthog-node',
-                                        'posthog-python')
+                                        'posthog-python',
+                                        'posthog-dotnet')
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(ifNull(if(toJSONString(properties.^`$ai_lib`) != '{}', toJSONString(properties.^`$ai_lib`), if(startsWith(dynamicType(properties.`$ai_lib`), 'Array')
                                                                                                                         OR startsWith(dynamicType(properties.`$ai_lib`), 'Map')
@@ -488,7 +506,7 @@
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-rails', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-aspnetcore', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 04:00:00'
   AND timestamp < '2022-01-10 06:00:00'
@@ -511,9 +529,11 @@
                                               'posthog-server',
                                               'posthog-react-native',
                                               'posthog-ruby',
+                                              'posthog-rails',
                                               'posthog-python',
                                               'posthog-php',
                                               'posthog-dotnet',
+                                              'posthog-aspnetcore',
                                               'posthog-elixir',
                                               'posthog-unity',
                                               'posthog-rs'))
@@ -651,7 +671,7 @@
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-rails', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-aspnetcore', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 06:00:00'
   AND timestamp < '2022-01-10 08:00:00'
@@ -674,9 +694,11 @@
                                               'posthog-server',
                                               'posthog-react-native',
                                               'posthog-ruby',
+                                              'posthog-rails',
                                               'posthog-python',
                                               'posthog-php',
                                               'posthog-dotnet',
+                                              'posthog-aspnetcore',
                                               'posthog-elixir',
                                               'posthog-unity',
                                               'posthog-rs'))
@@ -830,7 +852,7 @@
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-rails', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-aspnetcore', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 08:00:00'
   AND timestamp < '2022-01-10 10:00:00'
@@ -853,9 +875,11 @@
                                               'posthog-server',
                                               'posthog-react-native',
                                               'posthog-ruby',
+                                              'posthog-rails',
                                               'posthog-python',
                                               'posthog-php',
                                               'posthog-dotnet',
+                                              'posthog-aspnetcore',
                                               'posthog-elixir',
                                               'posthog-unity',
                                               'posthog-rs'))
@@ -976,7 +1000,7 @@
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-rails', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-aspnetcore', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 10:00:00'
   AND timestamp < '2022-01-10 12:00:00'
@@ -999,9 +1023,11 @@
                                               'posthog-server',
                                               'posthog-react-native',
                                               'posthog-ruby',
+                                              'posthog-rails',
                                               'posthog-python',
                                               'posthog-php',
                                               'posthog-dotnet',
+                                              'posthog-aspnetcore',
                                               'posthog-elixir',
                                               'posthog-unity',
                                               'posthog-rs'))
@@ -1013,7 +1039,7 @@
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-rails', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-aspnetcore', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 12:00:00'
   AND timestamp < '2022-01-10 14:00:00'
@@ -1036,9 +1062,11 @@
                                               'posthog-server',
                                               'posthog-react-native',
                                               'posthog-ruby',
+                                              'posthog-rails',
                                               'posthog-python',
                                               'posthog-php',
                                               'posthog-dotnet',
+                                              'posthog-aspnetcore',
                                               'posthog-elixir',
                                               'posthog-unity',
                                               'posthog-rs'))
@@ -1050,7 +1078,7 @@
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-rails', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-aspnetcore', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 14:00:00'
   AND timestamp < '2022-01-10 16:00:00'
@@ -1073,9 +1101,11 @@
                                               'posthog-server',
                                               'posthog-react-native',
                                               'posthog-ruby',
+                                              'posthog-rails',
                                               'posthog-python',
                                               'posthog-php',
                                               'posthog-dotnet',
+                                              'posthog-aspnetcore',
                                               'posthog-elixir',
                                               'posthog-unity',
                                               'posthog-rs'))
@@ -1087,7 +1117,7 @@
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-rails', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-aspnetcore', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 16:00:00'
   AND timestamp < '2022-01-10 18:00:00'
@@ -1110,9 +1140,11 @@
                                               'posthog-server',
                                               'posthog-react-native',
                                               'posthog-ruby',
+                                              'posthog-rails',
                                               'posthog-python',
                                               'posthog-php',
                                               'posthog-dotnet',
+                                              'posthog-aspnetcore',
                                               'posthog-elixir',
                                               'posthog-unity',
                                               'posthog-rs'))
@@ -1124,7 +1156,7 @@
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-rails', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-aspnetcore', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 18:00:00'
   AND timestamp < '2022-01-10 20:00:00'
@@ -1147,9 +1179,11 @@
                                               'posthog-server',
                                               'posthog-react-native',
                                               'posthog-ruby',
+                                              'posthog-rails',
                                               'posthog-python',
                                               'posthog-php',
                                               'posthog-dotnet',
+                                              'posthog-aspnetcore',
                                               'posthog-elixir',
                                               'posthog-unity',
                                               'posthog-rs'))
@@ -1161,7 +1195,7 @@
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-node-mcp', 'node_mcp_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-kmp', 'kmp_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-rails', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-aspnetcore', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
   FROM events_json PREWHERE timestamp >= '2022-01-10 00:00:00'
   AND timestamp < '2022-01-10 02:00:00'
@@ -1184,9 +1218,11 @@
                                               'posthog-server',
                                               'posthog-react-native',
                                               'posthog-ruby',
+                                              'posthog-rails',
                                               'posthog-python',
                                               'posthog-php',
                                               'posthog-dotnet',
+                                              'posthog-aspnetcore',
                                               'posthog-elixir',
                                               'posthog-unity',
                                               'posthog-rs'))
