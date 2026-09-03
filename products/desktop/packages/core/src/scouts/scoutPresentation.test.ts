@@ -747,6 +747,7 @@ describe("schedule modes", () => {
     ["0 9 1 * *"],
     ["0 9,17 * * *"],
     ["0 9 * * MON"],
+    ["0 9 31 2,3 MON"],
     ["0 9 * * 5#2"],
   ])("accepts %s", (expression) => {
     expect(scoutCronScheduleError(expression)).toBeNull();
@@ -757,6 +758,10 @@ describe("schedule modes", () => {
     ["70 9 * * *", "Enter a five-field cron expression, like 0 9 * * 1-5."],
     [
       "0 0 31 2 *",
+      "This schedule never matches a real date. Check the day and month.",
+    ],
+    [
+      "0 0 31 2 MON",
       "This schedule never matches a real date. Check the day and month.",
     ],
     ["*/20 * * * *", "Runs must be at least 30 minutes apart."],
