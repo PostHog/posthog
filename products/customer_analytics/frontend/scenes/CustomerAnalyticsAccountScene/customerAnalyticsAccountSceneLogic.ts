@@ -1,4 +1,17 @@
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -197,13 +210,18 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             posthog.capture(AccountsEvents.TabViewed, { tab })
         },
         updateTags: async ({ tags }, breakpoint) => {
-            await breakpoint(300)
             try {
+                await breakpoint(300)
                 const account = await accountsPartialUpdate(String(values.currentTeamId), props.accountId, { tags })
+                await breakpoint()
                 actions.updateTagsDone(account)
                 tagsModel.findMounted()?.actions.loadTags()
                 posthog.capture(AccountsEvents.TagsUpdated, { tag_count: tags.length })
             } catch (error) {
+                if (isBreakpoint(error)) {
+                    throw error
+                }
+                await breakpoint()
                 actions.updateTagsDone(null)
                 lemonToast.error("Couldn't save tags. Try again.")
                 posthog.captureException(error instanceof Error ? error : new Error('Could not update tags'), {
@@ -228,4 +246,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             actions.restoreActiveTab(DEFAULT_ACCOUNT_TAB)
         },
     })),
+    afterMount(({ actions }) => {
+        actions.loadAccount()
+    }),
 ])

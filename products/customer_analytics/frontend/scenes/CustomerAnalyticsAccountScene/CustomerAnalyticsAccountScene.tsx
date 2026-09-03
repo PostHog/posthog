@@ -4,7 +4,6 @@ import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -60,8 +59,6 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
         customerAnalyticsAccountSceneLogic
     )
     const { loadAccount, setActiveTab } = useActions(customerAnalyticsAccountSceneLogic)
-
-    useOnMountEffect(loadAccount)
 
     if (isAccountMissing) {
         return <NotFound object="account" />

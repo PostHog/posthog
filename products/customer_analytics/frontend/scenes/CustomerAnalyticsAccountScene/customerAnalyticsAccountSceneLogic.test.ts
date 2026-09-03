@@ -37,6 +37,22 @@ const account: AccountApi = {
     updated_at: null,
 }
 
+interface Deferred<T> {
+    promise: Promise<T>
+    resolve: (value: T) => void
+    reject: (reason: unknown) => void
+}
+
+function createDeferred<T>(): Deferred<T> {
+    let resolve!: (value: T) => void
+    let reject!: (reason: unknown) => void
+    const promise = new Promise<T>((promiseResolve, promiseReject) => {
+        resolve = promiseResolve
+        reject = promiseReject
+    })
+    return { promise, resolve, reject }
+}
+
 describe('customerAnalyticsAccountSceneLogic', () => {
     let logic: ReturnType<typeof customerAnalyticsAccountSceneLogic.build>
 
@@ -49,19 +65,22 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             [FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS]: true,
         })
         router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID))
+    })
+
+    function mountLogic(): void {
         logic = customerAnalyticsAccountSceneLogic({ accountId: ACCOUNT_ID })
         logic.mount()
-    })
+    }
 
     afterEach(() => {
         logic.unmount()
         featureFlagLogic.unmount()
     })
 
-    it('loads the account and uses its name in the breadcrumb', async () => {
+    it('loads the account on mount and uses its name in the breadcrumb', async () => {
         mockAccountsRetrieve.mockResolvedValue(account)
 
-        logic.actions.loadAccount()
+        mountLogic()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.account).toEqual(account)
@@ -73,7 +92,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         const captureException = jest.spyOn(posthog, 'captureException')
         mockAccountsRetrieve.mockRejectedValue(new ApiError('Not found', 404))
 
-        logic.actions.loadAccount()
+        mountLogic()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.isAccountMissing).toBe(true)
@@ -85,7 +104,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         const captureException = jest.spyOn(posthog, 'captureException')
         mockAccountsRetrieve.mockRejectedValue(failure)
 
-        logic.actions.loadAccount()
+        mountLogic()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.isAccountMissing).toBe(false)
@@ -98,7 +117,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
     it('clears a previous error when retrying', async () => {
         mockAccountsRetrieve.mockRejectedValueOnce(new ApiError('Server error', 500))
 
-        logic.actions.loadAccount()
+        mountLogic()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.accountLoadError).toBeInstanceOf(ApiError)
 
@@ -118,11 +137,17 @@ describe('customerAnalyticsAccountSceneLogic', () => {
     })
 
     describe('tag updates', () => {
+        beforeEach(async () => {
+            mockAccountsRetrieve.mockResolvedValue(account)
+            mountLogic()
+            await expectLogic(logic).toFinishAllListeners()
+            mockAccountsRetrieve.mockClear()
+        })
+
         it('saves tags and keeps the optimistic value', async () => {
             const updatedAccount = { ...account, tags: ['priority'] }
             const capture = jest.spyOn(posthog, 'capture').mockImplementation()
             mockAccountsPartialUpdate.mockResolvedValue(updatedAccount)
-            logic.actions.loadAccountSuccess(account)
 
             logic.actions.updateTags(['priority'])
 
@@ -141,7 +166,6 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             const failure = new ApiError('Server error', 500)
             mockAccountsPartialUpdate.mockRejectedValue(failure)
             mockAccountsRetrieve.mockResolvedValue(account)
-            logic.actions.loadAccountSuccess(account)
 
             logic.actions.updateTags(['priority'])
             await expectLogic(logic).toFinishAllListeners()
@@ -150,9 +174,52 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             expect(logic.values.tagsSaving).toBe(false)
             expect(mockAccountsRetrieve).toHaveBeenCalled()
         })
+
+        it.each(['success', 'failure'] as const)(
+            'keeps the latest tags when an earlier save ends with %s',
+            async (staleResult) => {
+                const staleRequest = createDeferred<AccountApi>()
+                const latestRequest = createDeferred<AccountApi>()
+                const staleRequestStarted = createDeferred<void>()
+                const latestRequestStarted = createDeferred<void>()
+                const latestAccount = { ...account, tags: ['latest'] }
+                mockAccountsPartialUpdate
+                    .mockImplementationOnce(() => {
+                        staleRequestStarted.resolve()
+                        return staleRequest.promise
+                    })
+                    .mockImplementationOnce(() => {
+                        latestRequestStarted.resolve()
+                        return latestRequest.promise
+                    })
+
+                logic.actions.updateTags(['stale'])
+                await staleRequestStarted.promise
+                logic.actions.updateTags(['latest'])
+                await latestRequestStarted.promise
+
+                latestRequest.resolve(latestAccount)
+                if (staleResult === 'success') {
+                    staleRequest.resolve({ ...account, tags: ['stale'] })
+                } else {
+                    staleRequest.reject(new ApiError('Server error', 500))
+                }
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.account).toEqual(latestAccount)
+                expect(logic.values.tagsSaving).toBe(false)
+                expect(mockAccountsRetrieve).not.toHaveBeenCalled()
+            }
+        )
     })
 
     describe('tab routing', () => {
+        beforeEach(async () => {
+            mockAccountsRetrieve.mockResolvedValue(account)
+            mountLogic()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
         it('selects Notes for the bare account URL', () => {
             router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID))
 
