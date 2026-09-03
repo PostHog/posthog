@@ -212,6 +212,14 @@ class MCPDiscoverCandidateSerializer(serializers.Serializer):
     )
 
 
+class MCPDiscoverResponseSerializer(serializers.Serializer):
+    """Everything an agent gets back from one discover call."""
+
+    intent = serializers.CharField(help_text="The intent the candidates were ranked against, echoed back.")
+    ranking_version = serializers.CharField(help_text="Ranking version the candidates were ordered by.")
+    candidates = MCPDiscoverCandidateSerializer(many=True, help_text="Servers most likely to do the thing, best first.")
+
+
 class MCPRegistryCompareRowSerializer(serializers.Serializer):
     """One server's position under one ranking version."""
 

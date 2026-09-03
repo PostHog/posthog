@@ -239,6 +239,92 @@ export const MCPRegistryServerDetailApi = zod.object({
 export type MCPRegistryServerDetailApi = zod.input<typeof MCPRegistryServerDetailApi>
 export type MCPRegistryServerDetailApiOutput = zod.output<typeof MCPRegistryServerDetailApi>
 
+export const MCPDiscoverCandidateApi = zod
+    .object({
+        rank: zod.number().describe('1-based position under the ranking version used.'),
+        id: zod.uuid().describe('Registry server id, for the detail endpoint.'),
+        registry_name: zod.string().describe('Official registry name, empty for measured-only servers.'),
+        title: zod.string().describe('Human-readable server name.'),
+        description: zod.string().describe('What the server does.'),
+        score: zod.number().describe('Rank score in [0, 1] under the ranking version used.'),
+        why: zod
+            .record(zod.string(), zod.unknown())
+            .describe(
+                'Score breakdown so an agent can explain its choice: fit, liveness, trust, and whether real usage signal contributed.'
+            ),
+        liveness: zod.string().describe('Probed liveness state (alive_open, alive_auth, dead, ...).'),
+        auth_method: zod.string().describe('Detected auth method (none, oauth, api_key, unknown).'),
+        measured: zod
+            .record(zod.string(), zod.unknown())
+            .nullable()
+            .describe(
+                'Real MCP Analytics aggregates when the server is measured, otherwise null: calls, sessions, error_rate_pct, intent_coverage_pct, harness_count.'
+            ),
+        matched_tools: zod
+            .array(zod.looseObject({}))
+            .describe(
+                'Tools that matched the intent: [{name, description, source}]. Empty when only the server description matched.'
+            ),
+        connect: zod
+            .record(zod.string(), zod.unknown())
+            .describe(
+                'Connection instructions, most-automated method first, steps typed by actor so the agent runs its own steps and narrates the human ones.'
+            ),
+    })
+    .describe('One ranked candidate in a discover response, with everything an agent needs to act.')
+
+export type MCPDiscoverCandidateApi = zod.input<typeof MCPDiscoverCandidateApi>
+export type MCPDiscoverCandidateApiOutput = zod.output<typeof MCPDiscoverCandidateApi>
+
+export const MCPDiscoverResponseApi = zod
+    .object({
+        intent: zod.string().describe('The intent the candidates were ranked against, echoed back.'),
+        ranking_version: zod.string().describe('Ranking version the candidates were ordered by.'),
+        candidates: zod
+            .array(
+                zod
+                    .object({
+                        rank: zod.number().describe('1-based position under the ranking version used.'),
+                        id: zod.uuid().describe('Registry server id, for the detail endpoint.'),
+                        registry_name: zod
+                            .string()
+                            .describe('Official registry name, empty for measured-only servers.'),
+                        title: zod.string().describe('Human-readable server name.'),
+                        description: zod.string().describe('What the server does.'),
+                        score: zod.number().describe('Rank score in [0, 1] under the ranking version used.'),
+                        why: zod
+                            .record(zod.string(), zod.unknown())
+                            .describe(
+                                'Score breakdown so an agent can explain its choice: fit, liveness, trust, and whether real usage signal contributed.'
+                            ),
+                        liveness: zod.string().describe('Probed liveness state (alive_open, alive_auth, dead, ...).'),
+                        auth_method: zod.string().describe('Detected auth method (none, oauth, api_key, unknown).'),
+                        measured: zod
+                            .record(zod.string(), zod.unknown())
+                            .nullable()
+                            .describe(
+                                'Real MCP Analytics aggregates when the server is measured, otherwise null: calls, sessions, error_rate_pct, intent_coverage_pct, harness_count.'
+                            ),
+                        matched_tools: zod
+                            .array(zod.looseObject({}))
+                            .describe(
+                                'Tools that matched the intent: [{name, description, source}]. Empty when only the server description matched.'
+                            ),
+                        connect: zod
+                            .record(zod.string(), zod.unknown())
+                            .describe(
+                                'Connection instructions, most-automated method first, steps typed by actor so the agent runs its own steps and narrates the human ones.'
+                            ),
+                    })
+                    .describe('One ranked candidate in a discover response, with everything an agent needs to act.')
+            )
+            .describe('Servers most likely to do the thing, best first.'),
+    })
+    .describe('Everything an agent gets back from one discover call.')
+
+export type MCPDiscoverResponseApi = zod.input<typeof MCPDiscoverResponseApi>
+export type MCPDiscoverResponseApiOutput = zod.output<typeof MCPDiscoverResponseApi>
+
 export const MCPRankingVersionApi = zod
     .object({
         version: zod.string().describe('Ranking version key, passed as ?version= to the list endpoint.'),

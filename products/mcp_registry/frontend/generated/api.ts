@@ -9,11 +9,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    MCPDiscoverResponseApi,
     MCPRankingVersionApi,
     MCPRegistryServerDetailApi,
     McpRegistryServersCompareRetrieve200,
     McpRegistryServersCompareRetrieveParams,
-    McpRegistryServersDiscoverRetrieve200,
     McpRegistryServersDiscoverRetrieveParams,
     McpRegistryServersListParams,
     PaginatedMCPRegistryServerListListApi,
@@ -129,14 +129,11 @@ export const mcpRegistryServersDiscoverRetrieve = async (
     projectId: string,
     params: McpRegistryServersDiscoverRetrieveParams,
     options?: RequestInit
-): Promise<McpRegistryServersDiscoverRetrieve200> => {
-    return apiMutator<McpRegistryServersDiscoverRetrieve200>(
-        getMcpRegistryServersDiscoverRetrieveUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<MCPDiscoverResponseApi> => {
+    return apiMutator<MCPDiscoverResponseApi>(getMcpRegistryServersDiscoverRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getMcpRegistryServersVersionsListUrl = (projectId: string) => {

@@ -1,7 +1,7 @@
 import re
 from typing import Any
 
-from django.db.models import Case, Exists, F, FloatField, OuterRef, Q, QuerySet, Subquery, Value, When
+from django.db.models import Case, Exists, Expression, F, FloatField, OuterRef, Q, QuerySet, Subquery, Value, When
 from django.db.models.functions import Coalesce, Power
 
 from drf_spectacular.types import OpenApiTypes
@@ -25,7 +25,7 @@ from products.mcp_registry.backend.facade.api import (
 )
 from products.mcp_registry.backend.models import MCPMeasuredStats, MCPRankingScore, MCPRegistryServer, MCPRegistryTool
 from products.mcp_registry.backend.presentation.serializers import (
-    MCPDiscoverCandidateSerializer,
+    MCPDiscoverResponseSerializer,
     MCPRankingVersionSerializer,
     MCPRegistryCompareRowSerializer,
     MCPRegistryServerDetailSerializer,
@@ -115,7 +115,7 @@ def _search_filter(tokens: list[str]) -> Q:
     return query
 
 
-def _relevance_annotation(tokens: list[str]) -> Case | Value:
+def _relevance_annotation(tokens: list[str]) -> Expression:
     """How well each server's own text answers the query.
 
     Counts distinct query tokens matched, weighting where the match landed: a server
@@ -130,9 +130,9 @@ def _relevance_annotation(tokens: list[str]) -> Case | Value:
     """
     if not tokens:
         return Value(0.0, output_field=FloatField())
-    expression: Case | Value = Value(0.0, output_field=FloatField())
+    expression: Expression = Value(0.0, output_field=FloatField())
     for token in tokens:
-        expression = expression + Case(  # type: ignore[assignment]
+        expression = expression + Case(
             When(_namespace_match(token), then=Value(_MAX_TOKEN_WEIGHT)),
             When(display_name__icontains=token, then=Value(3.0)),
             When(registry_name__icontains=token, then=Value(3.0)),
@@ -277,7 +277,7 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             OpenApiParameter("version", OpenApiTypes.STR, description="Ranking version to rank candidates by."),
             OpenApiParameter("limit", OpenApiTypes.INT, description="Candidates to return (default 5, max 20)."),
         ],
-        responses={200: OpenApiTypes.OBJECT},
+        responses={200: MCPDiscoverResponseSerializer},
         description="Given a task, return the MCP servers most likely to do it, each with its rank rationale, "
         "real usage signal where we measure it, and ready-to-run connection instructions. One call is "
         "everything an agent needs to go from a task to a connected server.",
@@ -326,11 +326,7 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
 
         return Response(
-            {
-                "intent": intent,
-                "ranking_version": version,
-                "candidates": MCPDiscoverCandidateSerializer(candidates, many=True).data,
-            }
+            MCPDiscoverResponseSerializer({"intent": intent, "ranking_version": version, "candidates": candidates}).data
         )
 
     @extend_schema(
