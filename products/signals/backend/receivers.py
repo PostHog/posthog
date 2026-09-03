@@ -159,6 +159,9 @@ def _pr_close_reason(
         return None
     if prior_status is None or prior_status == instance.status:
         return None
+    # The pull request's own observed state drove this transition, so there is nothing left to close.
+    if getattr(instance, "_status_from_pr_state", False):
+        return None
 
     if instance.status == SignalReport.Status.SUPPRESSED:
         return "suppressed"

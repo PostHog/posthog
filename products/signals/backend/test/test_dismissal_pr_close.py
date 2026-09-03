@@ -7,6 +7,7 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
 from products.signals.backend.models import SignalReport, SignalReportAssignment
+from products.signals.backend.report_assignments import update_assignments_for_pull_request
 from products.signals.backend.tasks import close_dismissed_report_pr
 
 _PR_URL = "https://github.com/PostHog/posthog/pull/123"
@@ -100,6 +101,32 @@ class TestClosePrWhenReportDismissed(BaseTest):
         with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
             self._save_transition(report, SignalReport.Status.RESOLVED)
         mock_task.delay.assert_not_called()
+
+    def test_pr_closed_webhook_does_not_enqueue_for_any_linked_report(self):
+        reports = [self._create_report(), self._create_report()]
+        for report in reports:
+            SignalReportAssignment.all_teams.create(
+                team=self.team,
+                report=report,
+                pr_url=_PR_URL,
+                repository="posthog/posthog",
+                pr_number=123,
+                pr_state=SignalReportAssignment.PrState.OPEN,
+            )
+
+        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                update_assignments_for_pull_request(
+                    team_ids=[self.team.id],
+                    repository="posthog/posthog",
+                    pr_number=123,
+                    pr_state=SignalReportAssignment.PrState.CLOSED,
+                )
+
+        mock_task.delay.assert_not_called()
+        for report in reports:
+            report.refresh_from_db()
+            assert report.status == SignalReport.Status.SUPPRESSED
 
     def test_unrelated_save_of_suppressed_report_does_not_enqueue(self):
         report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)

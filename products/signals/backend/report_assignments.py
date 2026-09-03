@@ -216,6 +216,9 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None) -> None:
             pr_state=pr_state,
         )
         return
+    # GitHub already reports this pull request as closed or merged. Without this marker the
+    # dismissal receiver queues a redundant close for every report that shares the pull request.
+    report._status_from_pr_state = True  # type: ignore[attr-defined]
     report.save(update_fields=updated_fields)
 
 
