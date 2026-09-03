@@ -510,6 +510,20 @@ class CustomerTaskAPI(APIBaseTest):
         assert response.json()["count"] == 4
         assert [task["name"] for task in response.json()["results"]] == ["Charlie", "Bravo"]
 
+    @parameterized.expand(
+        [
+            ("list",),
+            ("activities",),
+        ]
+    )
+    def test_page_limit_below_one_is_rejected(self, endpoint: str) -> None:
+        created = self.client.post(self.url, {"name": "Paged task"}, format="json")
+        url = self.url if endpoint == "list" else f"{self.url}{created.json()['id']}/activities/"
+
+        response = self.client.get(url, {"limit": "0"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def _create_ordering_task(
         self,
         *,
