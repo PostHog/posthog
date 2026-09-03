@@ -29038,6 +29038,11 @@ export namespace Schemas {
          */
       min_seconds: number | null;
       /**
+         * 5th percentile of the stage's duration, in seconds — the lower whisker when outliers are excluded. Null when nothing deployed.
+         * @nullable
+         */
+      p05_seconds: number | null;
+      /**
          * 25th percentile of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
@@ -29058,6 +29063,11 @@ export namespace Schemas {
          */
       p75_seconds: number | null;
       /**
+         * 95th percentile of the stage's duration, in seconds — the upper whisker when outliers are excluded. Null when nothing deployed.
+         * @nullable
+         */
+      p95_seconds: number | null;
+      /**
          * Slowest duration for this stage in this bucket, in seconds. Null when nothing deployed.
          * @nullable
          */
@@ -29067,7 +29077,7 @@ export namespace Schemas {
     export interface DoraOverview {
       /** Successful deployments per bucket across the window, oldest first, zero-filled, bucketed by series_granularity. Empty when the deploy tables aren't synced. */
       deployment_frequency_series: DeploymentFrequencyBucket[];
-      /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
+      /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p5/p25/p50/mean/p75/p95/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
       merge_to_deploy_series: LeadTimeBucket[];
       /** Open-to-merge distribution over the SAME deployed PRs and buckets as merge_to_deploy_series, so the two stages compare bucket by bucket. Not the all-merged-PRs cycle time. Empty in the same cases as merge_to_deploy_series. */
       open_to_merge_series: LeadTimeBucket[];
@@ -29075,7 +29085,7 @@ export namespace Schemas {
       open_to_deploy_series: LeadTimeBucket[];
       /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
       deploy_data_available: boolean;
-      /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
+      /** What the environment filter resolved to: the exact environment name(s) it matches (the caller's picks, comma-joined when several; by default the busiest production-marked environment, falling back to the busiest persistent one), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
       environment_scope: string;
       /** Distinct persistent environments deployed to in the scan window, most-deployed first — the environment picker's options. Transient environments are omitted but stay reachable by exact name. */
       environments: string[];
@@ -29157,7 +29167,7 @@ export namespace Schemas {
          * @nullable
          */
       latest_deploy_status_at: string | null;
-      /** Bucket width of every series, chosen to fit the window: 'hour', 'day', or 'week'. */
+      /** Bucket width of every series: the granularity param when given, else chosen to fit the window: 'hour', 'day', or 'week'. */
       series_granularity: string;
     }
 
@@ -58591,6 +58601,8 @@ export namespace Schemas {
       readonly author_email: string | null;
       /** True for internal notes not visible to the customer. */
       readonly is_private: boolean;
+      /** True when the complete inbound email body can be retrieved. */
+      readonly has_full_email_content: boolean;
       /** Edit count. 0 means never edited. */
       readonly version: number;
       readonly created_at: string;
@@ -75469,7 +75481,7 @@ export namespace Schemas {
     export interface ReviewTriggerResponse {
       /** Temporal workflow id for the started review run; empty when no run was started. */
       workflow_id: string;
-      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts). */
+      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts), 'joined_running_review' when a review was already in flight (no new run starts; a report in a cheaper tier is lifted to human strength for the rest of that review and every later one). */
       status: string;
     }
 
@@ -85250,6 +85262,95 @@ export namespace Schemas {
       channel?: string | null;
     }
 
+    /**
+     * The default AI run triple stored at team or user level.
+     *
+     * Write payload for the tasks config endpoints and the `ai_run_preferences` block of
+     * their responses. `runtime_adapter` and `model` must be set together; send all three
+     * as null to clear a stored preference.
+     */
+    export interface TasksAIRunPreferences {
+      /** Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum | null;
+      /**
+         * Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.
+         * @nullable
+         */
+      model?: string | null;
+      /** Default reasoning effort for models that expose an effort control.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max
+       * * `ultracode` - ultracode */
+      reasoning_effort?: ReasoningEffortEnum | null;
+    }
+
+    /**
+     * * `user` - user
+     * * `team` - team
+     * * `none` - none
+     */
+    export type TasksResolvedAIRunDefaultsSourceEnum = typeof TasksResolvedAIRunDefaultsSourceEnum[keyof typeof TasksResolvedAIRunDefaultsSourceEnum];
+
+
+    export const TasksResolvedAIRunDefaultsSourceEnum = {
+      User: 'user',
+      Team: 'team',
+      None: 'none',
+    } as const;
+
+    /**
+     * The AI run triple a new run will effectively use when the caller pins nothing,
+     * plus which preference level supplied it.
+     */
+    export interface TasksResolvedAIRunDefaults {
+      /**
+         * Effective default runtime adapter, or null when no preference is stored.
+         * @nullable
+         */
+      runtime_adapter: string | null;
+      /**
+         * Effective default model identifier, or null when no preference is stored.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * Effective default reasoning effort, or null when unset or unsupported.
+         * @nullable
+         */
+      reasoning_effort: string | null;
+      /** Preference level that supplied the default: the caller's own per-project preference ('user'), the project default ('team'), or 'none'.
+       *
+       * * `user` - user
+       * * `team` - team
+       * * `none` - none */
+      source: TasksResolvedAIRunDefaultsSourceEnum;
+    }
+
+    /**
+     * Team-level tasks configuration.
+     */
+    export interface TasksTeamConfigResponse {
+      /** Project-wide default AI run triple; all fields null when unset. */
+      ai_run_preferences: TasksAIRunPreferences;
+    }
+
+    /**
+     * The requesting user's per-project tasks configuration.
+     */
+    export interface TasksUserConfigResponse {
+      /** The requesting user's per-project default AI run triple; all fields null when unset. */
+      ai_run_preferences: TasksAIRunPreferences;
+      /** The defaults a new run will use when no explicit runtime selection is sent. */
+      resolved_ai_run_defaults: TasksResolvedAIRunDefaults;
+    }
+
     export interface TeachingCanvas {
       /** The teaching canvas that was resolved or created. */
       canvas_id: string;
@@ -85866,6 +85967,11 @@ export namespace Schemas {
     export interface TicketError {
       detail: string;
       error_type?: string;
+    }
+
+    export interface TicketFullEmail {
+      /** Full inbound email body in Markdown. */
+      readonly content: string;
     }
 
     /**
@@ -92990,13 +93096,17 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Exact deploy environment to scope to (from the response's `environments` list). Omit to scope to production-marked deployments, falling back to every persistent (non-transient) environment when none are marked production.
+     * Deploy environment(s) to scope to, repeatable (from the response's `environments` list). Omit to scope to the busiest environment GitHub marks production, falling back to the busiest persistent (non-transient) environment when none are marked production.
      */
-    environment?: string;
+    environment?: string[];
     /**
      * GitHub team slug (from the response's `github_teams` list) to narrow the PR-scoped merge-to-deploy figures to that team's authors. Deploy counts stay repo-wide. Needs the team-membership snapshot synced; without it the merge-to-deploy figures return empty rather than silently unfiltered.
      */
     github_team?: string;
+    /**
+     * Bucket width for every series. Omit to pick one that fits the window: hour up to 48h, day up to 90 days, week beyond.
+     */
+    granularity?: EngineeringAnalyticsDoraGranularity;
     /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
@@ -93006,6 +93116,15 @@ export namespace Schemas {
      */
     source_id?: string;
     };
+
+    export type EngineeringAnalyticsDoraGranularity = typeof EngineeringAnalyticsDoraGranularity[keyof typeof EngineeringAnalyticsDoraGranularity];
+
+
+    export const EngineeringAnalyticsDoraGranularity = {
+      Day: 'day',
+      Hour: 'hour',
+      Week: 'week',
+    } as const;
 
     export type EngineeringAnalyticsFlakyTestsParams = {
     /**
@@ -99567,6 +99686,28 @@ export namespace Schemas {
     };
 
     export type TasksThreadMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TasksMeConfigListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TasksConfigListParams = {
     /**
      * Number of results to return per page.
      */

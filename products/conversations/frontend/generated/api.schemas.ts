@@ -402,6 +402,8 @@ export interface TicketMessageApi {
     readonly author_email: string | null
     /** True for internal notes not visible to the customer. */
     readonly is_private: boolean
+    /** True when the complete inbound email body can be retrieved. */
+    readonly has_full_email_content: boolean
     /** Edit count. 0 means never edited. */
     readonly version: number
     readonly created_at: string
@@ -416,6 +418,16 @@ export interface PaginatedTicketMessageListApi {
     results: TicketMessageApi[]
 }
 
+export interface TicketFullEmailApi {
+    /** Full inbound email body in Markdown. */
+    readonly content: string
+}
+
+export interface TicketErrorApi {
+    detail: string
+    error_type?: string
+}
+
 /**
  * Payload for updating a private note on a ticket.
  */
@@ -427,11 +439,6 @@ export interface PatchedTicketNoteUpdateRequestApi {
     message?: string
     /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
     rich_content?: unknown
-}
-
-export interface TicketErrorApi {
-    detail: string
-    error_type?: string
 }
 
 /**

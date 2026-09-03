@@ -36,7 +36,14 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
 from products.conversations.backend.api.tickets import ComposeTicketSerializer, TicketReplyRequestSerializer
-from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
+from products.conversations.backend.models import (
+    EmailChannel,
+    EmailChannelKind,
+    EmailMessageMapping,
+    Ticket,
+    TicketAssignment,
+    TicketView,
+)
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
 from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
@@ -2095,6 +2102,20 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
             ("messages_with_read", "messages", "get", ["ticket:read"], status.HTTP_200_OK),
             ("messages_with_write", "messages", "get", ["ticket:write"], status.HTTP_200_OK),
             ("messages_wrong_scope", "messages", "get", ["insight:read"], status.HTTP_403_FORBIDDEN),
+            (
+                "full_email_with_read",
+                "messages/00000000-0000-0000-0000-000000000000/full_email",
+                "get",
+                ["ticket:read"],
+                status.HTTP_404_NOT_FOUND,
+            ),
+            (
+                "full_email_wrong_scope",
+                "messages/00000000-0000-0000-0000-000000000000/full_email",
+                "get",
+                ["insight:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
             ("reply_with_write", "reply", "post", ["ticket:write"], status.HTTP_201_CREATED),
             ("reply_with_read_only", "reply", "post", ["ticket:read"], status.HTTP_403_FORBIDDEN),
             ("reply_wrong_scope", "reply", "post", ["insight:write"], status.HTTP_403_FORBIDDEN),
@@ -2246,6 +2267,7 @@ class TestTicketMessagesAPI(APIBaseTest):
             "author_name",
             "author_email",
             "is_private",
+            "has_full_email_content",
             "created_at",
             "version",
         }
@@ -2411,6 +2433,46 @@ class TestTicketMessagesAPI(APIBaseTest):
         body = response.json()
         assert body["results"] == []
         assert body["count"] == 0
+
+    @parameterized.expand(
+        [
+            ("different_ticket", True, False),
+            ("deleted_message", False, True),
+        ]
+    )
+    def test_full_email_only_returns_visible_ticket_messages(
+        self, mock_on_commit, _name: str, use_different_ticket: bool, deleted: bool
+    ) -> None:
+        ticket = self.ticket
+        if use_different_ticket:
+            ticket = Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.EMAIL,
+                widget_session_id="other-session",
+                distinct_id="user-2",
+                status=Status.OPEN,
+            )
+        comment = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Visible reply",
+            item_context={"author_type": "customer", "has_full_email_content": True},
+            deleted=deleted,
+        )
+        EmailMessageMapping.objects.create(
+            message_id="<other-ticket@example.com>",
+            team=self.team,
+            ticket=ticket,
+            comment=comment,
+            full_body_plain="Full body",
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/messages/{comment.id}/full_email/"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_messages_pagination(self, mock_on_commit):
         base = timezone.now()
