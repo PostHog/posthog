@@ -812,9 +812,10 @@ export function serializeNotebookNodes(nodes: NotebookBlockNode[]): string {
     return serializeMarkdownNotebook({ type: 'doc', nodes, errors: [] })
 }
 
-// Props whose value is an execution result object that can hold cached base64 media (the
-// PythonV2/SQLV2 `result` shape).
-const MEDIA_BEARING_PROP_KEYS = ['result']
+// Props whose value is an execution result object that can hold cached base64 media. `result` is
+// the PythonV2/SQLV2 shape. The legacy in-browser-kernel keys stay because the content migration
+// skips a legacy cell whose props fail to parse, so such a cell keeps its tag and its media.
+const MEDIA_BEARING_PROP_KEYS = ['result', 'pythonExecution', 'duckExecution', 'hogqlExecution']
 
 // Remove cached media (e.g. base64 chart images) from component results so notebook markdown fits
 // inside AI request size limits. Returns the input unchanged when there is no media, so the common
