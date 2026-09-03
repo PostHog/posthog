@@ -198,6 +198,13 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-09-03 — comment layout back to description-first (reverses the 2026-07-17 validation-first order)
+
+User call: the issue description reads first, the validator's verdict second.
+Reading order is now claim (title) → what the issue is (description) → why it's real (validation) → fix / AI prompt.
+Applied in both renderers (`_format_issue_comment` in `publish_review.py`, `_render_off_diff_section` in `prepare_validation_markdown.py`); the order tests in both suites flipped with it.
+Template-level and reversible, same as the original move.
+
 ### ✅ DECIDED 2026-08-21 — label trigger moves onto the GitHub App webhook (additive handler, no second inlet)
 
 - **What.** The `reviewhog` label add reaches ReviewHog as a `pull_request` handler registered in core's
