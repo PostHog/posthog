@@ -9,6 +9,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { fullName } from 'lib/utils/strings'
 import { TagList } from 'scenes/settings/user/PersonalAPIKeys'
+import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
 
@@ -30,7 +31,7 @@ function ownerLabel(owner: OrganizationPersonalAPIKeyApi['owner']): string {
     return fullName(owner) || owner.email
 }
 
-// Mounted only behind the paywall and the admin check, so we never request keys the page cannot show.
+// Mounted only when the page can show the keys, so we never request them otherwise.
 function OrganizationPersonalAPIKeysTable(): JSX.Element {
     const { filteredKeys, keysLoading, search } = useValues(organizationPersonalAPIKeysLogic)
     const { setSearch } = useActions(organizationPersonalAPIKeysLogic)
@@ -106,7 +107,13 @@ function OrganizationPersonalAPIKeysTable(): JSX.Element {
 }
 
 export function OrganizationPersonalAPIKeys(): JSX.Element {
+    const { hasAvailableFeature } = useValues(userLogic)
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+
+    // PayGateMini falls through to its children when billing carries no metadata for the feature,
+    // so the entitlement is checked here too. Otherwise the table below mounts and its first
+    // request comes back as a payment prompt.
+    const entitled = hasAvailableFeature(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
 
     if (restrictionReason) {
         return <p className="text-muted">{restrictionReason}</p>
@@ -117,7 +124,7 @@ export function OrganizationPersonalAPIKeys(): JSX.Element {
             feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}
             featureDetail="organization-personal-api-keys"
         >
-            <OrganizationPersonalAPIKeysTable />
+            {entitled ? <OrganizationPersonalAPIKeysTable /> : null}
         </PayGateMini>
     )
 }
