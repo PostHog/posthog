@@ -11,7 +11,9 @@
 # - runs-on: depot-* labels instead of ubuntu-latest
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
 #   setup-sqlx-cli, setup-python-cached, and paths-filter mirror the canonical
-#   composites; any deltas are documented in each mirror's header)
+#   composites; any deltas are documented in each mirror's header). setup-turbo takes
+#   no token and has nothing else to strip, so this file uses the canonical composite
+#   directly rather than carrying an identical mirror.
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
 # - Stripped side effects: artifact uploads, CI report section posters (canonical
 #   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
@@ -839,9 +841,7 @@ jobs:
                     temporal elasticsearch objectstorage-azure
             # Depot shadow: canonical threads a setup-action app token into both
             # pnpm-install and setup-python; mint stripped here (secret not
-            # available on Depot), so both keep the bot PAT. setup-turbo takes no
-            # token and has nothing to strip, so this reads the canonical
-            # composite directly rather than carrying an identical mirror.
+            # available on Depot), so setup-python keeps the bot PAT.
             - parallel:
                   - name: Set up pnpm and Node
                     uses: ./.depot/actions/pnpm-install
