@@ -160,6 +160,22 @@ describe('dashboardsLogic', () => {
         expect(router.values.searchParams.created_by).toBeUndefined()
     })
 
+    it('replaces tag results for a new search and appends the next page', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadTagResultsSuccess(
+                { next: 'next-page', previous: null, results: ['alpha', 'beta'] },
+                { search: '', offset: 0 }
+            )
+        }).toMatchValues({ hasMoreTagResults: true, tagResults: ['alpha', 'beta'] })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadTagResultsSuccess(
+                { next: null, previous: 'previous-page', results: ['gamma'] },
+                { search: '', offset: 2 }
+            )
+        }).toMatchValues({ hasMoreTagResults: false, tagResults: ['alpha', 'beta', 'gamma'] })
+    })
+
     describe('reflecting a completed move', () => {
         it('updates the moved dashboard to its new folder', async () => {
             await expectLogic(logic, () => {

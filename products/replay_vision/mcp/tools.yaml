@@ -17,6 +17,9 @@ ui_apps:
         item_name_field: id
         entity_label: observation
 tools:
+    environment-vision-quota-spend-series-retrieve:
+        operation: environment_vision_quota_spend_series_retrieve
+        enabled: false
     vision-alerts-create:
         operation: vision_alerts_create
         enabled: false

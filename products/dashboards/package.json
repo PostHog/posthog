@@ -6,6 +6,7 @@
     "dependencies": {
         "fast-equals": "catalog:",
         "kea": "catalog:",
+        "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "posthog-js": "catalog:",
