@@ -92,7 +92,7 @@
     "inversify": "catalog:",
     "lucide-react": "^1.7.0",
     "mermaid": "^11.17.0",
-    "posthog-js": "^1.422.5",
+    "posthog-js": "^1.426.1",
     "radix-themes-tw": "0.2.3",
     "react-hotkeys-hook": "^4.4.4",
     "react-markdown": "^10.1.0",
