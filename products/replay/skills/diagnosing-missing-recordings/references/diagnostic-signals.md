@@ -42,17 +42,27 @@ project emits it in volume. Read it as "replay is off" only when the session rep
 nothing else and `$session_recording_remote_config.enabled` is `false`.
 
 `sampled` and `paused` are not the same signal as `$session_recording_start_reason`. A session
-excluded by sampling reports `disabled` as its status and `sampled_out` as the start reason, so
-read sampling from the start reason. `sampled` means the opposite: the session was sampled in.
+excluded by sampling reports `disabled` as its status and writes no start reason at all. The
+status `sampled` means the opposite: the session was sampled in.
 
 ### `$session_recording_start_reason` values
 
-| Value                   | Meaning                                                                  |
-| ----------------------- | ------------------------------------------------------------------------ |
-| `recording_initialized` | Recording started as soon as the SDK initialized                         |
-| `sampling_override`     | Recording started because the session was included by the sampling rules |
-| `sampled_out`           | Recording was prevented because the session was excluded by sampling     |
-| `linked_flag_match`     | Recording started because a linked feature flag matched                  |
+Every value describes recording *starting*. The SDK writes this property from one place, which
+also fires `$recording_started`, so it can never describe a session that did not record.
+
+| Value                    | Meaning                                                            |
+| ------------------------ | ------------------------------------------------------------------ |
+| `recording_initialized`  | Recording started as soon as the SDK initialized                   |
+| `session_id_changed`     | Recording restarted because the session ID changed                 |
+| `sampled`                | Recording started because sampling included this session           |
+| `sampling_overridden`    | Recording started because sampling was overridden                  |
+| `linked_flag_matched`    | Recording started because a linked feature flag matched            |
+| `linked_flag_overridden` | Recording started because the linked flag requirement was overridden |
+
+There is no `sampled_out` value. When sampling drops a session the SDK only logs a console
+warning: it writes no start reason, and the status stays `disabled`. So a sampled-out session
+is not distinguishable here from one where the recorder never started. Use `$replay_sample_rate`
+to judge how likely sampling is.
 
 ## Trigger signals
 

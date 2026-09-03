@@ -212,12 +212,21 @@ describe('diagnoseReplayCapture', () => {
             expected: 'ad_blocked',
         },
         {
-            name: 'sampling outranks a disabled snapshot that proves nothing',
+            // posthog-js never writes `sampled_out`; this only pins the rule order for an SDK that does.
+            name: 'an explicit sampled_out reason outranks a disabled snapshot',
             properties: {
                 $recording_status: 'disabled',
                 $session_recording_start_reason: 'sampled_out',
             },
             expected: 'sampled_out',
+        },
+        {
+            name: 'a session posthog-js dropped by sampling still reads as recorder_not_started',
+            properties: {
+                $recording_status: 'disabled',
+                $replay_sample_rate: 0.1,
+            },
+            expected: 'recorder_not_started',
         },
         {
             name: 'replay being off for the project outranks sampling',
@@ -375,6 +384,23 @@ describe('diagnoseReplayCapture', () => {
         const labels = result.suggestedActions.map((a) => a.label)
         expect(labels).toContain('Open replay settings')
         expect(labels).toContain('Read troubleshooting docs')
+    })
+
+    it('names sampling when the recorder did not start and the sample rate is below 1', () => {
+        const result = diagnoseReplayCapture({
+            $recording_status: 'disabled',
+            $replay_sample_rate: 0.1,
+        })
+        expect(result.verdict).toBe('recorder_not_started')
+        expect(result.reasons.join(' ')).toContain('10%')
+    })
+
+    it('does not mention sampling when every session is sampled in', () => {
+        const result = diagnoseReplayCapture({
+            $recording_status: 'disabled',
+            $replay_sample_rate: 1,
+        })
+        expect(result.reasons.join(' ')).not.toMatch(/sampling/i)
     })
 
     it('does not blame project settings alone when replay comes back off', () => {

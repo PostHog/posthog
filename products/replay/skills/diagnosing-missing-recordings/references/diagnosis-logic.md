@@ -39,6 +39,9 @@ Any trigger status is 'trigger_pending' AND none is 'trigger_matched'?
 
 $session_recording_start_reason == 'sampled_out'?
   → SAMPLED_OUT: excluded by configured sample rate
+  (posthog-js never writes this reason. A session that sampling dropped reaches
+   RECORDER_NOT_STARTED below instead, where a $replay_sample_rate under 1 names
+   sampling as the likely cause)
 
 'lazy_loading' is the furthest status the session reached?
   → RECORDER_LOADING: the session ended before the recorder file took over

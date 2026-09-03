@@ -36,9 +36,11 @@ const RECORDING_STATUS_EXPLANATIONS: Record<string, string> = {
 
 const START_REASON_EXPLANATIONS: Record<string, string> = {
     recording_initialized: 'Recording started as soon as the SDK initialized.',
-    sampling_override: 'Recording started because the session was included by the sampling rules.',
-    sampled_out: 'Recording was prevented because the session was excluded by sampling.',
-    linked_flag_match: 'Recording started because a linked feature flag matched.',
+    session_id_changed: 'Recording restarted because the session ID changed.',
+    sampled: 'Recording started because sampling included this session.',
+    sampling_overridden: 'Recording started because sampling was overridden for this session.',
+    linked_flag_matched: 'Recording started because a linked feature flag matched.',
+    linked_flag_overridden: 'Recording started because the linked flag requirement was overridden.',
 }
 
 const explainValue = (key: string, value: unknown): string | null => {

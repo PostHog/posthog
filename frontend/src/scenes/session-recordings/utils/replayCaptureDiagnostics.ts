@@ -163,6 +163,7 @@ function diagnoseSignals(properties: Record<string, any>, recordingStatus: unkno
     const flagTrigger = properties['$sdk_debug_replay_linked_flag_trigger_status']
     const bufferLength = toNumber(properties['$sdk_debug_replay_internal_buffer_length'])
     const flushedSize = toNumber(properties['$sdk_debug_replay_flushed_size'])
+    const sampleRate = toNumber(properties['$replay_sample_rate'])
     const scriptNotLoaded = properties['$sdk_debug_recording_script_not_loaded']
     const rrwebError = properties['$sdk_debug_replay_rrweb_error']
 
@@ -302,6 +303,8 @@ function diagnoseSignals(properties: Record<string, any>, recordingStatus: unkno
         }
     }
 
+    // posthog-js does not write this reason. Sampling out only logs a warning there, so a dropped
+    // session arrives as `disabled` and is handled below. Kept for SDKs that do report it.
     if (startReason === 'sampled_out') {
         return {
             verdict: 'sampled_out',
@@ -350,6 +353,11 @@ function diagnoseSignals(properties: Record<string, any>, recordingStatus: unkno
                 replayEnabledRemotely === true
                     ? 'Replay is on for this project, so look at the SDK setup on the page rather than project settings.'
                     : 'Check that replay is on in project settings.',
+                ...(sampleRate !== null && sampleRate < 1
+                    ? [
+                          `Replay sampling is set to ${Math.round(sampleRate * 100)}% for this project. A session that sampling drops reports this same state, so sampling is a likely cause. Raise the sample rate to capture more sessions.`,
+                      ]
+                    : []),
                 'On the page, check that disable_session_recording is not set, that the visitor has not opted out, and that nothing blocks the recorder file.',
             ],
             rawSignals,

@@ -96,7 +96,7 @@ The verdicts in priority order:
 5. **Disabled** (`$session_recording_remote_config.enabled = false`) — PostHog returned replay as off. This, not the status string, is the proof. It does not say why: project settings or a recordings quota limit both produce it
 6. **URL blocked** (`paused` in the statuses) — the page URL is on the project's blocked URLs list, so recording is suppressed there
 7. **Trigger pending** (trigger statuses are `trigger_pending`, none matched) — recording gated on trigger that never fired
-8. **Sampled out** (`$session_recording_start_reason = 'sampled_out'`) — excluded by sample rate
+8. **Sampled out** — excluded by sample rate. posthog-js writes no start reason when sampling drops a session, so there is no `sampled_out` value to match on. A dropped session looks like `disabled` with a `$replay_sample_rate` below 1 and no start reason, which lands on **Recorder not started** below with sampling named as a likely cause
 9. **Recorder loading** (`lazy_loading` is the furthest status the session reached) — the session ended before the recorder file took over
 10. **Buffering empty** (`buffering`, buffer length = 0, nothing flushed) — initialized but no snapshots produced
 11. **Recorder not started** (`disabled` is the only status the session reported, and remote config does not say replay is off) — cause is on the page: `disable_session_recording`, an opt-out, or a blocked recorder file
@@ -134,7 +134,7 @@ Look for patterns:
 - All `disabled` **and** remote config reports `enabled: false` → replay is turned off in project settings
 - All `disabled` while remote config reports `enabled: true` → the SDK never started the recorder. Look at the page setup, not project settings
 - A healthy project shows plenty of `disabled` and `lazy_loading` next to `active`. That mix is the normal shape of a page load, not a fault
-- All `sampled_out` with low sample rate → sample rate too aggressive
+- All `disabled` with a low `$replay_sample_rate` and no start reason → sampling is the likely cause, and the sample rate is too aggressive
 - All `script_not_loaded` → likely a CSP or deployment issue, not just one user's ad blocker
 
 ### Step 5 — Provide actionable recommendations
@@ -149,7 +149,7 @@ Based on the verdict, recommend specific actions:
 | Disabled             | PostHog returned replay as off. Check Settings > Session replay first, then billing for a recordings quota limit                      |
 | URL blocked          | The page URL is on the blocked URLs list. Review the blocked URLs in Settings > Session replay                                        |
 | Trigger pending      | The configured trigger (URL pattern, event, or feature flag) never matched. Review trigger configuration                              |
-| Sampled out          | Increase the sample rate in project settings, or use a trigger to guarantee capture for important sessions                            |
+| Sampled out          | Increase the sample rate in project settings, or use a trigger to guarantee capture for important sessions. Confirm with `$replay_sample_rate`, since the SDK writes no start reason for a dropped session |
 | Recorder loading     | The session ended before the recorder file took over. Expected on very short visits. Nothing to change unless it is the common case   |
 | Buffering empty      | Page closed before first snapshot. Common with very short sessions or single-page navigations. Consider lowering minimum duration     |
 | Recorder not started | Check `disable_session_recording`, opt-out state, and anything blocking the recorder file on the page                                 |
