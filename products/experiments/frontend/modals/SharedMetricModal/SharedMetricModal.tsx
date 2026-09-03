@@ -4,6 +4,9 @@ import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } fr
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { pluralize } from 'lib/utils/strings'
+import { InlineTagEditor } from 'scenes/experiments/SharedMetrics/InlineTagEditor'
+import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
+import { sharedMetricsLogic } from 'scenes/experiments/SharedMetrics/sharedMetricsLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -12,9 +15,6 @@ import { Experiment } from '~/types'
 
 import { MetricContext } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 
-import { InlineTagEditor } from '../SharedMetrics/InlineTagEditor'
-import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
-import { sharedMetricsLogic } from '../SharedMetrics/sharedMetricsLogic'
 import { sharedMetricModalLogic } from './sharedMetricModalLogic'
 
 export function SharedMetricModal({
