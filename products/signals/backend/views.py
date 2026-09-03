@@ -1123,7 +1123,8 @@ class SignalReportViewSet(
         # `Exists` over `tasks.TaskRun` evaluated once per candidate report (which made the inbox
         # PR-tab count scan the whole `ready` set per PR'd run).
         return SignalReport.reports_for_task_ids_filter(
-            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter())
+            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter()),
+            team_id=self.team.id,
         )
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):

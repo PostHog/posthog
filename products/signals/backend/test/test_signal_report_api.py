@@ -986,6 +986,27 @@ class TestSignalReportListAPI(APIBaseTest):
         without_pr = self.client.get(self._list_url(has_implementation_pr="false"))
         assert str(report_empty_pr.id) in {r["id"] for r in without_pr.json()["results"]}
 
+    def test_filter_has_implementation_pr_scopes_association_subqueries_to_team(self):
+        report_with_pr = self._create_report(title="Report with PR")
+        self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(self._list_url(has_implementation_pr="true"))
+
+        assert response.status_code == status.HTTP_200_OK
+        # Both association subqueries must stay team-scoped. Without the scope the planner can
+        # invert the join and scan every team's task_run artefacts per request.
+        filter_sql = [
+            query["sql"]
+            for query in ctx.captured_queries
+            if 'FROM "signals_signalreport"' in query["sql"] and "signals_signalreporttask" in query["sql"]
+        ]
+        assert filter_sql
+        for sql in filter_sql:
+            # Django aliases both association tables as V0; two scoped subqueries means two
+            # V0-qualified team filters.
+            assert sql.count(f'V0."team_id" = {self.team.id}') == 2
+
     def test_filter_has_implementation_pr_absent_returns_all(self):
         report_with_pr = self._create_report(title="Report with PR")
         report_without_pr = self._create_report(title="Report without PR")
