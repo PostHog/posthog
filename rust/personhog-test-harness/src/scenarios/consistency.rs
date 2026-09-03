@@ -8,6 +8,7 @@ use personhog_proto::personhog::types::v1::ConsistencyLevel;
 
 use crate::cli::ConsistencyArgs;
 use crate::client::HarnessClient;
+use crate::pool::TargetPool;
 use crate::report::{print_report, ConsistencyViolation};
 use crate::state::PersonState;
 use crate::stats::StatsCollector;
@@ -178,7 +179,7 @@ pub async fn run(args: ConsistencyArgs) -> Result<()> {
 pub async fn run_probers(
     client: &HarnessClient,
     team_id: i64,
-    person_ids: Arc<Vec<i64>>,
+    person_ids: Arc<TargetPool>,
     probers: usize,
     duration: Duration,
     collector: &Arc<StatsCollector>,
@@ -200,7 +201,9 @@ pub async fn run_probers(
             let mut iteration: usize = 0;
 
             while Instant::now() < deadline && !stop.load(Ordering::Relaxed) {
-                let person_id = person_ids[(worker_id + iteration) % person_ids.len()];
+                let Some(person_id) = person_ids.pick_nth(worker_id + iteration) else {
+                    break;
+                };
                 iteration += 1;
                 let marker = uuid::Uuid::new_v4().to_string();
                 let key = format!("harness_probe_{worker_id}_{iteration}");
@@ -225,6 +228,10 @@ pub async fn run_probers(
                         response
                     }
                     Err(e) => {
+                        if super::blast::is_lifecycle_rejection(&e) {
+                            collector.writes.record_lifecycle_rejection();
+                            continue;
+                        }
                         collector.writes.record_failure();
                         traffic_metrics::record_write_failed(traffic_metrics::LANE_PROBER, &e);
                         tracing::warn!(person_id, error = %e, "probe write failed");
@@ -276,7 +283,13 @@ pub async fn run_probers(
                     Ok(None) => {
                         // A served read that cannot see a person with an
                         // acked write is a violation, not an availability
-                        // blip.
+                        // blip. The exception is a merged person: its
+                        // writes folded into the survivor, and end-of-run
+                        // verification asserts them there.
+                        if state.is_merge_pending_or_merged(person_id).await {
+                            collector.reads.record_success(read_start.elapsed());
+                            continue;
+                        }
                         collector.reads.record_failure();
                         traffic_metrics::record_read_failed(
                             traffic_metrics::LANE_PROBER,

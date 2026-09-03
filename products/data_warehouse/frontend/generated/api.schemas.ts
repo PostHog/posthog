@@ -825,9 +825,10 @@ export interface PatchedQueryTabStateApi {
  * * `ai_generated` - AI generated
  * * `user_edited` - User edited
  */
-export type DescriptionSourceEnumApi = (typeof DescriptionSourceEnumApi)[keyof typeof DescriptionSourceEnumApi]
+export type WarehouseColumnAnnotationDescriptionSourceEnumApi =
+    (typeof WarehouseColumnAnnotationDescriptionSourceEnumApi)[keyof typeof WarehouseColumnAnnotationDescriptionSourceEnumApi]
 
-export const DescriptionSourceEnumApi = {
+export const WarehouseColumnAnnotationDescriptionSourceEnumApi = {
     Canonical: 'canonical',
     AiGenerated: 'ai_generated',
     UserEdited: 'user_edited',
@@ -854,7 +855,7 @@ export interface DataWarehouseSavedQueryColumnAnnotationApi {
      * * `canonical` - Canonical
      * * `ai_generated` - AI generated
      * * `user_edited` - User edited */
-    readonly description_source: DescriptionSourceEnumApi
+    readonly description_source: WarehouseColumnAnnotationDescriptionSourceEnumApi
     /** Model used when the description was AI-generated, otherwise null. */
     readonly ai_model: string
     /** True once a user has edited this annotation; such rows are never overwritten. */
@@ -894,7 +895,7 @@ export interface PatchedDataWarehouseSavedQueryColumnAnnotationApi {
      * * `canonical` - Canonical
      * * `ai_generated` - AI generated
      * * `user_edited` - User edited */
-    readonly description_source?: DescriptionSourceEnumApi
+    readonly description_source?: WarehouseColumnAnnotationDescriptionSourceEnumApi
     /** Model used when the description was AI-generated, otherwise null. */
     readonly ai_model?: string
     /** True once a user has edited this annotation; such rows are never overwritten. */
@@ -925,7 +926,7 @@ export interface WarehouseColumnAnnotationApi {
      * * `canonical` - Canonical
      * * `ai_generated` - AI generated
      * * `user_edited` - User edited */
-    readonly description_source: DescriptionSourceEnumApi
+    readonly description_source: WarehouseColumnAnnotationDescriptionSourceEnumApi
     /** Model used when the description was AI-generated, otherwise null. */
     readonly ai_model: string
     /** True once a user has edited this annotation; such rows are never overwritten. */
@@ -965,7 +966,7 @@ export interface PatchedWarehouseColumnAnnotationApi {
      * * `canonical` - Canonical
      * * `ai_generated` - AI generated
      * * `user_edited` - User edited */
-    readonly description_source?: DescriptionSourceEnumApi
+    readonly description_source?: WarehouseColumnAnnotationDescriptionSourceEnumApi
     /** Model used when the description was AI-generated, otherwise null. */
     readonly ai_model?: string
     /** True once a user has edited this annotation; such rows are never overwritten. */
@@ -1135,9 +1136,10 @@ export interface PaginatedDataWarehouseModelPathListApi {
  * * `Failed` - Failed
  * * `Running` - Running
  */
-export type SavedQueryStatusEnumApi = (typeof SavedQueryStatusEnumApi)[keyof typeof SavedQueryStatusEnumApi]
+export type DataWarehouseSavedQueryStatusEnumApi =
+    (typeof DataWarehouseSavedQueryStatusEnumApi)[keyof typeof DataWarehouseSavedQueryStatusEnumApi]
 
-export const SavedQueryStatusEnumApi = {
+export const DataWarehouseSavedQueryStatusEnumApi = {
     Cancelled: 'Cancelled',
     Modified: 'Modified',
     Completed: 'Completed',
@@ -1150,9 +1152,10 @@ export const SavedQueryStatusEnumApi = {
  * * `endpoint` - Endpoint
  * * `managed_viewset` - Managed Viewset
  */
-export type OriginEnumApi = (typeof OriginEnumApi)[keyof typeof OriginEnumApi]
+export type DataWarehouseSavedQueryOriginEnumApi =
+    (typeof DataWarehouseSavedQueryOriginEnumApi)[keyof typeof DataWarehouseSavedQueryOriginEnumApi]
 
-export const OriginEnumApi = {
+export const DataWarehouseSavedQueryOriginEnumApi = {
     DataWarehouse: 'data_warehouse',
     Endpoint: 'endpoint',
     ManagedViewset: 'managed_viewset',
@@ -1184,7 +1187,7 @@ export interface DataWarehouseSavedQueryMinimalApi {
      * * `Completed` - Completed
      * * `Failed` - Failed
      * * `Running` - Running */
-    readonly status: SavedQueryStatusEnumApi | null
+    readonly status: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     /** @nullable */
@@ -1204,7 +1207,7 @@ export interface DataWarehouseSavedQueryMinimalApi {
      * * `data_warehouse` - Data Warehouse
      * * `endpoint` - Endpoint
      * * `managed_viewset` - Managed Viewset */
-    readonly origin: OriginEnumApi | null
+    readonly origin: DataWarehouseSavedQueryOriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     readonly is_test: boolean
     /**
@@ -1505,7 +1508,7 @@ export interface DataWarehouseSavedQueryApi {
      * * `Completed` - Completed
      * * `Failed` - Failed
      * * `Running` - Running */
-    readonly status: SavedQueryStatusEnumApi | null
+    readonly status: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     /** @nullable */
@@ -1546,7 +1549,7 @@ export interface DataWarehouseSavedQueryApi {
      * * `data_warehouse` - Data Warehouse
      * * `endpoint` - Endpoint
      * * `managed_viewset` - Managed Viewset */
-    readonly origin: OriginEnumApi | null
+    readonly origin: DataWarehouseSavedQueryOriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     is_test?: boolean
     /**
@@ -1636,7 +1639,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * * `Completed` - Completed
      * * `Failed` - Failed
      * * `Running` - Running */
-    readonly status?: SavedQueryStatusEnumApi | null
+    readonly status?: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
     /** @nullable */
@@ -1677,7 +1680,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * * `data_warehouse` - Data Warehouse
      * * `endpoint` - Endpoint
      * * `managed_viewset` - Managed Viewset */
-    readonly origin?: OriginEnumApi | null
+    readonly origin?: DataWarehouseSavedQueryOriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     is_test?: boolean
     /**
@@ -1869,9 +1872,10 @@ export interface PatchedDataWarehouseSavedQueryFolderApi {
  * * `Delta` - Delta
  * * `DeltaS3Wrapper` - DeltaS3Wrapper
  */
-export type TableFormatEnumApi = (typeof TableFormatEnumApi)[keyof typeof TableFormatEnumApi]
+export type DataWarehouseTableFormatEnumApi =
+    (typeof DataWarehouseTableFormatEnumApi)[keyof typeof DataWarehouseTableFormatEnumApi]
 
-export const TableFormatEnumApi = {
+export const DataWarehouseTableFormatEnumApi = {
     Csv: 'CSV',
     CSVWithNames: 'CSVWithNames',
     Parquet: 'Parquet',
@@ -1890,9 +1894,10 @@ export const TableFormatEnumApi = {
  * * `materialized_view` - materialized_view
  * * `demo` - demo
  */
-export type TableCreatedViaEnumApi = (typeof TableCreatedViaEnumApi)[keyof typeof TableCreatedViaEnumApi]
+export type DataWarehouseTableCreatedViaEnumApi =
+    (typeof DataWarehouseTableCreatedViaEnumApi)[keyof typeof DataWarehouseTableCreatedViaEnumApi]
 
-export const TableCreatedViaEnumApi = {
+export const DataWarehouseTableCreatedViaEnumApi = {
     Web: 'web',
     Api: 'api',
     Mcp: 'mcp',
@@ -3245,6 +3250,10 @@ export interface CredentialApi {
  * * `Anvil` - Anvil
  * * `Coolify` - Coolify
  * * `SocialPilot` - SocialPilot
+ * * `Strato` - Strato
+ * * `Medusa` - Medusa
+ * * `Membrain` - Membrain
+ * * `RecallAI` - RecallAI
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4575,6 +4584,10 @@ export const ExternalDataSourceTypeEnumApi = {
     Anvil: 'Anvil',
     Coolify: 'Coolify',
     SocialPilot: 'SocialPilot',
+    Strato: 'Strato',
+    Medusa: 'Medusa',
+    Membrain: 'Membrain',
+    RecallAI: 'RecallAI',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -4623,7 +4636,7 @@ export interface TableApi {
      * * `JSONEachRow` - JSON
      * * `Delta` - Delta
      * * `DeltaS3Wrapper` - DeltaS3Wrapper */
-    format: TableFormatEnumApi
+    format: DataWarehouseTableFormatEnumApi
     readonly created_by: UserBasicApi
     readonly created_at: string
     /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, `materialized_view` for the table behind a materialized view, and `demo` for a demo project's sample table. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
@@ -4636,7 +4649,7 @@ export interface TableApi {
      * * `source` - source
      * * `materialized_view` - materialized_view
      * * `demo` - demo */
-    readonly created_via: TableCreatedViaEnumApi | null
+    readonly created_via: DataWarehouseTableCreatedViaEnumApi | null
     /**
      * HTTPS URL of the files to read, with `*` matching any part of a path segment (e.g. `https://your-bucket.s3.amazonaws.com/orders/*.parquet`). All matched files are read as one table. Must point at a bucket you control, not at PostHog's own storage.
      * @maxLength 500
@@ -4702,7 +4715,7 @@ export interface PatchedTableApi {
      * * `JSONEachRow` - JSON
      * * `Delta` - Delta
      * * `DeltaS3Wrapper` - DeltaS3Wrapper */
-    format?: TableFormatEnumApi
+    format?: DataWarehouseTableFormatEnumApi
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, `materialized_view` for the table behind a materialized view, and `demo` for a demo project's sample table. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
@@ -4715,7 +4728,7 @@ export interface PatchedTableApi {
      * * `source` - source
      * * `materialized_view` - materialized_view
      * * `demo` - demo */
-    readonly created_via?: TableCreatedViaEnumApi | null
+    readonly created_via?: DataWarehouseTableCreatedViaEnumApi | null
     /**
      * HTTPS URL of the files to read, with `*` matching any part of a path segment (e.g. `https://your-bucket.s3.amazonaws.com/orders/*.parquet`). All matched files are read as one table. Must point at a bucket you control, not at PostHog's own storage.
      * @maxLength 500

@@ -13,6 +13,10 @@ import { urls } from 'scenes/urls'
 import { SubscriptionAIPromptMaxLength, SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
 import { InsightShortId, IntegrationType, SubscriptionType, WeekdayType } from '~/types'
 
+import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
+
+import { SubscriptionTargetEnumApi, type SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
 
 export function requestSubscriptionWizardCancellation({
@@ -90,9 +94,14 @@ export const urlForSubscription = (
     return id === 'new' ? urls.subscriptionNew() : urls.subscription(id)
 }
 
-export const targetTypeOptions: LemonSelectOptions<'email' | 'slack'> = [
-    { value: 'email', label: 'Email', icon: <IconLetter /> },
-    { value: 'slack', label: 'Slack', icon: <IconSlack /> },
+export const targetTypeOptions: LemonSelectOptionLeaf<SubscriptionApi['target_type']>[] = [
+    { value: SubscriptionTargetEnumApi.Email, label: 'Email', icon: <IconLetter /> },
+    { value: SubscriptionTargetEnumApi.Slack, label: 'Slack', icon: <IconSlack /> },
+    {
+        value: SubscriptionTargetEnumApi.Teams,
+        label: 'Microsoft Teams',
+        icon: <img src={IconMicrosoftTeams} alt="" className="h-4 w-4" />,
+    },
 ]
 
 export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) => ({ value: x, label: x.toString() }))

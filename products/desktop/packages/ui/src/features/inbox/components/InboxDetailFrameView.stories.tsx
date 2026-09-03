@@ -1,11 +1,15 @@
 import {
-  ArchiveIcon,
+  ChatCircleIcon,
+  CheckCircleIcon,
   ClockCounterClockwiseIcon,
+  EyeSlashIcon,
   FileTextIcon,
   GitPullRequestIcon,
   MagnifyingGlassIcon,
+  PlusIcon,
   TerminalIcon,
   UsersThreeIcon,
+  XIcon,
 } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
@@ -46,16 +50,23 @@ const meta: Meta<typeof InboxDetailFrameView> = {
     backLabel: "Back to reports",
     fallbackTitle: "Untitled report",
     primaryAction: (
-      <Button type="button" variant="outline" size="sm">
-        Ask about it
-      </Button>
+      <>
+        <Button type="button" variant="outline" size="sm">
+          <ChatCircleIcon />
+          Chat
+        </Button>
+        <Button type="button" variant="outline" size="sm">
+          <CheckCircleIcon />
+          Resolve
+        </Button>
+        <Button type="button" variant="outline" size="sm">
+          <EyeSlashIcon />
+          Dismiss
+        </Button>
+      </>
     ),
-    reviewerHeader: (
-      <span className="rounded bg-(--gray-3) px-1.5 py-0.5 text-[12px] text-gray-11">
-        2 reviewers
-      </span>
-    ),
-    summarySection: { Icon: FileTextIcon, title: "Summary" },
+    showMetadata: false,
+    summarySection: { Icon: FileTextIcon, title: "Report summary" },
     evidenceSection: { Icon: MagnifyingGlassIcon, title: "Evidence" },
     evidenceCount: signals.length,
     evidenceContent: <SignalsList signals={signals} />,
@@ -67,13 +78,13 @@ const meta: Meta<typeof InboxDetailFrameView> = {
             Ready for a decision
           </span>
           <span className="text-[13px] text-gray-11">
-            Start a pull request or archive this report.
+            Start a pull request or dismiss this report.
           </span>
         </div>
         <div className="flex items-center gap-2">
           <Button type="button" variant="outline">
-            <ArchiveIcon />
-            Archive…
+            <EyeSlashIcon />
+            Dismiss…
           </Button>
           <Button type="button" variant="primary">
             <GitPullRequestIcon />
@@ -84,10 +95,30 @@ const meta: Meta<typeof InboxDetailFrameView> = {
     ),
     children: (
       <>
-        <DetailSection Icon={UsersThreeIcon} title="Reviewers" collapsible>
-          <p className="text-[13px] text-gray-11">
-            Example reviewer · recent ownership in cohort calculations
-          </p>
+        <DetailSection
+          Icon={UsersThreeIcon}
+          title="Reviewers"
+          collapsible
+          rightSlot={
+            <Button type="button" variant="link-muted" size="xs">
+              <PlusIcon />
+              Add
+            </Button>
+          }
+        >
+          <div className="flex items-start justify-between gap-2">
+            <p className="m-0 text-[13px] text-gray-11">
+              Example reviewer · recent ownership in cohort calculations
+            </p>
+            <Button
+              type="button"
+              variant="link-muted"
+              size="icon-xs"
+              aria-label="Remove example reviewer"
+            >
+              <XIcon />
+            </Button>
+          </div>
         </DetailSection>
         <DetailSection
           Icon={TerminalIcon}

@@ -1,8 +1,14 @@
+import { register } from 'prom-client'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CyclotronJobInvocationHogFlow } from '../../types'
-import { MAX_CONVERSION_WINDOW_MINUTES, buildConversionWatcher } from './conversion-watcher'
+import {
+    DEFAULT_CONVERSION_WINDOW_MINUTES,
+    MAX_CONVERSION_WINDOW_MINUTES,
+    buildConversionWatcher,
+} from './conversion-watcher'
 
 describe('buildConversionWatcher', () => {
     const propertyBytecode = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11]
@@ -70,8 +76,8 @@ describe('buildConversionWatcher', () => {
     })
 
     it.each([
-        ['an unbounded window', null, MAX_CONVERSION_WINDOW_MINUTES],
-        ['a window longer than the cap', 60 * 24 * 90, MAX_CONVERSION_WINDOW_MINUTES],
+        ['no configured window', null, DEFAULT_CONVERSION_WINDOW_MINUTES],
+        ['a window longer than the cap', 60 * 24 * 400, MAX_CONVERSION_WINDOW_MINUTES],
         ['a window inside the cap', 60, 60],
     ])('expires after %s', (_name, windowMinutes, expectedMinutes) => {
         // Treating null as "forever" would leave rows the expiry sweep can never reach.
@@ -83,6 +89,21 @@ describe('buildConversionWatcher', () => {
         const minutes = (watcher!.expires_at.getTime() - before) / 60_000
         expect(minutes).toBeGreaterThanOrEqual(expectedMinutes)
         expect(minutes).toBeLessThan(expectedMinutes + 1)
+    })
+
+    it('counts a run whose window was shortened to the cap, and only then', async () => {
+        // The clamp changes what the workflow's conversion rate measures. Without this counter the
+        // substitution leaves no trace anywhere, which is how it went unnoticed in the first place.
+        const clamped = async (): Promise<number> =>
+            ((await register.getSingleMetric('cdp_conversion_window_clamped')?.get())?.values[0]?.value as number) ?? 0
+
+        const before = await clamped()
+
+        buildConversionWatcher(invocationFor({ ...propertyGoal, window_minutes: MAX_CONVERSION_WINDOW_MINUTES + 1 }))
+        expect(await clamped()).toBe(before + 1)
+
+        buildConversionWatcher(invocationFor({ ...propertyGoal, window_minutes: MAX_CONVERSION_WINDOW_MINUTES }))
+        expect(await clamped()).toBe(before + 1)
     })
 
     it('does not build a watcher for a run that has already started', () => {

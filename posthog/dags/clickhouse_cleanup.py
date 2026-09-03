@@ -10,6 +10,7 @@ worklist into a persisted snapshot table first, scoped by run id. Everything dow
 the Postgres handoff, reads the snapshot rather than recomputing it.
 """
 
+import re
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -20,8 +21,8 @@ from math import ceil
 from django.conf import settings
 
 import dagster
+import psycopg2
 import pydantic
-import psycopg2.extensions
 from clickhouse_driver.client import Client
 from prometheus_client import Counter
 from psycopg2.extras import execute_values
@@ -36,6 +37,7 @@ from posthog.clickhouse.cleanup_snapshots import (
 from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner, MutationWaiter, NodeRole
 from posthog.clickhouse.custom_metrics import MetricsClient
+from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
 from posthog.dags.common.common import settings_with_log_comment
 from posthog.dags.common.dictionaries import Dictionary
@@ -88,7 +90,8 @@ class CleanupConfig(dagster.Config):
     )
     cleanup: bool = pydantic.Field(
         default=True,
-        description="Drop the dictionaries and clear this run's snapshot rows when the run finishes.",
+        description="Drop the dictionaries and clear this run's snapshot rows when the run finishes. "
+        "False keeps them only until the next run's janitor reaps them.",
     )
     team_batches: int = pydantic.Field(
         default=DEFAULT_TEAM_BATCHES,
@@ -533,7 +536,13 @@ def clear_removed_cohort_data(
     possible, which is what bounds how many persons can revive mid-run.
     """
     run = CleanupRun.for_run(context.run_id, config)
-    context.add_output_metadata({"dry_run": dagster.MetadataValue.bool(run.dry_run)})
+    reaped = reap_stranded_run_assets(context, cluster)
+    context.add_output_metadata(
+        {
+            "dry_run": dagster.MetadataValue.bool(run.dry_run),
+            "stranded_runs_reaped": dagster.MetadataValue.int(reaped),
+        }
+    )
 
     if run.dry_run:
         context.log.info("dry run: skipping the cohort sweep")
@@ -989,7 +998,7 @@ def delete_orphaned_distinct_ids(
 def persist_deleted_persons(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    persons_database: dagster.ResourceParam[psycopg2.extensions.connection],
+    persons_database_url: dagster.ResourceParam[str],
     run: CleanupRun,
 ) -> CleanupRun:
     """Hand the swept persons to Postgres, before the step that makes them unrecoverable.
@@ -1002,6 +1011,12 @@ def persist_deleted_persons(
     if run.dry_run:
         context.log.info("dry run: skipping the write to %s", PG_CLEANUP_QUEUE_TABLE)
         return run
+
+    # Connected here rather than at resource init: a connect failure at init happens before the
+    # step exists, so no failure hook runs and the run's dictionaries are stranded. Failing
+    # inside the op is a step failure, which is what lets drop_assets_on_failure fire. It also
+    # keeps a dry run from dialing Postgres at all.
+    persons_database = psycopg2.connect(persons_database_url, connect_timeout=10)
 
     def read_page(client: Client, after: tuple[int, str] | None) -> list[tuple[int, str]]:
         # Reads the snapshot directly rather than the dictionary's query, so adding attributes to
@@ -1030,46 +1045,49 @@ def persist_deleted_persons(
     deleted_at = run.distinct_ids_deleted_at
     written = 0
     after: tuple[int, str] | None = None
-    with persons_database.cursor() as cursor:
-        cursor.execute("SET application_name = 'clickhouse_cleanup'")
-        # Bounded so a lock conflict on the queue fails the page instead of holding a transaction
-        # open on the persons writer; the per-page upsert is idempotent, so a retry is safe.
-        cursor.execute("SET statement_timeout = '120s'")
-        cursor.execute("SET lock_timeout = '10s'")
-        while True:
-            page = cluster.any_host_by_role(partial(read_page, after=after), NodeRole.DATA).result()
-            if not page:
-                break
-            # A person can be deleted, drained, re-created and deleted again under the same uuid,
-            # and the drain only looks at rows where cleaned_at is null. Leaving an already-cleaned
-            # row untouched would drop that second deletion on the floor and leak its Postgres rows
-            # for good, so the conflict re-arms the row instead of ignoring it. The WHERE keeps a
-            # retried op from rewriting rows that already hold these values: an unconditional
-            # DO UPDATE writes a new tuple version per row, so a retry over millions of rows would
-            # leave that many dead tuples for the persons writer to vacuum.
-            execute_values(
-                cursor,
-                f"""
-                INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at)
-                VALUES %s
-                ON CONFLICT (team_id, person_uuid) DO UPDATE
-                SET deleted_at = EXCLUDED.deleted_at, cleaned_at = NULL
-                WHERE {PG_CLEANUP_QUEUE_TABLE}.cleaned_at IS NOT NULL
-                   OR {PG_CLEANUP_QUEUE_TABLE}.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
-                """,
-                [(team_id, str(person_id), deleted_at) for team_id, person_id in page],
-                page_size=1000,
-            )
-            # The conflict guard makes rowcount "rows changed", not "rows queued"; the metric is
-            # the queued set, which is the page.
-            written += len(page)
-            # Commit per page: the upsert makes replays idempotent, and one transaction across
-            # millions of rows would hold WAL and xmin on the persons writer for the whole op.
-            persons_database.commit()
-            if len(page) < PERSIST_PAGE_SIZE:
-                break
-            last_team, last_person = page[-1]
-            after = (last_team, str(last_person))
+    try:
+        with persons_database.cursor() as cursor:
+            cursor.execute("SET application_name = 'clickhouse_cleanup'")
+            # Bounded so a lock conflict on the queue fails the page instead of holding a transaction
+            # open on the persons writer; the per-page upsert is idempotent, so a retry is safe.
+            cursor.execute("SET statement_timeout = '120s'")
+            cursor.execute("SET lock_timeout = '10s'")
+            while True:
+                page = cluster.any_host_by_role(partial(read_page, after=after), NodeRole.DATA).result()
+                if not page:
+                    break
+                # A person can be deleted, drained, re-created and deleted again under the same uuid,
+                # and the drain only looks at rows where cleaned_at is null. Leaving an already-cleaned
+                # row untouched would drop that second deletion on the floor and leak its Postgres rows
+                # for good, so the conflict re-arms the row instead of ignoring it. The WHERE keeps a
+                # retried op from rewriting rows that already hold these values: an unconditional
+                # DO UPDATE writes a new tuple version per row, so a retry over millions of rows would
+                # leave that many dead tuples for the persons writer to vacuum.
+                execute_values(
+                    cursor,
+                    f"""
+                    INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at)
+                    VALUES %s
+                    ON CONFLICT (team_id, person_uuid) DO UPDATE
+                    SET deleted_at = EXCLUDED.deleted_at, cleaned_at = NULL
+                    WHERE {PG_CLEANUP_QUEUE_TABLE}.cleaned_at IS NOT NULL
+                       OR {PG_CLEANUP_QUEUE_TABLE}.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
+                    """,
+                    [(team_id, str(person_id), deleted_at) for team_id, person_id in page],
+                    page_size=1000,
+                )
+                # The conflict guard makes rowcount "rows changed", not "rows queued"; the metric is
+                # the queued set, which is the page.
+                written += len(page)
+                # Commit per page: the upsert makes replays idempotent, and one transaction across
+                # millions of rows would hold WAL and xmin on the persons writer for the whole op.
+                persons_database.commit()
+                if len(page) < PERSIST_PAGE_SIZE:
+                    break
+                last_team, last_person = page[-1]
+                after = (last_team, str(last_person))
+    finally:
+        persons_database.close()
 
     context.add_output_metadata({"queued_for_postgres": dagster.MetadataValue.int(written)})
     return run
@@ -1124,32 +1142,23 @@ def drop_snapshot_assets(
     for dictionary in (run.orphaned_dictionary, run.persons_dictionary):
         cluster.map_all_hosts(dictionary.drop).result()
     # The TTL would reap these anyway. Clearing them now keeps the shared tables small enough that
-    # a run's own rows stay cheap to read.
+    # a run's own rows stay cheap to read. Replicated DROP PARTITION must run on a leader-capable
+    # replica, and only online replicas can become leaders, so the drop is routed to one.
     for table in run.all_tables:
-        cluster.any_host_by_role(table.drop_run_partition, NodeRole.DATA).result()
+        cluster.any_host_by_role(table.drop_run_partition, NodeRole.DATA, Workload.ONLINE).result()
 
 
-@dagster.failure_hook(required_resource_keys={"cluster"})
-def drop_assets_on_failure(context: dagster.HookContext) -> None:
-    """Drop this run's dictionaries when an op fails.
+def _drop_dictionary(client: Client, qualified_name: str) -> None:
+    client.execute(f"DROP DICTIONARY IF EXISTS {qualified_name} SYNC")
 
-    Dagster skips downstream ops after a failure, so drop_snapshot_assets never runs and the
-    dictionaries would survive on the cluster and accumulate across failures. Their names come
-    from the run id alone, so this needs nothing from the failed op.
 
-    This ignores the cleanup flag on purpose. A stranded dictionary holds its whole key set in
-    memory on every host, which costs more than the ability to inspect it after a failure.
+def _kill_and_drop_run_assets(cluster: ClickhouseCluster, run_id: str) -> None:
+    """Kill the mutations that still read a run's dictionaries, then drop the dictionaries.
 
-    The failed run's rows are left behind deliberately. They cost far less than a dictionary and
-    the tables' TTL reaps them, so a failed sweep stays inspectable in the meantime.
+    Kill first: a dropped dictionary fails its readers. Killing a half-applied ordered delete
+    is safe because each key's tombstone stays the surviving max version.
     """
-    run_id = context.run_id.replace("-", "_")
-    cluster = context.resources.cluster
 
-    # A mutation still reading one of these dictionaries would fail the moment it is dropped, so
-    # kill this run's mutations first. Killing a half-applied ordered delete is safe: every
-    # intermediate state leaves each key's tombstone as the surviving max version, so nothing
-    # resurrects. Only mutations naming this run's dictionaries are touched.
     def kill_run_mutations(client: Client) -> None:
         for table in (PERSON_DISTINCT_ID2_TABLE, PERSONS_TABLE):
             client.execute(
@@ -1166,7 +1175,89 @@ def drop_assets_on_failure(context: dagster.HookContext) -> None:
 
     for table_name in CLEANUP_SNAPSHOT_TABLES:
         name = f"{settings.CLICKHOUSE_DATABASE}.{table_name}_{run_id}_dictionary"
-        cluster.map_all_hosts(lambda client, n=name: client.execute(f"DROP DICTIONARY IF EXISTS {n} SYNC")).result()
+        cluster.map_all_hosts(partial(_drop_dictionary, qualified_name=name)).result()
+
+
+# Exactly the per-run dictionary names this job generates; the janitor touches nothing else.
+_RUN_SCOPED_DICTIONARY = re.compile(
+    r"^(?:" + "|".join(re.escape(t) for t in CLEANUP_SNAPSHOT_TABLES) + r")"
+    r"_([0-9a-f]{8}_[0-9a-f]{4}_[0-9a-f]{4}_[0-9a-f]{4}_[0-9a-f]{12})_dictionary$"
+)
+
+# Statuses in which a run can no longer be using its dictionaries. Sourced from the public enum
+# rather than dagster's private FINISHED_STATUSES so an upstream rename cannot break the import.
+_TERMINAL_RUN_STATUSES = frozenset(
+    {dagster.DagsterRunStatus.SUCCESS, dagster.DagsterRunStatus.FAILURE, dagster.DagsterRunStatus.CANCELED}
+)
+
+
+def reap_stranded_run_assets(context: dagster.OpExecutionContext, cluster: ClickhouseCluster) -> int:
+    """Drop dictionaries left by finished sweep runs, and return how many runs were reaped.
+
+    Cancellation, run-worker crashes, and pre-step failures skip the failure hook, and
+    dictionaries have no TTL. Only runs this instance knows to be finished are reaped:
+    an active run's assets are in use, and an unknown run id cannot be proven dead.
+    """
+    try:
+        current = context.run_id.replace("-", "_")
+
+        def dictionary_names(client: Client) -> list[str]:
+            rows = client.execute(
+                "SELECT name FROM system.dictionaries WHERE database = %(database)s",
+                {"database": settings.CLICKHOUSE_DATABASE},
+            )
+            return [row[0] for row in rows]
+
+        names: set[str] = set()
+        for host_names in cluster.map_all_hosts(dictionary_names).result().values():
+            names.update(host_names)
+
+        reaped: list[str] = []
+        for name in sorted(names):
+            match = _RUN_SCOPED_DICTIONARY.match(name)
+            if not match or match.group(1) == current or match.group(1) in reaped:
+                continue
+            run_id = match.group(1)
+            stranded_run = context.instance.get_run_by_id(run_id.replace("_", "-"))
+            if stranded_run is None:
+                context.log.warning("not reaping %s: this instance does not know run %s", name, run_id)
+                continue
+            if stranded_run.status not in _TERMINAL_RUN_STATUSES:
+                continue
+            context.log.warning("reaping stranded assets of finished run %s", run_id)
+            try:
+                _kill_and_drop_run_assets(cluster, run_id)
+            except Exception:
+                # One unreapable run must not shadow the later ones, or block them forever.
+                context.log.exception("failed to reap run %s", run_id)
+                _emit(MetricsClient(cluster), "clickhouse_cleanup_stranded_runs_unreapable", {})
+                continue
+            reaped.append(run_id)
+
+        if reaped:
+            _emit(MetricsClient(cluster), "clickhouse_cleanup_stranded_runs_reaped", {}, value=len(reaped))
+        return len(reaped)
+    except Exception:
+        # Leftovers cost memory, not correctness, so a broken janitor must not block the sweep.
+        context.log.exception("failed to reap stranded run assets")
+        return 0
+
+
+@dagster.failure_hook(required_resource_keys={"cluster"})
+def drop_assets_on_failure(context: dagster.HookContext) -> None:
+    """Drop this run's dictionaries when an op fails.
+
+    Dagster skips downstream ops after a failure, so drop_snapshot_assets never runs and the
+    dictionaries would survive on the cluster and accumulate across failures. Their names come
+    from the run id alone, so this needs nothing from the failed op.
+
+    This ignores the cleanup flag on purpose. A stranded dictionary holds its whole key set in
+    memory on every host, which costs more than the ability to inspect it after a failure.
+
+    The failed run's rows are left behind deliberately. They cost far less than a dictionary and
+    the tables' TTL reaps them, so a failed sweep stays inspectable in the meantime.
+    """
+    _kill_and_drop_run_assets(context.resources.cluster, context.run_id.replace("-", "_"))
 
 
 @dagster.job(hooks={drop_assets_on_failure}, tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})

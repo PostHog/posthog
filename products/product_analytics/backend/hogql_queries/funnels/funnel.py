@@ -8,7 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLQuerySettings
 from posthog.hogql.parser import parse_expr, parse_select
 
-from posthog.hogql_queries.insights.utils.breakdowns import NOT_IN_COHORT_ID
+from posthog.hogql_queries.utils.breakdowns import NOT_IN_COHORT_ID
 from posthog.utils import DATERANGE_MAP
 
 from products.product_analytics.backend.hogql_queries.funnels.base import JOIN_ALGOS, FunnelBase
