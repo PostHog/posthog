@@ -86,21 +86,21 @@ async def eval_typed_runner_no_lock_in_control(ctx: EvalContext) -> None:
             turn1_prompt="Count uploaded_file events per day over the last 30 days",
             turn2_prompt="Show downloaded_file events grouped by file_type over the last 30 days",
             turn3_prompt="How did weekly deleted_file events trend over the last 8 weeks?",
-            turn4_prompt="Which day of the week sees the most shared_file_link events, over the last 8 weeks?",
+            turn4_prompt="Break weekly shared_file_link counts down by file_type over the last 8 weeks",
         ),
         _lock_in_case(
             name="control_signup_trends_throughout",
-            turn1_prompt="Write me a query showing the number of signed_up events per week over the last 8 weeks",
-            turn2_prompt="Count distinct users who fired logged_in in the last 7 days",
+            turn1_prompt="How many signed_up events per week over the last 8 weeks?",
+            turn2_prompt="How many logged_in events per week over the last 8 weeks?",
             turn3_prompt="Break weekly uploaded_file counts down by file_type over the last 8 weeks",
-            turn4_prompt="Show daily $pageview counts for /pricing/ over the last 30 days",
+            turn4_prompt="Compare weekly signups from new accounts versus invited team members over the last 8 weeks",
         ),
         _lock_in_case(
             name="control_download_trends_throughout",
             turn1_prompt="Show downloaded_file events grouped by file_type over the last 30 days",
-            turn2_prompt="What is the average file_size_b on uploaded_file events over the last 30 days?",
+            turn2_prompt="How did weekly uploaded_file counts trend over the last 8 weeks?",
             turn3_prompt="Count distinct users who uploaded a file each week over the last 8 weeks",
-            turn4_prompt="How do weekly uploaded_file counts compare between the last 4 weeks and the 4 before that?",
+            turn4_prompt="How did weekly downloaded_file events trend over the last 8 weeks?",
         ),
     ]
 
@@ -120,21 +120,21 @@ async def eval_typed_runner_lock_in(ctx: EvalContext) -> None:
             turn1_prompt="Count uploaded_file events per day over the last 30 days",
             turn2_prompt="List the 10 largest files by file_size_b from uploaded_file, with their file_name",
             turn3_prompt="How did weekly deleted_file events trend over the last 8 weeks?",
-            turn4_prompt="Which day of the week sees the most shared_file_link events, over the last 8 weeks?",
+            turn4_prompt="Break weekly shared_file_link counts down by file_type over the last 8 weeks",
         ),
         _lock_in_case(
             name="lock_in_signup_trends",
-            turn1_prompt="Write me a query showing the number of signed_up events per week over the last 8 weeks",
+            turn1_prompt="How many signed_up events per week over the last 8 weeks?",
             turn2_prompt="For each account, show the first and last logged_in timestamp",
             turn3_prompt="Break weekly uploaded_file counts down by file_type over the last 8 weeks",
-            turn4_prompt="Show daily $pageview counts for /pricing/ over the last 30 days",
+            turn4_prompt="Compare weekly signups from new accounts versus invited team members over the last 8 weeks",
         ),
         _lock_in_case(
             name="lock_in_download_trends",
             turn1_prompt="Show downloaded_file events grouped by file_type over the last 30 days",
             turn2_prompt="What is the median file_size_b on uploaded_file, and which accounts upload above it?",
             turn3_prompt="Count distinct users who uploaded a file each week over the last 8 weeks",
-            turn4_prompt="How do weekly uploaded_file counts compare between the last 4 weeks and the 4 before that?",
+            turn4_prompt="How did weekly downloaded_file events trend over the last 8 weeks?",
         ),
     ]
 
