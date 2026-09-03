@@ -2,19 +2,21 @@
 
 Working contract for implementation agents. Steps 1–8 have shipped; each remaining step is one commit in its own PR.
 
-**Retirement.** This doc dies with `F6`. Whatever is still load-bearing then — the vocabulary rules, the ordering-vs-person-processing contract, the repartitioning design note — graduates into module docs or `v1/sinks/DESIGN.md` first, and the deferred work moves to issues. A plan must not outlive the work it schedules, and after F3 it schedules nothing.
+**Retirement.** This doc dies when it schedules nothing and owns no unsequenced objective. `F6` closes the first objective (the manual fallback); the second — capture prepared for an automated fallback — is then sequenced by promoting the steps under **Objective 2** below into a scheduled stage, parity proofs intact. Whatever is still load-bearing at the end — the vocabulary rules, the ordering-vs-person-processing contract, the repartitioning design note — graduates into module docs or `v1/sinks/DESIGN.md` first, and only work serving neither objective leaves as issues.
 
 ## Motivation
 
-**One driver: an output owns the configuration it produces with.**
+**Two objectives, one mechanism: an output owns the configuration it produces with.**
 
-If MSK degrades, capture-analytics must be able to produce to an alternative cluster — its brokers, its TLS, its own topic names — and we must know the configuration is sound before any traffic moves. Running capture against a half-wired cluster is the risk this plan exists to remove.
+**Objective 1 — ship a manual fallback.** If MSK degrades, capture-analytics must be able to produce to an alternative cluster — its brokers, its TLS, its own topic names — armed by one environment variable and a pod roll, and we must know the configuration is sound before any traffic moves. Running capture against a half-wired cluster is the risk this objective removes, and the boot-time checks that remove it (F2, F3) are only buildable once configuration is isolated per output (F1): a single deployment-wide `KafkaConfig` with ten defaulted topic names is exactly what a startup check cannot verify. F1–F6 are this objective; F4 is the feature.
 
-The mechanism that buys this is narrow: make an output carry its own connection and topic configuration, require that configuration for every output a deployment can reach, and verify those topics against that output's own broker at boot. A fallback to a second cluster is then *a configuration of an output's targets* — no new policy, no new trait, no per-feature code path. That is what the target architecture below already describes; this plan just stops deferring it behind eleven structural steps.
+**Objective 2 — prepare capture for an automated fallback.** The switch decision moves to a separate circuit-breaker service; how that service decides is not this plan's concern. Capture's side of the contract is narrow: submit producer health metrics, receive switch signals, and apply a signal at runtime through the failover output it already has — no redeploy. Consumers are out of scope throughout; this plan is capture prep. The steps live under **Objective 2** below, unsequenced until objective 1 closes.
 
-`Output::failover` already composes two arbitrary outputs (Step 7). What it lacks is targets that can be configured independently of each other.
+The mechanism both objectives ride is the same: make an output carry its own connection and topic configuration, require that configuration for every output a deployment can reach, and verify those topics against that output's own broker at boot. A fallback — manual or signal-driven — is then *a configuration of an output's targets*: no new policy, no new trait, no per-feature code path. `Output::failover` already composes two arbitrary outputs (Step 7); what it lacks is targets configurable independently of each other, and, for objective 2, a target selection that can change while the process runs.
 
-Steps 1–8 landed the rest of the structure: routing is a pure function, the lane decision is pipeline-layer code, sinks are backend mechanism over prepared payloads, and the outputs layer owns multi-target policy behind one produce surface. The drivers this plan originally sequenced — breaker-driven failover, cluster migration by split/dual-write, and a protobuf cutover behind the serialization seam — are real but not urgent, and are recorded under **Deferred work** rather than scheduled. Each becomes cheaper once outputs are independently configurable, not more expensive.
+Safety is why this plan is mostly refactoring. Moving production traffic between clusters tolerates no ambient state and no half-understood code path, so every step is one small commit, parity-proven by the Step-1 goldens, revertible by plain revert — and the steps that read as pure structure are what make the boot checks and the runtime switch possible at all.
+
+Steps 1–8 landed the structure: routing is a pure function, the lane decision is pipeline-layer code, sinks are backend mechanism over prepared payloads, and the outputs layer owns multi-target policy behind one produce surface. Cluster migration by split/dual-write and a protobuf cutover behind the serialization seam stay recorded under **Deferred work**: real, unscheduled, and cheaper once outputs are independently configurable, not more expensive.
 
 ## Target architecture
 
@@ -52,7 +54,7 @@ Steps 1–3 land together with this doc: the routing golden oracle, the pure `ro
 
 ### Invariants
 
-- Metric names and labels stay stable: `capture_events_rerouted_*`, `capture_primary_sink_health`, `capture_fallback_sink_failovers_total`, `capture_failover_breaker_*`, `capture_event_batch_size`. Renames are out of scope for every step.
+- Metric names and labels stay stable: `capture_events_rerouted_*`, `capture_primary_sink_health`, `capture_fallback_sink_failovers_total`, `capture_event_batch_size`. Renames are out of scope for every step.
 - Wire parity is proven by the Step-1 goldens and existing endpoint/integration tests passing **unmodified**, except where a step explicitly says otherwise.
 - Never mix a mechanical move with a behavior change in one commit.
 - Every step ships green (`cargo test -p capture`, clippy `-D warnings`, fmt) and rolls back by plain revert.
@@ -168,7 +170,7 @@ The consumer of F1–F3, and the reason they exist.
 
 - **Shape.** The deployment's outputs tree carries *both* Kafka outputs: the primary and a fallback, each configured independently under its own F1 namespace (own brokers, own TLS, own topic names — the backup cluster does not have to mirror the primary's topic names, and should not have to).
 - **Arming.** One environment variable, matched exactly against a sentinel — not a truthy value. `"1"`, `"true"`, `"yes"` must not move a fleet's traffic, and any value other than the sentinel refuses to boot rather than quietly running on the primary. Unset is normal operation.
-- **The switch is static at boot.** Exactly one target publishes; arming means setting the variable and rolling the pods. This is deliberate: the failure it answers is "MSK is degraded and a human has decided to move", not a transient the process should react to on its own. Automatic switching is Step 10's breaker, and stays deferred.
+- **The switch is static at boot.** Exactly one target publishes; arming means setting the variable and rolling the pods. This is deliberate: the failure it answers is "MSK is degraded and a human has decided to move", not a transient the process should react to on its own. Automatic switching is objective 2, and builds on this step's tree.
 - **Both targets are verified, including the dormant one.** The tree holds the fallback whether or not it is armed, so F3 probes its cluster and topics at every boot. A misconfigured backup is then discovered on an ordinary deploy, months before the emergency — which is the entire point. Discovering it while arming is discovering it too late.
 - **Report which target is live** on a gauge, emitted in both states so a dashboard can tell "on the primary" from "pod not reporting".
 - **Scope.** capture-analytics. Other capture modes carry no fallback output and are not asked to configure one (F2).
@@ -180,7 +182,7 @@ The consumer of F1–F3, and the reason they exist.
 - **Goal.** Delete `S3Sink`, its `PublishEvents` impl, the `s3_fallback_*` config, and the Kafka→S3 failover wiring in `setup`.
 - **Why it is safe.** It is off in every production deployment: six `S3_FALLBACK_ENABLED: "false"` across the charts apps against one `"true"`, and that one is `apps/capture-analytics/values.dev.yaml`. The infra config notes the IAM role is "wired but unused". Retiring it removes dead break-glass machinery, not a live safety net.
 - **Why F4 replaces it.** A second Kafka cluster keeps events in the pipeline — consumers read them normally. S3 parks them behind a separate replay path that has never been exercised in production.
-- **The trade, stated plainly.** S3 failover is *automatic*: the advisory health handle flips and the fallback takes the batch, with no human and no redeploy. F4 is *configuration*: arm and roll. Retiring S3 therefore gives up an automatic response — one that is currently disabled everywhere, so nothing running is lost, but the capability is. If an automatic switch is wanted, revive Step 10 (breaker mode) and drive F4's fallback from it; the policy node already composes two outputs.
+- **The trade, stated plainly.** S3 failover is *automatic*: the advisory health handle flips and the fallback takes the batch, with no human and no redeploy. F4 is *configuration*: arm and roll. Retiring S3 therefore gives up an automatic response — one that is currently disabled everywhere, so nothing running is lost, but the capability is. Getting it back, done properly, is objective 2: the breaker service's signals drive F4's fallback through the G1 seam; the policy node already composes two outputs.
 - **Cross-repo.** Six chart values, the `CaptureAnalyticsV0S3FallbackActive` alert spec and its runbook, and the IAM role in cloud-infra all go with it.
 - **Size.** M.
 
@@ -197,19 +199,27 @@ The consumer of F1–F3, and the reason they exist.
 
 F2 fails that at boot: a reachable output with no configured topic. F3 fails it too, if the defaulted name is absent from the cluster. Worth confirming where that traffic lands today — unconfirmed, and it predates this plan.
 
+## Objective 2 — automated fallback (unsequenced)
+
+Capture's half of an automated fallback, and nothing more. The decision-maker is a separate circuit-breaker service; its internals — how it aggregates, when it trips, whether and how it probes — are outside this plan, and so are consumers. Capture's contract with the service is two channels: producer health metrics out, switch signals in. These steps are promoted into a scheduled stage, with parity proofs, when objective 1 closes; until then they are shapes, not commitments.
+
+### Step G1 · Failover target selection behind a control-plane seam
+
+The failover output's target selection becomes runtime-swappable state — swappable, no request-path locks, the pattern the repartitioning note reuses — with F4's static arming as the boot value. Applying a signal switches which target publishes; no signal, or a silent, dead, or unreachable control plane, holds the current selection, because the absence of a decision must never move traffic. The F4 live-target gauge reports whichever selection is in force. Dark: with no service endpoint configured, behavior is byte-identical to F4's static switch.
+
+### Step G2 · Producer health metrics out
+
+Each Kafka output reports its own produce-path health — delivery latency, error rates, queue depth — keyed by output, so the service sees the path each deployment actually experiences, dormant fallback included. Transport and cadence are sequencing-time decisions; the standing requirements are per-output attribution and that reporting failure never degrades the produce path.
+
+### Step G3 · Switch signals in
+
+Capture receives switch signals from the service and feeds them to the G1 seam, acknowledging what it applied. The F4 arming variable stays authoritative as the manual override — a human's static decision outranks the service in both directions; exact precedence is settled at sequencing time.
+
+Step 10 (the in-process `FailoverMode::Breaker`) dissolved into this contract: trip/probe/recover logic is the service's concern, not capture's. What survives of it is the control-plane seam and the control-plane-down posture, both carried by G1.
+
 ## Deferred work
 
-Not scheduled. The structure to build on landed in steps 1–8; these are the drivers that no longer justify sequencing ahead of the fallback. Revive a step by moving it back into a stage above, with its parity proof intact.
-
-### Stage D (deferred) — dark failover
-
-Steps 9 and 11 are not here. Step 9 was promoted into **F2**, which the fallback needs; Step 11 became **F6**, because F1 makes convergence cheap and delay makes it dearer. Step 10 stays deferred, and is what F5 points at if the automatic failover it retires is ever wanted back.
-
-#### Step 10 · Breaker failover mode (dark)
-
-- **Goal.** `FailoverMode::Breaker` — a pure clock-injected `Breaker` state machine, half-open single-probe permit, and a `StaticControlPlane` seam, as the second failover mode, dark behind `failover_enabled` (default off; off ⇒ Advisory mode byte-identical).
-- **Parity proof.** 13+ deterministic breaker unit tests; four output-level behavior tests (healthy-primary, open→fallback→recover cycle, control-plane-down, fatal-no-failover). The effective-route gauge harness and a Notify-gated probe-concurrency harness graduate with the feature when it leaves dark mode.
-- **Size.** M.
+Not scheduled, and serving neither objective directly. Revive a step by moving it back into a stage above, with its parity proof intact. Steps 9–11 are gone from here: Step 9 was promoted into **F2**, Step 11 became **F6** because F1 makes convergence cheap and delay makes it dearer, and Step 10 dissolved into **Objective 2** above.
 
 ### Stage E — prep hoists up; sinks become pure transport
 
@@ -245,8 +255,7 @@ Goal: v1 endpoints publish through `dyn Outputs` like every other ingress, so fa
 2. **Named surfaces.** `CAPTURE_V1_SINKS` names become named `Arc<dyn Outputs>` rows (each a `KafkaOutputs` built from that sink's config); the v1 `Router`/`Sink`/`Event` traits and `serialize_batch` dissolve.
 3. **Response granularity.** `Outputs::publish` already returns per-event `SinkResult`s; `merge_sink_results` consumes them unchanged.
 4. **Parity oracle.** The v1 pipeline tests and the real-Kafka `v1_sink_integration` suite must pass against the converged path — payload bytes, headers, topics, keys. Documented v1-vs-v0 header deltas (overflow/person-processing decoupling) must be preserved in the mapping, not silently erased. The legacy serializer/header builder survive only as a frozen `cfg(test)` oracle (`legacy_serialize`/`legacy_headers`) the parity suite compares against.
-5. **Plan retirement.** Superseded: the doc now retires with `F3`, see the header.
-   Anything still load-bearing then (the repartitioning design note, the ordering-vs-person-processing contract) graduates into module docs or `v1/sinks/DESIGN.md` first.
+5. **Plan retirement.** Superseded: see **Retirement** in the header — the doc retires when both objectives are served, not with this step.
 
 **Hazard.** The `Destination::Overflow` → metadata mapping must preserve the split between the two intents that ride together on this lane: whether person processing is disabled (a customer-visible instruction, the `force_disable_person_processing` header) and whether the partition key is dropped (a load decision, `OrderingGuarantee`). Both paths now state the same rule, so the mapping has one contract to satisfy rather than two dialects to reconcile:
 
@@ -272,7 +281,7 @@ Not built in this PR; this note records where it plugs in so nothing landed here
 
 **Logical shards, decided before the sinks.** The coordinator owns a stable shard function: `shard = hash(key) % N` over the same partition key the sink would hash, with coordinator-owned `N` (not either cluster's partition count). The shard is stamped at prep time — `AddressedPayload` grows `shard: Option<u32>`, `None` meaning "let the producer partition as today". Stamping at prep keeps the decision above the sinks: both clusters of a failover pair see the same shard on the same payload, so a switchover decision is consistent across targets by construction.
 
-**A `ShardRouted` output policy.** Routing lives in the outputs layer as a policy node holding two child outputs (old cluster, new cluster) and a swappable assignment table `shard → Old | New` (an `ArcSwap`, updated by the coordinator's control plane the same way the failover breaker's control plane seam works). Batch publish splits by assignment and forwards — scatter-gather like the old `Split` composite, no serialization changes (both clusters share the prep/serialization contract, as the retired AI-secondary split proved).
+**A `ShardRouted` output policy.** Routing lives in the outputs layer as a policy node holding two child outputs (old cluster, new cluster) and a swappable assignment table `shard → Old | New` (an `ArcSwap`, updated by the coordinator's control plane the same way the G1 control-plane seam works). Batch publish splits by assignment and forwards — scatter-gather like the old `Split` composite, no serialization changes (both clusters share the prep/serialization contract, as the retired AI-secondary split proved).
 
 **Explicit partition pass-through in the sink.** `ProduceRecord` grows `partition: Option<i32>`; the Kafka sink maps `shard` to a concrete partition of its own topic (its table realizes the namespace; a shard→ partition map is the same kind of sink-side data as topic names) and sets it on the record. `None` keeps today's key hashing. The sink still makes no routing decisions — it realizes an address (topic) and a shard (partition) in its own namespace.
 
@@ -292,7 +301,7 @@ The hold window is per-shard and bounded by one producer flush — that is the "
 
 - `AddressedPayload` — carries key + address; grows `shard`.
 - Outputs policy tree — `ShardRouted` slots in beside single/failover/split.
-- Breaker control-plane seam — the pattern for the coordinator's assignment updates (swappable state, no request-path locks).
+- The G1 control-plane seam — the pattern for the coordinator's assignment updates (swappable state, no request-path locks).
 - `ProduceRecord` — grows `partition`; sinks realize shard → partition.
 - Per-pipeline rows + topic tables (Step 18) — a coordinator can retarget one pipeline's row without touching the rest of the deployment.
 
@@ -304,7 +313,7 @@ When all steps land, the five strata hold:
 - **Outputs are the produce surface.** Every pipeline publishes through the `OutputRegistry`; the `Output` policy tree (single | failover) owns all multi-target behavior, composing the way the old sink composites did. The v0 `Event` trait and `FallbackSink` are gone; `SplitKafkaSink` already is, deleted with the retired AI secondary-cluster routing.
 - **Serialization is a seam.** Format × envelope per destination, with content headers carrying encoding coexistence (the lz4 replay design, generalized); a protobuf cutover is an output-level config change.
 - **Sinks are mechanism, and own their namespace.** Payloads carry the abstract `Address`; each sink realizes it in its own namespace at publish time (Kafka: its per-cluster topic table — the swappable seam a repartitioning coordinator plugs into; S3: the buffer path; print/noop: trivially). Sinks make no routing decisions; a failover pair can share one prepared batch because payloads are target-agnostic. Serialization stays output-level (a consumer contract, shared across targets).
-- **Breaker failover is dark-launched** behind `CAPTURE_FAILOVER_ENABLED` as the failover output's autonomous mode.
+- **The failover switch is signal-drivable.** The failover output's target selection sits behind the G1 control-plane seam; a separate circuit-breaker service supplies the switch signals, capture supplies producer health, and a silent control plane holds the current target.
 - **v1 resolves topics through the shared `TopicTable`** via `Destination::as_output`. The v1 `Sink`/`Router` trait convergence stays gated on the per-event response model.
 
 ## Agent conventions
@@ -339,7 +348,9 @@ When all steps land, the five strata hold:
 | F4 · capture-analytics emergency fallback | pending | `feat(capture): emergency fallback output for capture-analytics` |
 | F5 · Retire the S3 fallback | pending | `refactor(capture): delete the s3 fallback output` |
 | F6 · v1 convergence | pending | `refactor(capture): v1 resolves through shared pipeline/lane strata` |
-| 10 · Breaker mode (dark) | deferred | `feat(capture): breaker-driven failover mode (dark)` |
+| G1 · Failover selection behind a control-plane seam | objective 2 | `feat(capture): failover target selection behind a control-plane seam` |
+| G2 · Producer health metrics out | objective 2 | `feat(capture): outputs report producer health for the breaker service` |
+| G3 · Switch signals in | objective 2 | `feat(capture): apply breaker switch signals to the failover output` |
 | 12 · Prep hoist; `PublishEvents` retired | deferred | `refactor(capture): hoist prep into outputs; sinks take prepared payloads only` |
 | 13 · Typed addresses; AI pipeline | deferred | `refactor(capture): typed per-pipeline lanes; custom redirects and the ai stream become addresses` |
 | 14 · Sinks realize namespaces | deferred | `refactor(capture): payloads carry addresses; sinks realize them in their own namespace` |
