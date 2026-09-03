@@ -11,6 +11,8 @@ generator resumes.
 
 from __future__ import annotations
 
+import uuid
+import datetime as dt
 from collections import Counter
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Final, Literal
@@ -22,6 +24,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
+from posthog.sync import database_sync_to_async_pool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
@@ -56,6 +59,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bat
     DEFAULT_BATCH_ROW_LIMIT,
     TableBatcher,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import OutputLane, SourceInputs
 
 if TYPE_CHECKING:
@@ -128,6 +132,64 @@ def served_lanes(schema: ExternalDataSchema) -> list[CDCLane]:
         )
         for mode in _LANE_WRITE_MODES.get(schema.cdc_table_mode, ())
     ]
+
+
+# Slack when comparing an S3 mtime against a listing timestamp from our clock, so skew between the
+# two can never make a file look older than a listing that in fact never saw it.
+_CONSUMED_MTIME_MARGIN = dt.timedelta(minutes=5)
+
+# When a run listed the buffer, kept on that run's own job. Proof only once the job completes.
+BUFFER_LISTED_AT_KEY = "cdc_buffer_listed_at"
+
+
+async def completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | None:
+    """When the buffer was last listed by a run that went on to complete every table it writes.
+
+    Completion is what proves consumption: it means the generator drained every listed file and
+    every staged batch committed. A `both` run completes two jobs, so both have to be COMPLETED —
+    the schema's own and its companion — or a file at the floor could be deleted while the history
+    table still owed it.
+    """
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    def _read() -> dt.datetime | None:
+        jobs = (
+            ExternalDataJob.objects.filter(
+                team_id=schema.team_id, schema_id=schema.id, status=ExternalDataJob.Status.COMPLETED
+            )
+            .order_by("-created_at")
+            .values_list("id", "schema_snapshot")[:_PROOF_SEARCH_DEPTH]
+        )
+        for job_id, snapshot in jobs:
+            listed_at = (snapshot or {}).get(BUFFER_LISTED_AT_KEY)
+            if not listed_at:
+                continue
+            try:
+                stamped = dt.datetime.fromisoformat(listed_at)
+            except (TypeError, ValueError):
+                continue
+            if stamped.tzinfo is None:
+                continue
+            if _companions_completed(job_id, schema):
+                return stamped
+        return None
+
+    return await database_sync_to_async_pool(db_read_with_retry)(_read)
+
+
+def _companions_completed(job_id: uuid.UUID, schema: ExternalDataSchema) -> bool:
+    """Whether every companion table this run also wrote finished with it."""
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    companions = ExternalDataJob.objects.filter(
+        team_id=schema.team_id, schema_id=schema.id, schema_snapshot__companion_of=str(job_id)
+    ).values_list("status", flat=True)
+    return all(status == ExternalDataJob.Status.COMPLETED for status in companions)
+
+
+# A run whose companion failed proves nothing, so look past it — but never far: an older listing
+# only ever deletes fewer files, and the floor is what does the real work.
+_PROOF_SEARCH_DEPTH = 10
 
 
 async def build_output_lanes(
@@ -231,6 +293,7 @@ def consolidated_resource_name(schema: ExternalDataSchema) -> str:
 class _BufferFile:
     span: BufferFileSpan
     key: str
+    modified: dt.datetime | None
 
 
 class ReplayFilter:
@@ -241,9 +304,10 @@ class ReplayFilter:
 
     Rows AT the position are one transaction the previous run may have applied only part of, and
     the two lanes want different things from them. A merge rewrites them as upserts, so it asks
-    for no identity, `applied` is empty, and every row at the position is kept. A history table
-    would keep a second copy, so it asks for the rows its table holds there and drops a batch row
-    whose identity is one of them.
+    for no identity, `applied` is empty, and every row at the position is kept — dropping one
+    would lose a later event for a key the table happens to hold at that same commit. A history
+    table would keep a second copy instead, so it asks for the rows its table holds there and
+    drops a batch row whose identity is one of them.
 
     A multiset, not a set: one transaction can change the same key more than once and history
     keeps every version, so each match spends one. A row whose identity is not there has never
@@ -286,24 +350,55 @@ class CDCSourceManager:
     """Reads one schema's buffered change events in position order, deleting what is settled."""
 
     def __init__(
-        self, inputs: SourceInputs, logger: FilteringBoundLogger, *, deletion_floor: int | None = None
+        self,
+        inputs: SourceInputs,
+        logger: FilteringBoundLogger,
+        *,
+        deletion_floor: int | None = None,
+        proof_time: dt.datetime | None = None,
     ) -> None:
         self._inputs = inputs
         self._logger = logger
         self._deletion_floor = deletion_floor
+        self._proof_time = proof_time
 
-    def _is_consumed(self, end_seq: int) -> bool:
+    def _is_consumed(self, end_seq: int, modified: dt.datetime | None) -> bool:
         """Whether every table this schema feeds already holds this file's rows.
 
-        Strictly below the floor only. The floor is the lowest position any of the tables holds,
-        and lanes apply their batches in order, so every row beneath it landed everywhere.
+        Strictly below the floor is position-proof: the lowest-placed lane holds a commit above it,
+        and lanes apply their batches in order, so every row beneath landed everywhere.
 
-        A file AT the floor is left alone, because position cannot tell a consumed one from the
-        unread tail of a transaction split across files — they all carry one commit position. It
-        costs one re-read per tick until a later commit lifts the floor past it, and the replay
-        filter drops every row of it, so nothing is written or billed for the re-read.
+        AT the floor, position alone cannot tell a consumed file from the unread tail of a
+        transaction split across files — they all carry one commit position. A file that already
+        existed when a run listed the buffer, and that run then COMPLETED, was read and written by
+        it. The margin absorbs clock skew between S3 and our own clock.
         """
-        return self._deletion_floor is not None and end_seq < self._deletion_floor
+        floor = self._deletion_floor
+        if floor is None or end_seq > floor:
+            return False
+        if end_seq < floor:
+            return True
+        if modified is None or modified.tzinfo is None or self._proof_time is None:
+            return False
+        return modified < self._proof_time - _CONSUMED_MTIME_MARGIN
+
+    async def stamp_listing(self, listed_at: dt.datetime) -> None:
+        """Record on this run's own job that it listed the buffer, before any file is read.
+
+        Kept on the job rather than beside the schema's settings: it describes one run, and it is
+        that run's completion which turns it into proof. A crash leaves the job un-completed, so a
+        partial run can never prove anything, and a no-op tick never lists and never stamps.
+        """
+        from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+        def _stamp() -> None:
+            job = ExternalDataJob.objects.get(id=self._inputs.job_id, team_id=self._inputs.team_id)
+            snapshot = dict(job.schema_snapshot or {})
+            snapshot[BUFFER_LISTED_AT_KEY] = listed_at.isoformat()
+            # Field-scoped: job completion writes status and finished_at, never the snapshot.
+            ExternalDataJob.objects.filter(id=job.id).update(schema_snapshot=snapshot)
+
+        await database_sync_to_async_pool(db_read_with_retry)(_stamp)
 
     async def _list_buffer_files(self) -> list[_BufferFile]:
         """Buffer files under this schema's prefix, in position order.
@@ -333,7 +428,7 @@ class CDCSourceManager:
             parsed = parse_buffer_file_name(key.rsplit("/", 1)[-1])
             if parsed is None:
                 continue
-            files.append(_BufferFile(span=parsed, key=key))
+            files.append(_BufferFile(span=parsed, key=key, modified=entry.get("LastModified")))
 
         files.sort(key=lambda f: (f.span.start_seq, f.span.end_seq, f.span.file_index))
         await self._logger.adebug("cdc_buffer_files_listed", prefix=prefix, file_count=len(files))
@@ -354,13 +449,15 @@ class CDCSourceManager:
         Files every table has settled are deleted here, before they are read, so the run that
         proves them consumed is never the one that deletes them.
         """
+        listed_at = dt.datetime.now(tz=dt.UTC)
         files = await self._list_buffer_files()
+        await self.stamp_listing(listed_at)
         batch: TableBatcher[str] = TableBatcher(row_limit=batch_row_limit, byte_limit=batch_byte_limit)
 
         async with aget_s3_client() as s3:
             for file in files:
                 # The only place a buffer file is deleted — see `_is_consumed` for the proof.
-                if self._is_consumed(file.span.end_seq):
+                if self._is_consumed(file.span.end_seq, file.modified):
                     await s3._rm(file.key)
                     continue
 
