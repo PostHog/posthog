@@ -6,7 +6,7 @@ import { BindLogic } from 'kea'
 import { initKeaTests } from '~/test/init'
 import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
 
-import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
+import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { Dashboard } from './Dashboard'
 import { DashboardAiSync } from './DashboardAiSync'
@@ -73,6 +73,19 @@ describe('DashboardAiSync', () => {
         dashboardSceneLogic.unmount()
     })
 
+    it('attaches the current dashboard and skill context for standard dashboards', () => {
+        const dashboard = dashboardResult(5, [])
+
+        render(<Dashboard id="5" dashboard={dashboard} placement={DashboardPlacement.Dashboard} />)
+
+        expect(useAttachedContext).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                expect.objectContaining({ type: 'dashboard', key: 5 }),
+                expect.objectContaining({ type: 'skill', key: 'building-a-dashboard' }),
+            ])
+        )
+    })
+
     it.each([DashboardPlacement.Public, DashboardPlacement.Export])(
         'does not mount the apply-back bridge for %s dashboards',
         (placement) => {
@@ -81,6 +94,7 @@ describe('DashboardAiSync', () => {
             render(<Dashboard id="5" dashboard={dashboard} placement={placement} />)
 
             expect(useMcpToolApplyBack).not.toHaveBeenCalled()
+            expect(useAttachedContext).toHaveBeenCalledWith(null)
         }
     )
 })
