@@ -2,7 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
-import { LiquidRenderer } from './liquid'
+import { LiquidRenderBudget, LiquidRenderer } from './liquid'
 
 describe('LiquidRenderer', () => {
     let globals: HogFunctionInvocationGlobalsWithInputs
@@ -263,8 +263,29 @@ describe('LiquidRenderer', () => {
                 'template render limit exceeded',
             ],
             ['oversized template source', '{{ person.name }}'.padEnd(200_000, ' '), 'parse length limit exceeded'],
+            [
+                'literal output amplification',
+                `{% for i in (1..2000) %}${'a'.repeat(1000)}{% endfor %}`,
+                'liquid output limit exceeded',
+            ],
         ])('rejects a template with %s instead of blocking the process', (_name, template, expectedError) => {
             expect(() => LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toThrow(expectedError)
+        })
+
+        it('decodes many unmatched openers in linear time', () => {
+            const template = '{{'.repeat(50_000)
+            const start = performance.now()
+            expect(() => LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toThrow('not closed')
+            expect(performance.now() - start).toBeLessThan(1000)
+        })
+
+        it('shares one budget across renders when given one', () => {
+            const budget = new LiquidRenderBudget()
+            const template = `{% for i in (1..600) %}${'a'.repeat(1000)}{% endfor %}`
+            expect(LiquidRenderer.renderWithHogFunctionGlobals(template, globals, budget)).toHaveLength(600_000)
+            expect(() => LiquidRenderer.renderWithHogFunctionGlobals(template, globals, budget)).toThrow(
+                'liquid output limit exceeded'
+            )
         })
 
         it('renders normally after a rejected template', () => {

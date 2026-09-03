@@ -198,6 +198,20 @@ describe('Hog Inputs', () => {
             expect(inputs.liquid_templated).toMatchInlineSnapshot(`"event: "test""`)
         })
 
+        it('rejects liquid inputs whose leaves together exceed the invocation budget', async () => {
+            const leaf = `{% for i in (1..600) %}${'a'.repeat(1000)}{% endfor %}`
+            hogFunction = createHogFunction({
+                ...hogFunction,
+                inputs: {
+                    ...hogFunction.inputs,
+                    liquid_object: { value: { first: leaf, second: leaf }, templating: 'liquid' },
+                },
+            })
+            await expect(hogInputsService.buildInputs(hogFunction, globals)).rejects.toThrow(
+                'liquid output limit exceeded'
+            )
+        })
+
         it('should load integration inputs and replace access tokens with placeholders', async () => {
             hogFunction = createHogFunction({
                 ...hogFunction,
