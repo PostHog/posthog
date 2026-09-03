@@ -131,13 +131,8 @@ function DashboardEmptyActions({
 function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
-    const {
-        setAddWidgetModalOpen,
-        openTextTileModal,
-        openImageTileModal,
-        openSeparatorTileModal,
-        openButtonTileModal,
-    } = useActions(dashboardLogic)
+    const { setAddWidgetModalOpen, openTextTileModal, openImageTileModal, addSeparatorTile, openButtonTileModal } =
+        useActions(dashboardLogic)
     const { push } = useActions(router)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
@@ -176,7 +171,7 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
                     onAddInsight={showAddInsightToDashboardModal}
                     onAddText={openTextTileModal}
                     onAddImage={openImageTileModal}
-                    onAddSeparator={openSeparatorTileModal}
+                    onAddSeparator={addSeparatorTile}
                     onAddButton={openButtonTileModal}
                     onAddWidget={() => setAddWidgetModalOpen(true)}
                     push={push}

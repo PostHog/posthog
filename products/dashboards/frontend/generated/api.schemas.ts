@@ -1167,13 +1167,15 @@ export interface CopyDashboardTileRequestApi {
 /**
  * * `text` - text
  * * `image` - image
+ * * `divider` - divider
  */
-export type CreateTextTileRequestTypeEnumApi =
-    (typeof CreateTextTileRequestTypeEnumApi)[keyof typeof CreateTextTileRequestTypeEnumApi]
+export type DashboardTextTileTypeEnumApi =
+    (typeof DashboardTextTileTypeEnumApi)[keyof typeof DashboardTextTileTypeEnumApi]
 
-export const CreateTextTileRequestTypeEnumApi = {
+export const DashboardTextTileTypeEnumApi = {
     Text: 'text',
     Image: 'image',
+    Divider: 'divider',
 } as const
 
 export interface TileLayoutBoxApi {
@@ -1195,11 +1197,12 @@ export interface TileLayoutsApi {
 }
 
 export interface CreateTextTileRequestApi {
-    /** Tile type. Use image for a body with exactly one Markdown image. Defaults to text.
+    /** Tile type. Use image for a body with exactly one Markdown image. Use divider for a horizontal rule. Defaults to text.
      *
      * * `text` - text
-     * * `image` - image */
-    type?: CreateTextTileRequestTypeEnumApi
+     * * `image` - image
+     * * `divider` - divider */
+    type?: DashboardTextTileTypeEnumApi
     /**
      * Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. Image tiles require exactly one Markdown image. Max 4000 characters.
      * @minLength 1
@@ -9313,6 +9316,12 @@ export interface InsightApi {
 
 export interface TextApi {
     readonly id: number
+    /** Tile type. Use image for a body with exactly one Markdown image. Use divider for a horizontal rule.
+     *
+     * * `text` - text
+     * * `image` - image
+     * * `divider` - divider */
+    tile_type?: DashboardTextTileTypeEnumApi
     readonly created_by: UserBasicApi
     readonly last_modified_by: UserBasicApi
     /**

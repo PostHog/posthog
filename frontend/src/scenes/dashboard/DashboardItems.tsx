@@ -124,7 +124,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         setPendingInsertion,
         openTextTileModal,
         openImageTileModal,
-        openSeparatorTileModal,
+        addSeparatorTile,
         openButtonTileModal,
     } = useActions(dashboardLogic)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
@@ -273,7 +273,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                       onAddInsight: showAddInsightToDashboardModal,
                       onAddText: openTextTileModal,
                       onAddImage: openImageTileModal,
-                      onAddSeparator: openSeparatorTileModal,
+                      onAddSeparator: addSeparatorTile,
                       onAddButton: openButtonTileModal,
                       push,
                       setAddWidgetModalOpen,
@@ -289,7 +289,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             setPendingInsertion,
             openTextTileModal,
             openImageTileModal,
-            openSeparatorTileModal,
+            addSeparatorTile,
             openButtonTileModal,
         ]
     )

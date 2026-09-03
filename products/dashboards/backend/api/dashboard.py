@@ -573,10 +573,10 @@ class TileLayoutsSerializer(serializers.Serializer):
 
 class CreateTextTileRequestSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
-        choices=["text", "image"],
+        choices=["text", "image", "divider"],
         required=False,
         default="text",
-        help_text="Tile type. Use image for a body with exactly one Markdown image. Defaults to text.",
+        help_text="Tile type. Use image for a body with exactly one Markdown image. Use divider for a horizontal rule. Defaults to text.",
     )
     body = serializers.CharField(
         min_length=1,
@@ -811,6 +811,12 @@ def _hide_extra_details(context: dict[str, Any], representation: dict[str, Any])
 
 
 class TextSerializer(serializers.ModelSerializer):
+    tile_type = serializers.ChoiceField(
+        choices=["text", "image", "divider"],
+        required=False,
+        default="text",
+        help_text="Tile type. Use image for a body with exactly one Markdown image. Use divider for a horizontal rule.",
+    )
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
     body = serializers.CharField(
@@ -1331,7 +1337,7 @@ def _check_dashboard_widget_count_limit(*, dashboard: Dashboard, user: User) -> 
 
 def _tile_type_and_widget_type(tile: DashboardTile) -> tuple[str, str | None]:
     if tile.text_id is not None:
-        return "text", None
+        return tile.text.tile_type, None
     if tile.button_tile_id is not None:
         return "button", None
     if tile.widget_id is not None:
@@ -2120,7 +2126,15 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 created_by = user
                 last_modified_by = None
 
-            text_data = {**tile_data["text"], "team": instance.team_id}
+            existing_text_id = text_json.get("id", None)
+            existing_text = (
+                Text.objects.filter(id=existing_text_id, team_id=instance.team_id).first() if existing_text_id else None
+            )
+            text_data = {
+                **tile_data["text"],
+                "tile_type": text_json.get("tile_type", existing_text.tile_type if existing_text else "text"),
+                "team": instance.team_id,
+            }
             text_serializer = TextSerializer(data=text_data)
             if not text_serializer.is_valid():
                 raise serializers.ValidationError({"text": text_serializer.errors})
@@ -2130,10 +2144,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["last_modified_by"] = last_modified_by
             validated_data["last_modified_at"] = now()
 
-            existing_text_id = text_json.get("id", None)
             if existing_text_id:
                 try:
-                    text = Text.objects.get(id=existing_text_id, team_id=instance.team_id)
+                    text = existing_text
+                    if text is None:
+                        raise Text.DoesNotExist
                     if not DashboardTile.objects.filter(dashboard=instance, text_id=existing_text_id).exists():
                         raise serializers.ValidationError({"text": "Text tile not found."})
                     for attr, val in validated_data.items():
@@ -3020,6 +3035,7 @@ class DashboardsViewSet(
         with transaction.atomic():
             text = Text.objects.create(
                 body=validated["body"],
+                tile_type=validated["type"],
                 team=dashboard.team,
                 created_by=user,
                 last_modified_at=now(),

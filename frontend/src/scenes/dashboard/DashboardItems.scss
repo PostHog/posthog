@@ -73,6 +73,12 @@
     }
 }
 
+.DashboardDividerTile .RichMarkdownEditor__content hr {
+    height: 4px;
+    background: var(--color-border-primary);
+    border: 0 !important;
+}
+
 .react-grid-item.react-draggable-dragging {
     z-index: 105;
     cursor: grabbing;

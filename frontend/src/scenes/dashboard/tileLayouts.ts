@@ -14,7 +14,6 @@ import { isFunnelsQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~
 import { ChartDisplayType, DashboardLayoutSize, DashboardTile, QueryBasedInsightModel } from '~/types'
 
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
-import { getSeparatorTileThickness } from 'products/dashboards/frontend/components/SeparatorTile/separatorTileUtils'
 
 export interface TileLayout {
     x: number
@@ -26,7 +25,7 @@ export interface TileLayout {
 const MIN_TILE_DIMENSIONS = {
     default: { w: 2, h: 2 },
     image: { w: 1, h: 2 },
-    separator: { w: 1, h: 1 },
+    separator: { w: 2, h: 1 },
     text: { w: 1, h: 1 },
     button: { w: 1, h: 1 },
     widget: { w: 3, h: 4 },
@@ -229,12 +228,13 @@ export const calculateLayouts = (
     const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout>> = {}
     const imageTileIds = new Set(
         tiles
-            .filter((tile) => !!tile.text && !!getImageOnlyTextCardImage(textCardConverter, tile.text.body))
+            .filter(
+                (tile) =>
+                    tile.text?.tile_type === 'image' || getImageOnlyTextCardImage(textCardConverter, tile.text?.body)
+            )
             .map((tile) => tile.id)
     )
-    const separatorTileIds = new Set(
-        tiles.filter((tile) => !!tile.text && !!getSeparatorTileThickness(tile.text.body)).map((tile) => tile.id)
-    )
+    const separatorTileIds = new Set(tiles.filter((tile) => tile.text?.tile_type === 'divider').map((tile) => tile.id))
 
     // Always calculate sm layout first to establish reference order
     let referenceOrder: number[] | undefined = undefined
@@ -334,7 +334,8 @@ export const calculateLayouts = (
                 tileLayoutKind,
                 widgetCatalogLayout,
             })
-            const constrainedW = isImageTile || isSeparatorTile ? Math.max(realW, minW) : realW
+            const effectiveMinW = Math.min(minW, columnCount)
+            const constrainedW = isImageTile || isSeparatorTile ? Math.max(realW, effectiveMinW) : realW
             const constrainedH = isImageTile || isSeparatorTile ? Math.max(realH, minH) : realH
 
             return {
@@ -343,7 +344,7 @@ export const calculateLayouts = (
                 y: y != null && Number.isInteger(y) ? y : Infinity,
                 w: constrainedW,
                 h: constrainedH,
-                minW,
+                minW: effectiveMinW,
                 minH,
             }
         })

@@ -584,6 +584,7 @@ SPECTACULAR_SETTINGS = {
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
             "TaskArtifactStatusEnum": ["active", "failed"],
+            "DashboardTextTileTypeEnum": ["text", "image", "divider"],
             #
             # The same choice set is declared in more than one product. A shared Choices
             # class would cross a product boundary, so the entry names the set centrally.

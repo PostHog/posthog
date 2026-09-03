@@ -126,6 +126,12 @@ export function getDashboardTileDisplayName(tile: DashboardTile<QueryBasedInsigh
         return catalogEntry?.headerTitle ?? catalogEntry?.label ?? tile.widget.widget_type
     }
     if (tile.text) {
+        if (tile.text.tile_type === 'divider') {
+            return 'Divider'
+        }
+        if (tile.text.tile_type === 'image') {
+            return 'Image'
+        }
         return 'Text card'
     }
     if (tile.button_tile) {

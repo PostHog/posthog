@@ -9,10 +9,6 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardTile, DashboardTileIdOrNew, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
-import {
-    getSeparatorTileThickness,
-    separatorTileToMarkdown,
-} from 'products/dashboards/frontend/components/SeparatorTile/separatorTileUtils'
 
 import { textCardConverter } from './textCardMarkdown'
 
@@ -21,13 +17,11 @@ export interface TextTileForm {
     transparent_background: boolean
 }
 
-export type TextCardTileType = 'text' | 'image' | 'separator'
-
 export interface TextCardModalProps {
     dashboard: DashboardType<QueryBasedInsightModel>
     textTileId: DashboardTileIdOrNew
     onClose: () => void
-    tileType: TextCardTileType
+    tileType: 'text' | 'image'
 }
 
 const MAX_TEXT_CARD_BODY_LENGTH = 4000
@@ -152,8 +146,6 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
             let contentType = 'text'
             if (getImageOnlyTextCardImage(textCardConverter, textTile.body)) {
                 contentType = 'image'
-            } else if (getSeparatorTileThickness(textTile.body)) {
-                contentType = 'separator'
             }
 
             posthog.capture('dashboard text tile saved', {
@@ -170,8 +162,8 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
             defaults: (props.textTileId !== null
                 ? getExistingTextTile(props.dashboard, props.textTileId)
                 : {
-                      body: props.tileType === 'separator' ? separatorTileToMarkdown('thin') : '',
-                      transparent_background: props.tileType === 'image' || props.tileType === 'separator',
+                      body: '',
+                      transparent_background: props.tileType === 'image',
                   }) as TextTileForm,
             errors: ({ body }) => {
                 return {
@@ -195,7 +187,7 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
                         id: props.dashboard.id,
                         tiles: [
                             {
-                                text: { body: formValues.body },
+                                text: { body: formValues.body, tile_type: props.tileType },
                                 transparent_background: formValues.transparent_background,
                             },
                         ],

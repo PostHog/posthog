@@ -17,8 +17,6 @@ import { DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import { ImageTileModal } from 'products/dashboards/frontend/components/ImageTile/ImageTileModal'
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
-import { SeparatorTileModal } from 'products/dashboards/frontend/components/SeparatorTile/SeparatorTileModal'
-import { getSeparatorTileThickness } from 'products/dashboards/frontend/components/SeparatorTile/separatorTileUtils'
 import { SubscriptionsModal } from 'products/subscriptions/frontend/components/Subscriptions/SubscriptionsModal'
 
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
@@ -36,7 +34,6 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
         showTextTileModal,
         textTileId,
         showImageTileModal,
-        showSeparatorTileModal,
         showButtonTileModal,
         buttonTileId,
         terraformModalOpen,
@@ -53,14 +50,11 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
     const isCreatingTextTile = textTileId === null
     const textRouteHasImage =
         !!textRouteTile?.text && !!getImageOnlyTextCardImage(textCardConverter, textRouteTile.text.body)
-    const textRouteHasSeparator = !!textRouteTile?.text && !!getSeparatorTileThickness(textRouteTile.text.body)
     const buttonRouteTile =
         buttonTileId !== null ? dashboard.tiles?.find((tile) => tile.id === Number(buttonTileId)) : undefined
     const isCreatingButtonTile = buttonTileId === null
     const selectedImageTileId = textRouteHasImage ? (textRouteTile?.id ?? null) : null
     const shouldShowImageTileModal = showImageTileModal || selectedImageTileId !== null
-    const selectedSeparatorTileId = textRouteHasSeparator ? (textRouteTile?.id ?? null) : null
-    const shouldShowSeparatorTileModal = showSeparatorTileModal || selectedSeparatorTileId !== null
     const hasMissingRouteTile = (textTileId !== null && !textRouteTile) || (buttonTileId !== null && !buttonRouteTile)
 
     useEffect(() => {
@@ -97,16 +91,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
                             imageTileId={selectedImageTileId}
                         />
                     )}
-                    {!shouldShowImageTileModal && shouldShowSeparatorTileModal && (
-                        <SeparatorTileModal
-                            key={selectedSeparatorTileId ?? 'new'}
-                            isOpen={shouldShowSeparatorTileModal}
-                            onClose={() => push(urls.dashboard(dashboard.id))}
-                            dashboard={dashboard}
-                            separatorTileId={selectedSeparatorTileId}
-                        />
-                    )}
-                    {!shouldShowImageTileModal && !shouldShowSeparatorTileModal && (
+                    {!shouldShowImageTileModal && (
                         <TextCardModal
                             isOpen={showTextTileModal && (isCreatingTextTile || !!textRouteTile?.text)}
                             onClose={() => push(urls.dashboard(dashboard.id))}

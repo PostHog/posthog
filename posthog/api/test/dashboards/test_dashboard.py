@@ -4259,6 +4259,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         [
             ("text", "text", "## Section heading\n\nIntro markdown."),
             ("image", "image", "![Dashboard image](https://example.com/image.png)"),
+            ("divider", "divider", "---"),
         ]
     )
     def test_create_text_tile_accepts_tile_types(self, _name: str, tile_type: str, tile_body: str) -> None:
@@ -4278,6 +4279,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertIsNotNone(body["id"])
         self.assertIsNone(body["insight"])
         self.assertEqual(body["text"]["body"], tile_body)
+        self.assertEqual(body["text"]["tile_type"], tile_type)
         self.assertEqual(body["layouts"]["sm"], {"x": 0, "y": 0, "w": 12, "h": 1})
 
         dashboard_response = self.client.get(f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/")
@@ -4285,6 +4287,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         tiles = dashboard_response.json()["tiles"]
         self.assertEqual(len(tiles), 1)
         self.assertEqual(tiles[0]["text"]["body"], tile_body)
+        self.assertEqual(tiles[0]["text"]["tile_type"], tile_type)
 
     def test_create_text_tile_without_layouts_uses_default(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")

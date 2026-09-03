@@ -1109,11 +1109,11 @@ export const dashboardsCreateTextTileCreateBodyColorMax = 400
 
 export const DashboardsCreateTextTileCreateBody = () => zod.object({
     type: zod
-        .enum(['text', 'image'])
-        .describe('\* `text` - text\n\* `image` - image')
+        .enum(['text', 'image', 'divider'])
+        .describe('\* `text` - text\n\* `image` - image\n\* `divider` - divider')
         .default(dashboardsCreateTextTileCreateBodyTypeDefault)
         .describe(
-            'Tile type. Use image for a body with exactly one Markdown image. Defaults to text.\n\n\* `text` - text\n\* `image` - image'
+            'Tile type. Use image for a body with exactly one Markdown image. Use divider for a horizontal rule. Defaults to text.\n\n\* `text` - text\n\* `image` - image\n\* `divider` - divider'
         ),
     body: zod
         .string()

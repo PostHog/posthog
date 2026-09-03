@@ -9061,8 +9061,28 @@ export namespace Schemas {
       readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
+    /**
+     * * `text` - text
+     * * `image` - image
+     * * `divider` - divider
+     */
+    export type DashboardTextTileTypeEnum = typeof DashboardTextTileTypeEnum[keyof typeof DashboardTextTileTypeEnum];
+
+
+    export const DashboardTextTileTypeEnum = {
+      Text: 'text',
+      Image: 'image',
+      Divider: 'divider',
+    } as const;
+
     export interface Text {
       readonly id: number;
+      /** Tile type. Use image for a body with exactly one Markdown image. Use divider for a horizontal rule.
+       *
+       * * `text` - text
+       * * `image` - image
+       * * `divider` - divider */
+      tile_type?: DashboardTextTileTypeEnum;
       readonly created_by: UserBasic;
       readonly last_modified_by: UserBasic;
       /**
@@ -19752,18 +19772,6 @@ export namespace Schemas {
       always_include?: boolean;
     }
 
-    /**
-     * * `text` - text
-     * * `image` - image
-     */
-    export type CreateTextTileRequestTypeEnum = typeof CreateTextTileRequestTypeEnum[keyof typeof CreateTextTileRequestTypeEnum];
-
-
-    export const CreateTextTileRequestTypeEnum = {
-      Text: 'text',
-      Image: 'image',
-    } as const;
-
     export interface TileLayoutBox {
       /** Column position in the dashboard grid (0-indexed). */
       x?: number;
@@ -19783,11 +19791,12 @@ export namespace Schemas {
     }
 
     export interface CreateTextTileRequest {
-      /** Tile type. Use image for a body with exactly one Markdown image. Defaults to text.
+      /** Tile type. Use image for a body with exactly one Markdown image. Use divider for a horizontal rule. Defaults to text.
        *
        * * `text` - text
-       * * `image` - image */
-      type?: CreateTextTileRequestTypeEnum;
+       * * `image` - image
+       * * `divider` - divider */
+      type?: DashboardTextTileTypeEnum;
       /**
          * Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. Image tiles require exactly one Markdown image. Max 4000 characters.
          * @minLength 1

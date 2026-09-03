@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import React from 'react'
 
@@ -12,8 +13,6 @@ import { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightMode
 
 import { DashboardImageTile } from '../ImageTile/DashboardImageTile'
 import { getImageOnlyTextCardImage } from '../ImageTile/imageTileUtils'
-import { DashboardSeparatorTile } from '../SeparatorTile/DashboardSeparatorTile'
-import { getSeparatorTileThickness } from '../SeparatorTile/separatorTileUtils'
 
 type BaseTextCardProps = React.ComponentProps<typeof TextCard>
 
@@ -38,6 +37,7 @@ function DashboardTextItemInternal(
         onCopyToDashboard,
         onDuplicate,
         onRemove,
+        className,
         ...textCardProps
     }: DashboardTextItemProps,
     ref: React.ForwardedRef<HTMLDivElement>
@@ -53,24 +53,26 @@ function DashboardTextItemInternal(
     )
 
     const image = tile.text ? getImageOnlyTextCardImage(textCardConverter, tile.text.body) : null
-    const separatorThickness = tile.text ? getSeparatorTileThickness(tile.text.body) : null
+    const isSeparator = tile.text?.tile_type === 'divider'
     let tileType = 'text'
     if (image) {
         tileType = 'image'
-    } else if (separatorThickness) {
-        tileType = 'separator'
     }
     const moreButtonOverlay = (
         <>
-            <LemonButton fullWidth onClick={onEdit} data-attr={`edit-${tileType}`}>
-                Edit {tileType}
-            </LemonButton>
+            {!isSeparator && (
+                <LemonButton fullWidth onClick={onEdit} data-attr={`edit-${tileType}`}>
+                    Edit {tileType}
+                </LemonButton>
+            )}
 
-            <DashboardWidgetPlacementMenus
-                placementDestinations={copyToDestinations}
-                onMoveToDashboard={onMoveToDashboard}
-                onCopyToDashboard={onCopyToDashboard}
-            />
+            {!isSeparator && (
+                <DashboardWidgetPlacementMenus
+                    placementDestinations={copyToDestinations}
+                    onMoveToDashboard={onMoveToDashboard}
+                    onCopyToDashboard={onCopyToDashboard}
+                />
+            )}
 
             <LemonButton onClick={onDuplicate} fullWidth data-attr={`duplicate-${tileType}-from-dashboard`}>
                 Duplicate
@@ -97,19 +99,7 @@ function DashboardTextItemInternal(
                 image={image}
                 placement={placement}
                 moreButtonOverlay={moreButtonOverlay}
-                {...textCardProps}
-            />
-        )
-    }
-
-    if (separatorThickness) {
-        return (
-            <DashboardSeparatorTile
-                ref={ref}
-                tile={tile}
-                thickness={separatorThickness}
-                placement={placement}
-                moreButtonOverlay={moreButtonOverlay}
+                className={className}
                 {...textCardProps}
             />
         )
@@ -121,6 +111,7 @@ function DashboardTextItemInternal(
             textTile={tile}
             placement={placement}
             moreButtonOverlay={moreButtonOverlay}
+            className={clsx(isSeparator && 'DashboardDividerTile', className)}
             {...textCardProps}
         />
     )

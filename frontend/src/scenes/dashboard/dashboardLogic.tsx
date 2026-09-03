@@ -40,7 +40,6 @@ import {
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { ApiError, isAccessDeniedError } from 'lib/api-error'
 import { DataColorTheme } from 'lib/colors'
-import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
@@ -117,7 +116,6 @@ import {
     TileLayout,
 } from '~/types'
 
-import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
 import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardCustomization'
 import type { DashboardAddTileType } from 'products/dashboards/frontend/types'
 
@@ -365,7 +363,6 @@ export interface dashboardLogicValues {
     showButtonTileModal: boolean
     showImageTileModal: boolean
     showRetentionBanner: boolean
-    showSeparatorTileModal: boolean
     showSubscriptions: boolean
     showTextTileModal: boolean
     sidePanelContext: SidePanelSceneContext | null
@@ -616,7 +613,7 @@ export interface dashboardLogicActions {
     openImageTileModal: () => {
         value: true
     }
-    openSeparatorTileModal: () => {
+    addSeparatorTile: () => {
         value: true
     }
     openTextTileModal: () => {
@@ -1432,7 +1429,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         openAddInsightModal: true,
         openTextTileModal: true,
         openImageTileModal: true,
-        openSeparatorTileModal: true,
+        addSeparatorTile: true,
         openButtonTileModal: true,
         setTileOverride: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
 
@@ -1681,7 +1678,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     try {
                         const newTile = { ...tile } as Partial<DashboardTile<QueryBasedInsightModel>>
                         if (newTile.text) {
-                            newTile.text = { body: newTile.text.body } as TextModel
+                            newTile.text = { body: newTile.text.body, tile_type: newTile.text.tile_type } as TextModel
                         }
 
                         const { duplicateLayouts, tilesToUpdate } = calculateDuplicateLayout(values.layouts, tile.id)
@@ -2327,13 +2324,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             false,
             {
                 openImageTileModal: () => true,
-                setTextTileId: () => false,
-            },
-        ],
-        showSeparatorTileModal: [
-            false,
-            {
-                openSeparatorTileModal: () => true,
                 setTextTileId: () => false,
             },
         ],
@@ -3422,6 +3412,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
+        addSeparatorTile: () => {
+            if (!values.dashboard) {
+                return
+            }
+            dashboardsModel.actions.updateDashboard({
+                id: values.dashboard.id,
+                tiles: [
+                    {
+                        text: { body: '---', tile_type: 'divider' },
+                        transparent_background: true,
+                    },
+                ],
+            })
+        },
         setPendingInsertion: ({ pendingInsertion }) => {
             // Snapshot current tile ids so we can identify the tile the add flow appends afterwards.
             cache.tileIdsBeforeInsertion = pendingInsertion ? new Set((values.tiles || []).map((t) => t.id)) : undefined
@@ -3475,7 +3479,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const insertedTileType = (() => {
                 switch (getDashboardWidgetType(newTile)) {
                     case 'text':
-                        return getImageOnlyTextCardImage(textCardConverter, newTile.text!.body) ? 'image' : 'text_card'
+                        if (newTile.text?.tile_type === 'image') {
+                            return 'image'
+                        }
+                        if (newTile.text?.tile_type === 'divider') {
+                            return 'separator'
+                        }
+                        return 'text_card'
                     case 'button_tile':
                         return 'button'
                     case 'widget':
@@ -5025,9 +5035,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     break
                 case 'image':
                     actions.openImageTileModal()
-                    break
-                case 'separator':
-                    actions.openSeparatorTileModal()
                     break
                 case 'button':
                     actions.openButtonTileModal()

@@ -10,6 +10,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 
 class Text(models.Model):
     body = models.CharField(max_length=4000, null=True, blank=True)
+    tile_type = models.CharField(max_length=64, default="text", db_default="text")
 
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     last_modified_at = models.DateTimeField(default=timezone.now)
