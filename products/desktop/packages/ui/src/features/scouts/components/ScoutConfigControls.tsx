@@ -84,11 +84,12 @@ export function ScoutConfigForm({
   const weeklyDay = weekly?.day ?? DEFAULT_SCOUT_WEEKLY_DAY;
   const savedScheduleMode = getScoutScheduleMode(config);
   // The saved config cannot express "the user opened the custom mode but has not typed a valid
-  // expression yet", so the picked mode is held here until a write settles it.
-  const [pickedScheduleMode, setPickedScheduleMode] = useState<string | null>(
-    null,
-  );
-  const scheduleMode = pickedScheduleMode ?? savedScheduleMode;
+  // expression yet", so that one pick is held here. Every other mode writes at once, so the config
+  // stays the truth for them, including when a failed write rolls it back.
+  const [customModePicked, setCustomModePicked] = useState(false);
+  const scheduleMode = customModePicked
+    ? SCOUT_CUSTOM_CRON_SCHEDULE_MODE
+    : savedScheduleMode;
 
   return (
     <Flex direction="column" gap="2">
@@ -124,7 +125,7 @@ export function ScoutConfigForm({
           disabled={!config.enabled}
           className="w-36"
           onValueChange={(value) => {
-            setPickedScheduleMode(value);
+            setCustomModePicked(value === SCOUT_CUSTOM_CRON_SCHEDULE_MODE);
             if (
               value === savedScheduleMode ||
               value === SCOUT_CUSTOM_CRON_SCHEDULE_MODE
