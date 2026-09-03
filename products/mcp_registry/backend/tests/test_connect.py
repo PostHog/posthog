@@ -26,7 +26,10 @@ class TestConnectInstructions(SimpleTestCase):
             ("api_key_server", {"liveness": "alive_auth", "auth_method": "api_key"}, "remote_api_key", "human"),
             (
                 "package_only",
-                {"canonical_url": "", "packages": [{"registry_type": "npm", "identifier": "@example/demo-mcp"}]},
+                {
+                    "canonical_url": "",
+                    "packages": [{"registry_type": "npm", "identifier": "@example/demo-mcp", "version": "1.0.0"}],
+                },
                 "local_package",
                 "agent",
             ),
@@ -119,6 +122,29 @@ class TestConnectInstructions(SimpleTestCase):
         command = build_connect_instructions(server)["methods"][0]["steps"][0]["command"]
 
         assert "'https://evil.example.com/mcp?x=1;touch /tmp/pwned'" in command
+
+    @parameterized.expand(
+        [
+            ("pinned", "1.2.3", "full", "@example/demo-mcp@1.2.3", "agent"),
+            ("unpinned", "", "human_required", "@example/demo-mcp", "human"),
+        ]
+    )
+    def test_npm_package_is_pinned_or_needs_approval(
+        self, _name: str, version: str, automation: str, spec: str, first_actor: str
+    ) -> None:
+        # npx resolves latest when the agent runs it, so an unpinned spec lets a publisher
+        # list something benign and replace it with other code afterwards.
+        server = _server(
+            canonical_url="",
+            packages=[{"registry_type": "npm", "identifier": "@example/demo-mcp", "version": version}],
+        )
+
+        method = build_connect_instructions(server)["methods"][0]
+
+        assert method["method"] == "local_package"
+        assert method["automation"] == automation
+        assert method["steps"][0]["actor"] == first_actor
+        assert spec in method["steps"][-1]["command"]
 
     def test_row_overrides_replace_derived_methods(self) -> None:
         override_methods = [

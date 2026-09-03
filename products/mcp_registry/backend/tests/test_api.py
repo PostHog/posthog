@@ -320,6 +320,39 @@ class TestMCPRegistryAPI(APIBaseTest):
 
         assert [tool["name"] for tool in detail["tools"]] == ["probed_tool"]
 
+    def test_measured_only_rows_from_another_project_stay_hidden(self) -> None:
+        # A row absent from the official registry exists only because another project's
+        # events named a server we could not match, and that name is unvalidated text
+        # from whoever captured the event.
+        theirs = MCPRegistryServer.objects.create(
+            display_name="Their Internal Tools",
+            description="Measured via MCP Analytics; not listed in the official registry.",
+            listed_in_registry=False,
+            is_measured=True,
+        )
+        MCPMeasuredStats.objects.create(
+            server=theirs,
+            team_id=self.team.id + 1,
+            server_name="Their Internal Tools",
+            window_days=30,
+            calls=1_000,
+            errors=0,
+            error_rate_pct=0.0,
+            intent_coverage_pct=100.0,
+            link_method="standalone",
+            computed_at=timezone.now(),
+        )
+        compute_ranking_run("v2_measured_trust")
+
+        listed = self.client.get(self._url(), {"search": "internal tools"}).json()
+
+        assert [row["id"] for row in listed["results"]] == []
+        assert self.client.get(self._url(f"{theirs.id}/")).status_code == 404
+
+        self.user.is_staff = True
+        self.user.save()
+        assert self.client.get(self._url(f"{theirs.id}/")).status_code == 200
+
     def test_discover_requires_an_intent(self) -> None:
         assert self.client.get(self._url("discover/")).status_code == 400
 

@@ -261,18 +261,40 @@ def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
 
     package = next((p for p in server.packages if p.get("registry_type") in (None, "npm")), None)
     if package:
+        version = str(package.get("version") or "")
+        spec = f"{package['identifier']}@{version}" if version else str(package["identifier"])
+        steps: list[dict[str, Any]] = [
+            {
+                "actor": "agent",
+                "description": "Add the server as a local process.",
+                "command": f"claude mcp add {slug} -- npx -y {shlex.quote(spec)}",
+            }
+        ]
+        if not version:
+            # An unpinned spec resolves whatever is latest when the agent runs it, so a
+            # publisher can list something benign and replace it later. Nobody should run
+            # that unattended.
+            steps.insert(
+                0,
+                {
+                    "actor": "human",
+                    "description": "Approve the package first: the registry published no version, so this "
+                    "resolves whatever the publisher has made latest.",
+                    "command": None,
+                },
+            )
         methods.append(
             {
                 "method": "local_package",
-                "automation": "full",
-                "summary": "Run the published package locally (auth requirements may still apply at runtime).",
-                "steps": [
-                    {
-                        "actor": "agent",
-                        "description": "Add the server as a local process.",
-                        "command": f"claude mcp add {slug} -- npx -y {shlex.quote(package['identifier'])}",
-                    }
-                ],
+                "automation": "full" if version else "human_required",
+                "summary": (
+                    "Run the published package locally, pinned to the listed version (auth requirements may "
+                    "still apply at runtime)."
+                    if version
+                    else "Run the published package locally. The registry listed no version, so a human "
+                    "approves before it runs."
+                ),
+                "steps": steps,
             }
         )
     return methods

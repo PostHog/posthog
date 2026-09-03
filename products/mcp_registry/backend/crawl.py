@@ -87,7 +87,14 @@ def normalize_entry(server: dict[str, Any]) -> dict[str, Any] | None:
         return None
     remotes = [{"type": r.get("type"), "url": r.get("url")} for r in (server.get("remotes") or []) if r.get("url")]
     packages = [
-        {"registry_type": p.get("registryType") or p.get("registry_type"), "identifier": p.get("identifier")}
+        {
+            "registry_type": p.get("registryType") or p.get("registry_type"),
+            "identifier": p.get("identifier"),
+            # Kept so a connect command can pin it. Without a version, npx resolves
+            # whatever is latest when the agent runs it, which the publisher can change
+            # after listing something benign.
+            "version": str(p.get("version") or p.get("packageVersion") or ""),
+        }
         for p in (server.get("packages") or [])
         if p.get("identifier")
     ]

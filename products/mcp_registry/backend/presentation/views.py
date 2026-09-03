@@ -234,9 +234,20 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     pagination_class = MCPRegistryPagination
 
     def dangerously_get_queryset(self) -> QuerySet:
-        # Global rows: there is no team column to scope by; access control is the
-        # flag + project membership on the route.
-        return MCPRegistryServer.objects.all()
+        """Servers this caller may see at all.
+
+        Registry rows are global, so there is normally no team column to scope by. The
+        exception is a row absent from the official registry: it exists only because some
+        project's events named a server we could not match, so the row and its name are
+        that project's data rather than a public listing. The name is also unvalidated
+        text from whoever captured the event, which is another reason not to show it to
+        other customers. Those rows stay with the project that produced them, and staff.
+        """
+        queryset = MCPRegistryServer.objects.all()
+        if self._caller_is_staff():
+            return queryset
+        measured_by_caller = Exists(MCPMeasuredStats.objects.filter(server=OuterRef("pk"), team_id=self.team.id))
+        return queryset.filter(Q(listed_in_registry=True) | Q(measured_by_caller))
 
     def _resolve_version(self, request: Request) -> str:
         version = request.query_params.get("version") or DEFAULT_RANKING_VERSION
