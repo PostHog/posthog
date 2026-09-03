@@ -380,6 +380,10 @@ export const getConversationsTicketsComposeCreateUrl = (projectId: string) => {
 
 /**
  * Create a new outbound ticket and send the first message to the customer.
+ *
+ * Idempotent within a short window: an identical compose retried while the first is still
+ * in flight returns 409, and one retried after it committed returns the same ticket with a
+ * 200. Only a genuinely new request creates a ticket and emails the customer.
  */
 export const conversationsTicketsComposeCreate = async (
     projectId: string,
