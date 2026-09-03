@@ -1,3 +1,5 @@
+import { detect } from 'detect-browser'
+
 import { GeoIp } from '~/common/utils/geoip'
 
 import { KNOWN_BOT_IP_LIST, KNOWN_BOT_UA_LIST } from './bots/bots'
@@ -55,6 +57,61 @@ export const isKnownBotIp = (ip: unknown): boolean => {
     return KNOWN_BOT_IP_LIST.includes(ipString)
 }
 
+// Device detection regexes, ported from posthog-js.
+const detectDevice = (userAgent: string): string => {
+    if (/Windows Phone/i.test(userAgent) || /WPDesktop/.test(userAgent)) {
+        return 'Windows Phone'
+    } else if (/iPad/.test(userAgent)) {
+        return 'iPad'
+    } else if (/iPod/.test(userAgent)) {
+        return 'iPod Touch'
+    } else if (/iPhone/.test(userAgent)) {
+        return 'iPhone'
+    } else if (/(BlackBerry|PlayBook|BB10)/i.test(userAgent)) {
+        return 'BlackBerry'
+    } else if (/Android/.test(userAgent) && !/Mobile/.test(userAgent)) {
+        return 'Android Tablet'
+    } else if (/Android/.test(userAgent)) {
+        return 'Android'
+    }
+    return ''
+}
+
+const detectDeviceType = (userAgent: string): string => {
+    const device = detectDevice(userAgent)
+    if (device === 'iPad' || device === 'Android Tablet') {
+        return 'Tablet'
+    } else if (device) {
+        return 'Mobile'
+    }
+    return 'Desktop'
+}
+
+export const parseUserAgent = (
+    value: unknown
+): {
+    browser: string | null
+    browserVersion: string | null
+    os: string | null
+    browserType: string | null
+    device: string
+    deviceType: string
+} | null => {
+    if (typeof value !== 'string' || value === '') {
+        return null
+    }
+
+    const agentInfo = detect(value)
+    return {
+        browser: agentInfo ? agentInfo.name : null,
+        browserVersion: agentInfo ? agentInfo.version : null,
+        os: agentInfo && 'os' in agentInfo ? agentInfo.os : null,
+        browserType: agentInfo ? agentInfo.type : null,
+        device: detectDevice(value),
+        deviceType: detectDeviceType(value),
+    }
+}
+
 export const getTransformationFunctions = (geoipLookup: GeoIp) => {
     return {
         geoipLookup: (val: unknown): any => {
@@ -63,6 +120,7 @@ export const getTransformationFunctions = (geoipLookup: GeoIp) => {
         cleanNullValues,
         isKnownBotUserAgent,
         isKnownBotIp,
+        parseUserAgent,
         postHogCapture: () => {
             throw new Error('posthogCapture is not supported in transformations')
         },
