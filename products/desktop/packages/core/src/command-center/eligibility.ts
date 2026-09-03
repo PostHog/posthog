@@ -6,11 +6,17 @@ export interface CellEligibilityInput {
   workspaceIds: { has(id: string): boolean };
 }
 
+export function isSandboxPromptTask(task: Task): boolean {
+  // This prefix is a server-owned wire marker for internal sandbox work.
+  return task.title.startsWith("[sandbox_prompt:");
+}
+
 export function isTaskEligibleForCell(
   task: Task,
   input: CellEligibilityInput,
 ): boolean {
   return (
+    !isSandboxPromptTask(task) &&
     !input.assignedIds.has(task.id) &&
     !input.archivedIds.has(task.id) &&
     input.workspaceIds.has(task.id)

@@ -118,8 +118,13 @@ async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbed
         raise
 
 
+MAX_SEARCH_QUERIES = 3
+
+
 class QueryGenerationResponse(BaseModel):
-    queries: list[str] = Field(min_length=1, max_length=3)
+    # No upper bound: Claude 5 models return four or five queries however the prompt bounds the
+    # count, and a schema rejection costs a full retry. The caller keeps the first MAX_SEARCH_QUERIES.
+    queries: list[str] = Field(min_length=1)
 
 
 QUERY_GENERATION_SYSTEM_PROMPT_TEMPLATE = """You are a signal grouping assistant. Your job is to generate search queries that will help find related signals in an embedding database.
@@ -186,7 +191,7 @@ async def generate_search_queries(input: GenerateSearchQueriesInput) -> list[str
     def validate(text: str) -> list[str]:
         data = json.loads(text)
         result = QueryGenerationResponse.model_validate(data)
-        return [truncate_query_to_token_limit(q) for q in result.queries]
+        return [truncate_query_to_token_limit(q) for q in result.queries[:MAX_SEARCH_QUERIES]]
 
     return await call_llm(
         team_id=input.team_id,
@@ -324,8 +329,9 @@ None of these are reasons to split:
 - The same fix touches several files, call sites, or components
 - The signals surface in different pages, views, or systems but share one root cause or one remedy
 - The signals describe different symptoms of the same underlying behaviour
+- The signals are separate defects in the same feature's logic: two accuracy gaps in one detector, two broken output formats of one exporter, two missing tables behind one product's queries. One engineer fixes both under one title.
 
-When you are unsure, name the single change that would resolve every signal in the group. If you can name it, they belong in one PR. If you cannot, they belong apart.
+When you are unsure, name the single change, or the single feature whose logic every signal lives in, that would resolve the group. If you can name it, they belong in one PR. Split only when the signals belong to different features or products, or when the new signal is too vague to tie to the group's fix.
 
 Respond with valid JSON only:
 {"pr_title": "...", "specific_enough": true/false, "reason": "..."}"""

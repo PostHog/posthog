@@ -177,7 +177,7 @@ function SelfDrivingOverview({ scannerId }: { scannerId: string }): JSX.Element 
     // Unresolved data renders as loading, never as the off-state nudge or the empty state.
     if (!scanner || (selfDrivingStatsLoading && !selfDrivingStats)) {
         return (
-            <OverviewPanel title="Self-driving">
+            <OverviewPanel title="Self-driving" fill>
                 <PanelEmpty loading message="" />
             </OverviewPanel>
         )
@@ -186,7 +186,7 @@ function SelfDrivingOverview({ scannerId }: { scannerId: string }): JSX.Element 
     // nudge only replaces the funnel when there is nothing to show.
     if (!scanner.emits_signals && (!selfDrivingStats || selfDrivingStats.signals_emitted === 0)) {
         return (
-            <OverviewPanel title="Self-driving" disabled>
+            <OverviewPanel title="Self-driving" disabled fill>
                 <div className="text-muted text-sm">
                     This scanner doesn't emit signals. Turn on self-driving in the{' '}
                     <Link to={urls.replayVisionScannerConfigure(scannerId)}>scanner's configuration</Link> to feed its
@@ -197,7 +197,7 @@ function SelfDrivingOverview({ scannerId }: { scannerId: string }): JSX.Element 
     }
     if (!selfDrivingStats || selfDrivingStats.signals_emitted === 0) {
         return (
-            <OverviewPanel title="Self-driving">
+            <OverviewPanel title="Self-driving" fill>
                 <PanelEmpty
                     loading={selfDrivingStatsLoading}
                     message={
@@ -210,9 +210,12 @@ function SelfDrivingOverview({ scannerId }: { scannerId: string }): JSX.Element 
         )
     }
     return (
-        <OverviewPanel title="Self-driving" subtitle="all time">
-            {/* Capped so the four stages read as one row on wide screens instead of drifting apart. */}
-            <div className="grid grid-cols-4 gap-4 max-w-3xl" data-attr="vision-self-driving-funnel">
+        <OverviewPanel title="Self-driving" subtitle="all time" fill>
+            {/* Two up in a narrow panel, four across once there is room. */}
+            <div
+                className="@container/funnel grid grid-cols-2 @sm/funnel:grid-cols-4 gap-4"
+                data-attr="vision-self-driving-funnel"
+            >
                 <SelfDrivingStage
                     count={selfDrivingStats.signals_emitted}
                     label={pluralize(selfDrivingStats.signals_emitted, 'signal emitted', 'signals emitted', false)}
@@ -331,7 +334,7 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
     )
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-4">
             <OverviewPanel title="Top configured categories" subtitle="from the categories you defined" fill>
                 <RankedTermList
                     ranked={fixedRanked}
@@ -366,35 +369,48 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
     )
 }
 
-function CreditLimitOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
+function CreditLimitOverview({ scannerId }: { scannerId: string }): JSX.Element {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { creditLimitStats } = useValues(scannerOverviewLogic({ scannerId }))
+    // An unloaded scanner is not a scanner without a limit, so it waits rather than claiming one way.
+    if (!scanner) {
+        return (
+            <OverviewPanel title="Spend against limit" fill>
+                <PanelEmpty loading message="" />
+            </OverviewPanel>
+        )
+    }
     if (!creditLimitStats) {
-        return null
+        return (
+            <OverviewPanel title="Spend against limit" disabled fill>
+                <div className="text-muted text-sm">
+                    This scanner has no spending limit. Set one in the{' '}
+                    <Link to={urls.replayVisionScannerConfigure(scannerId)}>scanner's configuration</Link> to cap what
+                    it can spend each billing period.
+                </div>
+            </OverviewPanel>
+        )
     }
     const { used, limit, usedPct, limitReached } = creditLimitStats
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="min-w-0">
-                <OverviewPanel
-                    title="Spend against limit"
-                    subtitle={limitReached ? <LemonTag type="danger">Limit reached</LemonTag> : `${usedPct}%`}
-                    fill
-                >
-                    <LemonProgress percent={usedPct} strokeColor={limitReached ? 'var(--danger)' : undefined} />
-                    <div className="text-sm tabular-nums">
-                        {formatCreditsRange(used, limit)} (≈ {creditsToUsd(limit)} per period)
-                    </div>
-                    {limitReached && (
-                        // The tag can appear below 100%: a scanner stops as soon as what's left can't cover a whole
-                        // scan, so the copy has to explain that rather than claim the budget is fully spent.
-                        <div className="text-xs text-muted">
-                            What's left won't cover another scan, so this scanner has stopped until its limit resets at
-                            the start of the next billing period. Sessions skipped while capped are not scanned later.
-                        </div>
-                    )}
-                </OverviewPanel>
+        <OverviewPanel
+            title="Spend against limit"
+            subtitle={limitReached ? <LemonTag type="danger">Limit reached</LemonTag> : `${usedPct}%`}
+            fill
+        >
+            <LemonProgress percent={usedPct} strokeColor={limitReached ? 'var(--danger)' : undefined} />
+            <div className="text-sm tabular-nums">
+                {formatCreditsRange(used, limit)} (≈ {creditsToUsd(limit)} per period)
             </div>
-        </div>
+            {limitReached && (
+                // The tag can appear below 100%: a scanner stops as soon as what's left can't cover a whole
+                // scan, so the copy has to explain that rather than claim the budget is fully spent.
+                <div className="text-xs text-muted">
+                    What's left won't cover another scan, so this scanner has stopped until its limit resets at the
+                    start of the next billing period. Sessions skipped while capped are not scanned later.
+                </div>
+            )}
+        </OverviewPanel>
     )
 }
 
@@ -504,7 +520,7 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
     let body: JSX.Element
     if (scannerType === 'scorer') {
         body = (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-4">
                 {/* min-w-0 lets the canvas charts shrink inside their grid tracks instead of overflowing */}
                 <div className="min-w-0">
                     <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
@@ -525,7 +541,7 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
         body = (
             <div className="space-y-4">
                 <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-4">
                     {typeOverview && <div className="min-w-0">{typeOverview}</div>}
                     <div className="min-w-0">
                         <ImpactOverview scannerId={scannerId} />
@@ -536,11 +552,13 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
     }
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="@container flex flex-col gap-4">
             <ScannerOverviewFilters scannerId={scannerId} />
             {body}
-            <SelfDrivingOverview scannerId={scannerId} />
-            <CreditLimitOverview scannerId={scannerId} />
+            <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-4">
+                <SelfDrivingOverview scannerId={scannerId} />
+                <CreditLimitOverview scannerId={scannerId} />
+            </div>
         </div>
     )
 }

@@ -20,6 +20,10 @@ export interface CodeEditorResizableProps extends Omit<CodeEditorProps, 'height'
     allowManualResize?: boolean
 }
 
+// Floor for a dragged height. Two Monaco lines stay readable, and the editor cannot be
+// dragged away to nothing.
+const MANUAL_RESIZE_MIN_HEIGHT = 44
+
 export function CodeEditorResizeable({
     height: defaultHeight,
     minHeight = '5rem',
@@ -52,9 +56,10 @@ export function CodeEditorResizeable({
             className={clsx('relative CodeEditorResizeable', !embedded ? 'w-full rounded border' : '', className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                minHeight,
-                // `maxHeight` caps how tall the editor grows on its own. A drag is a deliberate
-                // choice, so it overrides the cap instead of being clamped by it.
+                // `minHeight` and `maxHeight` bound how the editor sizes itself to its content.
+                // A drag is a deliberate choice, so it overrides both. A `minHeight` that still
+                // applied after a drag would let the editor grow but never shrink.
+                minHeight: manualHeight ?? minHeight,
                 maxHeight: manualHeight ?? maxHeight,
                 height: manualHeight ?? height,
             }}
@@ -104,7 +109,7 @@ export function CodeEditorResizeable({
                         const startY = e.clientY
                         const startHeight = ref.current?.clientHeight ?? 0
                         const onMouseMove = (event: MouseEvent): void => {
-                            setManualHeight(startHeight + event.clientY - startY)
+                            setManualHeight(Math.max(startHeight + event.clientY - startY, MANUAL_RESIZE_MIN_HEIGHT))
                         }
                         const onMouseUp = (): void => {
                             window.removeEventListener('mousemove', onMouseMove)

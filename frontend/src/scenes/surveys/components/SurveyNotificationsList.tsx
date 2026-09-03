@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import * as mailboxPng from '@posthog/brand/hoggies/png/mailbox'
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDropdown, LemonInput, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ConfirmDeleteButton } from 'lib/components/ConfirmDeleteButton'
-import { MailHog } from 'lib/components/hedgehogs'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
 import { getNotificationDescription } from 'scenes/hog-functions/list/notificationDescription'
 import {
@@ -13,6 +14,8 @@ import {
     surveyNotificationsListLogic,
 } from 'scenes/surveys/surveyNotificationsListLogic'
 import { urls } from 'scenes/urls'
+
+const HedgehogMailbox = pngHoggie(mailboxPng)
 
 function surveyNotificationsUrl(surveyId: string, params: Record<string, string> = {}): string {
     const search = new URLSearchParams({ tab: 'notifications', ...params }).toString()
@@ -153,7 +156,7 @@ export function SurveyNotificationsList(): JSX.Element {
                     </LemonBanner>
                 ) : null}
                 <section className="flex flex-col items-center gap-5 px-6 py-12 text-center">
-                    <MailHog className="h-32 w-auto" />
+                    <HedgehogMailbox className="h-32 w-auto" />
                     <div className="flex flex-col gap-1.5 max-w-md">
                         <h3 className="m-0 text-base font-semibold">Get notified when responses land</h3>
                         <p className="m-0 text-sm text-muted">
