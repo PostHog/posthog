@@ -74,7 +74,7 @@ export function ScoutDetailHeader({
             </a>
           </Tooltip>
         ) : null}
-        <Text className="whitespace-nowrap text-[12px] text-gray-10">
+        <Text className="max-w-[14rem] truncate text-[12px] text-gray-10">
           {formatScoutScheduleShort(config)}
         </Text>
         <span className="flex-1" />

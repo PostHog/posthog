@@ -106,7 +106,7 @@ export function ScoutRowCard({
           <ScoutOriginBadge config={config} />
           <DryRunBadge config={config} />
           <ScoutLifecycleBadge config={config} />
-          <Text className="whitespace-nowrap text-[11px] text-gray-10">
+          <Text className="max-w-[14rem] truncate text-[11px] text-gray-10">
             {formatScoutScheduleShort(config)}
           </Text>
           {rollup && rollup.emittedCount > 0 ? (
