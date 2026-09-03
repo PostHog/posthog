@@ -244,6 +244,8 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                     name: z.string().optional(), // Custom name for the cohort
                 })
             ),
+            // Keep in sync with nodejs/src/cdp/schema/hogflow.ts
+            sticky_assignment: z.boolean().optional(),
         }),
     }),
 

@@ -150,4 +150,184 @@ describe('getRandomCohort', () => {
             expect(getRandomCohort(invocation, action)).toEqual(findActionById(invocation.hogFlow, expected))
         }
     )
+
+    describe('sticky_assignment', () => {
+        const cohortFor = (personId: string, flow = invocation.hogFlow): string =>
+            getRandomCohort(
+                createExampleHogFlowInvocation(flow, {}, { id: personId }),
+                findActionByType(flow, 'random_cohort_branch')!
+            ).id
+
+        beforeEach(() => {
+            action.config.sticky_assignment = true
+        })
+
+        it('assigns the same person the same cohort every time, without consulting the RNG', () => {
+            const assignments = new Set(Array.from({ length: 20 }, () => cohortFor('person_a')))
+
+            expect(assignments.size).toBe(1)
+            expect(Math.random).not.toHaveBeenCalled()
+        })
+
+        it('spreads people across cohorts in line with the configured percentages', () => {
+            const counts: Record<string, number> = { cohort_a: 0, cohort_b: 0, cohort_c: 0 }
+            const total = 3000
+            for (let i = 0; i < total; i++) {
+                counts[cohortFor(`person_${i}`)]++
+            }
+
+            // Configured 30/40/30. The fixture's flow id is a fresh UUID per run so the salt varies;
+            // n is large enough that these bounds hold regardless. They still fail the mistakes that
+            // matter: a key ignoring the person id, or a mis-scaled hash, puts everyone in one cohort.
+            expect(counts.cohort_a / total).toBeCloseTo(0.3, 1)
+            expect(counts.cohort_b / total).toBeCloseTo(0.4, 1)
+            expect(counts.cohort_c / total).toBeCloseTo(0.3, 1)
+        })
+
+        it('buckets two splits in one workflow independently', () => {
+            const twoSplits = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        split_one: {
+                            type: 'random_cohort_branch',
+                            config: { cohorts: [{ percentage: 50 }, { percentage: 50 }], sticky_assignment: true },
+                        },
+                        split_two: {
+                            type: 'random_cohort_branch',
+                            config: { cohorts: [{ percentage: 50 }, { percentage: 50 }], sticky_assignment: true },
+                        },
+                        one_a: { type: 'delay', config: { delay_duration: '2h' } },
+                        one_b: { type: 'delay', config: { delay_duration: '2h' } },
+                        two_a: { type: 'delay', config: { delay_duration: '2h' } },
+                        two_b: { type: 'delay', config: { delay_duration: '2h' } },
+                    },
+                    edges: [
+                        { from: 'split_one', to: 'one_a', type: 'branch', index: 0 },
+                        { from: 'split_one', to: 'one_b', type: 'branch', index: 1 },
+                        { from: 'split_two', to: 'two_a', type: 'branch', index: 0 },
+                        { from: 'split_two', to: 'two_b', type: 'branch', index: 1 },
+                    ],
+                })
+                .build()
+
+            const branchIndex = (actionId: string, personId: string): number => {
+                const splitAction = findActionById(twoSplits, actionId) as typeof action
+                const run = createExampleHogFlowInvocation(twoSplits, {}, { id: personId })
+                return getRandomCohort(run, splitAction).id.endsWith('_a') ? 0 : 1
+            }
+
+            // Without the per-action salt every person lands on the same side of both splits.
+            const people = Array.from({ length: 50 }, (_, i) => `person_${i}`)
+            const agreements = people.filter((p) => branchIndex('split_one', p) === branchIndex('split_two', p)).length
+
+            expect(agreements).toBeGreaterThan(0)
+            expect(agreements).toBeLessThan(people.length)
+        })
+
+        it('keeps the bucket keyed by the person id when the person fails to resolve mid-run', () => {
+            // 10 people, not 1: with one key pair a regression that keys on the distinct_id instead
+            // could still land both runs in the same cohort by hash coincidence.
+            for (let i = 0; i < 10; i++) {
+                const personUuid = `person_uuid_${i}`
+                const resolved = createExampleHogFlowInvocation(invocation.hogFlow, {}, { id: personUuid })
+                const unresolved = createExampleHogFlowInvocation(invocation.hogFlow, { personId: personUuid })
+                delete unresolved.person
+
+                expect(getRandomCohort(unresolved, action)).toEqual(getRandomCohort(resolved, action))
+            }
+            expect(Math.random).not.toHaveBeenCalled()
+        })
+
+        it('keys on the trigger event distinct id when the run has no person, as accounts audiences do', () => {
+            const accountRun = (): CyclotronJobInvocationHogFlow => {
+                const run = createExampleHogFlowInvocation(invocation.hogFlow)
+                delete run.person
+                return run
+            }
+
+            const assignments = new Set(Array.from({ length: 20 }, () => getRandomCohort(accountRun(), action).id))
+
+            expect(assignments.size).toBe(1)
+            expect(Math.random).not.toHaveBeenCalled()
+        })
+
+        it('falls back to random assignment when the run has nothing stable to key on', () => {
+            const withoutPerson = createExampleHogFlowInvocation(invocation.hogFlow)
+            delete withoutPerson.person
+            withoutPerson.state!.event.distinct_id = ''
+            ;(Math.random as jest.Mock).mockReturnValue(0.8)
+
+            expect(getRandomCohort(withoutPerson, action)).toEqual(findActionById(invocation.hogFlow, 'cohort_c'))
+        })
+
+        describe('warehouse-row triggers', () => {
+            const WAREHOUSE_DISTINCT_ID = 'data-warehouse-table-distinct-id-do-not-use'
+            let delivery = 0
+
+            const rowRun = (properties: Record<string, unknown>): CyclotronJobInvocationHogFlow => {
+                const run = createExampleHogFlowInvocation(invocation.hogFlow)
+                delete run.person
+                run.state!.event.distinct_id = WAREHOUSE_DISTINCT_ID
+                // The producer mixes the sync job id into the uuid, so it differs every delivery.
+                run.state!.event.uuid = `delivery_${delivery++}`
+                run.state!.event.properties = properties
+                return run
+            }
+
+            const setTrigger = (key_property?: string): void => {
+                invocation.hogFlow.trigger = {
+                    type: 'data-warehouse-table',
+                    table_name: 'src.rows',
+                    filters: {},
+                    key_property,
+                }
+            }
+
+            it('never keys on the shared placeholder distinct id', () => {
+                setTrigger()
+                ;(Math.random as jest.Mock).mockRestore()
+                jest.spyOn(Math, 'random')
+
+                const assignments = new Set(
+                    Array.from({ length: 200 }, (_, i) => getRandomCohort(rowRun({ id: i }), action).id)
+                )
+
+                expect(assignments.size).toBe(3)
+                expect(Math.random).toHaveBeenCalled()
+            })
+
+            it('keys on the trigger key property so a re-synced row keeps its cohort', () => {
+                setTrigger('account_id')
+
+                for (let i = 0; i < 10; i++) {
+                    const first = getRandomCohort(rowRun({ account_id: `acct_${i}`, mrr: 1 }), action)
+                    const resynced = getRandomCohort(rowRun({ account_id: `acct_${i}`, mrr: 2 }), action)
+                    expect(resynced).toEqual(first)
+                }
+                expect(Math.random).not.toHaveBeenCalled()
+            })
+
+            it('spreads rows with distinct key values across cohorts', () => {
+                setTrigger('account_id')
+
+                const assignments = new Set(
+                    Array.from(
+                        { length: 200 },
+                        (_, i) => getRandomCohort(rowRun({ account_id: `acct_${i}` }), action).id
+                    )
+                )
+
+                expect(assignments.size).toBe(3)
+            })
+
+            it('falls back to random when a row is missing its key property', () => {
+                setTrigger('account_id')
+                ;(Math.random as jest.Mock).mockReturnValue(0.8)
+
+                expect(getRandomCohort(rowRun({ other: 1 }), action)).toEqual(
+                    findActionById(invocation.hogFlow, 'cohort_c')
+                )
+            })
+        })
+    })
 })

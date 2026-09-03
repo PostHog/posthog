@@ -100,16 +100,17 @@ export interface stepWaitUntilTimeWindowLogicActions {
         actionId: string,
         config: Partial<
             | {
-                  cohorts: {
-                      name?: string | undefined
-                      percentage: number
-                  }[]
-              }
-            | {
                   reason?: string | undefined
               }
             | {
                   type: 'schedule'
+              }
+            | {
+                  cohorts: {
+                      name?: string | undefined
+                      percentage: number
+                  }[]
+                  sticky_assignment?: boolean | undefined
               }
             | {
                   conditions: {
@@ -397,16 +398,17 @@ export interface stepWaitUntilTimeWindowLogicActions {
         actionId: string
         config: Partial<
             | {
-                  cohorts: {
-                      name?: string | undefined
-                      percentage: number
-                  }[]
-              }
-            | {
                   reason?: string | undefined
               }
             | {
                   type: 'schedule'
+              }
+            | {
+                  cohorts: {
+                      name?: string | undefined
+                      percentage: number
+                  }[]
+                  sticky_assignment?: boolean | undefined
               }
             | {
                   conditions: {
