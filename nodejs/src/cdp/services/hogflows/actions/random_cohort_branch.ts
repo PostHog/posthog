@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-import { HogFlowAction, isRowScopedTrigger } from '~/cdp/schema/hogflow'
+import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 
 import { findNextAction } from '../hogflow-utils'
@@ -26,7 +26,7 @@ function hashToUnitInterval(key: string): number {
 /** The identity a sticky split keys on, or undefined when the run has none that survives a re-run. */
 function getStableId(invocation: CyclotronJobInvocationHogFlow): string | undefined {
     const trigger = invocation.hogFlow.trigger
-    if (isRowScopedTrigger(trigger)) {
+    if (trigger?.type === 'data-warehouse-table' || trigger?.type === 'data-warehouse-view') {
         // Warehouse rows have no person, and every row's synthetic event carries the same placeholder
         // distinct_id, which would put a whole sync in one cohort. The row's uuid changes each sync,
         // so the only identity that holds across re-runs is the column the trigger names as its key.
