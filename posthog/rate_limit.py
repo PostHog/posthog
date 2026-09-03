@@ -607,6 +607,19 @@ class LlmsTxtFetchSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "200/hour"
 
 
+# Site discovery can fetch several small public resources per request and holds the web worker for
+# the complete chain. The project-wide API throttles do not cover session-authenticated requests,
+# so this separate team bucket also limits browser callers.
+class ContentAutopilotDiscoveryBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "content_autopilot_discovery_burst"
+    rate = "10/minute"
+
+
+class ContentAutopilotDiscoverySustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "content_autopilot_discovery_sustained"
+    rate = "100/hour"
+
+
 # The batch session-context endpoint computes experiment context for up to 20 recordings per
 # call, in up to several per-day ClickHouse scan sets — heavier than most ClickHouse endpoints
 # — and its primary caller is the session-authenticated replay/experiment UI, which the
