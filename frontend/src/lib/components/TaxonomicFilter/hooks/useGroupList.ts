@@ -447,6 +447,11 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         if (group.excludedProperties?.includes(trimmedSearch) || group.propertyAllowList) {
             return null
         }
+        // An expand row says the scoped search found nothing while the project has matches on
+        // other events. Offering the typed key there would take away the only way to reach them.
+        if (isExpandable) {
+            return null
+        }
         const realResults = items.filter((item) => !isQuickFilterItem(item))
         return realResults.length === 0 ? kind : null
     }, [
@@ -457,6 +462,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         group.propertyAllowList,
         trimmedSearch,
         isLoading,
+        isExpandable,
         items,
     ])
 

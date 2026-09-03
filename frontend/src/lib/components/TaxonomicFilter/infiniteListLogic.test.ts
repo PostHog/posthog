@@ -991,6 +991,27 @@ describe('infiniteListLogic', () => {
             expect(listLogic.values.results.map((item: any) => item.name)).toEqual(['Submit (event type)'])
             expect(listLogic.values.rowCount).toBe(1)
         })
+
+        // A picker scoped to an event shows an expand row when the key exists on other events.
+        // That row is the only way to reach those definitions, so the offer must not replace it.
+        it.each([
+            ['browser_no_dollar', true, null],
+            ['never_sent_property', false, 'property'],
+        ])('searching %p with an event scope: expandable %p, offers %p', async (query, expandable, expected) => {
+            const listLogic = logicWith({
+                taxonomicFilterLogicKey: `non-captured-scoped-${query}`,
+                listGroupType: TaxonomicFilterGroupType.EventProperties,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+                eventNames: ['$pageview'],
+                allowNonCapturedProperties: true,
+            })
+
+            await expectLogic(listLogic, () => {
+                listLogic.actions.setSearchQuery(query as string)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ isExpandable: expandable, nonCapturedKind: expected })
+        })
     })
 
     describe('data warehouse pin lifecycle', () => {

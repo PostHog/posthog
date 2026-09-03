@@ -385,5 +385,23 @@ describe('useGroupList', () => {
             // No rebuild renderer draws the offer row yet, so the empty state is what a person sees.
             expect(result.current.showEmptyState).toBe(!expected)
         })
+
+        it('offers no row while the list can still expand to matches on other events', async () => {
+            // Scoped request first, then the unscoped count that makes the list expandable.
+            apiGet.mockResolvedValueOnce({ results: [], count: 0 })
+            apiGet.mockResolvedValueOnce({ results: [{ name: 'plan_tier' }], count: 1 })
+            const group = makeGroup({
+                type: TaxonomicFilterGroupType.EventProperties,
+                endpoint: 'api/projects/1/property_definitions',
+                scopedEndpoint: 'api/projects/1/property_definitions?filter_by_event_names=true',
+            })
+            const { result } = renderHook(() =>
+                useGroupList({ group, searchQuery: 'plan_tier', allowNonCapturedProperties: true })
+            )
+
+            await waitFor(() => expect(result.current.isLoading).toBe(false))
+            expect(result.current.isExpandable).toBe(true)
+            expect(result.current.nonCapturedKind).toBeNull()
+        })
     })
 })

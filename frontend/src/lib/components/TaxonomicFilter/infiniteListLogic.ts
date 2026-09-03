@@ -569,7 +569,8 @@ export interface infiniteListLogicMeta {
             isLoading: boolean,
             results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
             excludedProperties: string[] | undefined,
-            propertyAllowList: string[] | undefined
+            propertyAllowList: string[] | undefined,
+            isExpandable: boolean
         ) => NonCapturedKind | null
         suggestedFiltersSettling: (
             isSuggestedFilters: boolean,
@@ -1282,6 +1283,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.results,
                 s.excludedProperties,
                 s.propertyAllowList,
+                s.isExpandable,
             ],
             (
                 allowNonCapturedEvents: boolean,
@@ -1291,7 +1293,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 isLoading: boolean,
                 results: TaxonomicDefinitionTypes[],
                 excludedProperties: string[] | undefined,
-                propertyAllowList: string[] | undefined
+                propertyAllowList: string[] | undefined,
+                isExpandable: boolean
             ): NonCapturedKind | null => {
                 const kind = nonCapturedKindForGroup(listGroupType, allowNonCapturedEvents, allowNonCapturedProperties)
                 if (!kind) {
@@ -1307,10 +1310,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 if (excludedProperties?.includes(trimmedSearch) || propertyAllowList) {
                     return null
                 }
-                // Any row at all suppresses the offer, keyword shortcuts included. The offer row
-                // replaces the list instead of joining it, so showing it next to a match hides
-                // that match while Enter still commits it.
-                return results.length === 0 ? kind : null
+                // Any row at all suppresses the offer. The offer row replaces the list instead of
+                // joining it, so it would hide that row while Enter still commits it. Keyword
+                // shortcuts count, and so does the expand row, which says the scoped search found
+                // nothing but the project has matches on other events.
+                return results.length === 0 && !isExpandable ? kind : null
             },
         ],
         // True while the aggregated SuggestedFilters ("All") tab is still catching up to the current
