@@ -94,7 +94,6 @@ const joinInline = (parts: JSX.Element[]): JSX.Element => (
 
 const conditionSetsNoun = (count: number): string => pluralize(count, 'condition set', 'condition sets')
 
-// Past this many touched sets the sentence only carries counts; the expanded view has the detail.
 const MAX_DETAILED_SET_CHANGES = 3
 
 const describeConditionSetChanges = (
@@ -106,86 +105,74 @@ const describeConditionSetChanges = (
     const changed = diff.sets.filter((set) => set.status === 'changed')
     const withAspect = (aspect: ConditionSetAspect): ConditionSetChange[] =>
         changed.filter((set) => changedAspects(set).includes(aspect))
+    const descriptionOnly = changed.filter((set) => changedAspects(set).join() === 'description')
+    const summarize = added.length + changed.length + diff.removed.length > MAX_DETAILED_SET_CHANGES
+
+    // Past the detail limit every part collapses to "<verb> N condition sets"; the expanded view has the rest.
+    const listOrCount = <T,>(
+        sets: T[],
+        verbs: { detail: string; count: string },
+        detail: (set: T) => JSX.Element
+    ): JSX.Element =>
+        summarize ? (
+            <>
+                {verbs.count} {conditionSetsNoun(sets.length)}
+            </>
+        ) : (
+            <>
+                {verbs.detail} {joinInline(sets.map(detail))}
+            </>
+        )
+    const labelOf = (set: ConditionSetChange): JSX.Element => conditionSetLabel(set.group)
+
+    const parts: Description[] = []
     const rolloutChanges = withAspect('rollout')
     const criteriaChanges = withAspect('criteria')
     const variantChanges = withAspect('variant')
-    const descriptionOnlyChanges = changed.filter((set) => {
-        const aspects = changedAspects(set)
-        return aspects.length === 1 && aspects[0] === 'description'
-    })
-    const summarize = added.length + changed.length + diff.removed.length > MAX_DETAILED_SET_CHANGES
-
-    const parts: Description[] = []
     if (rolloutChanges.length) {
+        const verbs = { detail: 'changed the rollout for', count: 'changed the rollout for' }
         parts.push(
-            summarize ? (
-                <>changed the rollout for {conditionSetsNoun(rolloutChanges.length)}</>
-            ) : (
+            listOrCount(rolloutChanges, verbs, (set) => (
                 <>
-                    changed the rollout for{' '}
-                    {joinInline(
-                        rolloutChanges.map((set) => (
-                            <>
-                                {conditionSetLabel(set.group)} from {rolloutLabel(rolloutOf(set.previous ?? set.group))}{' '}
-                                to {rolloutLabel(rolloutOf(set.group))}
-                            </>
-                        ))
-                    )}
+                    {labelOf(set)} from {rolloutLabel(rolloutOf(set.previous ?? set.group))} to{' '}
+                    {rolloutLabel(rolloutOf(set.group))}
                 </>
-            )
+            ))
         )
     }
     if (criteriaChanges.length) {
-        parts.push(
-            summarize ? (
-                <>changed the criteria for {conditionSetsNoun(criteriaChanges.length)}</>
-            ) : (
-                <>changed the criteria for {joinInline(criteriaChanges.map((set) => conditionSetLabel(set.group)))}</>
-            )
-        )
+        const verbs = { detail: 'changed the criteria for', count: 'changed the criteria for' }
+        parts.push(listOrCount(criteriaChanges, verbs, labelOf))
     }
     if (variantChanges.length) {
+        const verbs = { detail: 'changed the variant for', count: 'changed the variant for' }
         parts.push(
-            summarize ? (
-                <>changed the variant for {conditionSetsNoun(variantChanges.length)}</>
-            ) : (
+            listOrCount(variantChanges, verbs, (set) => (
                 <>
-                    changed the variant for{' '}
-                    {joinInline(
-                        variantChanges.map((set) => (
-                            <>
-                                {conditionSetLabel(set.group)} to <strong>{set.group.variant ?? 'none'}</strong>
-                            </>
-                        ))
-                    )}
+                    {labelOf(set)} to <strong>{set.group.variant ?? 'none'}</strong>
                 </>
-            )
+            ))
         )
     }
-    if (descriptionOnlyChanges.length) {
+    if (descriptionOnly.length) {
         parts.push(
             <>
                 changed the description of{' '}
-                {joinInline(descriptionOnlyChanges.map((set) => <>condition set {set.index + 1}</>))}
+                {joinInline(descriptionOnly.map((set) => <>condition set {set.index + 1}</>))}
             </>
         )
     }
     if (added.length) {
+        const verbs = {
+            detail: added.length === 1 ? 'added a condition set for' : 'added condition sets for',
+            count: 'added',
+        }
         parts.push(
-            summarize ? (
-                <>added {conditionSetsNoun(added.length)}</>
-            ) : (
+            listOrCount(added, verbs, (set) => (
                 <>
-                    added {added.length === 1 ? 'a condition set' : 'condition sets'} for{' '}
-                    {joinInline(
-                        added.map((set) => (
-                            <>
-                                {conditionSetLabel(set.group)} at {rolloutLabel(rolloutOf(set.group))}
-                            </>
-                        ))
-                    )}
+                    {labelOf(set)} at {rolloutLabel(rolloutOf(set.group))}
                 </>
-            )
+            ))
         )
     }
     if (diff.removed.length) {
