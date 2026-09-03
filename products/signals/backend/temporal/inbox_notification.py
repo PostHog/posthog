@@ -125,24 +125,31 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
         logger.info("inbox notification skipped: team gone", report_id=report_id, team_id=team_id)
         return 0
 
-    # Claim the report before sending. One conditional UPDATE, so a concurrent settle that got past
-    # the workflow's already-notified check loses here instead of sending a second card.
+    # Re-derive source products at send time so a deferred notification reflects the current signals.
+    signals = fetch_signals_for_report_sync(team, report_id)
+    source_products = sorted({s["source_product"] for s in signals if s.get("source_product")})
+
+    # Point any support ticket that raised this report at it. Shares this function's READY guard.
+    # This runs above the claim, so it also runs on a settle that sends no card. A note is per ticket
+    # and not per report, so a ticket that joins the report after its card still needs one, and the
+    # note's dedupe key stops a repeat from posting twice to the same ticket. Guarded here as well as
+    # inside: the write-back is supplementary, and letting it raise would fail the activity before the
+    # Slack notification below, so a retry loop would drop the notification entirely over a side errand.
+    try:
+        post_report_findings_to_tickets(team, report_id, signals)
+    except Exception:
+        logger.exception("inbox notification: support write-back failed", report_id=report_id, team_id=team_id)
+
+    # Claim the report immediately before the send. One conditional UPDATE, so a concurrent settle that
+    # got past the workflow's already-notified check loses here instead of sending a second card.
+    # Nothing else runs under the claim, because a worker that dies while holding it never reaches the
+    # release below and leaves the report stamped for a card it never sent. Keeping the covered span as
+    # short as the send itself is what bounds that window.
     if not _claim_inbox_notification(team_id, report_id):
         logger.info("inbox notification skipped: already notified", report_id=report_id, team_id=team_id)
         return 0
 
     try:
-        # Re-derive source products at send time so a deferred notification reflects the current signals.
-        signals = fetch_signals_for_report_sync(team, report_id)
-        source_products = sorted({s["source_product"] for s in signals if s.get("source_product")})
-        # Point any support ticket that raised this report at it. Shares this function's READY guard.
-        # Guarded here as well as inside: the write-back is supplementary, and letting it raise would fail
-        # the activity before the Slack notification below, so a retry loop would drop the notification
-        # entirely over a side errand.
-        try:
-            post_report_findings_to_tickets(team, report_id, signals)
-        except Exception:
-            logger.exception("inbox notification: support write-back failed", report_id=report_id, team_id=team_id)
         sent = dispatch_inbox_item_notifications(
             report_id=report_id,
             team_id=team_id,
@@ -150,8 +157,7 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
             signals=signals,
         )
     except Exception:
-        # Any failure after the claim — re-deriving the signals is an unretried ClickHouse read that can
-        # raise, as can the dispatch — must release so a retry or a later settle can still send the card.
+        # Release so a retry or a later settle can still send the card.
         _release_inbox_notification_claim(team_id, report_id)
         raise
     if not sent:
@@ -185,12 +191,12 @@ class SignalReportInboxNotificationWorkflow:
 
         state = await self._fetch_state(inputs)
         if state.already_notified:
-            # A report notifies once, ever. Research settles again whenever a new signal carries the
-            # report to its next bucket, and every settle starts this workflow, so returning here is
-            # what keeps one report to one card.
-            workflow.logger.info("inbox notification: report already notified, skipping", extra=log_ctx)
-            return 0
-        if state.has_implementation_task and not state.pr_available and not state.task_terminal:
+            # The card is out, so nothing is left to wait for and the PR wait is skipped. The send
+            # activity still runs, because it also carries the support write-back, which is per ticket
+            # and not per report: a ticket that joined this report after its card still needs its note.
+            # The claim inside that activity is what holds the report to one card.
+            workflow.logger.info("inbox notification: already notified, skipping the PR wait", extra=log_ctx)
+        elif state.has_implementation_task and not state.pr_available and not state.task_terminal:
             workflow.logger.info(
                 "inbox notification: implementation task present, waiting for its PR",
                 extra={**log_ctx, "timeout_seconds": timeout_seconds},
@@ -200,9 +206,14 @@ class SignalReportInboxNotificationWorkflow:
                 await workflow.sleep(timedelta(seconds=poll_seconds))
                 elapsed += poll_seconds
                 state = await self._fetch_state(inputs)
-                if state.pr_available or state.task_terminal:
+                # `already_notified` ends the wait as well. A concurrent settle that sent the card makes
+                # the state activity report no PR and no terminal task, so without this test the break
+                # condition can never be met again and the wait runs the full timeout for nothing.
+                if state.already_notified or state.pr_available or state.task_terminal:
                     break
-            if state.pr_available:
+            if state.already_notified:
+                wait_outcome = "notified_by_another_run"
+            elif state.pr_available:
                 wait_outcome = "pr_opened"
             elif state.task_terminal:
                 wait_outcome = "task_ended_without_pr"
