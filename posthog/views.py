@@ -788,3 +788,16 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
     except Exception as e:
         capture_exception(e)
         return JsonResponse({"error": "Failed to update preferences"}, status=400)
+
+
+@xframe_options_exempt
+@never_cache
+def replay_player_frame(request: HttpRequest) -> HttpResponse:
+    """Empty shell the replay player mounts rrweb into.
+
+    rrweb builds its own `about:blank` iframe, and a frame on a local scheme inherits its parent's
+    whole policy, report-uri included. Mounting rrweb here rather than in the app document puts a
+    real document in that inheritance chain, so a recorded page is judged against this frame's
+    policy instead of the app's. CSPMiddleware supplies that policy.
+    """
+    return render(request, "replay_player_frame/index.html")

@@ -1886,6 +1886,24 @@ class TestActivityLoggingMiddleware(APIBaseTest):
 
 
 class TestCSPMiddleware(APIBaseTest):
+    def test_replay_player_frame_carries_its_own_policy_and_reports_nothing(self):
+        # The frame exists so a recorded page stops being judged against the app policy. If the
+        # middleware branch goes, it silently inherits that policy again, along with its report-uri,
+        # and every replayed page resumes reporting a customer's site to our project.
+        response = self.client.get("/replay_player_frame/index.html")
+        assert response.status_code == 200
+        policy = response["Content-Security-Policy"]
+        assert "script-src 'none'" in policy
+        assert "img-src * data: blob:" in policy
+        assert "report-uri" not in policy
+        assert "Content-Security-Policy-Report-Only" not in response
+        assert "Reporting-Endpoints" not in response
+
+    def test_replay_player_frame_is_reachable_without_a_session(self):
+        # Shared recordings render the player for logged-out viewers.
+        self.client.logout()
+        assert self.client.get("/replay_player_frame/index.html").status_code == 200
+
     def test_non_html_response_gets_strict_csp(self):
         response = self.client.get("/api/users/@me/")
         assert response.status_code == 200

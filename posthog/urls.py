@@ -99,6 +99,7 @@ from .views import (
     preferences_page,
     preflight_check,
     render_query,
+    replay_player_frame,
     robots_txt,
     security_txt,
     stats,
@@ -513,6 +514,11 @@ urlpatterns = [
     # NOTE: We have _health, livez, and _readyz. _health is deprecated and
     # is only included for compatability with old installations. For new
     # operations livez and readyz should be used.
+    # Same-origin shell the session replay player mounts rrweb into. Unauthenticated because
+    # shared recordings render the player too; it carries no data of its own. The path ends in
+    # index.html so Storybook's static server, which does no directory-index resolution, serves the
+    # same file at the same URL.
+    path("replay_player_frame/index.html", replay_player_frame),
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),

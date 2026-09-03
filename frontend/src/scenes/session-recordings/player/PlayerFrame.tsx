@@ -7,16 +7,30 @@ import { useActions, useValues } from 'kea'
 import { Handler, viewportResizeDimension } from 'posthog-js/rrweb-types'
 import { useCallback, useEffect, useRef } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getPlayerFrameScale, isIOS } from 'scenes/session-recordings/player/playerFrameScaling'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 const BASE_CLICK_INDICATOR_DURATION_S = 1 / 3
 
+// rrweb builds its replay iframe on about:blank, and a frame on a local scheme inherits its
+// embedder's whole policy, report-uri included. Mounting rrweb inside a real document instead puts
+// that document in the inheritance chain, so a recorded page is judged against its policy rather
+// than the app's. CSPMiddleware supplies it.
+const PLAYER_FRAME_SRC = '/replay_player_frame/index.html'
+const PLAYER_FRAME_CONTENT_ID = 'player-frame-content'
+
 export const PlayerFrame = (): JSX.Element => {
     const replayDimensionRef = useRef<viewportResizeDimension>()
     const { player, sessionRecordingId, maskingWindow, speed, resolution } = useValues(sessionRecordingPlayerLogic)
     const { setScale, setRootFrame } = useActions(sessionRecordingPlayerLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
+    const ownDocument = !!featureFlags[FEATURE_FLAGS.REPLAY_PLAYER_OWN_DOCUMENT]
+
+    const iframeRef = useRef<HTMLIFrameElement | null>(null)
+    // rrweb's mount point. Under the flag it lives in the player frame's document, not this one.
     const frameRef = useRef<HTMLDivElement | null>(null)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const containerDimensions = useSize(containerRef)
@@ -35,6 +49,8 @@ export const PlayerFrame = (): JSX.Element => {
 
             replayDimensionRef.current = dimensions
 
+            // Under the flag the parent is the player frame's body, which fills this container
+            // exactly, so it measures the same box either way.
             const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
 
             const { scale, zoom, transform } = getPlayerFrameScale(parentDimensions, dimensions, isIOS())
@@ -60,12 +76,42 @@ export const PlayerFrame = (): JSX.Element => {
         updatePlayerDimensions(replayDimensionRef.current)
     }, [updatePlayerDimensions])
 
-    // Need useEffect to populate replayer on component paint
+    // The app stylesheet cannot reach inside the player frame, so the click duration and the
+    // masking overlay are applied to that document rather than to the container below.
+    const applyFrameStyles = useCallback((): void => {
+        if (!ownDocument) {
+            return
+        }
+        iframeRef.current?.contentDocument?.documentElement?.style?.setProperty(
+            '--player-frame-click-duration',
+            `${BASE_CLICK_INDICATOR_DURATION_S / speed}s`
+        )
+        frameRef.current?.classList?.toggle('PlayerFrame__content--masking-window', !!maskingWindow)
+    }, [ownDocument, speed, maskingWindow])
+
+    const handleFrameLoad = useCallback((): void => {
+        const content = iframeRef.current?.contentDocument?.getElementById(PLAYER_FRAME_CONTENT_ID)
+        if (!content) {
+            return
+        }
+        frameRef.current = content as HTMLDivElement
+        // The frame usually loads after speed and maskingWindow settle, so the effect below has
+        // already run against a document that did not exist yet.
+        applyFrameStyles()
+        setRootFrame(frameRef.current)
+    }, [setRootFrame, applyFrameStyles])
+
+    // Need useEffect to populate replayer on component paint. Under the flag the frame may still be
+    // loading, in which case handleFrameLoad does this instead.
     useEffect(() => {
         if (frameRef.current) {
             setRootFrame(frameRef.current)
         }
     }, [sessionRecordingId, setRootFrame])
+
+    useEffect(() => {
+        applyFrameStyles()
+    }, [applyFrameStyles])
 
     // Recalculate the player size when the recording changes dimensions
     useEffect(() => {
@@ -100,10 +146,22 @@ export const PlayerFrame = (): JSX.Element => {
                 } as React.CSSProperties
             }
         >
-            <div
-                className={clsx('PlayerFrame__content', maskingWindow && 'PlayerFrame__content--masking-window')}
-                ref={frameRef}
-            />
+            {ownDocument ? (
+                <iframe
+                    ref={iframeRef}
+                    className="PlayerFrame__document"
+                    src={PLAYER_FRAME_SRC}
+                    onLoad={handleFrameLoad}
+                    title="Session replay player"
+                    // Interaction belongs to the app's controls, not the recorded page.
+                    sandbox="allow-same-origin"
+                />
+            ) : (
+                <div
+                    className={clsx('PlayerFrame__content', maskingWindow && 'PlayerFrame__content--masking-window')}
+                    ref={frameRef}
+                />
+            )}
         </div>
     )
 }
