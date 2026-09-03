@@ -529,7 +529,6 @@ export const ScannerScanDrought: StoryObj = {
                 }),
                 '/api/projects/:team_id/vision/scanners/:id/observations/stats/': {
                     ...summarizerStats,
-                    summarizer: null,
                     monitor: { yes_total: 12, no_total: 130, inconclusive_total: 0 },
                     labels: {
                         ...summarizerStats.labels,
