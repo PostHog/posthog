@@ -9,6 +9,7 @@ from django.test import override_settings
 from posthog.llm.gateway_client import (
     AIGatewayConfig,
     Product,
+    build_anthropic_client,
     build_async_anthropic_client,
     build_async_openai_client,
     build_openai_client,
@@ -411,3 +412,37 @@ class TestBuildAsyncAnthropicClient:
 
         mock_get_anthropic.assert_called_once_with("signals", team_id=None, use_bedrock_fallback=False)
         assert result is mock_get_anthropic.return_value
+
+
+class TestBuildAnthropicClient:
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.Client")
+    @patch("posthog.llm.gateway_client.Anthropic")
+    def test_matches_the_async_variant(self, mock_anthropic, mock_httpx):
+        result = build_anthropic_client(ai_product="signals_grouping", ai_stage="match", team_id=42)
+
+        mock_httpx.assert_called_once_with(trust_env=False)
+        kwargs = mock_anthropic.call_args.kwargs
+        assert kwargs["api_key"] == AI_GATEWAY_KEY
+        assert kwargs["base_url"] == "https://ai-gateway.example"
+        assert kwargs["http_client"] is mock_httpx.return_value
+        headers = kwargs["default_headers"]
+        assert json.loads(headers["X-PostHog-Properties"]) == {
+            "ai_product": "signals_grouping",
+            "ai_stage": "match",
+            "team_id": "42",
+        }
+        assert headers["X-PostHog-Product"] == "signals_grouping"
+        assert headers["X-PostHog-Trace-Id"] == TEAM_42_TRACE_ID
+        assert result is mock_anthropic.return_value
+
+    @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
+    def test_raises_when_the_gateway_is_unconfigured(self):
+        # There is no sync Python-gateway Messages route; a caller picks its shape before getting here.
+        with pytest.raises(ValueError):
+            build_anthropic_client(ai_product="signals", team_id=42)
+
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY="")
+    def test_raises_on_a_half_applied_env(self):
+        with pytest.raises(ValueError):
+            build_anthropic_client(ai_product="signals", team_id=42)

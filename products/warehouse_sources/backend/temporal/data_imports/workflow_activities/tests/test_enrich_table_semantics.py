@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from temporalio.testing import ActivityEnvironment
 
+from posthog.llm.semantic_enrichment import TruncatedCompletionError
 from posthog.models import Organization, Team
 from posthog.models.scoping.manager import TeamScopedQuerySet
 
@@ -340,8 +341,8 @@ class TestExtractJsonObject:
         ],
     )
     def test_extracts_object_from_fenced_or_wrapped_replies(self, content):
-        # The gateway's Anthropic route doesn't reliably honour json_object mode, so replies arrive
-        # fenced or with prose — all must still yield the parsed object.
+        # A caller that asks for JSON in the prompt can get it fenced or with prose, and it must
+        # still parse.
         parsed = _extract_json_object(content)
         assert parsed == {"table_description": "t", "columns": {"a": "desc"}}
 
@@ -351,12 +352,14 @@ class TestExtractJsonObject:
 
 
 class TestGenerateDescriptions:
-    def _response(self, content: str | None) -> MagicMock:
-        response = MagicMock()
-        response.choices = [MagicMock()]
-        response.choices[0].message.content = content
-        response.usage = MagicMock(prompt_tokens=1, completion_tokens=0, total_tokens=1)
-        return response
+    def _client(self, content: str | None, *, truncated: bool = False) -> MagicMock:
+        client = MagicMock()
+        client.complete.return_value = MagicMock(
+            text=content or "",
+            usage={"model": "m", "prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1},
+            truncated=truncated,
+        )
+        return client
 
     def _call(self) -> tuple[dict, dict]:
         return enrich._generate_descriptions(
@@ -375,16 +378,20 @@ class TestGenerateDescriptions:
     @pytest.mark.parametrize("content", [None, "", "   ", "not json", "```\nnope\n```"])
     def test_raises_on_unparseable_response(self, content):
         # An empty or non-JSON reply must surface as an error (→ "partial"), not silently persist nothing.
-        client = MagicMock()
-        client.chat.completions.create.return_value = self._response(content)
-        with patch.object(enrich, "get_llm_client", return_value=client):
+        with patch.object(enrich, "build_enrichment_client", return_value=self._client(content)):
             with pytest.raises(ValueError):
                 self._call()
 
+    def test_truncated_response_raises_the_truncation_error(self):
+        # A cut-off reply is its own failure class, so an undersized ceiling stays visible in analytics.
+        client = self._client('{"columns": ', truncated=True)
+        with patch.object(enrich, "build_enrichment_client", return_value=client):
+            with pytest.raises(TruncatedCompletionError):
+                self._call()
+
     def test_parses_fenced_response(self):
-        client = MagicMock()
-        client.chat.completions.create.return_value = self._response('```json\n{"columns": {"a": "desc"}}\n```')
-        with patch.object(enrich, "get_llm_client", return_value=client):
+        client = self._client('```json\n{"columns": {"a": "desc"}}\n```')
+        with patch.object(enrich, "build_enrichment_client", return_value=client):
             parsed, _usage = self._call()
         assert parsed == {"columns": {"a": "desc"}}
 

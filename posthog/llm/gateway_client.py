@@ -9,7 +9,7 @@ from django.conf import settings
 
 import httpx
 import structlog
-from anthropic import AsyncAnthropic
+from anthropic import Anthropic, AsyncAnthropic
 from openai import AsyncOpenAI, OpenAI
 
 from posthog.dataclasses import frozen
@@ -408,22 +408,46 @@ def build_async_anthropic_client(
     """
     gateway = resolve_ai_gateway_config()
     if gateway:
-        properties = {
-            key: value
-            for key, value in {
-                "ai_stage": ai_stage,
-                "team_id": str(team_id) if team_id is not None else None,
-            }.items()
-            if value
-        }
         return AsyncAnthropic(
             api_key=gateway.api_key,
             base_url=_anthropic_gateway_base_url(gateway.url),
             default_headers=ai_gateway_headers(
                 ai_product=ai_product,
                 trace_id=team_trace_id(team_id),
-                properties=properties,
+                properties=_anthropic_attribution_properties(ai_stage, team_id),
             ),
             http_client=httpx.AsyncClient(trust_env=False),
         )
     return get_async_anthropic_gateway_client(product, team_id=team_id, use_bedrock_fallback=use_bedrock_fallback)
+
+
+def build_anthropic_client(
+    ai_product: str | None = None,
+    ai_stage: str | None = None,
+    team_id: int | None = None,
+) -> Anthropic:
+    """Sync Anthropic client against the Go ai-gateway.
+
+    Unlike :func:`build_async_anthropic_client` this has no Python-gateway fallback: the Python
+    gateway serves the sync caller on its Chat Completions route, so a caller picks its shape from
+    `resolve_ai_gateway_config()` and only reaches here once that resolved. Raises if it has not.
+    """
+    gateway = resolve_ai_gateway_config()
+    if gateway is None:
+        raise ValueError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must resolve before building this client")
+    return Anthropic(
+        api_key=gateway.api_key,
+        base_url=_anthropic_gateway_base_url(gateway.url),
+        default_headers=ai_gateway_headers(
+            ai_product=ai_product,
+            trace_id=team_trace_id(team_id),
+            properties=_anthropic_attribution_properties(ai_stage, team_id),
+        ),
+        http_client=httpx.Client(trust_env=False),
+    )
+
+
+def _anthropic_attribution_properties(ai_stage: str | None, team_id: int | None) -> dict[str, str]:
+    """Blob labels for an Anthropic-native gateway client; unset labels are omitted."""
+    labels = {"ai_stage": ai_stage, "team_id": str(team_id) if team_id is not None else None}
+    return {key: value for key, value in labels.items() if value}

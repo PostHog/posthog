@@ -27,13 +27,13 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.gateway_client import get_llm_client
 from posthog.llm.semantic_enrichment import (
     DEFAULT_ENRICHMENT_MODEL,
     MAX_BUSINESS_CONTEXT_CHARS,
     MAX_COLUMNS_PER_TABLE,
     MAX_PROMPT_CHARS,
     bound_prompt_over_columns,
+    build_enrichment_client,
     capture_enrichment_event,
     collapse_untrusted,
     enrichment_enabled as _shared_enrichment_enabled,
@@ -241,9 +241,8 @@ def _generate_descriptions(
         columns_needing_description=columns_needing_description,
         business_context=business_context,
     )
-    # Resolve the client through this module's get_llm_client so the existing test seam keeps working,
-    # then hand it to the shared JSON completion.
-    client = get_llm_client(product="warehouse_semantic_enrichment", team_id=team_id)
+    # Resolved here so this module exposes a seam the activity tests can patch.
+    client = build_enrichment_client("warehouse_semantic_enrichment", team_id)
     return generate_json_completion(
         product="warehouse_semantic_enrichment",
         team_id=team_id,
