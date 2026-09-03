@@ -4,19 +4,19 @@ import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { MetricConversionWindow } from 'scenes/experiments/ExperimentForm/MetricsPanel/MetricConversionWindow'
+import { MetricEventDetails } from 'scenes/experiments/ExperimentForm/MetricsPanel/MetricEventDetails'
+import { MetricGoal } from 'scenes/experiments/ExperimentForm/MetricsPanel/MetricGoal'
+import { MetricOutlierHandling } from 'scenes/experiments/ExperimentForm/MetricsPanel/MetricOutlierHandling'
+import { MetricStepOrder } from 'scenes/experiments/ExperimentForm/MetricsPanel/MetricStepOrder'
+import { MetricTypeTag } from 'scenes/experiments/MetricsView/shared/MetricTypeTag'
+import { getDefaultMetricTitle } from 'scenes/experiments/MetricsView/shared/utils'
 import { urls } from 'scenes/urls'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
 
 import { MetricContext } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 
-import { MetricConversionWindow } from '../ExperimentForm/MetricsPanel/MetricConversionWindow'
-import { MetricEventDetails } from '../ExperimentForm/MetricsPanel/MetricEventDetails'
-import { MetricGoal } from '../ExperimentForm/MetricsPanel/MetricGoal'
-import { MetricOutlierHandling } from '../ExperimentForm/MetricsPanel/MetricOutlierHandling'
-import { MetricStepOrder } from '../ExperimentForm/MetricsPanel/MetricStepOrder'
-import { MetricTypeTag } from '../MetricsView/shared/MetricTypeTag'
-import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import { sharedMetricDetailsModalLogic } from './sharedMetricDetailsModalLogic'
 
 function MetricSummary({ metric }: { metric: ExperimentMetric }): JSX.Element | null {
