@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
-import { LemonTag, LemonTagType, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, LemonTagType, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
@@ -246,8 +246,18 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                                                                     : TaxonomicFilterGroupType.EventProperties
                                                             )}
                                                         </strong>{' '}
-                                                        will no longer appear in selectors. Associated data will remain
-                                                        in the database.
+                                                        will no longer appear in selectors.
+                                                    </p>
+                                                    <p>
+                                                        The {singular} data already collected stays in PostHog. Deleting
+                                                        this definition does not remove it. See{' '}
+                                                        <Link
+                                                            to="https://posthog.com/docs/privacy/data-deletion"
+                                                            target="_blank"
+                                                        >
+                                                            how data deletion works
+                                                        </Link>
+                                                        .
                                                     </p>
                                                     <p>
                                                         This definition will be recreated if the {singular} is ever seen
@@ -266,7 +276,7 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                                             width: 448,
                                         })
                                     }
-                                    tooltip="Delete this definition. Associated data will remain."
+                                    tooltip="Removes this definition from selectors. Collected data stays in PostHog."
                                 >
                                     Delete
                                 </LemonButton>
