@@ -18,18 +18,27 @@ Do NOT:
 
 from __future__ import annotations
 
+from typing import cast
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
 
 from posthog.models import OrganizationMembership, PropertyDefinition, Team
+from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
 from products.access_control.backend.models.role import Role
 
+from ..models.access_control import AccessControl
 from ..models.property_access_control import PropertyAccessControl
 from ..property_access_control import is_property_access_control_enabled
 from . import contracts
 from .contracts import PropertyAccessLevel
+from .user_access_control import highest_access_level, minimum_access_level, ordered_access_levels
+
+
+class InvalidObjectAccessControlError(Exception):
+    """Raised when an object access control rule names an unknown resource, an access level the
+    resource does not support, or a subject outside the team's organization."""
 
 
 class PropertyDefinitionNotFoundError(Exception):
@@ -229,6 +238,96 @@ def delete_property_access_control(
     ).delete()
     if not deleted:
         raise PropertyAccessControlRuleNotFoundError
+
+
+# --- Object access controls ---
+
+
+def _to_object_rule(rule: AccessControl) -> contracts.ObjectAccessControlRule:
+    assert rule.resource_id is not None
+    return contracts.ObjectAccessControlRule(
+        id=rule.id,
+        resource=rule.resource,
+        resource_id=rule.resource_id,
+        access_level=rule.access_level,
+        organization_member_id=rule.organization_member_id,
+        role_id=rule.role_id,
+    )
+
+
+def _validate_object_access_control(
+    *, organization_id: UUID, input: contracts.SetObjectAccessControlInput
+) -> APIScopeObject:
+    resource = input.resource
+    if resource not in API_SCOPE_OBJECTS or resource in INTERNAL_API_SCOPE_OBJECTS:
+        raise InvalidObjectAccessControlError(f"{resource} is not an access controlled resource.")
+    scoped_resource = cast(APIScopeObject, resource)
+
+    if input.access_level is not None:
+        levels = ordered_access_levels(scoped_resource)
+        if input.access_level not in levels:
+            raise InvalidObjectAccessControlError(
+                f"Invalid access level for {resource}. Must be one of: {', '.join(levels)}."
+            )
+        # `ordered_access_levels` can include levels the settings UI never offers for a resource
+        # (for example "none" on a project), so the bounds apply here as well as in the API.
+        level_index = levels.index(input.access_level)
+        if level_index < levels.index(minimum_access_level(scoped_resource)):
+            raise InvalidObjectAccessControlError(f"Access level is below the minimum for {resource}.")
+        if level_index > levels.index(highest_access_level(scoped_resource)):
+            raise InvalidObjectAccessControlError(f"Access level is above the maximum for {resource}.")
+
+    if (
+        input.organization_member_id is not None
+        and not OrganizationMembership.objects.filter(
+            id=input.organization_member_id, organization_id=organization_id
+        ).exists()
+    ):
+        raise InvalidObjectAccessControlError("organization_member does not belong to this team's organization.")
+    if (
+        input.role_id is not None
+        and not Role.objects.filter(id=input.role_id, organization_id=organization_id).exists()
+    ):
+        raise InvalidObjectAccessControlError("role does not belong to this team's organization.")
+    return scoped_resource
+
+
+def set_object_access_control(
+    *,
+    team_id: int,
+    input: contracts.SetObjectAccessControlInput,
+) -> contracts.ObjectAccessControlRule | None:
+    """Grant, change, or remove one subject's access to one object.
+
+    This is the programmatic counterpart of the `PUT .../access_controls` endpoint, for product code
+    that must keep a rule in step with its own state (for example, the assignee of a work item).
+    It writes the rule only. The caller decides whether the actor may change access, and the
+    caller owns the reverse write when its state changes again.
+
+    A `UserAccessControl` built before this call still holds its preloaded rows. Build a new one
+    or clear its cache before checking the object again in the same request.
+
+    Returns the stored rule, or None when `access_level` is None and the rule was removed.
+    """
+    team = Team.objects.only("id", "organization_id").get(id=team_id)
+    resource = _validate_object_access_control(organization_id=team.organization_id, input=input)
+    lookup = {
+        "team_id": team_id,
+        "resource": resource,
+        "resource_id": input.resource_id,
+        "organization_member_id": input.organization_member_id,
+        "role_id": input.role_id,
+    }
+    if input.access_level is None:
+        AccessControl.objects.filter(**lookup).delete()
+        return None
+
+    rule, _created = AccessControl.objects.update_or_create(
+        **lookup,
+        defaults={"access_level": input.access_level},
+        create_defaults={"access_level": input.access_level, "created_by_id": input.created_by_id},
+    )
+    return _to_object_rule(rule)
 
 
 # --- Convenience for external callers (avoids importing UUID type at call sites) ---
