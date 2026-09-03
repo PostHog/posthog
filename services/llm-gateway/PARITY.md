@@ -78,7 +78,7 @@ These are compatibility checks, not automatic blockers:
 | OpenAI APIs                  | Chat Completions, Responses, bare Responses alias, and normalized router chat.                                                                                                    | Audio transcription and broader LiteLLM translation.                                                                                                                                                                    |
 | Anthropic APIs               | Messages and token counting, including Bedrock-hosted models.                                                                                                                     | OpenAI models exposed through the Anthropic shape and Python-specific Bedrock opt-in behavior.                                                                                                                          |
 | Providers                    | OpenAI, Anthropic, Azure OpenAI, Bedrock, and configured Modal, Fireworks, and Baseten hosts.                                                                                     | OpenRouter and Cloudflare Workers AI.                                                                                                                                                                                   |
-| Models                       | Gateway-owned catalog, canonical IDs and aliases, capability checks, router categories, and OpenRouter-shaped pricing.                                                            | Broader LiteLLM model acceptance, Python product allowlists, per-model access flags, and product-scoped model pricing.                                                                                                  |
+| Models                       | Gateway-owned catalog, canonical IDs and aliases, capability checks, router categories, and OpenRouter-shaped pricing.                                                            | Broader LiteLLM model acceptance, Python product allowlists, per-model access flags with caller-filtered listings, and product-scoped model pricing.                                                                    |
 | Routing and failure behavior | Operator-managed provider plans, health-aware ordering, circuit breakers, hosted-provider failover, and strict provider pinning.                                                  | Caller opt-in Bedrock fallback and provider-specific Python routing.                                                                                                                                                    |
 | Event metadata               | One `X-PostHog-Properties` JSON object plus dedicated product, user, obo, distinct ID, trace ID, and provider headers.                                                            | `X-POSTHOG-PROPERTY-*` and `X-POSTHOG-FLAG-*` headers.                                                                                                                                                                  |
 | Session attribution          | `X-PostHog-Session-Id` is recorded as the gateway-owned `$ai_session_id`.                                                                                                         | The per-key property header can also emit `$ai_session_id`.                                                                                                                                                             |
@@ -97,10 +97,10 @@ Run `/migrating-llm-gateway-callers` to inventory and convert a caller.
 
 Run `/auditing-llm-gateway-parity` after either gateway changes auth, attribution, billing, endpoints, providers, models, routing, or event metadata. The skill audits implementation sources in both repositories and updates this file without migrating callers.
 
-Last verified on 2026-08-27 against:
+Last verified on 2026-09-03 against:
 
-- `PostHog/posthog` working tree compared with master at `88997b515b337b2482814df60c132f60d5de5be4`
-- `PostHog/ai-gateway` main at `37ee8bca725a13bca71e40b36f916765f625f939`
+- `PostHog/posthog` working tree compared with master at `17484bc3a0b01d930fbcf512ca9f1f2489d7aa84`
+- `PostHog/ai-gateway` main at `fb1afc8bebb40ffb43dbd42f2b5a9531cf8f2cb8`
 
 ## References
 
