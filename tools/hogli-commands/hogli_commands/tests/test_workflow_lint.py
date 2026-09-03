@@ -1692,6 +1692,30 @@ class TestMcpFilterCoverageCheck:
         messages = _coverage_issues(tmp_path, workflows_dir, "ci-mcp.yml")
         assert sorted(message.split("'")[1] for message in messages) == uncovered
 
+    def test_a_relative_import_out_of_the_mcp_tree_needs_coverage(self, tmp_path: Path) -> None:
+        # The MCP tests reach the frontend insight fixtures this way, so a relative
+        # specifier that leaves services/mcp/ counts like an aliased one.
+        _mcp_repo(tmp_path, mcp_patterns=_COVERING_PATTERNS, ui_apps_patterns=_COVERING_PATTERNS)
+        _write_file(tmp_path / "frontend" / "fixtures" / "trends.json", "{}\n")
+        _write_file(
+            tmp_path / "services" / "mcp" / "tests" / "fixtures.ts",
+            "import trends from '../../../frontend/fixtures/trends.json'\n",
+        )
+        workflows_dir = tmp_path / ".github" / "workflows"
+        messages = _coverage_issues(tmp_path, workflows_dir, "ci-mcp.yml")
+        assert [message.split("'")[1] for message in messages] == ["frontend/fixtures/trends.json"]
+
+    def test_a_relative_specifier_that_resolves_to_nothing_is_ignored(self, tmp_path: Path) -> None:
+        # generate-ui-apps.ts holds import statements inside the code it emits, and
+        # from services/mcp/scripts/ those climb clear of the MCP tree. The regex
+        # cannot tell them from real imports, so the missing file is the signal.
+        workflows_dir = _mcp_repo(tmp_path, mcp_patterns=_COVERING_PATTERNS, ui_apps_patterns=_COVERING_PATTERNS)
+        _write_file(
+            tmp_path / "services" / "mcp" / "scripts" / "generate.ts",
+            "const template = `import { App } from '../../components/App'`\n",
+        )
+        assert McpFilterCoverageCheck(repo_root=tmp_path).run(_read_all(workflows_dir)).issues == []
+
     def test_a_data_import_is_covered_by_a_pattern_naming_it(self, tmp_path: Path) -> None:
         # A JSON import has no relative imports of its own, so naming the file is enough.
         workflows_dir = _mcp_repo(

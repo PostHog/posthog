@@ -157,10 +157,11 @@ jobs:
                         - '!products/*/backend/**/test_*.py'
                         - '!products/*/backend/**/*_test.py'
                         - '!products/*/backend/**/conftest.py'
-                      # TypeScript outside services/mcp/ that the MCP build compiles: the
-                      # quill packages the UI apps render with, and the product-analytics
-                      # chart transforms those UI apps import. Directory-wide on purpose,
-                      # so a relative import inside the tree comes along.
+                      # Source outside services/mcp/ that the MCP build compiles: the quill
+                      # packages the UI apps render with, the chart transforms and generated
+                      # API types those UI apps import, and the insight fixtures the tests
+                      # load. Directory-wide on purpose, so a relative import inside the
+                      # tree comes along.
                       #
                       # Its own filter because it reaches a different set of jobs: `build`
                       # (whose tsgo pass is stricter than the frontend tsconfig, so the
@@ -170,6 +171,8 @@ jobs:
                       mcp-typescript:
                         - 'packages/quill/**'
                         - 'products/product_analytics/frontend/insights/**'
+                        - 'products/*/frontend/generated/**'
+                        - 'frontend/src/mocks/fixtures/**'
     build:
         name: Build Package
         runs-on: ubuntu-latest

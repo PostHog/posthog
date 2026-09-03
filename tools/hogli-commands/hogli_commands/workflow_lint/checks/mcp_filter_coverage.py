@@ -145,7 +145,7 @@ def _imported(repo_root: Path, source_roots: tuple[str, ...], aliases: dict[str,
         except OSError:
             continue
         for match in IMPORT.finditer(text):
-            for resolved in _resolve(match.group("specifier"), aliases):
+            for resolved in _resolve_from(repo_root, match.group("specifier"), source, aliases):
                 if OWN_MCP_TREE.match(resolved) or "node_modules" in resolved.split("/"):
                     continue
                 # A data file is a leaf. A module drags its own relative imports
@@ -220,6 +220,27 @@ def _tracked_typescript(repo_root: Path) -> list[str]:
 
 def _under_any(path: str, roots: tuple[str, ...]) -> bool:
     return any(re.fullmatch(rf"{_to_regex(root)}/.*", path) for root in roots)
+
+
+def _resolve_from(repo_root: Path, specifier: str, source: str, aliases: dict[str, list[str]]) -> list[str]:
+    """Repo-relative targets one import in ``source`` resolves to.
+
+    A relative specifier can leave the MCP tree just as an alias can, and the MCP
+    tests reach the frontend insight fixtures that way, so both forms resolve
+    here. The caller drops whatever lands back inside MCP's own trees.
+
+    A relative specifier must also name a file that exists. Unlike an alias
+    target, which can be a build artifact absent from a fresh checkout, a
+    relative path that resolves to nothing is either dead or, more often, an
+    import statement inside a generated-code template string, which the regex
+    cannot tell from a real one.
+    """
+    if specifier.startswith("."):
+        target = _repo_relative(Path(_enclosing_directory(source)), specifier)
+        if target is None or _resolve_on_disk(repo_root, target) is None:
+            return []
+        return [target]
+    return _resolve(specifier, aliases)
 
 
 def _resolve(specifier: str, aliases: dict[str, list[str]]) -> list[str]:
