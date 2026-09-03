@@ -113,6 +113,27 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
+    def test_precompute_only_read_surfaces_not_ready_when_unwarmed(self):
+        # The core of precompute-only serving: a precomputable goal whose window the warmer has not built
+        # must return an explicit not-ready response — never silently fall back to the live events scan
+        # (the expensive query this path exists to avoid) and never silently show zeros.
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            draftConversionGoal=self._create_test_conversion_goal("warm_me"),
+        )
+        runner = self._create_query_runner(query)
+        # Precompute on, nothing warmed — the read must report not-ready rather than scan events.
+        runner.config.conversion_goal_precomputation_enabled = True
+
+        response = runner.calculate()
+
+        assert response.precomputeNotReady is True
+        assert response.results == []
+        assert response.dataComputedAt is None
+
     def test_initialization_basic(self):
         runner = self._create_query_runner()
 

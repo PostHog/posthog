@@ -50,6 +50,7 @@ from products.marketing_analytics.backend.hogql_queries.constants import (
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
     BACKGROUND_WARMING_TRIGGERS,
+    handle_not_ready,
     handle_stale_served,
     marketing_ensure_precomputed,
 )
@@ -59,6 +60,7 @@ from .adapters.base import MarketingSourceAdapter, QueryContext
 from .adapters.factory import MarketingSourceFactory
 from .conversion_goal_processor import ConversionGoalProcessor, goal_sums_a_property
 from .conversion_goals_aggregator import ConversionGoalsAggregator
+from .errors import MarketingPrecomputeNotReady
 from .marketing_analytics_config import MarketingAnalyticsConfig
 from .utils import build_source_normalization_expr, convert_team_conversion_goals_to_objects
 
@@ -93,7 +95,7 @@ COSTS_PRECOMPUTE_TTL_SECONDS = {"0d": 6 * 60 * 60, "1d": 24 * 60 * 60, "default"
 # Cap for a cost window that materialized zero rows. Short enough that a source which was mid-sync
 # heals the same day, long enough that a genuinely empty window isn't re-scanned on every read.
 # This bounds recomputation, not what a reader sees: the read path serves stale within
-# STALE_WHILE_REVALIDATE_SECONDS, so a $0 window can still be handed back for up to the sum of both.
+# PRECOMPUTE_ONLY_MAX_STALE_SECONDS, so a $0 window can still be handed back for up to the sum of both.
 COSTS_EMPTY_RESULT_TTL_SECONDS = 6 * 60 * 60  # 6 hours
 
 # How far back the cap above applies, measured from the window's end. A warehouse sync that is going
@@ -176,13 +178,31 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         # Set when any read-path ensure (costs, touchpoints, conversions) was served from
         # expired-within-grace rows rather than rebuilt inline. Reset on each to_query.
         self._precompute_stale: bool = False
+        # Oldest precompute `computed_at` across the read's conversion goals, collected while building the
+        # query. Surfaced on the response as "data as of X". None when nothing precomputed was read.
+        self._precompute_computed_at: Optional[datetime] = None
 
     def calculate(self) -> ResponseType:
         start = time.perf_counter()
         try:
-            response = self._calculate()
+            try:
+                response = self._calculate()
+            except MarketingPrecomputeNotReady as not_ready:
+                # A precomputable goal has no warm window: serve an explicit not-ready response rather than
+                # scan events live. Enqueue a one-off background warm so a cold team outside the rolling warm
+                # set is served on its next visit; the UI shows a "computing" state meanwhile.
+                handle_not_ready(team=self.team, query=self.query)
+                self._capture_query_event("marketing analytics query not ready", start, error=not_ready)
+                return self._build_not_ready_response()
             if self.limit_context == LimitContext.EXPORT:
                 strip_infinity_sentinels(response)
+            # Only the conversion-goal responses (table, aggregated, non-integrated) carry these; retention
+            # and session-breakdown responses don't, and pydantic rejects unknown attributes.
+            if "precomputeNotReady" in getattr(type(response), "model_fields", {}):
+                response.precomputeNotReady = False
+                response.dataComputedAt = (
+                    self._precompute_computed_at.isoformat() if self._precompute_computed_at else None
+                )
             self._capture_query_event("marketing analytics query performed", start)
             return response
         except Exception as e:
@@ -1081,6 +1101,12 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 self.timings.timings.update(processor.timings.timings)
                 if processor.precompute_stale:
                     self._precompute_stale = True
+                # Oldest across goals bounds how old the whole read's data is — surfaced as "data as of X".
+                if processor.precompute_computed_at is not None and (
+                    self._precompute_computed_at is None
+                    or processor.precompute_computed_at < self._precompute_computed_at
+                ):
+                    self._precompute_computed_at = processor.precompute_computed_at
 
             if unified_cte:
                 ctes[UNIFIED_CONVERSION_GOALS_CTE_ALIAS] = unified_cte
@@ -1147,6 +1173,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # Reset per build. Any read-path ensure served from expired-within-grace rows flips this, and
             # the read schedules exactly one background revalidation once the query is built.
             self._precompute_stale = False
+            self._precompute_computed_at = None
 
             # Apply drill-down level from query to config
             self._apply_drill_down_level()
@@ -1381,3 +1408,11 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     def _calculate(self) -> ResponseType:
         """Execute the query and return results"""
         pass
+
+    def _build_not_ready_response(self) -> ResponseType:
+        """Empty typed response with `precomputeNotReady=True`, for when a goal's window is not warmed.
+
+        Only runners that build conversion-goal CTEs (table, aggregated, non-integrated) can raise
+        `MarketingPrecomputeNotReady`, so only they override this. Others never reach it.
+        """
+        raise NotImplementedError(f"{type(self).__name__} cannot serve a not-ready response")

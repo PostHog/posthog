@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -25,8 +26,17 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self._clean_preaggregation_data()
+        # Reads are precompute-only (they never build inline), but these tests warm and read in-process
+        # with no separate warmer. Treat the in-test ensures as a producer so the precompute path
+        # materializes its windows before reading — the read shape is identical to a warm read's.
+        self._warmer_patcher = patch(
+            "products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute.is_background_warming_request",
+            return_value=True,
+        )
+        self._warmer_patcher.start()
 
     def tearDown(self):
+        self._warmer_patcher.stop()
         self._clean_preaggregation_data()
         super().tearDown()
 
@@ -320,7 +330,8 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
 
         processor = self._make_processor(precompute=True)
         # Materialize a job spanning December — a wider prior request the lazy framework reuses for the
-        # narrow one below (find_existing_jobs matches the overlapping wider job).
+        # narrow one below (find_existing_jobs matches the overlapping wider job). The class-level producer
+        # patch lets this ensure build (reads are precompute-only and never build inline).
         processor.generate_cte_query(
             additional_conditions=[],
             date_from=datetime(2024, 12, 1, tzinfo=UTC),
