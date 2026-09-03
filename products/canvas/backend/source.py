@@ -67,9 +67,10 @@ ALLOWED_CONFIG_SCHEMA_KEYWORDS = frozenset(
 
 # File extensions whose content is scanned as source code.
 _CODE_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx")
-# Files scanned for CSS custom property declarations: stylesheets plus code,
-# because inline <style> blocks and CSS-in-JS carry CSS as strings.
-_STYLE_EXTENSIONS = (".css", *_CODE_EXTENSIONS)
+# Files scanned for CSS custom property declarations: stylesheets, the entry
+# HTML, and code, because inline <style> blocks and CSS-in-JS carry CSS as
+# strings.
+_STYLE_EXTENSIONS = (".css", ".html", *_CODE_EXTENSIONS)
 
 # Quill design tokens that the bundled platform stylesheet (@posthog/quill
 # color-system.css) declares on the universal selector `*`, not on `:root`.
@@ -91,8 +92,12 @@ _PLATFORM_ELEMENT_TOKENS = frozenset(
         "primary",
     }
 )
+# A declaration sits at the start of a line or right after `{`, `;`, or `,`
+# (CSS rule bodies and inline-style object keys). Requiring that context keeps
+# a comment such as `// --muted: legacy` or a `var(--muted)` use from matching.
 _PLATFORM_TOKEN_DECLARATION_RE = re.compile(
-    r"(?<![\w-])--(" + "|".join(sorted(_PLATFORM_ELEMENT_TOKENS)) + r")\s*[\"']?\s*:"
+    r"(?:^|[{;,])\s*[\"']?--(" + "|".join(sorted(_PLATFORM_ELEMENT_TOKENS)) + r")[\"']?\s*:",
+    re.MULTILINE,
 )
 
 # The synthetic entry shell presented for pre-relational canvases whose only
@@ -335,7 +340,7 @@ def _validate_platform_tokens(path: str, content: str) -> list[dict[str, Any]]:
                 f"so this declaration is ignored and text colored with var(--{token}) can become unreadable. "
                 f"Rename it, for example --canvas-{token}, or use the platform token without redefining it",
                 path=path,
-                line=_line_of(content, match.start()),
+                line=_line_of(content, match.start(1)),
             )
         )
     return diagnostics
