@@ -288,7 +288,7 @@ export function ReplayScannersScene(): JSX.Element {
             />
 
             {searchParams.tab === ReplayScannerTab.Search ? (
-                <ObservationSearchTab scannerId={null} />
+                <ObservationSearchTab scanner={null} />
             ) : searchParams.tab === 'usage' ? (
                 <VisionUsageTab />
             ) : (

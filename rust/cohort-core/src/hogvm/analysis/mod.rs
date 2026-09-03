@@ -11,12 +11,27 @@
 //! [`analyze_condition`] is total: it returns no error and never panics, because the alternative
 //! (treating an analysis failure as "reads nothing") would silently drop rows from a scan.
 //!
+//! One input is answered rather than widened: a `GET_GLOBAL` root outside [`GlobalRoot`] claims no
+//! read. That is not an exception to the rule above, but a consequence of the section below — such
+//! a root reads no event data at all. A root naming a representation-sensitive native still widens,
+//! because it resolves to a closure the program can call.
+//!
 //! # Why the read set can be trusted
 //!
 //! `GET_GLOBAL` is the VM's only path into the globals dict, and it takes its path from literal
 //! strings the compiler pushed. Every other opcode consumes values already on the stack. So a
 //! program whose `GET_GLOBAL`s all resolve to literal paths cannot reach a global this analysis did
 //! not record, however it combines those values afterwards.
+//!
+//! A path whose root is outside [`GlobalRoot`] records nothing, which is sound because a projection
+//! narrows the values *under* a root and never removes one. A name no globals dict carries is
+//! absent from the projected event and from the full one alike, so it names no column. That rests
+//! on [`GlobalRoot`] covering every dict this crate builds, which
+//! `every_globals_dict_key_is_a_named_root` in `hogvm::globals` checks.
+//!
+//! Reading no event data is only half the obligation. A bare native name resolves to a closure
+//! instead of a read, so such a root widens whenever calling it would read a value's spelling
+//! rather than its value, the same way a direct call to it does.
 
 mod decode;
 mod event_only;
@@ -63,14 +78,19 @@ pub enum Projection {
     FullColumns(FullColumnsReason),
 }
 
-/// Why a condition fell back to every column. The two bare-root cases are ordinary programs whose
-/// reads genuinely cannot be narrowed; [`FullColumnsReason::Unanalyzable`] is the fail-closed arm.
+/// Why a condition fell back to every column. Every case but [`FullColumnsReason::Unanalyzable`] is
+/// an ordinary program the analysis understood and still cannot narrow; that one is the fail-closed
+/// arm, where the model lost track of the program.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FullColumnsReason {
     /// The program passes the whole `properties` dict somewhere, for example to a function.
     BarePropertiesRoot,
     /// The program passes the whole `person` object somewhere.
     BarePersonRoot,
+    /// The program calls a native that reads how a number was spelled rather than what it is, so a
+    /// caller supplying the claimed paths from re-serialized JSON would change the answer. The read
+    /// set itself is exact; what cannot be narrowed is how it may be supplied.
+    RepresentationSensitiveCall,
     Unanalyzable(UnanalyzableReason),
 }
 
@@ -80,6 +100,7 @@ impl FullColumnsReason {
         match self {
             Self::BarePropertiesRoot => "bare_properties_root",
             Self::BarePersonRoot => "bare_person_root",
+            Self::RepresentationSensitiveCall => "representation_sensitive_call",
             Self::Unanalyzable(reason) => reason.as_str(),
         }
     }
@@ -88,6 +109,7 @@ impl FullColumnsReason {
     pub fn op(&self) -> Option<Operation> {
         match self {
             Self::Unanalyzable(reason) => reason.op(),
+            Self::RepresentationSensitiveCall => Some(Operation::CallGlobal),
             Self::BarePropertiesRoot | Self::BarePersonRoot => None,
         }
     }
@@ -101,8 +123,6 @@ pub enum UnanalyzableReason {
     /// An opcode whose effect the model does not reproduce: a frame, a heap write, or an exception
     /// handler.
     UnsupportedOp(Operation),
-    /// A global root outside [`GlobalRoot`], so the program reads something this build cannot name.
-    UnknownGlobalRoot(String),
     /// A `GET_GLOBAL` path segment that is not a compile-time literal.
     DynamicGlobalPath,
     StackUnderflow,
@@ -130,14 +150,13 @@ pub enum UnanalyzableReason {
 }
 
 impl UnanalyzableReason {
-    /// A closed, bounded label. The payloads (an opcode, a root name, a decode position) stay out
-    /// of it, so it is safe as a metric dimension however hostile the bytecode is. Use
-    /// [`Self::op`] for the one payload that is itself bounded.
+    /// A closed, bounded label. The payloads (an opcode, a decode position) stay out of it, so it
+    /// is safe as a metric dimension however hostile the bytecode is. Use [`Self::op`] for the one
+    /// payload that is itself bounded.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Decode(_) => "decode",
             Self::UnsupportedOp(_) => "unsupported_op",
-            Self::UnknownGlobalRoot(_) => "unknown_global_root",
             Self::DynamicGlobalPath => "dynamic_global_path",
             Self::StackUnderflow => "stack_underflow",
             Self::ZeroLengthGlobalChain => "zero_length_global_chain",
@@ -153,9 +172,8 @@ impl UnanalyzableReason {
     /// Which opcode stopped the analysis, when one did.
     ///
     /// [`Operation`] is a closed 57-variant enum, so this is as bounded as [`Self::as_str`] and
-    /// safe as a second metric dimension — unlike [`Self::UnknownGlobalRoot`]'s payload, which is
-    /// customer-shaped. It is worth carrying because "unsupported_op" alone cannot tell one
-    /// fixable compiler template apart from a genuinely unreadable program.
+    /// safe as a second metric dimension. It is worth carrying because "unsupported_op" alone
+    /// cannot tell one fixable compiler template apart from a genuinely unreadable program.
     ///
     /// A decode failure names its opcode too, and that is the case the label earns the most: a
     /// decoder whose immediate table drifts from `vm.rs` fails on the opcode that drifted.
@@ -164,8 +182,7 @@ impl UnanalyzableReason {
         match self {
             Self::Decode(error) => error.op(),
             Self::UnsupportedOp(op) => Some(*op),
-            Self::UnknownGlobalRoot(_)
-            | Self::DynamicGlobalPath
+            Self::DynamicGlobalPath
             | Self::StackUnderflow
             | Self::ZeroLengthGlobalChain
             | Self::StackDepthMismatch
@@ -218,11 +235,16 @@ impl GroupIndex {
     }
 }
 
-/// The roots of the behavioral globals dict, which is the whole surface a condition can read.
+/// Every root of every globals dict this crate builds, which is the whole surface a condition can
+/// read.
 ///
-/// A root outside this list fails closed through [`UnanalyzableReason::UnknownGlobalRoot`]: if the
-/// globals gain a key and this enum does not, the analysis reports it rather than claiming a
-/// narrower read set than the program has.
+/// The list is load-bearing in one direction. A name outside it claims no read, so a key added to a
+/// globals dict without a variant here would be pruned from a scan while the program still reads
+/// it. `every_globals_dict_key_is_a_named_root` in `hogvm::globals` is what earns that: it walks
+/// the dicts themselves rather than a list, so it fails as soon as one gains a key.
+///
+/// The other direction is benign. A variant no dict carries over-claims a read, which costs bytes
+/// and never correctness, so nothing here has to chase it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GlobalRoot {
     Event,
@@ -240,10 +262,16 @@ pub enum GlobalRoot {
     DollarGroup(GroupIndex),
     Group(GroupIndex),
     Variables,
+    /// Only in the person-scope dict, never in the behavioral one. Named here so that "not a
+    /// [`GlobalRoot`]" means "in no globals dict this crate builds" rather than "in the behavioral
+    /// one".
+    Project,
 }
 
 impl GlobalRoot {
-    /// Resolve a literal root name. `None` means the name is not a behavioral global.
+    /// Resolve a literal root name. `None` means no globals dict this crate builds carries the
+    /// name — which the analysis reads as "this path touches no event data", so the scope of the
+    /// `None` is what makes that sound.
     pub fn parse(name: &str) -> Option<Self> {
         match name {
             "event" => Some(Self::Event),
@@ -259,6 +287,7 @@ impl GlobalRoot {
             "pdi" => Some(Self::Pdi),
             "distinct_id" => Some(Self::DistinctId),
             "variables" => Some(Self::Variables),
+            "project" => Some(Self::Project),
             _ => name
                 .strip_prefix("$group_")
                 .and_then(group_index)
@@ -288,6 +317,7 @@ impl GlobalRoot {
             Self::DollarGroup(index) => DOLLAR_GROUP_NAMES[index.get() as usize],
             Self::Group(index) => GROUP_NAMES[index.get() as usize],
             Self::Variables => "variables",
+            Self::Project => "project",
         }
     }
 }
@@ -399,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn every_behavioral_global_root_round_trips_through_its_name() {
+    fn every_global_root_round_trips_through_its_name() {
         let roots = [
             GlobalRoot::Event,
             GlobalRoot::Uuid,
@@ -414,6 +444,7 @@ mod tests {
             GlobalRoot::Pdi,
             GlobalRoot::DistinctId,
             GlobalRoot::Variables,
+            GlobalRoot::Project,
         ];
         for root in roots {
             assert_eq!(GlobalRoot::parse(root.as_str()), Some(root.clone()));

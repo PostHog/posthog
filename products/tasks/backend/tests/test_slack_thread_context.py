@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.conf import settings
 from django.test import TestCase, override_settings
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -116,13 +117,26 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
         response = self.client.get(self._url(None))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_no_mapping_returns_404(self):
+    @parameterized.expand(
+        [
+            ("no_workspace", [], None),
+            ("single_workspace", ["T_SLACK"], "slack-app-mention-T_SLACK:C0ACRAMJUAG:1779956938.619299"),
+            ("ambiguous_workspaces", ["T_SLACK", "T_OTHER"], None),
+        ]
+    )
+    def test_no_mapping_returns_404(self, _name, workspace_ids, expected_queue_workflow_id):
+        for workspace_id in workspace_ids:
+            Integration.objects.create(team=self.team, kind="slack", integration_id=workspace_id, config={})
         response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
         assert response.status_code == status.HTTP_404_NOT_FOUND
         body = response.json()
         assert body["detail"] == "no_mapping"
         assert body["thread"]["channel"] == "C0ACRAMJUAG"
         assert body["thread"]["thread_ts"] == "1779956938.619299"
+        # A mention can be stuck (or deduped) in the conversation queue before any
+        # run exists — the 404 must still hand back the queue workflow when the
+        # workspace is unambiguous.
+        assert body["thread"]["queue_workflow_id"] == expected_queue_workflow_id
 
     def test_soft_deleted_task_has_no_slack_thread_context(self):
         task, _run, _mapping = self._create_fixture()
@@ -145,6 +159,10 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
         assert body["thread"]["thread_ts"] == "1779956938.619299"
         assert body["thread"]["slack_workspace_id"] == "T_SLACK"
         assert body["thread"]["mentioning_slack_user_id"] == "U_ANDY"
+        assert body["thread"]["queue_workflow_id"] == "slack-app-mention-T_SLACK:C0ACRAMJUAG:1779956938.619299"
+        assert body["thread"]["mapping_admin_url"].endswith(
+            f"/admin/slack_app/slackthreadtaskmapping/{mapping.id}/change/"
+        )
 
         assert body["task"]["id"] == str(task.id)
         assert body["task"]["team_id"] == self.team.id
@@ -154,6 +172,7 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
         # Links carry `?ph_debug=true` so reviewers don't lose the cross-creator
         # bypass when they click through to the regular task UI.
         assert body["task"]["url"].endswith(f"/project/{self.team.id}/tasks/{task.id}?ph_debug=true")
+        assert body["task"]["admin_url"].endswith(f"/admin/tasks/task/{task.id}/change/")
 
         assert len(body["runs"]) == 1
         run_payload = body["runs"][0]
@@ -166,6 +185,7 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
             f"/project/{self.team.id}/tasks/{task.id}?runId={run.id}&ph_debug=true"
         )
         assert run_payload["log_url"] == "https://s3.example/presigned"
+        assert run_payload["admin_url"].endswith(f"/admin/tasks/taskrun/{run.id}/change/")
 
     def test_log_presign_failure_returns_200_with_null_log_url(self):
         # Presign failures must degrade to a null log_url, not 500.
@@ -236,6 +256,10 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
         )
         assert run_payload["mention_workflow_url"] == (
             "https://temporal.example.com/namespaces/prod/workflows/posthog-code-mention-T_SLACK:Ev01"
+        )
+        assert body["thread"]["queue_workflow_url"] == (
+            "https://temporal.example.com/namespaces/prod/workflows/"
+            "slack-app-mention-T_SLACK:C0ACRAMJUAG:1779956938.619299"
         )
 
     def test_mention_workflow_id_null_for_old_runs(self):

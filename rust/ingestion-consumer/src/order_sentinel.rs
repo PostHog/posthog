@@ -333,9 +333,9 @@ pub enum SendKind {
     /// single partition, so their offsets must only move forward; a regression
     /// is a [`KeyOrderViolationKind::SendBelowLastSent`] violation.
     Fresh,
-    /// A retry path (deferred flush or eager release) that re-routes messages
-    /// whose earlier send failed — repeating un-ACKed offsets is expected
-    /// at-least-once behavior, not a violation.
+    /// A deferred-flush retry that re-routes messages whose earlier send
+    /// failed — repeating un-ACKed offsets is expected at-least-once behavior,
+    /// not a violation.
     Resend,
 }
 

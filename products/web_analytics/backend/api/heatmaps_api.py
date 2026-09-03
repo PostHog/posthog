@@ -1,8 +1,8 @@
 from datetime import date, datetime, timedelta
 from io import BytesIO
-from json import JSONDecodeError, loads
+from json import JSONDecodeError, dumps, loads
 from typing import Any, List, Literal, cast, get_args  # noqa: UP035
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from django.core.exceptions import FieldError
 from django.db import transaction
@@ -647,11 +647,107 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
         return False
 
 
+def _renderer_heatmap_query(export_context: dict[str, object]) -> dict[str, object] | None:
+    heatmap_data_url = export_context.get("heatmap_data_url")
+    if not isinstance(heatmap_data_url, str) or not heatmap_data_url:
+        return None
+
+    # The exporter client applies two different viewport defaults, so this must too. When
+    # heatmap_filters is present but omits viewportAccuracy, calculateViewportRange falls back to
+    # 0.2. When the whole object is absent, the client keeps DEFAULT_HEATMAP_FILTERS instead, whose
+    # viewportAccuracy is 0.9. A single default would authorize one state and reject the other.
+    raw_heatmap_filters = export_context.get("heatmap_filters")
+    if isinstance(raw_heatmap_filters, dict):
+        heatmap_filters = raw_heatmap_filters
+        default_viewport_accuracy = 0.2
+    else:
+        heatmap_filters = {}
+        default_viewport_accuracy = 0.9
+    common_filters = export_context.get("common_filters")
+    if not isinstance(common_filters, dict):
+        common_filters = {}
+
+    width = export_context.get("width", 1400)
+    if not isinstance(width, int | float) or isinstance(width, bool):
+        return None
+    viewport_accuracy = heatmap_filters.get("viewportAccuracy", default_viewport_accuracy)
+    if not isinstance(viewport_accuracy, int | float) or isinstance(viewport_accuracy, bool):
+        return None
+
+    extra_pixels = width - width * viewport_accuracy
+    query: dict[str, object] = {
+        "type": heatmap_filters.get("type", "click"),
+        "date_from": common_filters.get("date_from", "-7d"),
+        "aggregation": heatmap_filters.get("aggregation", "total_count"),
+        "viewport_width_min": max(0, int((width - extra_pixels) + 0.5)),
+        "viewport_width_max": int((width + extra_pixels) + 0.5),
+        "limit": 0,
+    }
+    if any(character in heatmap_data_url for character in "*+?^${}()|[]\\"):
+        query["url_pattern"] = heatmap_data_url
+    else:
+        query["url_exact"] = heatmap_data_url
+
+    for key in ("date_to", "filter_test_accounts"):
+        if common_filters.get(key) is not None:
+            query[key] = common_filters[key]
+
+    cohort_ids = common_filters.get("cohort_ids")
+    if isinstance(cohort_ids, list) and cohort_ids:
+        query["cohort_ids"] = dumps(cohort_ids, separators=(",", ":"))
+
+    events = common_filters.get("events")
+    if isinstance(events, list):
+        selected_events = [event for event in events if isinstance(event, dict) and event.get("id")]
+        if selected_events:
+            query["events"] = dumps(selected_events, separators=(",", ":"))
+    return query
+
+
+class ExportRendererHeatmapPermission(BasePermission):
+    def has_permission(self, request: request.Request, view: Any) -> bool:
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, ExportRendererAuthentication):
+            return True
+
+        export_context = authenticator.export_context
+        if export_context.get("heatmap_type") == "screenshot" and view.action == "content":
+            heatmap_url = export_context.get("heatmap_url")
+            if not isinstance(heatmap_url, str):
+                return False
+            expected_url = urlparse(heatmap_url)
+            path_parts = expected_url.path.rstrip("/").split("/")
+            if len(path_parts) < 3 or path_parts[-3] != "heatmap_screenshots" or path_parts[-1] != "content":
+                return False
+            actual_query = {key: request.query_params.getlist(key) for key in request.query_params}
+            return str(view.kwargs.get("pk")) == path_parts[-2] and actual_query == parse_qs(
+                expected_url.query, keep_blank_values=True
+            )
+
+        if view.action != "list":
+            return False
+        expected_query = _renderer_heatmap_query(export_context)
+        if expected_query is None:
+            return False
+        expected_serializer = HeatmapsRequestSerializer(data=expected_query, context={"team": view.team})
+        actual_serializer = HeatmapsRequestSerializer(data=request.query_params, context={"team": view.team})
+        if not expected_serializer.is_valid() or not actual_serializer.is_valid():
+            return False
+        expected_filters = expected_serializer.validated_data
+        if expected_filters.get("cohort_ids") and not _heatmaps_cohort_filter_enabled(
+            cast(User, request.user), view.team
+        ):
+            return False
+        if expected_filters.get("events") and not _heatmaps_event_filter_enabled(cast(User, request.user), view.team):
+            return False
+        return actual_serializer.validated_data == expected_filters
+
+
 class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [ExportRendererAuthentication]
     scope_object = "heatmap"
     scope_object_read_actions = ["list", "retrieve", "events"]
-    permission_classes = [HeatmapAggregateQueryScopingPermission]
+    permission_classes = [HeatmapAggregateQueryScopingPermission, ExportRendererHeatmapPermission]
 
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapsResponseSerializer
@@ -1118,6 +1214,7 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # frontend/src/exporter/exporterViewLogic.ts:50-52 gets rejected, the background
     # image never loads, and the exported PNG renders an `<img alt="Heatmap">` placeholder.
     authentication_classes = [ExportRendererAuthentication]
+    permission_classes = [ExportRendererHeatmapPermission]
     scope_object = "heatmap"
     scope_object_read_actions = ["list", "retrieve", "content"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]

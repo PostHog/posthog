@@ -252,6 +252,102 @@ function fingerprintMatchesEventElement(
     return identifiedWithoutPosition || matchesPosition(fingerprint, eventElement)
 }
 
+const normalizeText = (text: string | null | undefined): string => (text ?? '').replace(/\s+/g, ' ').trim()
+
+function textCompatible(capturedText: string, element: HTMLElement): boolean {
+    const live = normalizeText(element.textContent)
+    if (!live) {
+        return true
+    }
+    return capturedText === live || capturedText.startsWith(live) || live.startsWith(capturedText)
+}
+
+function hrefCompatible(element: HTMLElement, eventElement: ElementType): boolean {
+    return !eventElement.href || element.getAttribute('href') === eventElement.href
+}
+
+function discriminateCandidates(
+    candidates: HTMLElement[],
+    eventElement: ElementType,
+    capturedText: string
+): HTMLElement[] {
+    let remaining = candidates
+    if (remaining.length > 1 && eventElement.href) {
+        const byHref = remaining.filter((element) => hrefCompatible(element, eventElement))
+        if (byHref.length) {
+            remaining = byHref
+        }
+    }
+    if (remaining.length > 1 && capturedText) {
+        const byText = remaining.filter((element) => textCompatible(capturedText, element))
+        if (byText.length === 1) {
+            remaining = byText
+        }
+    }
+    return remaining
+}
+
+function resolveMatchedElement(
+    walkers: { candidate: HTMLElement }[],
+    candidates: HTMLElement[],
+    eventElement: ElementType,
+    useDiscriminators: boolean
+): HTMLElement | null {
+    const chainMatch = walkers.length === 1 ? walkers[0].candidate : null
+    if (!useDiscriminators) {
+        return chainMatch
+    }
+    const capturedText = normalizeText(eventElement.text)
+    if (
+        chainMatch &&
+        hrefCompatible(chainMatch, eventElement) &&
+        (!capturedText || textCompatible(capturedText, chainMatch))
+    ) {
+        return chainMatch
+    }
+    const pool = walkers.length > 1 ? walkers.map((walker) => walker.candidate) : candidates
+    const narrowed = discriminateCandidates(pool, eventElement, capturedText)
+    return narrowed.length === 1 ? narrowed[0] : null
+}
+
+function liveNodeMatchesLevel(node: HTMLElement, level: ElementType, index: DOMIndex): boolean {
+    const fingerprint = index.fingerprints.get(node)
+    if (level.tag_name && (fingerprint?.tagName ?? node.tagName.toLowerCase()) !== level.tag_name.toLowerCase()) {
+        return false
+    }
+    if (level.attr_id && node.id !== level.attr_id) {
+        return false
+    }
+    return !fingerprint || !node.parentElement || matchesPosition(fingerprint, level)
+}
+
+export function matchIsChainConsistent(element: HTMLElement, chain: ElementType[], index: DOMIndex): boolean {
+    let node: HTMLElement | null = element
+    for (const level of chain) {
+        if (!node || !liveNodeMatchesLevel(node, level, index)) {
+            return false
+        }
+        node = node.parentElement
+    }
+    return true
+}
+
+export function chainConsistencyProperties(counts: {
+    useDiscriminators: boolean
+    consistentClicks: number
+    inconsistentClicks: number
+    matchedClicks: number
+    totalClicks: number
+}): Record<string, boolean | number> {
+    return {
+        discriminators_enabled: counts.useDiscriminators,
+        consistent_click_count: counts.consistentClicks,
+        inconsistent_click_count: counts.inconsistentClicks,
+        matched_click_count: counts.matchedClicks,
+        total_click_count: counts.totalClicks,
+    }
+}
+
 export function isTooSimple(element: ElementType): boolean {
     return !!(
         element.tag_name &&
@@ -265,11 +361,16 @@ export function isTooSimple(element: ElementType): boolean {
     )
 }
 
+export interface ElementMatchOptions {
+    dataAttributes?: string[]
+    matchLinksByHref?: boolean
+    useDiscriminators?: boolean
+}
+
 export function matchEventToElementUsingIndex(
     event: ElementsEventType,
-    dataAttributes: string[],
-    matchLinksByHref: boolean,
-    index: DOMIndex
+    index: DOMIndex,
+    { dataAttributes = [], matchLinksByHref = false, useDiscriminators = false }: ElementMatchOptions = {}
 ): CountedHTMLElement | null {
     const targetElement = event.elements[0]
     if (!targetElement) {
@@ -297,9 +398,11 @@ export function matchEventToElementUsingIndex(
         })
     }
 
-    if (walkers.length === 1 && !isTooSimple(targetElement)) {
+    const resolved = resolveMatchedElement(walkers, candidates, targetElement, useDiscriminators)
+
+    if (resolved && !isTooSimple(targetElement)) {
         return {
-            element: walkers[0].candidate,
+            element: resolved,
             count: event.count,
             selector: '',
             hash: event.hash,

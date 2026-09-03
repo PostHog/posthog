@@ -20,6 +20,9 @@ interface OpenResolveReportDialogParams {
     hasOpenPr?: boolean
     /** Show a digit keycap on each reason and let 1..9 pick it. On for triage mode, where the whole flow is keyboard-driven. */
     hotkeys?: boolean
+    /** Preselect this reason. The context menu's "Something else…" opens the dialog with it set,
+     * so the person only has to write the note. */
+    initialReason?: ResolveReasonValue
     /** Called with the chosen reason + note once the user confirms. */
     onConfirm: (result: ResolveReportDialogResult) => void | Promise<void>
 }
@@ -41,6 +44,7 @@ export function openResolveReportDialog({
     selectedCount = 1,
     hasOpenPr = false,
     hotkeys = false,
+    initialReason,
     onConfirm,
 }: OpenResolveReportDialogParams): void {
     const isBulk = selectedCount > 1
@@ -58,7 +62,7 @@ export function openResolveReportDialog({
         description,
         maxWidth: '36rem',
         overlayClassName: '!items-center',
-        initialValues: { reason: null as ResolveReasonValue | null, note: '' },
+        initialValues: { reason: initialReason ?? null, note: '' },
         content: (
             <div className="flex flex-col gap-3">
                 <LemonField name="reason" label="Reason">
@@ -79,6 +83,9 @@ export function openResolveReportDialog({
                         // stopPropagation keeps Enter in this multi-line note from reaching the dialog
                         // form and resolving the report (and closing its PR) mid-sentence.
                         stopPropagation
+                        // With the reason already chosen, the note is the only thing left to type.
+                        // Never focus otherwise: the hotkey flow reads digits as reason picks.
+                        autoFocus={initialReason != null}
                         placeholder="Link to the pull request or commit, or what fixed it."
                         maxLength={4000}
                         minRows={3}

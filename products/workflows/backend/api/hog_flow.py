@@ -13,7 +13,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.http import Http404, HttpResponse
 from django.utils import timezone
@@ -112,7 +112,7 @@ from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
-from products.tasks.backend.facade.workflow_tasks import WorkflowTaskConnectorsInvalid, validate_connectors
+from products.tasks.backend.facade.workflow_tasks import WorkflowTaskConnectorsInvalid, resolve_connectors
 from products.workflows.backend.api.action_redirects import compute_action_redirects
 from products.workflows.backend.api.graph_operations import _deep_merge, apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
@@ -135,6 +135,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     ROW_SCOPED_TRIGGER_TYPES,
     SUPPORTED_ACTION_TYPES,
     TRIGGER_TYPES,
+    WORKFLOW_SAFE_INTERNAL_EVENTS,
     HogFlow,
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
@@ -556,6 +557,13 @@ _FIXED_TEMPLATE_IDS = {
 # generic input-shape validation every function step goes through.
 _CREATE_TASK_TEMPLATE_ID = "template-posthog-create-task"
 
+# The "Run scout" step. Scouts belong to the project's main environment, and the runtime dispatch
+# in start_workflow_scout_run refuses a child environment's workflow with no human credential to
+# re-authorize against it. That refusal is otherwise invisible until the step first runs: the
+# build panel only hides the node, and the catalog still advertises it to a child-environment
+# workflow built through the API or MCP.
+_RUN_SCOUT_TEMPLATE_ID = "template-posthog-run-scout"
+
 _REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
 MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 1
@@ -975,10 +983,15 @@ class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
 
+class HogFlowEdgeType(models.TextChoices):
+    CONTINUE = "continue", "continue"
+    BRANCH = "branch", "branch"
+
+
 class HogFlowEdgeSerializer(serializers.Serializer):
     to = serializers.CharField(help_text="Target action id.")
     type = serializers.ChoiceField(
-        choices=["continue", "branch"],
+        choices=HogFlowEdgeType.choices,
         help_text=(
             "continue: fall-through (sequential or the no-match path of conditional_branch). "
             "branch: requires 'index' matching config.conditions[index]."
@@ -1163,17 +1176,18 @@ class HogFlowActionSerializer(serializers.Serializer):
     config = HogFlowActionConfigField(
         help_text=(
             "Type-specific config keyed by action type. "
-            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message|github-event, "
+            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, "
             "filters?}. "
-            "slack-message runs once per message posted in a connected Slack channel, and takes only "
-            "filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, "
-            "subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. "
-            "github-event runs once per matching GitHub delivery, and takes only filters: "
-            "{properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, "
-            "bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, "
-            "repository_visibility). repository and event_type are required, each with an exact-match filter; "
-            "without them the trigger runs on every delivery from every connected repository. Runs are "
-            "person-less, so person-dependent steps are rejected. "
+            "internal-event requires filters.events naming one or more allowed event ids, and runs once "
+            "for each matching event on the internal-events stream. Runs are person-less, so "
+            "person-dependent steps are rejected. "
+            "$slack_message_received takes filters: {properties: [<cond>]} over the message properties "
+            "(channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel "
+            "filter; without one it runs on every message in every connected channel. "
+            "$github_event_received takes filters: {properties: [<cond>]} over the delivery properties "
+            "(repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, "
+            "title, body, review_state, branch, repository_visibility), and requires exact-match repository "
+            "and event_type filters; without them it runs on every delivery from every connected repository. "
             "webhook and "
             "manual triggers also require template_id: 'template-source-webhook', and tracking_pixel "
             "requires template_id: 'template-source-webhook-pixel'. "
@@ -1296,15 +1310,20 @@ class HogFlowActionSerializer(serializers.Serializer):
         connectors = (inputs.get("connectors") or {}).get("value")
         if connectors:
             get_team = self.context.get("get_team")
-            owner_id = self.context.get("workflow_owner_id")
-            # No team/owner to check against outside a request (internal re-saves) - nothing
-            # new is being authored there, so there is nothing to validate.
-            if get_team is not None and owner_id is not None:
+            # No team to check against outside a request (internal re-saves) - nothing new is
+            # being authored there, so there is nothing to validate.
+            if get_team is not None:
                 try:
-                    validate_connectors(get_team().id, owner_id, connectors)
+                    resolve_connectors(get_team().id, connectors)
                 except WorkflowTaskConnectorsInvalid as e:
                     raise serializers.ValidationError(
-                        {"inputs": {"connectors": f"MCP installation(s) not found or inactive: {e.invalid_ids}"}}
+                        {
+                            "inputs": {
+                                "connectors": (
+                                    f"MCP server(s) not shared with the project or disabled: {e.invalid_ids}"
+                                )
+                            }
+                        }
                     )
 
         repository = (inputs.get("repository") or {}).get("value")
@@ -1357,6 +1376,20 @@ class HogFlowActionSerializer(serializers.Serializer):
                         }
                     }
                 )
+
+    def _validate_run_scout_action(self) -> None:
+        """Save-time check for the "Run scout" step: reject it in a child environment, matching
+        the runtime refusal in start_workflow_scout_run, so a broken step fails at save instead of
+        on every run."""
+        get_team = self.context.get("get_team")
+        # No team to check against outside a request (internal re-saves) - nothing new is being
+        # authored there, so there is nothing to validate.
+        if get_team is None:
+            return
+        if get_team().parent_team_id:
+            raise serializers.ValidationError(
+                {"template_id": "Run scout is only available in the project's main environment."}
+            )
 
     def validate(self, data):
         is_draft = self.context.get("is_draft")
@@ -1475,59 +1508,65 @@ class HogFlowActionSerializer(serializers.Serializer):
                 else:
                     serializer.is_valid(raise_exception=True)
                     data["config"]["filters"] = serializer.validated_data
-            elif data.get("config", {}).get("type") == "slack-message":
-                # Everything the trigger selects on — channel, poster, text, thread — is a property
-                # of the Slack message, so there is no config beyond the filters. The event name is
-                # fixed, which is what makes an events/actions entry here meaningless.
+            elif data.get("config", {}).get("type") == "internal-event":
                 filters = data.get("config", {}).get("filters", {}) or {}
                 if not isinstance(filters, dict):
                     raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
-                filters.pop("events", None)
-                filters.pop("actions", None)
-                _normalize_slack_channel_filters(filters)
-                if not is_draft and not _has_slack_channel_filter(filters):
+                filters["source"] = "internal-events"
+                # HogFunctionFiltersSerializer below rejects a non-list events with a 400. Guard the
+                # scan so a malformed value (null, a number) reaches that check instead of raising
+                # TypeError here, which would escape DRF and 500 the request.
+                events = filters.get("events")
+                # Starting a workflow needs only hog_flow:write, while the events on this stream
+                # carry data their own products gate behind narrower scopes. Allowlist rather than
+                # blocklist, so a newly emitted internal event is unreachable until someone decides
+                # it is safe to expose.
+                disallowed = sorted(
+                    {
+                        event["id"]
+                        for event in (events if isinstance(events, list) else [])
+                        if isinstance(event, dict)
+                        and isinstance(event.get("id"), str)
+                        and event["id"] not in WORKFLOW_SAFE_INTERNAL_EVENTS
+                    }
+                )
+                if disallowed:
                     raise serializers.ValidationError(
                         {
-                            "filters": "Pick a Slack channel for this trigger. Without one it runs on every message in every channel the Slack bot is in."
+                            "filters": f"These events cannot trigger a workflow: {', '.join(disallowed)}. "
+                            "They belong to another product, which controls who can read them."
                         }
                     )
-                # Left on the default "events" source: the internal event is event-shaped, so
-                # property filters compile against event.properties.* with no special casing.
-                serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                if is_draft:
-                    if serializer.is_valid():
-                        data["config"]["filters"] = serializer.validated_data
-                else:
-                    serializer.is_valid(raise_exception=True)
-                    data["config"]["filters"] = serializer.validated_data
-            elif data.get("config", {}).get("type") == "github-event":
-                # Repository, event type and actor are all properties of the delivery rather than
-                # fields of their own, so there is no config beyond the filters - same shape as
-                # slack-message.
-                filters = data.get("config", {}).get("filters", {}) or {}
-                if not isinstance(filters, dict):
-                    raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
-                filters.pop("events", None)
-                filters.pop("actions", None)
-                if not is_draft and not _has_exact_string_filter(filters, "repository"):
-                    raise serializers.ValidationError(
-                        {
-                            "filters": "Pick a repository for this trigger. Without one it runs on every delivery from every repository the GitHub app is installed on."
-                        }
+
+                def _subscribes_to(event_id: str) -> bool:
+                    return isinstance(events, list) and any(
+                        isinstance(event, dict) and event.get("id") == event_id for event in events
                     )
-                if not is_draft and not _has_exact_string_filter(filters, "event_type"):
-                    raise serializers.ValidationError(
-                        {"filters": "Pick at least one event, or the trigger will never fire."}
-                    )
-                # Left on the default "events" source: the internal event is event-shaped, so
-                # property filters compile against event.properties.* with no special casing.
+
+                # Each internal event keeps the scoping invariant its own product needs. Without it
+                # the trigger fires on everything that product emits, for every workspace it reaches.
+                if _subscribes_to("$slack_message_received"):
+                    _normalize_slack_channel_filters(filters)
+                    if not is_draft and not _has_slack_channel_filter(filters):
+                        raise serializers.ValidationError(
+                            {
+                                "filters": "Pick a Slack channel for this trigger. Without one it runs on every message in every channel the Slack bot is in."
+                            }
+                        )
+                if _subscribes_to("$github_event_received"):
+                    if not is_draft and not _has_exact_string_filter(filters, "repository"):
+                        raise serializers.ValidationError(
+                            {
+                                "filters": "Pick a repository for this trigger. Without one it runs on every delivery from every repository the GitHub app is installed on."
+                            }
+                        )
+                    if not is_draft and not _has_exact_string_filter(filters, "event_type"):
+                        raise serializers.ValidationError(
+                            {"filters": "Pick at least one event, or the trigger will never fire."}
+                        )
                 serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                if is_draft:
-                    if serializer.is_valid():
-                        data["config"]["filters"] = serializer.validated_data
-                else:
-                    serializer.is_valid(raise_exception=True)
-                    data["config"]["filters"] = serializer.validated_data
+                serializer.is_valid(raise_exception=True)
+                data["config"]["filters"] = serializer.validated_data
             else:
                 if strict:
                     raise serializers.ValidationError({"config": "Invalid trigger type"})
@@ -1604,6 +1643,8 @@ class HogFlowActionSerializer(serializers.Serializer):
 
                 if strict and template_id == _CREATE_TASK_TEMPLATE_ID:
                     self._validate_create_task_action(data["config"]["inputs"])
+                if strict and template_id == _RUN_SCOUT_TEMPLATE_ID:
+                    self._validate_run_scout_action()
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only
@@ -2334,6 +2375,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "description",
             "version",
             "status",
+            "origin_product",
             "created_at",
             "created_by",
             "updated_at",
@@ -2395,6 +2437,7 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
             "description",
             "version",
             "status",
+            "origin_product",
             "created_at",
             "created_by",
             "updated_at",
@@ -2405,6 +2448,13 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
+    origin_product = serializers.ChoiceField(
+        choices=HogFlow.OriginProduct.choices,
+        required=False,
+        allow_null=True,
+        help_text="Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when "
+        "creating a workflow. Filter the list with `?origin_product=`.",
+    )
     name = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Workflow name."
     )
@@ -2520,17 +2570,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
         instance = cast(Optional[HogFlow], self.instance) or self.context.get("instance")
 
-        # Who a "Create AI task" step runs as: the existing creator for an update, or the
-        # requesting user for a brand-new flow (matches the `created_by` a create() actually
-        # writes). None outside a request (internal re-saves), where connector checks are skipped.
-        owner = instance.created_by if instance else None
-        if owner is None:
-            request = self.context.get("request")
-            user = getattr(request, "user", None)
-            if user is not None and getattr(user, "is_authenticated", False):
-                owner = user
-        self.context["workflow_owner_id"] = owner.id if owner else None
-
         # Wait conditions the live flow already carries, so per-action validation can tell a newly
         # introduced clock condition from one we have been storing all along. Seeded here because
         # nested action validation runs during field processing, before validate() is reached.
@@ -2606,6 +2645,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "description",
             "version",
             "status",
+            "origin_product",
             "created_at",
             "created_by",
             "updated_at",
@@ -2810,6 +2850,26 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def update(self, instance, validated_data):
         self._strip_secret_inputs(validated_data)
         return super().update(instance, validated_data)
+
+
+class HogFlowUpdateSerializer(HogFlowSerializer):
+    origin_product = serializers.ChoiceField(
+        choices=HogFlow.OriginProduct.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="Product surface that owns this workflow. This value cannot change after creation.",
+    )
+
+    def validate(self, data: dict) -> dict:
+        instance = cast(Optional[HogFlow], self.instance)
+        submitted_origin_product = self.initial_data.get("origin_product", serializers.empty)
+        if (
+            instance is not None
+            and submitted_origin_product is not serializers.empty
+            and submitted_origin_product != instance.origin_product
+        ):
+            raise serializers.ValidationError({"origin_product": "origin_product is set on create and cannot change."})
+        return super().validate(data)
 
 
 GRAPH_OPERATION_TYPES = [
@@ -3043,7 +3103,14 @@ class HogFlowInvocationSerializer(serializers.Serializer):
         write_only=True, required=False, help_text="Optional override; omit to use saved definition."
     )
     globals = serializers.DictField(
-        write_only=True, required=False, help_text="Test trigger payload, typically {event, person, groups}."
+        write_only=True,
+        required=False,
+        help_text=(
+            "Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: "
+            "an event matching the trigger filters for event triggers, or for an internal-event trigger an event "
+            "named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, "
+            "text, ts) and no person."
+        ),
     )
     mock_async_functions = serializers.BooleanField(
         default=True,
@@ -3305,6 +3372,12 @@ def mint_audience_confirm_token(
                 description="Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.",
             ),
             OpenApiParameter(
+                "origin_product",
+                OpenApiTypes.STR,
+                enum=HogFlow.OriginProduct.values,
+                description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
+            ),
+            OpenApiParameter(
                 "trigger",
                 OpenApiTypes.STR,
                 description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
@@ -3411,6 +3484,8 @@ class HogFlowViewSet(
             if self.request is not None and self._is_mcp_request(self.request):
                 return HogFlowSummarySerializer
             return HogFlowMinimalSerializer
+        if self.action in ("update", "partial_update"):
+            return HogFlowUpdateSerializer
         return HogFlowSerializer
 
     def get_serializer_context(self) -> dict:
@@ -3457,6 +3532,14 @@ class HogFlowViewSet(
                 queryset = (
                     queryset.filter(messaging_q) if workflow_type == "messaging" else queryset.exclude(messaging_q)
                 )
+
+            origin_product = self.request.GET.get("origin_product")
+            if origin_product:
+                if origin_product not in HogFlow.OriginProduct.values:
+                    raise exceptions.ValidationError(
+                        {"origin_product": f"Must be one of: {', '.join(HogFlow.OriginProduct.values)}"}
+                    )
+                queryset = queryset.filter(origin_product=origin_product)
 
         if self.request.GET.get("trigger"):
             try:

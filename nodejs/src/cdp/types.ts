@@ -49,7 +49,7 @@ export type HogFunctionFilterDataWarehouse = {
 }
 
 export interface HogFunctionFilters {
-    source?: 'events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view' // Special case to identify what kind of thing this filters on
+    source?: 'events' | 'internal-events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
     // Warehouse tables this function is subscribed to. Never compiled into bytecode, so the
@@ -519,6 +519,7 @@ export type HogFunctionInputSchemaType = {
         | 'task_model'
         | 'task_repository'
         | 'task_mcp_installations'
+        | 'signals_scout'
     key: string
     label?: string
     choices?: { value: string; label: string }[]

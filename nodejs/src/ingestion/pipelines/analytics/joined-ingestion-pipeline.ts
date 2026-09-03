@@ -54,6 +54,7 @@ import {
     PostTeamPreprocessingSubpipelineConfig,
     createPostTeamPreprocessingSubpipeline,
 } from './post-team-preprocessing-subpipeline'
+import { prefetchTeamsStep } from './steps/prefetchTeamsStep'
 
 export interface JoinedIngestionPipelineConfig {
     eventSchemaEnforcementEnabled: boolean
@@ -61,6 +62,9 @@ export interface JoinedIngestionPipelineConfig {
     preservePartitionLocality: boolean
     personsPrefetchEnabled: boolean
     groupsPrefetchEnabled: boolean
+    teamsPrefetchEnabled: boolean
+    eventSchemasPrefetchEnabled: boolean
+    hogFunctionsPrefetchEnabled: boolean
     outputs: IngestionOutputs<
         | EventOutput
         | FlagEvaluationsOutput
@@ -128,6 +132,9 @@ export function createJoinedIngestionPipeline<
         preservePartitionLocality,
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
+        teamsPrefetchEnabled,
+        eventSchemasPrefetchEnabled,
+        hogFunctionsPrefetchEnabled,
         outputs,
         perDistinctIdOptions,
         concurrentBatches,
@@ -166,7 +173,10 @@ export function createJoinedIngestionPipeline<
         featureFlagCalledDedupService,
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
+        eventSchemasPrefetchEnabled,
+        hogFunctionsPrefetchEnabled,
         groupTypeManager,
+        hogTransformer,
     }
 
     const perEventConfig: EventSubpipelineConfig = {
@@ -217,6 +227,10 @@ export function createJoinedIngestionPipeline<
             // handled by the matching only-cookieless step in post-team, which keys on
             // the hashed distinct_id assigned by the cookieless step.
             .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
+            // Warm the team cache for the chunk's tokens in one batched load while message
+            // bodies parse, so the per-event lookups in resolveTeam hit cache or coalesce
+            // onto the in-flight load instead of paying a serial load per token.
+            .pipeChunk(prefetchTeamsStep(teamManager, teamsPrefetchEnabled))
             .parseMessage()
             .resolveTeam()
             .pipe(createValidateHistoricalMigrationStep())

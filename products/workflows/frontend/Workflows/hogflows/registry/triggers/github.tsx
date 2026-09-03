@@ -16,27 +16,15 @@ import { HogFlowPropertyFilters } from 'products/workflows/frontend/Workflows/ho
 import { registerTriggerType } from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
 import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLogic'
 
-import { HogFlowAction } from '../../types'
 import {
     GITHUB_ACTOR_MODE_OPTIONS,
     GITHUB_EVENT_TYPE_OPTIONS,
     GithubActorMode,
     decodeGithubFilters,
     encodeGithubFilters,
+    InternalEventGithubTriggerConfig,
+    isGithubEventTriggerConfig,
 } from './githubTriggerFilters'
-
-export type GithubEventTriggerConfig = {
-    type: 'github-event'
-    filters: {
-        properties?: any[]
-    }
-}
-
-export function isGithubEventTriggerConfig(
-    config: Extract<HogFlowAction, { type: 'trigger' }>['config']
-): config is GithubEventTriggerConfig {
-    return config.type === 'github-event'
-}
 
 // GitHub deliveries never reach ClickHouse, so the advanced list has no stored values to
 // autocomplete from and the properties have to be declared.
@@ -65,15 +53,19 @@ function StepTriggerConfigurationGithubEvent({ node }: { node: any }): JSX.Eleme
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
 
-    const config = node.data.config as GithubEventTriggerConfig
+    const config = node.data.config as InternalEventGithubTriggerConfig
     const filters = decodeGithubFilters(config.filters?.properties)
     const validationResult = actionValidationErrorsById[node.data.id]
     const githubIntegrations = (integrations ?? []).filter((integration) => integration.kind === 'github')
 
     const update = (changes: Partial<typeof filters>): void => {
         setWorkflowActionConfig(node.data.id, {
-            type: 'github-event',
-            filters: { properties: encodeGithubFilters({ ...filters, ...changes }) },
+            type: 'internal-event',
+            filters: {
+                source: 'internal-events',
+                events: [{ id: '$github_event_received', type: 'events' }],
+                properties: encodeGithubFilters({ ...filters, ...changes }),
+            },
         })
     }
 
@@ -198,6 +190,8 @@ function StepTriggerConfigurationGithubEvent({ node }: { node: any }): JSX.Eleme
 }
 
 registerTriggerType({
+    // The tile's own identity, not the stored config type: `internal-event` carries every internal
+    // event, so naming the tile after it would make the GitHub tile claim all of them.
     value: 'github-event',
     label: 'GitHub activity',
     icon: <IconGithub />,
@@ -206,8 +200,10 @@ registerTriggerType({
     featureFlag: 'github-workflow-triggers',
     matchConfig: (config) => isGithubEventTriggerConfig(config),
     buildConfig: () => ({
-        type: 'github-event',
+        type: 'internal-event',
         filters: {
+            source: 'internal-events',
+            events: [{ id: '$github_event_received', type: 'events' }],
             properties: encodeGithubFilters({
                 repository: null,
                 eventTypes: [],
@@ -218,7 +214,7 @@ registerTriggerType({
         },
     }),
     validate: (config): { valid: boolean; errors: Record<string, string> } | null => {
-        if (config.type !== 'github-event') {
+        if (!isGithubEventTriggerConfig(config)) {
             return null
         }
         const filters = decodeGithubFilters(config.filters?.properties)

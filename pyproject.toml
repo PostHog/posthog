@@ -100,7 +100,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=5.29.6",
-    "posthoganalytics==7.44.2",
+    "posthoganalytics==7.45.2",
     "polars==1.37.1",
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
@@ -206,7 +206,7 @@ dependencies = [
     "wrapt==1.17.3",
     "limits==5.8.0",
     "deltalite==0.1.7",
-    "posthog-hogland==0.3.1",
+    "posthog-hogland==0.4.1",
 ]
 
 [dependency-groups]
@@ -518,6 +518,7 @@ exclude = [
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",
     # PEP 723 scripts with their own deps; mypy excludes these dirs too
+    "products/*/skills/*/scripts/**",
     "products/stamphog/packages/**",
     "tools/**",
     "products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/**",
@@ -727,6 +728,7 @@ ignore_imports = [
     "products.cohorts.backend.routes -> products.cohorts.backend.api.staff_tools",
     "products.conversations.backend.routes -> products.conversations.backend.api",
     "products.dashboards.backend.routes -> products.dashboards.backend.api.dashboard",
+    "products.dashboards.backend.routes -> products.dashboards.backend.api.dashboard_saved_view",
     "products.dashboards.backend.routes -> products.dashboards.backend.api.dashboard_templates",
     "products.early_access_features.backend.routes -> products.early_access_features.backend.api",
     "products.exports.backend.routes -> products.exports.backend.api.exports",
@@ -760,6 +762,7 @@ ignore_imports = [
     "products.signals.backend.routes -> products.signals.backend.views",
     "products.signals.backend.routes -> products.signals.backend.scout_chat",
     "products.signals.backend.routes -> products.signals.backend.scout_harness.views",
+    "products.signals.backend.routes -> products.signals.backend.scout_suggestions_api",
     "products.skills.backend.routes -> products.skills.backend.api.community_skills",
     "products.skills.backend.routes -> products.skills.backend.api.marketplace_views",
     "products.skills.backend.routes -> products.skills.backend.api.skills",
@@ -771,6 +774,7 @@ ignore_imports = [
     "products.web_analytics.backend.routes -> products.web_analytics.backend.api.web_analytics_path_cleaning_suggestions",
     "products.workflows.backend.routes -> products.workflows.backend.api.hog_flow",
     "products.workflows.backend.routes -> products.workflows.backend.api.hog_flow_template",
+    "products.workflows.backend.routes -> products.workflows.backend.api.workflow_scout_runs",
     "products.workflows.backend.routes -> products.workflows.backend.api.workflow_tasks",
 ]
 
@@ -821,7 +825,7 @@ too-many-positional-arguments = "ignore"  # Django metaprogramming signatures
 # Dual mypy+ty — mypy still runs, so its artifacts are legitimate
 redundant-cast = "ignore"  # casts needed by mypy that ty resolves
 unused-type-ignore-comment = "ignore"  # type: ignore comments required by mypy
-unused-ignore-comment = "ignore"  # stale ty: ignore directives from older ty versions remain in the tree
+unused-ignore-comment = "error"  # default is warn, which does not fail CI; error keeps stale ty: ignore directives out
 
 # Django lazy imports and settings indirection
 possibly-missing-submodule = "ignore"
@@ -859,3 +863,10 @@ deprecated = "ignore"
 # These rules catch real bugs in new code, so they stay enabled.
 # invalid-type-form is the exception: generated code + ty limitations on valid patterns.
 invalid-type-form = "ignore"
+
+[[tool.ty.overrides]]
+# Scanner schemas are built with create_model at runtime, so every kwarg looks extra to ty
+include = ["products/replay_vision/backend/tests/test_scanners.py"]
+
+[tool.ty.overrides.rules]
+pydantic-discarded-extra-argument = "ignore"

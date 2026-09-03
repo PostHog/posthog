@@ -83,9 +83,9 @@ type TriggerOptionItem = {
 }
 
 function getTriggerDisplayType(type: string, config: any): string {
-    if (type !== 'event') {
-        return type
-    }
+    // Several tiles can share one config type (`event`, `internal-event`), so the tile is whichever
+    // one claims this config, not the type itself. Types owned by a single tile fall through to the
+    // type, which is that tile's value.
     const match = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(config))
     return match ? match.value : type
 }

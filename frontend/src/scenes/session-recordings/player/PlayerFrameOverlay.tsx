@@ -103,8 +103,8 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                 <div className="font-bold text-text-3000 text-lg">We're unable to play this recording</div>
                 <div className="text-secondary text-sm text-center">
                     It contains {totalSize ? `${humanizeBytes(totalSize)} of` : 'too much'} snapshot data in very large
-                    chunks, and playing it would freeze this browser tab. This usually comes from pages with rapidly
-                    changing content. You can exclude those elements from capture to keep future recordings playable.
+                    chunks, more than the player can render. This usually comes from pages with rapidly changing
+                    content. You can exclude those elements from capture to keep future recordings playable.
                 </div>
                 <LemonButton
                     targetBlank

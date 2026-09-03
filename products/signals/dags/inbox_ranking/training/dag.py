@@ -80,6 +80,8 @@ _LABEL_COLUMNS = (
     "dismissal_reason",
     "wrong_dismissal_count",
     "pr_created_count",
+    "pr_merged_count",
+    "refund_count",
     *PROVENANCE_LABEL_COLUMNS,
 )
 _STATE_READ_COLUMNS = (*STATE_COLUMNS, *PROVENANCE_STATE_COLUMNS, "features_observed_at")

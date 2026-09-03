@@ -440,12 +440,19 @@ tools:
             includes nextActionId. To verify a path end to end, chain calls: start at the trigger (omit
             current_action_id), then pass the returned nextActionId as current_action_id on the next call, and repeat.
             To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action
-            after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}).
-            Async actions (HTTP/email/SMS/push) are mocked by default; set mock_async_functions=false to fire real side
-            effects. The trigger step evaluates its filters against globals and returns status=skipped when they do not
-            match. Returns the step's execution trace. Set use_draft=true to test a workflow's staged draft instead of
-            its live config — always do this before workflows-publish. use_draft requires a staged draft to exist
-            (workflows-get shows it in 'draft'); on a workflow with nothing staged, omit it.
+            after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}),
+            shaped like what the trigger really receives: for event triggers, an event matching the trigger filters; for
+            internal-event triggers, the event MUST be named in the trigger's filters.events (the Slack trigger fires on
+            $slack_message_received with Slack properties like channel, channel_type, user, bot_id, app_id, subtype,
+            text, ts, thread_ts) and carry no person; copy a real payload from workflows-get-invocation when a past run
+            exists. The trigger step evaluates event, internal-event, and warehouse-row trigger filters against globals
+            and returns status=skipped when the event name or filters do not match: fix a fabricated payload to match
+            the trigger, but treat a skip on a real, copied payload as a broken trigger filter instead. Other trigger
+            types are not filtered. Async actions (HTTP/email/SMS/push) are mocked by default; set
+            mock_async_functions=false to fire real side effects. Returns the step's execution trace. Set use_draft=true
+            to test a workflow's staged draft instead of its live config — always do this before workflows-publish.
+            use_draft requires a staged draft to exist (workflows-get shows it in 'draft'); on a workflow with nothing
+            staged, omit it.
         exclude_params:
             - configuration
     workflows-update:

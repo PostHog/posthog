@@ -73,6 +73,10 @@ Size ceiling (hard gate)
     ~800 the merged-unchanged rate collapses, so escalation is genuinely right)
   - A folder's AGENT_APPROVALS.md can raise either ceiling for its own files,
     within the `overrides` contract in policy.yml (see .stamphog/README.md)
+  - The whole PR still has to fit the most generous ceiling in play, so
+    per-scope budgets never sum. With no folder grant that roof is the global
+    ceiling above, so the gate keeps measuring the PR size these limits were
+    derived from
   - Docs (.md/.txt/.rst anywhere; artifact-extension files under docs/),
     snapshots (.snap/.ambr, __snapshots__/), images,
     `.lock`-extension files (e.g. `yarn.lock`), tests (test dirs and
