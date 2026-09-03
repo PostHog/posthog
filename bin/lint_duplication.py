@@ -46,6 +46,7 @@ TEST_PATH = re.compile(
 )
 
 LIMITS_PATH = Path(__file__).with_name("lint-duplication.limits.json")
+SCAN_TIMEOUT_SECONDS = 240
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -133,7 +134,9 @@ def run_jscpd(scan_root: Path, out_dir: Path) -> list[dict]:
         ],
         capture_output=True,
         text=True,
-        timeout=900,
+        # Two scans must finish inside the CI job's timeout-minutes, or the
+        # job dies before the failure section can post.
+        timeout=SCAN_TIMEOUT_SECONDS,
         cwd=scan_root,
     )
     report_path = out_dir / "jscpd-report.json"
@@ -203,16 +206,16 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if args.report_dir:
+        # Written before any check or scan so an early exit can never leave a
+        # stale "ok": the CI report can then tell "the scan failed" from "the
+        # branch predates the check" (no files at all).
+        (Path(args.report_dir) / "duplication-scan-status.json").write_text(json.dumps({"status": "failed"}) + "\n")
+
     if subprocess.run(["git", "rev-parse", "--verify", "--quiet", args.base], capture_output=True).returncode != 0:
         print(f"Base ref {args.base!r} not found. Fetch it first, e.g.:")
         print("  git fetch --no-tags --depth=1 origin master:refs/remotes/origin/master")
         return 2
-
-    if args.report_dir:
-        # Written before the scans so a crash can never leave a stale "ok":
-        # the CI report can then tell "the scan failed" from "the branch
-        # predates the check" (no files at all).
-        (Path(args.report_dir) / "duplication-scan-status.json").write_text(json.dumps({"status": "failed"}) + "\n")
 
     repo = Path(args.path).resolve()
     if not repo.is_dir():

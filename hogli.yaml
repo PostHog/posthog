@@ -864,7 +864,7 @@ quality:
         description: Auto-sort FEATURE_FLAGS in constants.tsx alphabetically
     lint:duplication:
         cmd: python3 bin/lint_duplication.py
-        description: Gate the branch on new Python code duplication via jscpd (test files get a relaxed limit)
+        description: Gate the branch on new Python and TypeScript code duplication via jscpd (test files get a relaxed limit)
     lint:complexity:
         click: hogli_commands.complexity_lint:cmd_lint_complexity
         description: Check cyclomatic complexity of changed Python/TypeScript files (warn-only; test files get a relaxed limit)

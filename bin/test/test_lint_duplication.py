@@ -12,6 +12,7 @@ from bin.lint_duplication import (
     clone_language,
     find_gate_failures,
     is_test_file,
+    mark_new_clones,
 )
 
 
@@ -156,6 +157,32 @@ class TestCloneKey(unittest.TestCase):
         if second_mutation == "rename":
             second["secondFile"]["name"] = "c.py"
         self.assertEqual(clone_key(first) == clone_key(second), expected_equal)
+
+
+class TestMarkNewClones(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("no_baseline_all_new", 0, 2, [True, True]),
+            ("baseline_covers_one_copy", 1, 2, [False, True]),
+            ("baseline_covers_every_copy", 2, 2, [False, False]),
+            ("baseline_has_spare_copies", 3, 1, [False]),
+        ]
+    )
+    def test_grandfathers_only_as_many_copies_as_the_baseline_holds(
+        self, _name: str, baseline_copies: int, current_copies: int, expected_is_new: list[bool]
+    ) -> None:
+        baseline = [make_clone("a.py", "b.py", 100) for _ in range(baseline_copies)]
+        current = [make_clone("a.py", "b.py", 100, is_new=False) for _ in range(current_copies)]
+        mark_new_clones(current, baseline)
+        self.assertEqual([clone["isNew"] for clone in current], expected_is_new)
+
+    def test_an_edited_fragment_is_new_even_when_the_pair_has_a_baseline_clone(self) -> None:
+        baseline = [make_clone("a.py", "b.py", 100)]
+        edited = make_clone("a.py", "b.py", 100)
+        edited["fragment"] = "y = 2\n" * 10
+        current = [make_clone("a.py", "b.py", 100), edited]
+        mark_new_clones(current, baseline)
+        self.assertEqual([clone["isNew"] for clone in current], [False, True])
 
 
 if __name__ == "__main__":
