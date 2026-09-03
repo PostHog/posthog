@@ -248,6 +248,34 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert self.client.post(f"{base}/publish/", {"project": self._project()}, format="json").status_code == 404
         assert self.client.delete(f"{base}/").status_code == 404
 
+    def test_public_space_member_can_publish_but_not_manage_another_creators_canvas(self):
+        canvas_id = self._create_canvas(name="Shared canvas")
+        other_user = self._create_user("teammate@example.com")
+        own_task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=other_user,
+            title="Edit shared canvas",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        self.client.force_login(other_user)
+        base = f"/api/projects/{self.team.id}/canvases/{canvas_id}"
+
+        publish = self.client.post(f"{base}/publish/", {"project": self._project()}, format="json")
+        assert publish.status_code == status.HTTP_200_OK
+        version = CanvasSourceVersion.objects.unscoped().get(id=publish.json()["current_version_id"])
+        assert version.created_by_id == other_user.id
+
+        track_task = self.client.patch(f"{base}/", {"generation_task_id": str(own_task.id)}, format="json")
+        assert track_task.status_code == status.HTTP_200_OK
+        assert track_task.json()["generation_task_id"] == str(own_task.id)
+
+        assert self.client.patch(f"{base}/", {"name": "Renamed"}, format="json").status_code == 403
+        assert self.client.patch(f"{base}/", {"pinned": True}, format="json").status_code == 403
+        assert self.client.delete(f"{base}/").status_code == 404
+        assert Canvas.objects.unscoped().get(id=canvas_id).name == "Shared canvas"
+
     def test_task_bound_sandbox_can_create_only_for_its_bound_task(self):
         bound_task = Task.objects.create(
             team=self.team,
@@ -356,7 +384,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert earlier_detail.status_code == status.HTTP_200_OK
         assert update.status_code == status.HTTP_200_OK
         assert update.json()["name"] == "Updated by later task"
-        assert linked_update.status_code == status.HTTP_404_NOT_FOUND
+        assert linked_update.status_code == status.HTTP_403_FORBIDDEN
 
     def test_rebound_sandbox_does_not_inherit_task_creator_canvas_access(self) -> None:
         actor = self._create_user("rebound-sandbox-actor@example.com")
@@ -405,7 +433,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         )
 
         assert public_read.status_code == status.HTTP_200_OK
-        assert public_write.status_code == status.HTTP_404_NOT_FOUND
+        assert public_write.status_code == status.HTTP_403_FORBIDDEN
         assert personal_read.status_code == status.HTTP_404_NOT_FOUND
 
     def test_rebound_sandbox_can_write_canvas_created_by_actor(self) -> None:
@@ -446,7 +474,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert update_response.json()["name"] == "Updated by actor"
         assert publish_response.status_code == status.HTTP_200_OK
 
-    def test_task_bound_sandbox_can_read_but_not_write_another_creators_public_canvas(self):
+    def test_task_bound_sandbox_can_publish_but_not_rename_another_creators_public_canvas(self):
         other_user = self._create_user("other-canvas-creator@example.com")
         bound_task = Task.objects.create(
             team=self.team,
@@ -468,15 +496,25 @@ class TestCanvasCrud(CanvasAPIBaseTest):
             f"/api/projects/{self.team.id}/canvases/{other_canvas.id}/",
             HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
         )
-        write_response = client.patch(
+        rename_response = client.patch(
             f"/api/projects/{self.team.id}/canvases/{other_canvas.id}/",
             {"name": "Not allowed"},
             format="json",
             HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
         )
+        publish_response = client.post(
+            f"/api/projects/{self.team.id}/canvases/{other_canvas.id}/publish/",
+            {"project": self._project()},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
+        )
 
         assert read_response.status_code == status.HTTP_200_OK
-        assert write_response.status_code == status.HTTP_404_NOT_FOUND
+        assert rename_response.status_code == status.HTTP_403_FORBIDDEN
+        assert publish_response.status_code == status.HTTP_200_OK
+        version = CanvasSourceVersion.objects.unscoped().get(id=publish_response.json()["current_version_id"])
+        assert version.created_by_id == self.user.id
+        assert version.task_id == bound_task.id
 
     def test_personal_space_sandbox_can_read_authenticated_users_canvas(self):
         with team_scope(self.team.id):
@@ -664,7 +702,7 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         assert body["current_version_id"] == version_id
         assert body["project"]["files"]["src/extra.ts"] == "export const x = 1"
 
-    def test_public_members_can_publish_current_source_but_cannot_edit(self):
+    def test_public_members_can_edit_and_publish_but_not_rename(self):
         canvas_id = self._create_canvas()
         first = self._publish(canvas_id, expected_current_version_id=None)
         assert first.status_code == status.HTTP_200_OK
@@ -682,26 +720,31 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
             },
             format="json",
         )
+        assert metadata_edit.status_code == status.HTTP_403_FORBIDDEN
+        assert source_edit.status_code == status.HTTP_200_OK, source_edit.json()
+        edited_version_id = source_edit.json()["current_version_id"]
+        assert edited_version_id != version_id
+
         source_publish = self.client.post(
             f"{base}/publish/",
             {
-                "project": self._project("export default function C() { return 2 }"),
-                "expected_current_version_id": version_id,
+                "project": self._project("export default function C() { return 3 }"),
+                "expected_current_version_id": edited_version_id,
             },
             format="json",
         )
+        assert source_publish.status_code == status.HTTP_200_OK, source_publish.json()
+        published_version_id = source_publish.json()["current_version_id"]
         current_version_publish = self.client.post(
             f"{base}/publish-current-version/",
-            {"expected_current_version_id": version_id},
+            {"expected_current_version_id": published_version_id},
             format="json",
         )
 
-        assert metadata_edit.status_code == status.HTTP_404_NOT_FOUND
-        assert source_edit.status_code == status.HTTP_404_NOT_FOUND
-        assert source_publish.status_code == status.HTTP_404_NOT_FOUND
         assert current_version_publish.status_code == status.HTTP_200_OK, current_version_publish.json()
-        assert current_version_publish.json()["source_version_id"] == version_id
-        assert str(Canvas.objects.unscoped().get(id=canvas_id).current_source_version_id) == version_id
+        assert current_version_publish.json()["source_version_id"] == published_version_id
+        assert str(Canvas.objects.unscoped().get(id=canvas_id).current_source_version_id) == published_version_id
+        assert Canvas.objects.unscoped().get(id=canvas_id).name == "My canvas"
 
     def test_stale_guard_conflicts(self):
         canvas_id = self._create_canvas()
@@ -1549,7 +1592,8 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
         run = TaskRun.objects.filter(task=task).get()
         prompt = run.state["pending_user_message"]
         assert canvas_id in prompt
-        assert "canvas-draft-create" in prompt
+        assert "canvas-edit-create" in prompt
+        assert "Stage a draft instead only if" in prompt
         assert dispatch.call_count == 1
         assert dispatch.call_args.kwargs["run_id"] == str(run.id)
         assert dispatch.call_args.kwargs["skip_user_check"] is True
@@ -1568,7 +1612,8 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
         assert response.json() == {"request_outcome": "new_run", "task_id": str(task.id)}
         agent_prompt = TaskRun.objects.get(task=task).state["pending_user_message"]
         assert prompt in agent_prompt
-        assert "canvas-draft-create" in agent_prompt
+        assert "canvas-edit-create" in agent_prompt
+        assert "Stage a draft instead only if" in agent_prompt
         update = TaskThreadMessage.objects.for_team(self.team.id).get(content="Run requested from the canvas")
         assert update.author_id == self.user.id
 

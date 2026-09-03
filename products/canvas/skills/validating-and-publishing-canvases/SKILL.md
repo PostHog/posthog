@@ -75,9 +75,10 @@ Diagnostics carry `severity`, a stable `code`, a `message`, and (for file-specif
 
 ## Publish guarded
 
-Publishing goes live immediately, so it is for a canvas's **first version** or for a change the
-user explicitly asked to make live. A canvas that already has a live version defaults to a draft
-instead — see "Draft, then promote" below.
+Publishing goes live immediately and is the default way to save a change, for a canvas's first
+version and for every follow-up edit. Every version records who published it and which task did
+the work, so the history stays reviewable after the fact. Stage a draft instead only when the user
+asked for a draft, a preview, or a review step — see "Draft, then promote" below.
 
 Two ways to publish, both guarded:
 
@@ -122,12 +123,11 @@ or its capability declaration.
 
 ## Draft, then promote
 
-Publishing goes live the moment its build is ready. For a canvas that **already has a live
-version**, that is not the default: stage the change as a draft and let the user promote it.
-Publish directly only for a canvas's first version (nothing is live to protect) or when the user
-explicitly asked to make the change live. A draft is a real, buildable version that is never the
-head: the live canvas keeps rendering the current version until someone promotes the draft. This
-is different from `canvas-validate-create`, which only compile-checks and produces no build or
+Publishing goes live the moment its build is ready, and that is the default. Use a draft only
+when the user asked for one: a preview to look at first, a review step before going live, or an
+explicit "don't publish yet". A draft is a real, buildable version that is never the head: the
+live canvas keeps rendering the current version until someone promotes the draft. This is
+different from `canvas-validate-create`, which only compile-checks and produces no build or
 preview.
 
 1. **Stage** — `canvas-draft-create` with the complete `project` (same shape, capabilities, and
@@ -143,9 +143,9 @@ preview.
    its build is `ready` the app renders that draft when the version is opened. The draft is **not**
    in `canvas-versions-retrieve` (that lists published history only) and cannot be reverted onto —
    list pending drafts with `canvas-drafts-retrieve`.
-4. **Promote** — only when the user approved the draft or explicitly asked to go live; the
-   default is to stop after staging and report the draft. `canvas-promote-create` makes the
-   draft the live head. Pass
+4. **Promote** — when the user approved the draft or asked to go live; a draft the user asked to
+   review stays staged until they say so. `canvas-promote-create` makes the draft the live head.
+   Pass
    `expected_current_version_id` (the live `current_version_id` from `canvas-source-retrieve`); it
    is guarded exactly like a publish and 409s on a moved head (recover as below). A draft whose
    build is still `ready` goes live with no rebuild; otherwise a fresh build is queued, so wait for

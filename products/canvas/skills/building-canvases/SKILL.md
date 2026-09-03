@@ -119,20 +119,22 @@ matching shape above. The pattern is a hint; the user's actual request remains a
    runtime and validation rejects undeclared calls.
 3. Follow `validating-and-publishing-canvases`: validate with `canvas-validate-create` as often as
    needed and fix every error-severity diagnostic.
-4. Save the project — which tool depends on whether the canvas is already live:
+4. Save the project by publishing it — publishing is the default and goes live at once:
    - **First version** (`current_version_id` is null): publish the complete project with
      `canvas-publish-create`, passing `expected_current_version_id: null`.
-   - **Already live** (`current_version_id` is set): stage the complete project as a draft with
-     `canvas-draft-create` — the user previews the draft and promotes it to live. Publish or
-     promote yourself only when the user explicitly asked to make the change live.
+   - **Already live** (`current_version_id` is set): publish per-file changes with
+     `canvas-edit-create`, or the complete project with `canvas-publish-create`, passing the
+     live `current_version_id` as `expected_current_version_id`.
+   - Stage a draft with `canvas-draft-create` only when the user asked for a draft, a preview, or
+     a review step before going live.
      Follow the `validating-and-publishing-canvases` skill for diagnostics and conflict recovery.
 5. **Wait for the build** — drafts and publishes alike queue one. Poll `canvas-builds-retrieve`
    (every few seconds, up to ~2 minutes) until your build is `ready` or `failed`. On `failed`,
    read the build's error diagnostics, fix the project, and save again — do not finish the
    task with a failed build.
 
-Save once per requested change, when the canvas is ready — not after every micro-edit. When you
-staged a draft, end your reply by saying a draft is ready to preview and promote; the
+Save once per requested change, when the canvas is ready — not after every micro-edit. When the
+user asked for a draft, end your reply by saying a draft is ready to preview and promote; the
 `validating-and-publishing-canvases` skill covers the draft → build → preview → promote flow.
 
 End your reply by naming the channel the canvas is in and linking it with the `url` field the
@@ -158,9 +160,9 @@ That field is the only valid link to a canvas — never construct one yourself; 
 - **`ph.agent.request(prompt)`** — ask the canvas's authoring agent for a change, with the viewer's
   approval. Declare `agentRequests: true` in `capabilities.posthog`. Call it only from a direct
   click or form submission — the host shows the exact prompt and asks the viewer to accept before
-  spending compute, and rejects calls made during render, mount, or polling. The agent stages the
-  change as a draft for the canvas creator to review; a non-creator's request is filed in the
-  authoring task's thread instead of starting a run.
+  spending compute, and rejects calls made during render, mount, or polling. The agent publishes
+  the change as a new version; a non-creator's request is filed in the authoring task's thread
+  instead of starting a run.
 
 ## Source-project shape
 

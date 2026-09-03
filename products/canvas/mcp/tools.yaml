@@ -72,9 +72,9 @@ tools:
         description: >
             Build the COMPLETE source project of a canvas as a DRAFT, without changing the live canvas. The project is
             validated and built server-side exactly like a publish, but the canvas head and live build do NOT move, so
-            viewers keep seeing the current version. For a canvas that already has a live version this is the DEFAULT
-            way to save a change — the user previews and promotes it; use canvas-publish-create only for a first version
-            or when the user explicitly asked to make the change live. Returns the draft's `version_id`, its queued
+            viewers keep seeing the current version. Use it only when the user asked for a draft, a preview, or a
+            review step before going live; saving a change with canvas-publish-create or canvas-edit-create is the
+            default. Returns the draft's `version_id`, its queued
             build, and `capability_widening` — how the draft's declared capabilities grow the live version's (insights,
             capture events, inline queries, network origins) — so added access is visible before shipping. Poll
             canvas-builds-retrieve until the draft's build is terminal, preview the draft with canvas-source-retrieve
@@ -119,8 +119,8 @@ tools:
             `expected_current_version_id` is REQUIRED (from canvas-source-retrieve; null only for a never-published
             canvas) — a stale base is rejected with 409 version_conflict; re-read the source, re-apply, and edit again.
             The edited project is validated first; error diagnostics reject the whole edit atomically. Edits go live
-            like a publish — for a canvas with a live version, default to staging the complete project as a draft with
-            canvas-draft-create instead, unless the user asked for an immediate live change.
+            like a publish, which is the default way to save a change; stage the complete project as a draft with
+            canvas-draft-create only when the user asked for a draft or a review step.
         param_overrides:
             id:
                 description: ID of the canvas whose source to edit.
@@ -252,8 +252,8 @@ tools:
         title: Publish canvas source project
         description: >
             Publish the COMPLETE source project of a canvas as its new head version and queue a server-side build.
-            Publishing goes live immediately: use it for a canvas's first version, or when the user explicitly asked to
-            make a change live — otherwise stage the change with canvas-draft-create for the user to promote. The
+            Publishing goes live immediately and is the default way to save a change, first version or follow-up
+            alike; stage the change with canvas-draft-create only when the user asked for a draft or a review step. The
             project is validated first — error diagnostics reject the publish (400) and leave the canvas untouched. Pass
             `expected_current_version_id` (from canvas-source-retrieve) so a concurrent edit is rejected with 409
             version_conflict instead of overwritten; on conflict, re-read the source, re-apply your edits, and publish
