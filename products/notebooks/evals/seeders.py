@@ -64,6 +64,12 @@ def seed_churn_signal(context: CustomPromptSandboxContext) -> dict[str, Any]:
     team = Team.objects.get(id=context.team_id)
     needle = build_churn_needle()
     now = timezone.now()
+    # Spread events within their day so ordering and per-day counts stay stable. Every
+    # account repeats the same schedule, so the timestamps are worked out once.
+    planted_at = [
+        now - timedelta(days=planted.days_before_now, minutes=slot) for slot, planted in enumerate(needle.schedule)
+    ]
+    newest_planted_at = max(planted_at)
     # Persons exist before their first event, so the account looks real to the analysis.
     person_created_at = now - timedelta(days=needle.active_window_days[0] + 5)
 
@@ -78,11 +84,14 @@ def seed_churn_signal(context: CustomPromptSandboxContext) -> dict[str, Any]:
             properties=person_properties,
             is_identified=True,
             created_at=person_created_at,
+            # HogQL reads persons.last_seen_at as the person's most recent event, and the
+            # writer defaults it to the time of the write. Left alone, the planted cohort
+            # would read as the most recently active people in the team — the opposite of
+            # the churn shape these events describe.
+            last_seen_at=newest_planted_at,
         )
         create_person_distinct_id(team_id=team.id, distinct_id=account.distinct_id, person_id=str(person_uuid))
-        for slot, planted in enumerate(needle.schedule):
-            # Spread events within their day so ordering and per-day counts stay stable.
-            timestamp = now - timedelta(days=planted.days_before_now, minutes=slot)
+        for planted, timestamp in zip(needle.schedule, planted_at):
             properties = _event_properties(planted.event, account)
             group_columns = (
                 {"group0_properties": {"name": f"{account.name} workspace"}} if "$group_0" in properties else {}

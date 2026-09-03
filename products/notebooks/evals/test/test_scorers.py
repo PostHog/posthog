@@ -10,13 +10,16 @@ import json
 from typing import Any
 
 import pytest
+from unittest.mock import patch
 
 from posthog.models import Team
 from posthog.models.scoping import team_scope
 
 from products.notebooks.backend.models import Notebook, NotebookNodeRun
 from products.notebooks.evals.scorers import CellRunsCompleted, ChurnCohortSurfaced
+from products.notebooks.evals.seeders import seed_churn_signal
 from products.notebooks.evals.synthesizer import CHURN_TOKEN, SIGNUP_EVENT, build_churn_needle
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 _ACCOUNTS: list[dict[str, Any]] = [
     {
@@ -106,3 +109,17 @@ def test_churn_needle_plants_one_signup_before_every_session() -> None:
     assert signup.event == SIGNUP_EVENT
     assert all(planted.days_before_now < signup.days_before_now for planted in sessions)
     assert all(planted.event != SIGNUP_EVENT for planted in sessions)
+
+
+@pytest.mark.django_db
+def test_planted_persons_are_last_seen_at_their_newest_event(team: Team) -> None:
+    with (
+        patch("products.notebooks.evals.seeders.create_person") as create_person,
+        patch("products.notebooks.evals.seeders.create_person_distinct_id"),
+        patch("products.notebooks.evals.seeders.bulk_create_events") as bulk_create_events,
+    ):
+        seed_churn_signal(CustomPromptSandboxContext(team_id=team.id, user_id=1))
+
+    newest_event = max(event["timestamp"] for event in bulk_create_events.call_args.args[0])
+    assert create_person.call_args_list
+    assert all(call.kwargs["last_seen_at"] == newest_event for call in create_person.call_args_list)
