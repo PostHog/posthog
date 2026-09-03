@@ -4,7 +4,13 @@ import {
   formatRunInterval,
   RUN_INTERVAL_OPTIONS,
 } from "@posthog/core/scouts/scoutPresentation";
-import { Switch as QuillSwitch, Text as QuillText } from "@posthog/quill";
+import {
+  Input as QuillInput,
+  Switch as QuillSwitch,
+  Text as QuillText,
+} from "@posthog/quill";
+import { SCOUTS_MODEL_CONFIG_FLAG } from "@posthog/shared";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { Flex, Switch, Text, Tooltip } from "@radix-ui/themes";
 import { useMemo } from "react";
@@ -81,6 +87,7 @@ export function ScoutConfigForm({
 }: ScoutConfigControlsProps) {
   const intervalOptions = useIntervalOptions(config);
   const lifecycle = deriveScoutLifecycle(config);
+  const modelConfigEnabled = useFeatureFlag(SCOUTS_MODEL_CONFIG_FLAG);
 
   return (
     <Flex direction="column" gap="2">
@@ -120,6 +127,39 @@ export function ScoutConfigForm({
           }
         />
       </Flex>
+      {/* Undefined means the backend never sent the field, so a PATCH carrying
+          it could not persist; offer the control only where it writes. Null is
+          the writable "use the default" state, so it stays. Mirrors the
+          inactivity guard below. */}
+      {modelConfigEnabled && config.model !== undefined ? (
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 flex-col">
+            <QuillText size="xs" className="text-gray-12">
+              Model
+            </QuillText>
+            <QuillText size="xxs" className="text-gray-10">
+              The model this scout runs on. Pick a more capable model for harder
+              tasks. Leave empty to use the default.
+            </QuillText>
+          </div>
+          {/* Remount when the server value changes so the uncontrolled input
+              re-reads defaultValue. Editable while disabled: a scout is due as
+              soon as it is enabled, so the model must be settable first. */}
+          <QuillInput
+            key={config.model ?? "unset"}
+            placeholder="Default"
+            defaultValue={config.model ?? ""}
+            className="w-44"
+            onBlur={(event) => {
+              const value = event.currentTarget.value.trim();
+              if (value !== (config.model ?? "")) {
+                onUpdate(config.id, { model: value || null });
+              }
+            }}
+            aria-label={`${config.skill_name} model`}
+          />
+        </div>
+      ) : null}
       {/* Null means the backend never sent the field, so a PATCH carrying it
           could not persist. Offer the control only where it writes. */}
       {lifecycle.autoPauseExempt !== null ? (

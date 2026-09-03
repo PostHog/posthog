@@ -14,6 +14,7 @@ export interface ScoutConfigUpdate {
   emit?: boolean;
   run_interval_minutes?: number;
   auto_pause_exempt?: boolean;
+  model?: string | null;
 }
 
 const CONFIG_SETTINGS = [
@@ -21,6 +22,7 @@ const CONFIG_SETTINGS = [
   "emit",
   "run_interval_minutes",
   "auto_pause_exempt",
+  "model",
 ] as const;
 
 function trackConfigChange(
@@ -30,17 +32,23 @@ function trackConfigChange(
 ): void {
   if (!previousConfig) return;
   for (const setting of CONFIG_SETTINGS) {
-    const newValue = updates[setting];
-    if (newValue === undefined) continue;
+    const rawNew = updates[setting];
+    if (rawNew === undefined) continue;
+    // Explicit null, not undefined: `auto_pause_exempt` is optional, and the
+    // cloud client normalizes an unknown prior value to null. Undefined would
+    // drop the key on serialization and split the two clients' event shape.
+    const rawOld = previousConfig[setting] ?? null;
+    // `model` is a free-text pin the user types. A rejected PATCH carries that
+    // raw string here, so report only whether a pin is set — never the typed
+    // text, which could be private input the server never accepted.
+    const newValue = setting === "model" ? rawNew !== null : rawNew;
+    const oldValue = setting === "model" ? rawOld !== null : rawOld;
     track(ANALYTICS_EVENTS.SCOUT_CONFIG_CHANGED, {
       skill_name: previousConfig.skill_name,
       scout_origin: getScoutOrigin(previousConfig),
       setting,
       new_value: newValue,
-      // Explicit null, not undefined: `auto_pause_exempt` is optional, and the
-      // cloud client normalizes an unknown prior value to null. Undefined would
-      // drop the key on serialization and split the two clients' event shape.
-      old_value: previousConfig[setting] ?? null,
+      old_value: oldValue,
       success,
     });
   }

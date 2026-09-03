@@ -104,3 +104,9 @@ export const BEDROCK_GATEWAY_VARIANTS = ["test", "control"] as const;
 export type BedrockGatewayVariant = (typeof BEDROCK_GATEWAY_VARIANTS)[number];
 /** Gates the organization context wiki: the Context explorer in the nav rails. */
 export const CONTEXT_LAYER_FLAG = "context-layer";
+
+/**
+ * Gates the per-scout model pin in the scout settings. Matches the web
+ * `scouts-model-config` flag; the server enforces the same gate on writes.
+ */
+export const SCOUTS_MODEL_CONFIG_FLAG = "scouts-model-config";

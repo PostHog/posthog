@@ -3156,4 +3156,60 @@ describe("PostHogAPIClient", () => {
       );
     });
   });
+
+  describe("updateScoutConfig", () => {
+    function makeClient(fetch: ReturnType<typeof vi.fn>) {
+      const client = new PostHogAPIClient(
+        "http://localhost:8000",
+        async () => "token",
+        async () => "token",
+        123,
+      );
+      (
+        client as unknown as {
+          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+        }
+      ).api = { baseUrl: "http://localhost:8000", fetcher: { fetch } };
+      return client;
+    }
+
+    it("returns the updated config on success", async () => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: "config-1", model: "claude-opus-4-5" }),
+      });
+      const client = makeClient(fetch);
+
+      await expect(
+        client.updateScoutConfig(123, "config-1", {
+          model: "claude-opus-4-5",
+        }),
+      ).resolves.toMatchObject({ id: "config-1", model: "claude-opus-4-5" });
+
+      expect(fetch.mock.calls[0][0]).toMatchObject({
+        method: "patch",
+        overrides: { body: JSON.stringify({ model: "claude-opus-4-5" }) },
+      });
+    });
+
+    it("surfaces the server's field-level model error, not raw transport JSON", async () => {
+      // The fetcher rejects with ApiRequestError on a 400; DRF puts the
+      // invalid-pin message in a `model` array with no top-level `detail`.
+      const body = {
+        model: ["Not an available model. Available models: a, b."],
+      };
+      const fetch = vi
+        .fn()
+        .mockRejectedValue(
+          new ApiRequestError(400, JSON.stringify(body), body),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.updateScoutConfig(123, "config-1", { model: "typo-model" }),
+      ).rejects.toThrow(
+        "Failed to update scout config: Not an available model. Available models: a, b.",
+      );
+    });
+  });
 });

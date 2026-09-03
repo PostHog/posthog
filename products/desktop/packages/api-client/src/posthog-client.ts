@@ -558,6 +558,12 @@ export interface ScoutConfig {
    */
   scout_origin?: "canonical" | "custom";
   run_interval_minutes: number;
+  /**
+   * Model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Null keeps
+   * the platform default. Settable only on projects enrolled in the scout model
+   * preview; absent on backends predating the field.
+   */
+  model?: string | null;
   last_run_at: string | null;
   created_at: string;
 }
@@ -2393,28 +2399,35 @@ export class PostHogAPIClient {
       emit?: boolean;
       run_interval_minutes?: number;
       auto_pause_exempt?: boolean;
+      /**
+       * Model id to pin, or null to clear the pin and fall back to the platform
+       * default. The server validates the id against its model catalog.
+       */
+      model?: string | null;
     },
   ): Promise<ScoutConfig> {
     const urlPath = `/api/projects/${projectId}/signals/scout/configs/${configId}/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "patch",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify(updates),
-      },
-    });
-    if (!response.ok) {
-      const errorData = (await response.json().catch(() => ({}))) as {
-        detail?: string;
-      };
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "patch",
+        url,
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify(updates),
+        },
+      });
+      return (await response.json()) as ScoutConfig;
+    } catch (error) {
+      // The fetcher throws on any non-ok response, so surface the server's
+      // field-level message — a rejected model pin comes back as
+      // `{ model: [...] }` with no `detail` — instead of the raw transport
+      // JSON. Mirrors the sandbox-environment methods.
+      if (!(error instanceof ApiRequestError)) throw error;
       throw new Error(
-        errorData.detail ??
-          `Failed to update scout config: ${response.statusText}`,
+        `Failed to update scout config: ${readFieldErrors(error)}`,
       );
     }
-    return (await response.json()) as ScoutConfig;
   }
 
   async listScoutRuns(
