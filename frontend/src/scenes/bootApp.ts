@@ -1,4 +1,3 @@
-import { configureZod } from 'lib/configureZod'
 import { registerNotebookLinkDrag } from 'scenes/notebooks/AddToNotebook/registerNotebookLinkDrag'
 
 import { initKea } from '../initKea'
@@ -15,6 +14,8 @@ let appBooted = false
  * Lives outside App.tsx so scenes/App keeps component-only exports and stays a React
  * Fast Refresh boundary; with a mixed-export App.tsx, HMR invalidations cascade into
  * src/index.tsx and force a full page reload on routine edits.
+ * zod is configured in src/index.tsx before this chunk is imported, not here: by the time
+ * this runs, the App graph has already constructed schemas at module scope.
  */
 export function bootApp(): void {
     if (appBooted) {
@@ -22,9 +23,6 @@ export function bootApp(): void {
     }
     appBooted = true
 
-    // Before anything parses a zod schema: zod compiles a parser on first parse and caches it, so
-    // this has to settle before the first one or the measurement mixes both modes.
-    configureZod()
     loadPostHogJS()
     // Kea must initialize before any component mounts
     initKea()
