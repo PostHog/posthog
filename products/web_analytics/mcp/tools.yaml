@@ -168,6 +168,50 @@ tools:
     web-analytics-achievements-update-preferences:
         operation: web_analytics_achievements_update_preferences
         enabled: false
+    web-analytics-bot-rules-list:
+        operation: web_analytics_bot_rules_list
+        enabled: true
+        scopes:
+            - web_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List custom bot rules
+        description: >
+            List the project's own bot rules. Each rule names an event property, how to match it, a value, and the
+            label reported when it matches. Rules extend PostHog's built-in bot list, so `Is bot` (isLikelyBot), `Bot
+            name`, and `Traffic category` reflect them everywhere — insights, web analytics, session filters, and SQL.
+    web-analytics-bot-rules-create:
+        operation: web_analytics_bot_rules_create
+        enabled: true
+        scopes:
+            - web_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a custom bot rule
+        description: >
+            Add one bot rule so traffic matching it classifies as a bot. Set `key` to the event property to read (such
+            as $raw_user_agent or $ip), `matcher` to 'contains' (case-insensitive substring), 'regex' (RE2), or 'cidr'
+            (an IP network range, only with $ip), `pattern` to the value to match, and `name` to the label to report.
+            Optionally set `category` to a built-in category like ai_crawler to relabel the traffic type. The rule is
+            rejected if its pattern cannot run. Use this when a scraper is hitting the site that the built-in list
+            misses.
+    web-analytics-bot-rules-destroy:
+        operation: web_analytics_bot_rules_destroy
+        enabled: true
+        scopes:
+            - web_analytics:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Delete a custom bot rule
+        description: >
+            Delete one bot rule by its `id` (from the list tool). The built-in bot list is unaffected.
     web-analytics-fetch-llms-txt:
         operation: web_analytics_fetch_llms_txt
         enabled: false
