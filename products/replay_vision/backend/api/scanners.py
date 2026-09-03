@@ -127,10 +127,13 @@ _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 GOAL_FLOW_FLAG = "vision-goal-based-creation-flow"
 
 
-def _goal_flow_enabled(user: User, team: Team) -> bool:
-    """Any variant except control gets the goal-based flow. Never gate this on feature_enabled():
-    it returns True for EVERY variant, control included, which would ship the new flow to the
-    experiment's control group."""
+def _goal_flow_variant(user: User, team: Team) -> str | None:
+    """The user's arm of the creation-flow experiment, or None when the flag is off for them.
+
+    Never sends an exposure event. The frontend already records one when a person opens the editor,
+    which is the point they enter the flow; a second exposure from here would also enroll API-only
+    callers who never see the UI.
+    """
     variant = get_feature_flag_or_none(
         GOAL_FLOW_FLAG,
         str(user.distinct_id),
@@ -138,7 +141,14 @@ def _goal_flow_enabled(user: User, team: Team) -> bool:
         group_properties={"organization": {"id": str(team.organization_id)}},
         send_feature_flag_events=False,
     )
-    return isinstance(variant, str) and variant != "control"
+    return variant if isinstance(variant, str) else None
+
+
+def _goal_flow_enabled(user: User, team: Team) -> bool:
+    """Any variant except control gets the goal-based flow. Never gate this on feature_enabled():
+    it returns True for EVERY variant, control included, which would ship the new flow to the
+    experiment's control group."""
+    return (variant := _goal_flow_variant(user, team)) is not None and variant != "control"
 
 
 def _reject_direct_experiment_exposure(query: dict[str, Any]) -> None:
@@ -715,7 +725,12 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         report_user_action(
             user,
             "replay_vision_scanner_created",
-            _scanner_lifecycle_properties(scanner),
+            # The experiment arm rides the conversion event so a metric can split by it without
+            # depending on an exposure event reaching the same person. Read from the flag, not from
+            # how this scanner was drafted, so it carries intent to treat: someone in the test arm
+            # who ignores the goal flow still counts as treated, which is what keeps the arms
+            # comparable.
+            {**_scanner_lifecycle_properties(scanner), "creation_flow_variant": _goal_flow_variant(user, team)},
             team=team,
             request=self.context.get("request"),
         )

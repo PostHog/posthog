@@ -1016,6 +1016,34 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         # Session auth resolves to "web" (the app UI), MCP callers to "mcp".
         self.assertEqual(properties["source"], "web")
 
+    @parameterized.expand([("test_arm", "test"), ("control_arm", "control"), ("flag_off", False)])
+    def test_create_reports_the_experiment_arm(self, _name: str, flag_value: str | bool) -> None:
+        # The creation-flow experiment splits its conversion metric on this property. Dropping it
+        # leaves the metric computable but arm-blind, so the analysis reads as valid and is not.
+        with (
+            patch("products.replay_vision.backend.api.scanners.get_feature_flag_or_none", return_value=flag_value),
+            patch("posthoganalytics.capture") as capture,
+        ):
+            resp = self.client.post(
+                self.scanners_url,
+                data={
+                    "name": f"telemetry-arm-{_name}",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "did checkout complete?"},
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
+                },
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        created = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_created"
+        ]
+        # A flag that is off carries no arm, so the metric can exclude the unenrolled rather than
+        # counting them as a third arm.
+        expected = flag_value if isinstance(flag_value, str) else None
+        self.assertEqual(created[0].kwargs["properties"]["creation_flow_variant"], expected)
+
     @parameterized.expand(
         [
             ("disable", True, False, "replay_vision_scanner_disabled"),
