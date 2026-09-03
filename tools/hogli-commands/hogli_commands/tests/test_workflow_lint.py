@@ -1692,6 +1692,28 @@ class TestMcpFilterCoverageCheck:
         messages = _coverage_issues(tmp_path, workflows_dir, "ci-mcp.yml")
         assert sorted(message.split("'")[1] for message in messages) == uncovered
 
+    @pytest.mark.parametrize(
+        "tsconfig, reported",
+        [
+            pytest.param("{ not json", True, id="unparseable"),
+            pytest.param('{"compilerOptions": {}}', True, id="no-paths-key"),
+            pytest.param(None, False, id="no-mcp-service-in-this-checkout"),
+        ],
+    )
+    def test_an_unusable_tsconfig_is_reported_rather_than_passed(
+        self, tmp_path: Path, tsconfig: str | None, reported: bool
+    ) -> None:
+        # Deriving no aliases means reading no imports, which clears every filter
+        # by not looking. Only an absent MCP service is a legitimate pass.
+        workflows_dir = _mcp_repo(tmp_path, mcp_patterns=_COVERING_PATTERNS, ui_apps_patterns=_COVERING_PATTERNS)
+        path = tmp_path / "services" / "mcp" / "tsconfig.json"
+        path.unlink()
+        if tsconfig is not None:
+            path.write_text(tsconfig)
+        messages = _coverage_issues(tmp_path, workflows_dir, "ci-mcp.yml")
+        assert bool(messages) is reported
+        assert not reported or "compilerOptions.paths" in messages[0]
+
     def test_a_relative_import_out_of_the_mcp_tree_needs_coverage(self, tmp_path: Path) -> None:
         # The MCP tests reach the frontend insight fixtures this way, so a relative
         # specifier that leaves services/mcp/ counts like an aliased one.

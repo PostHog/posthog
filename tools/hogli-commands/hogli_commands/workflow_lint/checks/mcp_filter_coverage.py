@@ -42,6 +42,9 @@ COMPILED_SOURCES: dict[str, tuple[str, ...]] = {
     "ci-mcp-ui-apps.yml": ("services/mcp/src/ui-apps", "products/*/mcp"),
 }
 
+# Where a problem with the tsconfig itself is reported, rather than at a filter.
+PRIMARY_WORKFLOW = "ci-mcp.yml"
+
 IMPORT = re.compile(r"""(?:from|import)\s*\(?\s*['"](?P<specifier>[^'"]+)['"]""")
 JSON_LINE_COMMENT = re.compile(r"^\s*//.*$", re.MULTILINE)
 OWN_MCP_TREE = re.compile(r"^(?:services/mcp/|products/[^/]+/mcp/)")
@@ -67,8 +70,23 @@ class McpFilterCoverageCheck(WorkflowCheck):
 
     def run(self, workflows: list[Workflow]) -> CheckResult:
         result = CheckResult()
+        # A checkout without the MCP service has no filters to keep honest. Any
+        # other unusable tsconfig is reported, because reading no aliases means
+        # reading no imports, which would pass every filter by not looking.
+        if not (self._repo_root / MCP_TSCONFIG).is_file():
+            return result
         aliases = _read_path_aliases(self._repo_root)
         if not aliases:
+            result.issues.append(
+                Issue(
+                    workflow=PRIMARY_WORKFLOW,
+                    message=(
+                        f"{MCP_TSCONFIG} has no readable compilerOptions.paths, so the trees MCP "
+                        "compiles cannot be derived and this check would pass without verifying anything"
+                    ),
+                    file=str(MCP_TSCONFIG),
+                )
+            )
             return result
 
         for workflow_name, source_roots in COMPILED_SOURCES.items():
