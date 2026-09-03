@@ -29,6 +29,7 @@ import type { HogFunctionTemplateType, UserBasicType } from '../../../../../fron
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
+import { getLinearWorkflowActionIds } from './linearWorkflow'
 import { getFormattedNodes } from './react_flow_utils/autolayout'
 import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './react_flow_utils/constants'
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
@@ -2091,7 +2092,7 @@ export type hogFlowEditorLogicType = MakeLogicType<
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as WorkflowLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
-    key((props) => `hog-flow-editor-${props.id}`),
+    key((props) => `hog-flow-editor-${props.id}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}`),
     connect(() => ({
         values: [
             workflowLogic,
@@ -2944,11 +2945,14 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         }
     }),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         workflow: (hogFlow?: HogFlow, oldHogFlow?: HogFlow) => {
             // Auto-save round-trips can emit a deep-equal workflow; skipping the rebuild avoids
             // re-deriving every node and edge (including the async layout pass) for no change.
             if (hogFlow && !objectsEqual(hogFlow, oldHogFlow)) {
+                if (values.editorLayout === 'simple' && !getLinearWorkflowActionIds(hogFlow)) {
+                    actions.setEditorLayout('advanced')
+                }
                 actions.resetFlowFromHogFlow(hogFlow)
             }
         },
@@ -2984,7 +2988,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             if (mode && HOG_FLOW_EDITOR_MODES.includes(mode as HogFlowEditorMode) && mode !== values.mode) {
                 actions.setMode(mode as HogFlowEditorMode)
             }
-            const editorLayout = view === 'graph' ? 'advanced' : 'simple'
+            const requestedEditorLayout = view === 'graph' ? 'advanced' : 'simple'
+            const editorLayout =
+                requestedEditorLayout === 'simple' && !getLinearWorkflowActionIds(values.workflow)
+                    ? 'advanced'
+                    : requestedEditorLayout
             if (editorLayout !== values.editorLayout) {
                 actions.setEditorLayout(editorLayout)
             }
@@ -2996,6 +3004,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     }),
     events(({ actions, values }) => ({
         afterMount: () => {
+            if (values.editorLayout === 'simple' && !getLinearWorkflowActionIds(values.workflow)) {
+                actions.setEditorLayout('advanced')
+            }
             actions.resetFlowFromHogFlow(values.workflow)
 
             const handleKeyDown = (e: KeyboardEvent): void => {
