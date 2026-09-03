@@ -84,10 +84,10 @@ impl LedgerShadow {
         if !self.enabled {
             return;
         }
-        let settlement = match self.ledger.complete(topic_partition, stamp, offsets) {
+        let settlement = match self.ledger.settle(topic_partition, stamp, offsets) {
             Ok(settlement) => settlement,
             Err(rejection) => {
-                count_rejection("complete", topic_partition, rejection);
+                count_rejection("settle", topic_partition, rejection);
                 return;
             }
         };
@@ -186,7 +186,7 @@ fn frontier_mismatch(
     })
 }
 
-/// Count one charge or completion the ledger rejected. A stale slice is
+/// Count one charge or settlement the ledger rejected. A stale slice is
 /// expected around a rebalance; a violation is a bug in the accounting.
 fn count_rejection(stage: &'static str, topic_partition: &TopicPartition, rejection: Rejection) {
     match rejection {

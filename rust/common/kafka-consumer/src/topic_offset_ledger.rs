@@ -22,7 +22,7 @@ impl TopicPartition {
     }
 }
 
-/// Why a charge or completion did not land on its partition's ledger.
+/// Why a charge or settlement did not land on its partition's ledger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rejection {
     /// The work predates the partition's current assignment. Kafka
@@ -115,11 +115,11 @@ impl TopicOffsetLedger {
         }
     }
 
-    /// Mark one batch's offsets, stamped with the generation they were
-    /// buffered under, complete on the partition's ledger and report the
-    /// frontier that results; the window holds the offsets until
+    /// Settle one batch's offsets, stamped with the generation they were
+    /// buffered under: mark them complete on the partition's ledger and
+    /// report the frontier that results. The window holds the offsets until
     /// `take_frontier` drains them.
-    pub fn complete(
+    pub fn settle(
         &self,
         topic_partition: &TopicPartition,
         stamp: u64,
@@ -218,7 +218,7 @@ mod tests {
         charge(&ledger, &p0, 0, &[11]);
 
         let settlement = ledger
-            .complete(&p0, 0, [Offset(10), Offset(11)])
+            .settle(&p0, 0, [Offset(10), Offset(11)])
             .expect("live ledger settles");
         assert_eq!(settlement.frontier, Some(Offset(12)));
 
@@ -267,7 +267,7 @@ mod tests {
         charge(&ledger, &p0, 0, &[11]);
 
         let settlement = ledger
-            .complete(&p0, 0, [Offset(11)])
+            .settle(&p0, 0, [Offset(11)])
             .expect("live ledger settles");
         assert_eq!(settlement.frontier, None);
         assert_eq!(settlement.depth, 2);
@@ -277,7 +277,7 @@ mod tests {
         // The late completion arrives with the next batch and the held
         // offsets drain.
         let settlement = ledger
-            .complete(&p0, 0, [Offset(10)])
+            .settle(&p0, 0, [Offset(10)])
             .expect("live ledger settles");
         assert_eq!(settlement.frontier, Some(Offset(12)));
         assert_eq!(ledger.take_frontier(&p0), Some(Offset(12)));
@@ -293,11 +293,11 @@ mod tests {
         charge(&ledger, &p1, 0, &[20, 21]);
 
         let settled = ledger
-            .complete(&p0, 0, [Offset(10), Offset(11)])
+            .settle(&p0, 0, [Offset(10), Offset(11)])
             .expect("live ledger settles");
         assert_eq!(settled.frontier, Some(Offset(12)));
         let held = ledger
-            .complete(&p1, 0, [Offset(21)])
+            .settle(&p1, 0, [Offset(21)])
             .expect("live ledger settles");
         assert_eq!(held.frontier, None);
 
@@ -315,7 +315,7 @@ mod tests {
         ledger.forget_partitions([("events", 0)]);
 
         assert_eq!(
-            ledger.complete(&p0, 0, [Offset(10)]),
+            ledger.settle(&p0, 0, [Offset(10)]),
             Err(Rejection::Stale {
                 stamp: 0,
                 generation: 1
@@ -327,7 +327,7 @@ mod tests {
     fn completions_for_a_never_charged_partition_are_stale() {
         let ledger = TopicOffsetLedger::new();
         assert_eq!(
-            ledger.complete(&tp("events", 0), 0, [Offset(10)]),
+            ledger.settle(&tp("events", 0), 0, [Offset(10)]),
             Err(Rejection::Stale {
                 stamp: 0,
                 generation: 0
@@ -344,7 +344,7 @@ mod tests {
         charge(&ledger, &overflow, 0, &[10]);
 
         ledger
-            .complete(&events, 0, [Offset(10)])
+            .settle(&events, 0, [Offset(10)])
             .expect("live ledger settles");
         ledger.take_frontier(&events);
 
@@ -364,7 +364,7 @@ mod tests {
         charge(&ledger, &p0, 1, &[10]);
 
         assert_eq!(
-            ledger.complete(&p0, 0, [Offset(10)]),
+            ledger.settle(&p0, 0, [Offset(10)]),
             Err(Rejection::Stale {
                 stamp: 0,
                 generation: 1
@@ -378,7 +378,7 @@ mod tests {
 
         // The redelivery's own completion settles the new assignment's ledger.
         ledger
-            .complete(&p0, 1, [Offset(10)])
+            .settle(&p0, 1, [Offset(10)])
             .expect("current-generation batch settles");
         ledger.take_frontier(&p0);
         assert_eq!(ledger.depth(&p0), 0);
@@ -402,14 +402,14 @@ mod tests {
         );
 
         assert_eq!(
-            ledger.complete(&p0, 0, [Offset(10)]),
+            ledger.settle(&p0, 0, [Offset(10)]),
             Err(Rejection::Stale {
                 stamp: 0,
                 generation: 1
             })
         );
         ledger
-            .complete(&p1, 0, [Offset(20)])
+            .settle(&p1, 0, [Offset(20)])
             .expect("untouched partition settles");
         ledger.take_frontier(&p1);
 
@@ -439,7 +439,7 @@ mod tests {
         assert_eq!(ledger.depth(&p1), 2);
 
         ledger
-            .complete(&p1, 0, [Offset(20), Offset(21)])
+            .settle(&p1, 0, [Offset(20), Offset(21)])
             .expect("surviving ledger settles");
         ledger.take_frontier(&p1);
         assert_eq!(ledger.depth(&p1), 0, "no message is lost");
@@ -458,7 +458,7 @@ mod tests {
         assert_eq!(ledger.generation(&p0), 2);
 
         assert_eq!(
-            ledger.complete(&p0, 0, [Offset(10)]),
+            ledger.settle(&p0, 0, [Offset(10)]),
             Err(Rejection::Stale {
                 stamp: 0,
                 generation: 2
@@ -468,7 +468,7 @@ mod tests {
 
         charge(&ledger, &p0, 2, &[10]);
         ledger
-            .complete(&p0, 2, [Offset(10)])
+            .settle(&p0, 2, [Offset(10)])
             .expect("the new assignment settles");
         ledger.take_frontier(&p0);
         assert_eq!(ledger.depth(&p0), 0);
@@ -523,7 +523,7 @@ mod tests {
         // In-flight work from before the reset drops as stale; the next
         // delivery under the new generation founds a fresh ledger.
         assert_eq!(
-            ledger.complete(&p0, 0, [Offset(10)]),
+            ledger.settle(&p0, 0, [Offset(10)]),
             Err(Rejection::Stale {
                 stamp: 0,
                 generation: 1
@@ -539,7 +539,7 @@ mod tests {
         charge(&ledger, &p0, 0, &[10]);
 
         assert_eq!(
-            ledger.complete(&p0, 0, [Offset(15)]),
+            ledger.settle(&p0, 0, [Offset(15)]),
             Err(Rejection::Violation(LedgerError::CompletionUncharged {
                 offset: Offset(15)
             }))
