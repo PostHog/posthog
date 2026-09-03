@@ -49,6 +49,19 @@ describe('flatten-properties.template', () => {
         expect(properties.$set__example__company_size).toBeUndefined()
     })
 
+    it('keeps a separator for an empty property name so siblings survive', async () => {
+        const properties = await invoke({
+            name: 'kept',
+            '': { name: 'nested under the empty key' },
+            $set: { name: 'kept in $set', '': { name: 'nested under the empty key in $set' } },
+        })
+
+        expect(properties.name).toBe('kept')
+        expect(properties.__name).toBe('nested under the empty key')
+        expect(properties.$set.name).toBe('kept in $set')
+        expect(properties.$set.__name).toBe('nested under the empty key in $set')
+    })
+
     it('leaves internal deny-listed properties nested', async () => {
         const properties = await invoke({
             $groups: { org: { id: 1 } },
