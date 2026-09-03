@@ -714,8 +714,21 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         )
 
     def record_partition_measurement(self, max_partition_bytes: int) -> None:
-        self.sync_type_config["max_partition_bytes"] = max_partition_bytes
-        self._save_sync_type_config()
+        # Merges under the row lock instead of saving the whole in-memory blob. Post-load stamps
+        # `last_full_run_at` through its own locked write moments earlier, so a full-blob save from
+        # the copy this instance loaded at run start silently drops that key — and this runs on
+        # every post-load, so it dropped it on nearly every sync.
+        # Keeps the connection-drop retry the plain save had: this fires once per sync across every
+        # schema, so a transient pooler wait_timeout is worth one retry rather than a lost write.
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
+        self.sync_type_config = retry_on_db_connection_drop(
+            lambda: update_sync_type_config_keys(
+                self.id,
+                self.team_id,
+                updates={"max_partition_bytes": max_partition_bytes},
+            )
+        )
 
     def set_repartition_pending(self, target: dict[str, Any]) -> None:
         self.sync_type_config["repartition_pending"] = target
