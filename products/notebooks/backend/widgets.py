@@ -980,6 +980,24 @@ def _clear_widget_gateway_credentials(job_ids: list[UUID], team_id: int) -> None
         _clear_widget_gateway_credential(job_id, team_id)
 
 
+def _project_widget_gateway_credential(job: GeneratedWidgetGenerationJob) -> None:
+    from posthog.storage.gateway_credential_cache import (  # noqa: PLC0415 — keeps gateway cache setup off notebook startup
+        GATEWAY_CREDENTIAL_REQUIRED_SCOPE,
+        project_gateway_credential,
+    )
+
+    value = _widget_gateway_api_key_value(job.id, job.team_id)
+    credential = ProjectSecretAPIKey(
+        team=job.team,
+        label="Notebook widget generation",
+        secure_value=hash_key_value(value),
+        created_by=job.requested_by,
+        scopes=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE],
+    )
+    # The unsaved model reuses the gateway policy resolver without exposing this credential through the key API.
+    project_gateway_credential(credential)
+
+
 @contextmanager
 def _widget_gateway_api_key(job: GeneratedWidgetGenerationJob) -> Iterator[str | None]:
     from posthog.llm.gateway_client import (  # noqa: PLC0415 — keeps model client setup off notebook startup
@@ -994,23 +1012,9 @@ def _widget_gateway_api_key(job: GeneratedWidgetGenerationJob) -> Iterator[str |
             "Widget source generation could not authorize this project's AI usage because gateway billing is not configured. Contact support.",
             "gateway_billing_not_configured",
         )
-    from posthog.storage.gateway_credential_cache import (  # noqa: PLC0415 — keeps gateway cache setup off notebook startup
-        GATEWAY_CREDENTIAL_REQUIRED_SCOPE,
-        project_gateway_credential,
-    )
-
-    value = _widget_gateway_api_key_value(job.id, job.team_id)
-    credential = ProjectSecretAPIKey(
-        team=job.team,
-        label="Notebook widget generation",
-        secure_value=hash_key_value(value),
-        created_by=job.requested_by,
-        scopes=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE],
-    )
     try:
-        # The unsaved model reuses the gateway policy resolver without exposing this credential through the key API.
-        project_gateway_credential(credential)
-        yield value
+        _project_widget_gateway_credential(job)
+        yield _widget_gateway_api_key_value(job.id, job.team_id)
     finally:
         _clear_widget_gateway_credential(job.id, job.team_id)
 
@@ -1129,6 +1133,7 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
                 input_names=frame_names,
                 model=job.model,
                 api_key=gateway_api_key,
+                before_request=partial(_project_widget_gateway_credential, job),
                 is_cancelled=is_cancelled,
                 base_source=base_source,
                 change_prompt=change_prompt,
@@ -1155,6 +1160,7 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
                 source=source,
                 input_names=frame_names,
                 api_key=gateway_api_key,
+                before_request=partial(_project_widget_gateway_credential, job),
                 is_cancelled=is_cancelled,
             )
         # Publication preserves the exact reviewed artifact for inspection. Browser consumers gate execution of
