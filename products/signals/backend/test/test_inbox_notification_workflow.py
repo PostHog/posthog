@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.test import override_settings
+from django.utils import timezone
 
 from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
@@ -160,6 +161,9 @@ WAIT = InboxNotificationState(has_implementation_task=True, pr_available=False, 
 NO_TASK = InboxNotificationState(has_implementation_task=False, pr_available=False, task_terminal=False)
 PR_READY = InboxNotificationState(has_implementation_task=True, pr_available=True, task_terminal=False)
 TERMINAL = InboxNotificationState(has_implementation_task=True, pr_available=False, task_terminal=True)
+ALREADY_NOTIFIED = InboxNotificationState(
+    has_implementation_task=False, pr_available=False, task_terminal=False, already_notified=True
+)
 
 
 @pytest.mark.asyncio
@@ -197,3 +201,62 @@ async def test_workflow_notifies_even_without_pr(states, timeout_seconds, polls)
         assert recorder.state_calls >= 2  # initial fetch + at least one poll while waiting for the PR
     else:
         assert recorder.state_calls == 1  # decided on the first fetch — no task means no polling
+
+
+@pytest.mark.django_db
+def test_send_stamps_the_report_and_refuses_a_second_send(team):
+    """One report, one card. A report re-researches whenever a new signal carries it to its next
+    bucket, and every settle starts this workflow again, so the second send must be refused."""
+    report = _make_report(team)
+    with patch("products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications") as dispatch:
+        dispatch.return_value = 1
+        first = _send_report_inbox_notifications(team.id, str(report.id))
+        second = _send_report_inbox_notifications(team.id, str(report.id))
+
+    assert (first, second) == (1, 0)
+    assert dispatch.call_count == 1
+    report.refresh_from_db()
+    assert report.inbox_notified_at is not None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("outcome", ["sent_nothing", "raised"])
+def test_send_releases_the_claim_when_no_card_went_out(team, outcome):
+    """A report whose team has no Slack channel yet must stay eligible. Without the release it would
+    burn its one notification on a dispatch that sent nothing, and never get a card."""
+    report = _make_report(team)
+    with patch("products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications") as dispatch:
+        if outcome == "raised":
+            dispatch.side_effect = RuntimeError("slack is down")
+            with pytest.raises(RuntimeError):
+                _send_report_inbox_notifications(team.id, str(report.id))
+        else:
+            dispatch.return_value = 0
+            assert _send_report_inbox_notifications(team.id, str(report.id)) == 0
+
+    report.refresh_from_db()
+    assert report.inbox_notified_at is None
+
+
+@pytest.mark.django_db
+def test_state_reports_already_notified(team):
+    report = _make_report(team)
+    _link_implementation_task(team, report, pr_url=None, run_status="started")
+    report.inbox_notified_at = timezone.now()
+    report.save(update_fields=["inbox_notified_at"])
+
+    state = _compute_inbox_notification_state(team.id, str(report.id))
+
+    # The implementation task is deliberately not reported: a notified report has nothing left to
+    # wait for, so the workflow must not sit through the PR timeout before finding that out.
+    assert state == ALREADY_NOTIFIED
+
+
+@pytest.mark.asyncio
+@override_settings(SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS=10, SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS=1)
+async def test_workflow_sends_nothing_when_the_report_already_notified():
+    recorder = _Recorder([ALREADY_NOTIFIED])
+    sent = await _run_workflow(recorder)
+    assert sent == 0
+    assert recorder.dispatch_calls == 0
+    assert recorder.state_calls == 1
