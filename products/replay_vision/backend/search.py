@@ -25,7 +25,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.utils import relative_date_parse
+from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.embeddings import (
@@ -271,8 +271,12 @@ def fetch_ranked_observations(
 
 def parse_date_bound(value: str, timezone_info: ZoneInfo | None, *, end_of_range: bool) -> datetime:
     """Parse a caller-supplied date bound: ISO 8601 or relative (`-7d`), naive values in the project's
-    timezone. A date-only upper bound covers its whole day. Shared by the observation list and search."""
-    parsed = relative_date_parse(value, timezone_info or ZoneInfo("UTC"))
+    timezone. A date-only upper bound covers its whole day. Shared by the observation list and search.
+    Raises `ValueError` on text that is neither, rather than silently treating it as now."""
+    parsed, delta_mapping, _ = relative_date_parse_with_delta_mapping(value, timezone_info or ZoneInfo("UTC"))
+    # The relative branch hands back an empty mapping when nothing in the text matched a period.
+    if delta_mapping == {}:
+        raise ValueError(f"Unrecognized date: {value!r}. Use ISO 8601 or a relative date like -7d.")
     if end_of_range and not value.startswith(("-", "+")) and "T" not in value and ":" not in value:
         parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
     return parsed

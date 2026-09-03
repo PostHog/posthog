@@ -2,6 +2,7 @@ import json
 import uuid
 from datetime import timedelta
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -19,6 +20,7 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.search import (
     ObservationSearchFilters,
     fetch_ranked_observations,
+    parse_date_bound,
     query_vector_for,
     rank_observations,
 )
@@ -47,6 +49,20 @@ class TestObservationFiltersTagClause:
         assert "arrayMap" in clauses[0]
         # The clause carries no inlined tag value. It lives only in the parameterized placeholder, verbatim.
         assert placeholders["tags"].value == tags
+
+
+class TestParseDateBound:
+    @parameterized.expand([("relative", "-7d"), ("iso_date", "2026-09-01"), ("iso_datetime", "2026-09-01T10:00:00Z")])
+    def test_accepts_iso_and_relative(self, _name: str, value: str) -> None:
+        assert parse_date_bound(value, None, end_of_range=False).year == 2026
+
+    def test_date_only_upper_bound_covers_the_whole_day(self) -> None:
+        assert parse_date_bound("2026-09-01", None, end_of_range=True).hour == 23
+
+    @parameterized.expand([("prose", "last week"), ("empty", ""), ("noise", "banana")])
+    def test_rejects_text_that_would_otherwise_become_now(self, _name: str, value: str) -> None:
+        with pytest.raises(ValueError):
+            parse_date_bound(value, None, end_of_range=False)
 
 
 # Runs the ranking SQL against real ClickHouse. Everything else mocks `execute_hogql_query`.

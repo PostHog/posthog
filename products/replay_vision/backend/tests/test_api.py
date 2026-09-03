@@ -3139,6 +3139,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
             ("min_score_above_max_score", "?q=checkout&min_score=5&max_score=1"),
             ("nan_score", "?q=checkout&min_score=nan"),
             ("infinite_score", "?q=checkout&max_score=inf"),
+            ("unparsable_date", "?q=checkout&date_from=last%20week"),
         ]
     )
     def test_search_rejects_bad_params(self, _name: str, query_string: str) -> None:

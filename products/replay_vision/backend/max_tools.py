@@ -411,9 +411,12 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
         if not query or not query.strip():
             return "No search query provided. Please describe what to look for.", {"error": "empty_query"}
 
-        filters = ObservationSearchFilters.from_raw(
-            verdict, tags, min_score, max_score, date_from, date_to, timezone_info=self._team.timezone_info
-        )
+        try:
+            filters = ObservationSearchFilters.from_raw(
+                verdict, tags, min_score, max_score, date_from, date_to, timezone_info=self._team.timezone_info
+            )
+        except ValueError as e:
+            return str(e), {"error": "invalid_date"}
         try:
             return await self._search(str(resolved_id) if resolved_id else None, query.strip(), filters, limit)
         except Exception as e:

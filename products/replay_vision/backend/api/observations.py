@@ -1,6 +1,7 @@
 import json
 import math
 import uuid
+import datetime
 from dataclasses import dataclass
 from typing import Any, cast, get_args
 from zoneinfo import ZoneInfo
@@ -38,7 +39,6 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rate_limit import ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
-from posthog.utils import relative_date_parse
 
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum, split_csv
@@ -69,6 +69,7 @@ from products.replay_vision.backend.search import (
     MAX_SEARCH_LIMIT,
     ObservationSearchFilters,
     ObservationSearchResult,
+    parse_date_bound,
     query_vector_for,
     search_observations,
 )
@@ -644,16 +645,18 @@ class ReplayObservationFilter(django_filters.FilterSet):
     def _filter_date_from(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
     ) -> QuerySet[ReplayObservation]:
-        return queryset.filter(created_at__gte=relative_date_parse(value, self._timezone_info))
+        return queryset.filter(created_at__gte=self._date_bound(value, end_of_range=False))
 
     def _filter_date_to(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
     ) -> QuerySet[ReplayObservation]:
-        parsed = relative_date_parse(value, self._timezone_info)
-        # Date-only values include the whole day; relative values stay exact.
-        if not value.startswith(("-", "+")) and "T" not in value and ":" not in value:
-            parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
-        return queryset.filter(created_at__lte=parsed)
+        return queryset.filter(created_at__lte=self._date_bound(value, end_of_range=True))
+
+    def _date_bound(self, value: str, *, end_of_range: bool) -> datetime.datetime:
+        try:
+            return parse_date_bound(value, self._timezone_info, end_of_range=end_of_range)
+        except ValueError as e:
+            raise ValidationError(str(e))
 
     def _scored(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
         # min_score and max_score can arrive together, and re-annotating the same alias raises.
@@ -1079,6 +1082,14 @@ class ReplayObservationViewSet(
         return Response(ReplayObservationLabelSerializer(label).data)
 
 
+def _validate_date_bound(value: str) -> str:
+    try:
+        parse_date_bound(value, None, end_of_range=False)
+    except ValueError as e:
+        raise serializers.ValidationError(str(e))
+    return value
+
+
 class ObservationSearchQuerySerializer(serializers.Serializer):
     q = serializers.CharField(
         max_length=2000,
@@ -1124,6 +1135,12 @@ class ObservationSearchQuerySerializer(serializers.Serializer):
         default=DEFAULT_SEARCH_LIMIT,
         help_text=f"Maximum number of results (default {DEFAULT_SEARCH_LIMIT}, at most {MAX_SEARCH_LIMIT}).",
     )
+
+    def validate_date_from(self, value: str) -> str:
+        return _validate_date_bound(value)
+
+    def validate_date_to(self, value: str) -> str:
+        return _validate_date_bound(value)
 
     def validate_verdict(self, value: str) -> str:
         # Same contract as the list endpoint's verdict filter: an unknown verdict is a 400, not a silent empty result.

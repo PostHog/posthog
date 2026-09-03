@@ -43,7 +43,10 @@ def refresh_scanner_search_suggestions_activity(inputs: RefreshScannerSuggestion
         return False
     try:
         return refresh_scanner_suggestions(scanner)
-    except SuggestionError:
-        # Already logged with detail. Stamp so the scanner waits an interval instead of retrying every run.
+    except Exception as e:
+        # Stamp on any failure so the scanner waits an interval instead of retrying at the head of every run.
         ReplayScanner.objects.filter(pk=scanner.pk).update(search_suggestions_generated_at=timezone.now())
-        return False
+        if isinstance(e, SuggestionError):
+            # Already logged with detail; the stored phrases stay.
+            return False
+        raise

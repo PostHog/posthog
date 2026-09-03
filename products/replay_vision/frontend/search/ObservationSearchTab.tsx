@@ -149,7 +149,7 @@ function SearchResultCard({
 export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | null }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { user } = useValues(userLogic)
-    const { dataProcessingApprovalDisabledReason } = useValues(aiConsentLogic)
+    const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const logic = observationSearchLogic({
         scannerId: scanner?.id ?? null,
         teamId: currentTeamId,
@@ -183,7 +183,7 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                     placeholder="Describe what to look for"
                     value={query}
                     onChange={setQuery}
-                    onPressEnter={() => !searching && !dataProcessingApprovalDisabledReason && search()}
+                    onPressEnter={() => !searching && dataProcessingAccepted && search()}
                     autoFocus
                     data-attr="vision-search-query"
                 />
@@ -192,8 +192,11 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                     onClick={() => search()}
                     loading={searching}
                     disabledReason={
-                        dataProcessingApprovalDisabledReason ??
-                        (!query.trim() ? 'Describe what to look for first' : undefined)
+                        !dataProcessingAccepted
+                            ? 'AI data processing is turned off for your organization'
+                            : !query.trim()
+                              ? 'Describe what to look for first'
+                              : undefined
                     }
                     data-attr="vision-search-submit"
                 >
