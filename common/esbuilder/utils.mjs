@@ -147,6 +147,14 @@ export function copyIndexHtml(
         };`
                 : ''
         }
+        // Resolves once the boot stylesheet is applied (or failed), so the entry script can hold
+        // React's first render until then. The entry JS is small enough to win the race against
+        // the stylesheet on slow networks; rendering before the sheet arrives paints the app
+        // unstyled for a frame or two.
+        window.ESBUILD_CSS_READY = new Promise(function (resolve) {
+            link.addEventListener("load", function () { resolve(true) }, { once: true });
+            link.addEventListener("error", function () { resolve(false) }, { once: true });
+        });
         document.head.appendChild(link)
     `
 

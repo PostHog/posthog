@@ -59,9 +59,26 @@ function renderApp(): void {
     )
 }
 
+// The boot stylesheet is attached by the loader script in the HTML, and this entry can finish
+// before the sheet arrives. Rendering then paints the app unstyled until the sheet lands, so wait
+// for it, but only briefly: a stylesheet the CDN refuses must not block the app (the loader has
+// its own fallback link for that case).
+const CSS_READY_TIMEOUT_MS = 5000
+function whenBootStylesheetReady(): Promise<unknown> {
+    const cssReady = window.ESBUILD_CSS_READY
+    if (!cssReady) {
+        return Promise.resolve()
+    }
+    return Promise.race([cssReady, new Promise((resolve) => setTimeout(resolve, CSS_READY_TIMEOUT_MS))])
+}
+
+function boot(): void {
+    void whenBootStylesheetReady().then(renderApp)
+}
+
 // Render react only when DOM has loaded - javascript might be cached and loaded before the page is ready.
 if (document.readyState !== 'loading') {
-    renderApp()
+    boot()
 } else {
-    document.addEventListener('DOMContentLoaded', renderApp)
+    document.addEventListener('DOMContentLoaded', boot)
 }
