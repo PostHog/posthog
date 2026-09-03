@@ -61,7 +61,9 @@ class Command(BaseCommand):
         repository = f"{owner}/{repo}"
         team_id = options["team_id"]
 
-        report = ReviewReport.objects.for_team(team_id).filter(repository=repository, pr_number=pr_number).first()
+        report = (
+            ReviewReport.objects.for_team(team_id).filter(repository__iexact=repository, pr_number=pr_number).first()
+        )
         if report is None:
             raise CommandError(f"No review found for {repository}#{pr_number} on team {team_id}. Run run_review first.")
         if report.run_count == 0 or not report.report_markdown:

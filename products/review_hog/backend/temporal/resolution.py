@@ -742,7 +742,7 @@ class FailResolutionInput:
 def _fail_resolution(input: FailResolutionInput) -> None:
     report = (
         ReviewReport.objects.for_team(input.team_id)
-        .filter(repository=f"{input.owner}/{input.repo}", pr_number=input.pr_number)
+        .filter(repository__iexact=f"{input.owner}/{input.repo}", pr_number=input.pr_number)
         .first()
     )
     if report is None:

@@ -258,12 +258,22 @@ def _locate_review_report(
     PR targets match by number first, then fall back to a stored branch-keyed row for the same head
     branch (only ever `pr_number` NULL — a row already carrying another PR's number is a different
     target and must not be clobbered); branch targets match branch-keyed rows only.
+
+    The repository match is case-insensitive, because GitHub slugs are and each trigger carries its
+    own casing: a PR target takes GitHub's from the URL, a branch target takes the caller's. An
+    exact match splits one target into two reports, so the branch row never upgrades and its stored
+    review is lost to the PR turn. Oldest match wins, so a target that already split keeps
+    resolving to the row its earlier turns wrote.
     """
     report = None
     if pr_number is not None:
-        report = qs.filter(repository=repository, pr_number=pr_number).first()
+        report = qs.filter(repository__iexact=repository, pr_number=pr_number).order_by("created_at").first()
     if report is None:
-        report = qs.filter(repository=repository, pr_number__isnull=True, head_branch=head_branch).first()
+        report = (
+            qs.filter(repository__iexact=repository, pr_number__isnull=True, head_branch=head_branch)
+            .order_by("created_at")
+            .first()
+        )
     return report
 
 
