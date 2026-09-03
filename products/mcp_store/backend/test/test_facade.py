@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.models import User
@@ -12,6 +14,7 @@ from products.mcp_store.backend.agents import (
     resolve_gateway_agent_token,
 )
 from products.mcp_store.backend.facade.api import (
+    call_member_server_tool,
     get_active_installations,
     get_installations_for_sandbox,
     get_sandbox_mcp_server_names,
@@ -22,6 +25,7 @@ from products.mcp_store.backend.models import (
     MCPGatewayServer,
     MCPMemberServerRevocation,
     MCPServerInstallation,
+    MCPServerInstallationTool,
     MCPServerTemplate,
     MCPServiceAccount,
     MCPServiceAccountServerAccess,
@@ -904,3 +908,90 @@ class TestGetInstallationsForSandbox(BaseTest):
         results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=include_personal)
 
         assert (len(results) == 1) == expected_included
+
+
+class TestCallMemberServerTool(BaseTest):
+    HOST = "mcp.example.com"
+
+    def _installation(self, **kwargs) -> MCPServerInstallation:
+        defaults: dict = {
+            "team": self.team,
+            "user": self.user,
+            "url": f"https://{self.HOST}/mcp",
+            "auth_type": "api_key",
+            "sensitive_configuration": {"api_key": "sk-test"},
+        }
+        defaults.update(kwargs)
+        return MCPServerInstallation.objects.create(**defaults)
+
+    def _tool(self, installation: MCPServerInstallation, name: str = "list_events", **kwargs) -> None:
+        MCPServerInstallationTool.objects.create(
+            installation=installation,
+            tool_name=name,
+            approval_state="approved",
+            last_seen_at=timezone.now(),
+            **kwargs,
+        )
+
+    def _call(self, name: str = "list_events", **kwargs):
+        return call_member_server_tool(self.team.id, self.user.id, self.HOST, name, {"limit": 5}, **kwargs)
+
+    @patch(
+        "products.mcp_store.backend.facade.api.call_upstream_tool",
+        return_value={"content": [{"type": "text", "text": "3 events"}], "isError": False},
+    )
+    def test_prefers_the_members_own_connection_over_a_shared_one(self, mock_call) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._installation(user=other_user, scope="shared")
+        own = self._installation()
+        self._tool(shared)
+        self._tool(own)
+
+        outcome = self._call()
+
+        assert outcome.status == "ok"
+        assert outcome.content == ({"type": "text", "text": "3 events"},)
+        assert mock_call.call_args.args[0].id == own.id
+
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_falls_back_to_the_teams_shared_connection(self, mock_call) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._installation(user=other_user, scope="shared")
+        self._installation(user=other_user, url="https://mcp.example.com.evil.test/mcp")
+        self._tool(shared)
+
+        assert self._call().status == "ok"
+        assert mock_call.call_args.args[0].id == shared.id
+
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool")
+    def test_never_borrows_a_teammates_personal_connection(self, mock_call) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        self._tool(self._installation(user=other_user))
+
+        assert self._call().status == "not_connected"
+        mock_call.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("destructive_name", "delete_event", {}, False, "write_blocked"),
+            ("read_only_hint_clears_name", "delete_event", {"readOnlyHint": True}, False, "ok"),
+            ("writes_allowed", "delete_event", {}, True, "ok"),
+        ]
+    )
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_allow_writes_gates_tools_that_may_write(
+        self, _name, tool_name, annotations, allow_writes, expected_status, mock_call
+    ) -> None:
+        self._tool(self._installation(), name=tool_name, annotations=annotations)
+
+        assert self._call(tool_name, allow_writes=allow_writes).status == expected_status
+
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool")
+    def test_disabled_gateway_server_blocks_without_calling_upstream(self, mock_call) -> None:
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team, name="Example", url=f"https://{self.HOST}/mcp", is_team_enabled=False
+        )
+        self._tool(self._installation(gateway_server=server))
+
+        assert self._call().status == "blocked"
+        mock_call.assert_not_called()

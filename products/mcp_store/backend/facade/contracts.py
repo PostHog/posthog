@@ -6,6 +6,34 @@ exposes to the rest of the codebase. No Django imports.
 """
 
 from dataclasses import dataclass, field
+from typing import Any, Literal
+
+
+@dataclass(frozen=True)
+class ConnectorTool:
+    """One tool a connected MCP server exposes to a member."""
+
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+    # False when the server marks the tool destructive or its name reads as a write.
+    read_only: bool
+
+
+ConnectorCallStatus = Literal[
+    "ok", "not_connected", "needs_reauth", "blocked", "tool_missing", "write_blocked", "upstream_error"
+]
+
+
+@dataclass(frozen=True)
+class ConnectorCallOutcome:
+    """Result of one tool call made with a member's own connection."""
+
+    status: ConnectorCallStatus
+    content: tuple[dict[str, Any], ...] = ()
+    structured_content: Any = None
+    is_error: bool = False
+    detail: str = ""
 
 
 @dataclass(frozen=True)

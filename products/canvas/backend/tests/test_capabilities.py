@@ -2,7 +2,7 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.canvas.backend.capabilities import capability_widening
+from products.canvas.backend.capabilities import ConnectorGrant, capability_widening
 
 BASE = {
     "posthog": {
@@ -23,6 +23,10 @@ WIDER = {
         "agentRequests": True,
     },
     "network": {"origins": ["https://api.example.com"]},
+    "connectors": [
+        {"provider": "github", "tools": ["list_pull_requests", "search_issues"]},
+        {"provider": "mcp:mcp.example.com", "tools": ["list_events"]},
+    ],
 }
 NARROWER = {
     "posthog": {"insights": [], "captureEvents": [], "inlineQueries": False, "agentRequests": False},
@@ -52,6 +56,17 @@ class TestCapabilityWidening(TestCase):
         assert widening.network_origins_added == ["https://api.example.com"]
         assert widening.state_scopes_added == ["user"]
         assert widening.actions_added == ["tasks.create"]
+        assert widening.connectors_added == [
+            ConnectorGrant(provider="github", tools=["list_pull_requests", "search_issues"]),
+            ConnectorGrant(provider="mcp:mcp.example.com", tools=["list_events"]),
+        ]
+
+    def test_only_new_connector_tools_count_as_widening(self):
+        before = {"connectors": [{"provider": "github", "tools": ["list_pull_requests"]}]}
+        after = {"connectors": [{"provider": "github", "tools": ["search_issues", "list_pull_requests"]}]}
+        widening = capability_widening(before, after)
+        assert widening.connectors_added == [ConnectorGrant(provider="github", tools=["search_issues"])]
+        assert capability_widening(after, before).widens is False
 
     def test_inline_queries_already_enabled_is_not_a_widening(self):
         enabled = {"posthog": {"inlineQueries": True}}

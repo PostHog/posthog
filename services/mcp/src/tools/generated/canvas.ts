@@ -434,6 +434,30 @@ const canvasSourceRetrieve = (): ToolBase<
     },
 })
 
+const CanvasConnectorsRetrieveSchema = () => {
+    const CanvasesConnectorsRetrieveQueryParams = orvalSchemas.CanvasesConnectorsRetrieveQueryParams()
+    return CanvasesConnectorsRetrieveQueryParams
+}
+
+const canvasConnectorsRetrieve = (): ToolBase<
+    ReturnType<typeof CanvasConnectorsRetrieveSchema>,
+    Schemas.CanvasConnectorsResponse
+> => ({
+    name: 'canvas-connectors-retrieve',
+    schema: CanvasConnectorsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CanvasConnectorsRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CanvasConnectorsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/connectors/`,
+            query: {
+                mcp_hosts: params.mcp_hosts,
+            },
+        })
+        return result
+    },
+})
+
 const CanvasStateRetrieveSchema = () => {
     const CanvasesStateRetrieveParams = orvalSchemas.CanvasesStateRetrieveParams()
     const CanvasesStateRetrieveQueryParams = orvalSchemas.CanvasesStateRetrieveQueryParams()
@@ -532,6 +556,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-publish-create': canvasPublishCreate,
     'canvas-publish-current-version': canvasPublishCurrentVersion,
     'canvas-source-retrieve': canvasSourceRetrieve,
+    'canvas-connectors-retrieve': canvasConnectorsRetrieve,
     'canvas-state-retrieve': canvasStateRetrieve,
     'canvas-state-set': canvasStateSet,
     'canvas-validate-create': canvasValidateCreate,
