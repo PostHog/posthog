@@ -1,7 +1,11 @@
+from typing import Any
+
 from rest_framework import serializers
 
 from products.notebooks.backend.facade.widgets import (
     DEFAULT_WIDGET_MODEL,
+    MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
+    MAX_WIDGET_PROMPT_LENGTH,
     WIDGET_LIFECYCLE_STATUS_CHOICES,
     WIDGET_MODEL_CHOICES,
 )
@@ -9,9 +13,15 @@ from products.notebooks.backend.facade.widgets import (
 
 class WidgetGenerateRequestSerializer(serializers.Serializer):
     prompt = serializers.CharField(
-        max_length=20_000,
+        max_length=MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
         trim_whitespace=False,
-        help_text="Instructions for the generated widget.",
+        error_messages={
+            "max_length": f"Keep widget instructions to {MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH:,} characters or fewer."
+        },
+        help_text=(
+            "Instructions for the generated widget. Initial and improvement instructions accept up to 20,000 "
+            "characters; regeneration accepts complete instructions up to 50,000 characters."
+        ),
     )
     generation_id = serializers.UUIDField(help_text="Idempotency key for this generation job.")
     model = serializers.ChoiceField(
@@ -24,6 +34,21 @@ class WidgetGenerateRequestSerializer(serializers.Serializer):
         default="regenerate",
         help_text="Whether to generate from scratch or improve the current source.",
     )
+    expected_current_version_id = serializers.UUIDField(
+        required=False,
+        help_text="Current widget version the improvement is based on. Required for improve operations.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        operation = attrs["generation_operation"]
+        prompt = attrs["prompt"].strip()
+        if operation != "regenerate" and len(prompt) > MAX_WIDGET_PROMPT_LENGTH:
+            raise serializers.ValidationError(
+                {"prompt": f"Keep widget instructions to {MAX_WIDGET_PROMPT_LENGTH:,} characters or fewer."}
+            )
+        if operation == "improve" and "expected_current_version_id" not in attrs:
+            raise serializers.ValidationError({"expected_current_version_id": "Reload the widget before improving it."})
+        return attrs
 
 
 class WidgetCancelRequestSerializer(serializers.Serializer):
@@ -69,6 +94,17 @@ class WidgetStatusSerializer(serializers.Serializer):
         help_text="Current widget and preview state.",
     )
     error_detail = serializers.CharField(required=False, allow_null=True, help_text="Actionable failure detail.")
+    error_code = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Stable failure code for support and diagnostics.",
+    )
+    failure_phase = serializers.ChoiceField(
+        choices=["generating_source", "reviewing_source", "publishing_source", "unknown"],
+        required=False,
+        allow_null=True,
+        help_text="Generation step that failed, if a generation job failed.",
+    )
     artifact_url = serializers.URLField(
         required=False,
         allow_null=True,
@@ -103,7 +139,10 @@ class WidgetVersionSerializer(serializers.Serializer):
         help_text="Action that created this version.",
     )
     prompt_delta = serializers.CharField(help_text="Instructions added by this version.")
-    effective_prompt = serializers.CharField(help_text="Complete instructions represented by this version.")
+    effective_prompt = serializers.CharField(
+        max_length=MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
+        help_text="Complete instructions represented by this version, up to 50,000 characters.",
+    )
     model = serializers.CharField(allow_null=True, help_text="AI model, or null when this version did not run a model.")
     created_at = serializers.DateTimeField(help_text="When this version was created.")
     build_status = serializers.ChoiceField(

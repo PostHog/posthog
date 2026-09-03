@@ -1,12 +1,14 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { ComponentType, JSX, useCallback, useEffect, useRef } from 'react'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { captureInboxReportsImpressed, captureInboxViewed } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
 import { legacyTabListLogicProps, reportListLogic } from '../logics/reportListLogic'
 import { INBOX_LEGACY_TAB_SECTION, InboxFlatListTabKey, InboxReportSectionKey, SignalReport } from '../types'
-import { DismissalReasonValue } from '../utils/dismissalReasons'
+import { DismissalFeedback } from '../utils/dismissalReasons'
 import { CardSkeleton } from './cards/CardSkeleton'
 import { InboxBulkSelectionBar } from './shell/InboxBulkSelectionBar'
 import { InboxSearchFilterBar } from './shell/InboxSearchFilterBar'
@@ -14,7 +16,7 @@ import { InboxSearchFilterBar } from './shell/InboxSearchFilterBar'
 export interface InboxReportCardProps {
     report: SignalReport
     sectionKey: InboxReportSectionKey
-    onDismiss: (reason: DismissalReasonValue, note: string) => void
+    onDismiss: (dismissal: DismissalFeedback) => void
     /** Restore a suppressed report back to the inbox. Only wired on the Archived tab. */
     onRestore?: () => void
     /** Rendered as an attached row inside a shared bordered container (vs. a freestanding card). */
@@ -45,8 +47,18 @@ export function InboxReportList(props: InboxReportListProps): JSX.Element {
 }
 
 function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps): JSX.Element {
-    const { reports, count, totalCount, hasMore, reportsResponseLoading, isLoaded, loadedQueryKey, loadedContext } =
-        useValues(reportListLogic)
+    const {
+        reports,
+        count,
+        totalCount,
+        hasMore,
+        reportsResponseLoading,
+        isLoaded,
+        reportsLoadFailed,
+        pageLoadFailed,
+        loadedQueryKey,
+        loadedContext,
+    } = useValues(reportListLogic)
     const { ensureLoaded, loadMore, dismissReport, restoreReport, refresh } = useActions(reportListLogic)
     const { hasActiveFilters, sourceProductFilter, priorityFilter, scope } = useValues(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
@@ -179,8 +191,10 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     )
     useEffect(() => () => observerRef.current?.disconnect(), [])
 
-    // Skeleton while a tab we know is non-empty loads its first page.
-    const showSkeleton = !isLoaded && (reportsResponseLoading || (count ?? 0) > 0)
+    // Skeleton while a tab we know is non-empty loads its first page. A settled failed load leaves
+    // `reportsResponse` null, so without the `reportsLoadFailed` guard a non-zero badge count would
+    // hold the skeleton up forever instead of surfacing the error below.
+    const showSkeleton = !isLoaded && !reportsLoadFailed && (reportsResponseLoading || (count ?? 0) > 0)
 
     return (
         <div className="@container mx-auto max-w-4xl flex flex-col gap-4 px-6 py-4">
@@ -189,6 +203,18 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
 
             {showSkeleton ? (
                 <CardSkeleton count={Math.min(count ?? 4, 6)} variant="cards" dashed={tabKey !== 'pulls'} />
+            ) : reportsLoadFailed && reports.length === 0 ? (
+                <div className="flex flex-col items-start gap-2 px-1 py-2">
+                    <p className="m-0 text-sm text-tertiary">Couldn't load these reports.</p>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={() => (isLoaded ? refresh() : ensureLoaded())}
+                        data-attr="inbox-report-list-retry"
+                    >
+                        Retry
+                    </LemonButton>
+                </div>
             ) : reports.length === 0 ? (
                 'content' in emptyState ? (
                     emptyState.content
@@ -211,13 +237,28 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                                 key={report.id}
                                 report={report}
                                 sectionKey={INBOX_LEGACY_TAB_SECTION[tabKey]}
-                                onDismiss={(reason, note) => dismissReport(report.id, reason, note)}
-                                onRestore={() => restoreReport(report.id)}
+                                onDismiss={(dismissal) => dismissReport(report.id, dismissal)}
+                                onRestore={() => restoreReport(report.id, 'list_row')}
                             />
                         ))}
                         {/* Skeleton cards continue the list while the next page loads – sleeker than a spinner. */}
                         {isLoaded && reportsResponseLoading && (
                             <CardSkeleton count={2} variant="cards" dashed={tabKey !== 'pulls'} />
+                        )}
+                        {/* A failed next page keeps the loaded rows and the sentinel may sit inside the
+                            viewport without re-firing, so offer an explicit way to fetch it again. */}
+                        {isLoaded && !reportsResponseLoading && pageLoadFailed && (
+                            <div className="flex items-center gap-2 px-1 py-2">
+                                <p className="m-0 text-sm text-tertiary">Couldn't load more reports.</p>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => loadMore()}
+                                    data-attr="inbox-report-list-retry-page"
+                                >
+                                    Retry
+                                </LemonButton>
+                            </div>
                         )}
                     </div>
                     {hasMore && <div ref={sentinelRef} className="h-1" aria-hidden />}

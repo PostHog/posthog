@@ -300,6 +300,8 @@ ACTIONS_COLUMNS = (
     "first_reviewer_added_at",
     "reviewer_remove_count",
     "first_reviewer_removed_at",
+    "resolve_click_count",
+    "first_resolve_clicked_at",
 )
 # Bulk action rows carry no report_id and are excluded; bulk dismissals are recovered from the
 # server-side status stream instead. minIf misses fill non-nullable datetimes with epoch 0, hence
@@ -309,6 +311,16 @@ ACTIONS_COLUMNS = (
 # engagement signal, removing one plausibly means the suggested-reviewer heuristic mis-routed the
 # report, which is useful to the policy layer even if never a model head. `click_suggested_reviewer`
 # also exists but is deliberately not aggregated: it fires so rarely it carries no signal.
+#
+# `resolve` marks a report done without an inbox PR, so it is a distinct positive outcome the
+# `create_pr` click does not cover. The `*_click*` names keep it apart from the status stream's
+# `first_resolved_at`, which conflates every path a report reaches `resolved`. `restore`
+# (un-dismissing a report) shares this aggregation shape and is a follow-up.
+#
+# Blind spot: a bulk-bar resolve fires one report_id-less event and drops here like every bulk
+# action. Bulk dismissals are recovered from the status stream; bulk resolves are not, because the
+# same `first_resolved_at` conflation rules it out as a substitute. So a head must read
+# `resolve_click_count` = 0 as unknown, not as "the report was never resolved".
 ACTIONS_SQL = """
 SELECT
     toString(properties.report_id) AS report_id,
@@ -321,7 +333,9 @@ SELECT
     countIf(toString(properties.action_type) = 'add_suggested_reviewer') AS reviewer_add_count,
     nullIf(minIf(timestamp, toString(properties.action_type) = 'add_suggested_reviewer'), fromUnixTimestamp(0)) AS first_reviewer_added_at,
     countIf(toString(properties.action_type) = 'remove_suggested_reviewer') AS reviewer_remove_count,
-    nullIf(minIf(timestamp, toString(properties.action_type) = 'remove_suggested_reviewer'), fromUnixTimestamp(0)) AS first_reviewer_removed_at
+    nullIf(minIf(timestamp, toString(properties.action_type) = 'remove_suggested_reviewer'), fromUnixTimestamp(0)) AS first_reviewer_removed_at,
+    countIf(toString(properties.action_type) = 'resolve') AS resolve_click_count,
+    nullIf(minIf(timestamp, toString(properties.action_type) = 'resolve'), fromUnixTimestamp(0)) AS first_resolve_clicked_at
 FROM events
 WHERE event = 'Inbox report action'
   AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
@@ -582,6 +596,8 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "first_reviewer_added_at": None,
     "reviewer_remove_count": 0,
     "first_reviewer_removed_at": None,
+    "resolve_click_count": 0,
+    "first_resolve_clicked_at": None,
 }
 
 _TIMESTAMP_LABEL_COLUMNS = frozenset(name for name in LABEL_DEFAULTS if name.endswith("_at"))

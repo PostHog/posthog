@@ -96,6 +96,7 @@ from products.tasks.backend.facade.streams import (
     TaskRunRedisStream,
     TaskRunStreamError,
     get_task_run_stream_key,
+    run_stream_presence_gated,
     run_uses_dedicated_stream,
 )
 from products.tasks.backend.presentation.serializers import (
@@ -113,6 +114,7 @@ from products.tasks.backend.presentation.serializers import (
     SandboxEnvironmentWriteSerializer,
     SlackThreadContextQuerySerializer,
     SlackThreadContextResponseSerializer,
+    SlackThreadContextThreadSerializer,
     StreamReadTokenResponseSerializer,
     TaskArtifactsResponseSerializer,
     TaskCommentDetailQuerySerializer,
@@ -827,8 +829,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Fetch task summaries by ID",
         description=(
-            "Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, "
-            "`updated_at`, and the latest run's `status` and `environment`."
+            "Returns summary for the requested tasks, including the creator ID and the latest run's "
+            "ID, status, and environment."
         ),
         parameters=[
             OpenApiParameter(
@@ -941,16 +943,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         if result.outcome == "no_mapping" and (thread := result.no_mapping_thread) is not None:
             return Response(
-                {
-                    "detail": "no_mapping",
-                    "thread": {
-                        "url": thread.url,
-                        "channel": thread.channel,
-                        "thread_ts": thread.thread_ts,
-                        "slack_workspace_id": thread.slack_workspace_id,
-                        "mentioning_slack_user_id": thread.mentioning_slack_user_id,
-                    },
-                },
+                {"detail": "no_mapping", "thread": SlackThreadContextThreadSerializer(thread).data},
                 status=status.HTTP_404_NOT_FOUND,
             )
         serializer = SlackThreadContextResponseSerializer(result.context)
@@ -3196,6 +3189,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "finished — reconnect with the `Last-Event-ID` header set to the last received event id to "
             "resume without gaps or duplicates. Only treat the stream as complete when the run itself "
             "reaches a terminal status.\n\n"
+            "Resume guarantees cover mirrored events only: on runs where live mirroring is "
+            "presence-gated, events produced while no viewer was connected are not in the live stream. "
+            "Reload the run's session logs to recover the agent's output; run-state and progress "
+            "frames are not in those logs, so refetch the run itself for its current state.\n\n"
             "`?start=latest` consumers must also carry `Last-Event-ID` across reconnects: reconnecting "
             "without it re-resolves to the then-current latest event, silently skipping anything published "
             "while disconnected.\n\n"
@@ -3240,6 +3237,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         start_latest = request.GET.get("start") == "latest"
         format_sse_event = self._format_sse_event
         origin_product = stream_info.origin_product
+        presence_gated = run_stream_presence_gated(stream_info.state)
 
         async def async_stream() -> AsyncGenerator[bytes]:
             redis_stream = TaskRunRedisStream(stream_key, use_dedicated_stream)
@@ -3251,15 +3249,22 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # the open succeeded — keeps opened/closed balanced for the
             # active-connections gauge regardless of which increment fails.
             opened = False
+
             try:
                 observe_stream_connection_opened(origin_product)
                 opened = True
                 delay = TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS
                 wait_started_at = asyncio.get_running_loop().time()
                 last_keepalive_at = wait_started_at
+                await redis_stream.refresh_watched()
 
+                waited_for_stream = False
                 while not await redis_stream.exists():
+                    waited_for_stream = True
+                    if presence_gated:
+                        break
                     now = asyncio.get_running_loop().time()
+                    await redis_stream.refresh_watched()
                     if now - wait_started_at >= TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS:
                         outcome = "unavailable"
                         yield format_sse_event({"error": "Stream not available"}, event_name="error")
@@ -3299,7 +3304,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         )
 
                 start_id = last_event_id or "0"
-                if not last_event_id and start_latest:
+                if not last_event_id and start_latest and not waited_for_stream:
                     start_id = await redis_stream.get_latest_stream_id() or "0"
                 try:
                     async for stream_item in redis_stream.read_stream_entries(
@@ -3314,10 +3319,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         else:
                             event_id, event = stream_item
                             yield format_sse_event(event, event_id=event_id)
-                        if (
-                            asyncio.get_running_loop().time() - connection_started_at
-                            >= TASK_RUN_STREAM_CONNECTION_MAX_SECONDS
-                        ):
+                        now = asyncio.get_running_loop().time()
+                        await redis_stream.refresh_watched()
+                        if now - connection_started_at >= TASK_RUN_STREAM_CONNECTION_MAX_SECONDS:
                             outcome = "rotated"
                             # Without this marker a rotation EOF would be
                             # indistinguishable from run completion for API

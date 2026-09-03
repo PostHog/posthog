@@ -355,6 +355,36 @@ def record_agent_server_session_init_ms(
         pass
 
 
+def record_agent_server_step_ms(
+    step: str,
+    duration_ms: int,
+    boot_path: str,
+    *,
+    status: str = "COMPLETED",
+    used_snapshot: bool | None = None,
+    origin_product: str | None = None,
+    runtime: str | None = None,
+) -> None:
+    try:
+        attributes: Attributes = {
+            "step": step,
+            "used_snapshot": _bool_label(used_snapshot),
+            "status": status,
+            "boot_path": boot_path,
+        }
+        if origin_product is not None:
+            attributes["origin_product"] = origin_product
+        if runtime is not None:
+            attributes["runtime"] = runtime
+        _metric_meter(attributes).create_histogram_timedelta(
+            "tasks_process_sandbox_step_latency",
+            "Latency for get_sandbox_for_repository sub-steps",
+            unit="ms",
+        ).record(dt.timedelta(milliseconds=duration_ms))
+    except Exception:
+        pass
+
+
 def increment_agent_server_readiness_retry(
     attempt: int,
     outcome: str,

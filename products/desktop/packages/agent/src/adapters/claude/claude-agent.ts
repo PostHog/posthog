@@ -109,6 +109,7 @@ import {
   taskStateToPlanEntries,
 } from "./conversion/task-state";
 import type { EnrichedReadCache } from "./hooks";
+import type { MachineClaudeAuth } from "./machine-auth";
 import { createLocalToolsMcpServer } from "./mcp/local-tools";
 import {
   clearMcpToolMetadataCache,
@@ -342,11 +343,16 @@ export interface ClaudeAcpAgentOptions {
   posthogApiConfig?: PostHogAPIConfig;
   /** Explicit gateway config — avoids global process.env mutation across concurrent sessions. */
   gatewayEnv?: GatewayEnv;
+  machineAuth?: MachineClaudeAuth;
   /** Per-session context wiki mount — avoids global process.env mutation across concurrent sessions. */
   contextWiki?: ContextWikiEnv;
 }
 
 export class ClaudeAcpAgent extends BaseAcpAgent {
+  protected override usesMachineAuth(): boolean {
+    return !!this.options?.machineAuth;
+  }
+
   readonly adapterName = "claude";
   declare session: Session;
   toolUseCache: ToolUseCache;
@@ -1268,10 +1274,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   sessionUpdate: "usage_update",
                   used: lastAssistantTotalUsage,
                   size: windowSize(),
-                  cost: {
-                    amount: message.total_cost_usd,
-                    currency: "USD",
-                  },
                 },
               });
             }
@@ -1560,7 +1562,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                     sessionUpdate: "usage_update",
                     used: nextTotal,
                     size: windowSize(),
-                    cost: null,
                   },
                 });
               }
@@ -1915,7 +1916,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController: newAbortController,
         // `rest.model` is the creation-time value; the user may have switched
         // models since, so re-root the new Query on the live session model.
-        ...rerootedModelOptions(session.modelId, rest.fallbackModel),
+        ...rerootedModelOptions(
+          session.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const newInput = new Pushable<SDKUserMessage>();
@@ -2139,7 +2144,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController,
         // `rest.model` is the creation-time value; the user may have
         // switched models since, so answer on the live session model.
-        ...rerootedModelOptions(this.session.modelId, rest.fallbackModel),
+        ...rerootedModelOptions(
+          this.session.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const oneShot = query({
@@ -2249,7 +2258,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController: newAbortController,
         // `rest.model` is the creation-time value; the user may have switched
         // models since, so re-root the new Query on the live session model.
-        ...rerootedModelOptions(prev.modelId, rest.fallbackModel),
+        ...rerootedModelOptions(
+          prev.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const newInput = new Pushable<SDKUserMessage>();
@@ -2640,7 +2653,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const input = new Pushable<SDKUserMessage>();
 
-    const settingsManager = new SettingsManager(cwd);
+    const settingsManager = new SettingsManager(
+      cwd,
+      !!this.options?.machineAuth,
+    );
     await settingsManager.initialize();
 
     // The session's explicit pick outranks the shared claude settings file:
@@ -2781,6 +2797,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       taskState,
       getCurrentModelId: () => this.session?.modelId,
       gatewayEnv: this.options?.gatewayEnv,
+      machineAuth: this.options?.machineAuth,
       bedrockGatewayVariant,
       contextWiki: this.options?.contextWiki,
       onTaskStateChange: async () => {

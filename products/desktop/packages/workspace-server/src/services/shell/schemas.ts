@@ -13,6 +13,8 @@ export const createCommandInput = sessionIdInput.extend({
   command: z.string().min(1),
   cwd: z.string(),
   taskId: z.string().optional(),
+  additionalEnv: z.record(z.string(), z.string()).optional(),
+  unsetEnv: z.array(z.string()).optional(),
 });
 
 export const writeInput = sessionIdInput.extend({

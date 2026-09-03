@@ -1,4 +1,7 @@
-import type { CloudTaskConfigOption } from "@posthog/shared";
+import type {
+  CloudTaskConfigOption,
+  CloudTaskConfigSelectGroup,
+} from "@posthog/shared";
 import { createElement, type ReactNode } from "react";
 import { act, create } from "react-test-renderer";
 import { describe, expect, it, vi } from "vitest";
@@ -46,6 +49,8 @@ vi.mock("@/lib/theme", () => ({
   }),
 }));
 
+const HARNESS_META = "posthog.code/modelHarness";
+
 const ladderModelOption: CloudTaskConfigOption = {
   id: "model",
   name: "Model",
@@ -62,6 +67,41 @@ const ladderModelOption: CloudTaskConfigOption = {
 
 const configOptions: CloudTaskConfigOption[] = [ladderModelOption];
 
+const modelGroups: CloudTaskConfigSelectGroup[] = [
+  {
+    group: "anthropic",
+    name: "Anthropic",
+    options: [
+      {
+        value: "claude-sonnet-5",
+        name: "Claude Sonnet 5",
+        _meta: { [HARNESS_META]: "claude" },
+      },
+      {
+        value: "claude-opus-5",
+        name: "Claude Opus 5",
+        _meta: { [HARNESS_META]: "claude" },
+      },
+      {
+        value: "claude-fable-5",
+        name: "Claude Fable 5",
+        _meta: { [HARNESS_META]: "claude" },
+      },
+    ],
+  },
+  {
+    group: "openai",
+    name: "OpenAI",
+    options: [
+      {
+        value: "gpt-5.6-sol",
+        name: "GPT-5.6 Sol",
+        _meta: { [HARNESS_META]: "codex" },
+      },
+    ],
+  },
+];
+
 function baseProps() {
   return {
     adapter: "claude" as const,
@@ -71,6 +111,7 @@ function baseProps() {
     contextWindow: "1m" as const,
     fastMode: false,
     configOptions,
+    modelGroups,
     onAdapterChange: vi.fn(),
     onModeChange: vi.fn(),
     onModelChange: vi.fn(),
@@ -128,7 +169,7 @@ describe("AgentConfigControls", () => {
     expect(props.onReasoningChange).toHaveBeenCalledWith("xhigh");
   });
 
-  it("resets to the other harness's middle preset when switching harness", () => {
+  it("switches harness when picking a model from the other harness", () => {
     const props = baseProps();
     const renderer = render(props);
 
@@ -139,17 +180,35 @@ describe("AgentConfigControls", () => {
       ).props.onPress(),
     );
     act(() => findPressableWithText(renderer, "Advanced").props.onPress());
-    act(() => findPressableWithText(renderer, "Codex").props.onPress());
+    act(() => findPressableWithText(renderer, "GPT-5.6 Sol").props.onPress());
 
     expect(props.onAdapterChange).toHaveBeenCalledWith({
       adapter: "codex",
       mode: "auto",
       model: "gpt-5.6-sol",
-      reasoning: "medium",
+      reasoning: "high",
     });
+    expect(props.onModelChange).not.toHaveBeenCalled();
   });
 
-  it("hides adapter switching while the active run locks the adapter", () => {
+  it("keeps a same-harness pick on the current adapter", () => {
+    const props = baseProps();
+    const renderer = render(props);
+
+    act(() =>
+      findPressableWithText(
+        renderer,
+        "Claude Sonnet 5 · Medium",
+      ).props.onPress(),
+    );
+    act(() => findPressableWithText(renderer, "Advanced").props.onPress());
+    act(() => findPressableWithText(renderer, "Claude Opus 5").props.onPress());
+
+    expect(props.onModelChange).toHaveBeenCalledWith("claude-opus-5");
+    expect(props.onAdapterChange).not.toHaveBeenCalled();
+  });
+
+  it("hides the other harness's models when the run locks the adapter", () => {
     const props = { ...baseProps(), canChangeAdapter: false };
     const renderer = render(props);
 
@@ -161,7 +220,10 @@ describe("AgentConfigControls", () => {
     );
     act(() => findPressableWithText(renderer, "Advanced").props.onPress());
 
-    expect(() => findPressableWithText(renderer, "Codex")).toThrow();
+    expect(() => findPressableWithText(renderer, "GPT-5.6 Sol")).toThrow();
+    expect(() =>
+      findPressableWithText(renderer, "Claude Opus 5"),
+    ).not.toThrow();
   });
 
   it("only surfaces the fast mode toggle when the flag is on and the model supports it", () => {

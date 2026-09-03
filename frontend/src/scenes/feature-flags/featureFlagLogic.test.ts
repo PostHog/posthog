@@ -93,6 +93,12 @@ const MOCK_FEATURE_FLAG = {
 const MOCK_FEATURE_FLAG_STATUS = {
     status: 'active',
     reason: 'mock reason',
+    rollout: {
+        effectively_full_rollout: false,
+        has_targeting_conditions: false,
+        max_rollout_percentage: 50,
+        is_multivariate: false,
+    },
 }
 
 const MOCK_EXPERIMENT = {
@@ -2301,6 +2307,168 @@ describe('featureFlagLogic', () => {
                 ['feature flag archived', { via: 'disable-confirmation' }],
             ])
             dialogOpenSpy.mockRestore()
+        })
+    })
+
+    describe('stale status after a mutation', () => {
+        const STATUS_URL = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`
+
+        function statusMock(status: string, reason: string): Parameters<typeof useMocks>[0] {
+            return { get: { [STATUS_URL]: () => [200, { ...MOCK_FEATURE_FLAG_STATUS, status, reason }] } }
+        }
+
+        // The banner asks the reader to disable the flag or change its rollout. `flagStatus` is a
+        // server verdict about the saved flag, so without a refetch it keeps the boot-time answer
+        // and the banner advises an action the reader already took.
+        it.each([
+            [
+                'the flag is disabled',
+                () => logic.actions.updateFeatureFlagActiveSuccess({ ...MOCK_FEATURE_FLAG, active: false }),
+            ],
+            ['an edit is saved', () => logic.actions.saveFeatureFlagSuccess(MOCK_FEATURE_FLAG)],
+        ])('clears the stale banner when %s', async (_name, mutate) => {
+            useMocks(statusMock('stale', 'Flag has not been called in 45 days'))
+            await expectLogic(logic, () => logic.actions.loadFeatureFlagStatus()).toFinishAllListeners()
+            expect(logic.values.showStaleFlagBanner).toBe(true)
+
+            useMocks(statusMock('active', 'Flag is disabled (not evaluated for staleness)'))
+            await expectLogic(logic, mutate).toFinishAllListeners()
+
+            expect(logic.values.showStaleFlagBanner).toBe(false)
+        })
+
+        it('hides the stale banner when a post-mutation status refresh fails', async () => {
+            // kea-loaders keeps the prior value on failure, so a refetch that 500s must not leave the
+            // banner rendering the earlier stale verdict. Silence the loader's logged rejection.
+            silenceKeaLoadersErrors()
+            try {
+                useMocks(statusMock('stale', 'Flag has not been called in 45 days'))
+                await expectLogic(logic, () => logic.actions.loadFeatureFlagStatus()).toFinishAllListeners()
+                expect(logic.values.showStaleFlagBanner).toBe(true)
+
+                useMocks({ get: { [STATUS_URL]: () => [500, {}] } })
+                await expectLogic(logic, () => logic.actions.loadFeatureFlagStatus()).toFinishAllListeners()
+
+                expect(logic.values.showStaleFlagBanner).toBe(false)
+            } finally {
+                resumeKeaLoadersErrors()
+            }
+        })
+
+        it('keeps the newest verdict when an earlier status request resolves last', async () => {
+            // Two overlapping requests to the same URL, with the older one resolving last. Without the
+            // loader's breakpoint, that late stale success would overwrite the newer verdict.
+            const resolvers: Array<(response: [number, Record<string, unknown>]) => void> = []
+            const waitForRequests = async (count: number): Promise<void> => {
+                for (let attempt = 0; attempt < 20 && resolvers.length < count; attempt++) {
+                    await Promise.resolve()
+                }
+                if (resolvers.length < count) {
+                    throw new Error(`Expected ${count} status requests, saw ${resolvers.length}`)
+                }
+            }
+            useMocks({ get: { [STATUS_URL]: async () => new Promise((resolve) => resolvers.push(resolve)) } })
+
+            logic.actions.loadFeatureFlagStatus() // older request
+            await waitForRequests(1)
+            logic.actions.loadFeatureFlagStatus() // newer request
+            await waitForRequests(2)
+
+            resolvers[1]([200, { ...MOCK_FEATURE_FLAG_STATUS, status: 'active', reason: 'Flag was called today' }])
+            await expectLogic(logic).toDispatchActions(['loadFeatureFlagStatusSuccess'])
+
+            resolvers[0]([
+                200,
+                { ...MOCK_FEATURE_FLAG_STATUS, status: 'stale', reason: 'Flag has not been called in 45 days' },
+            ])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.flagStatus?.status).toBe('active')
+        })
+
+        it('clears the stale banner when the current flag is disabled from the Projects tab', async () => {
+            const patchMock = {
+                patch: {
+                    '/api/projects/:team_id/feature_flags/:id/': async ({ request, params }: any) => {
+                        const body = (await request.json()) as { active: boolean }
+                        return [200, { id: Number(params.id), active: body.active }]
+                    },
+                },
+            }
+            useMocks({ ...statusMock('stale', 'Flag has not been called in 45 days'), ...patchMock })
+            await expectLogic(logic, () => logic.actions.loadFeatureFlagStatus()).toFinishAllListeners()
+            expect(logic.values.showStaleFlagBanner).toBe(true)
+
+            useMocks({ ...statusMock('active', 'Flag is disabled (not evaluated for staleness)'), ...patchMock })
+            await expectLogic(logic, () =>
+                logic.actions.toggleProjectFlagActive(MOCK_TEAM_ID, MOCK_FEATURE_FLAG.id, false)
+            ).toFinishAllListeners()
+
+            expect(logic.values.showStaleFlagBanner).toBe(false)
+        })
+
+        it('shows the stale banner after a restored flag turns out stale', async () => {
+            // Restore un-deletes the flag, so the retained DELETED verdict is no longer right. Without
+            // a refetch the banner keeps that verdict and never surfaces the restored flag's staleness.
+            const updateSpy = jest.spyOn(api, 'update').mockResolvedValue({ ...MOCK_FEATURE_FLAG, deleted: false })
+            try {
+                useMocks({
+                    get: {
+                        [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                            200,
+                            MOCK_FEATURE_FLAG,
+                        ],
+                        [STATUS_URL]: () => [
+                            200,
+                            {
+                                ...MOCK_FEATURE_FLAG_STATUS,
+                                status: 'stale',
+                                reason: 'Flag has not been called in 45 days',
+                            },
+                        ],
+                    },
+                })
+                await expectLogic(logic, () =>
+                    logic.actions.restoreFeatureFlag(MOCK_FEATURE_FLAG)
+                ).toFinishAllListeners()
+
+                expect(logic.values.showStaleFlagBanner).toBe(true)
+            } finally {
+                updateSpy.mockRestore()
+            }
+        })
+
+        it('shows the stale banner after an unarchived flag turns out stale', async () => {
+            // While the flag is archived the endpoint answers ARCHIVED, so that verdict is what sits
+            // in flagStatus. Unarchiving clears the selector's archived guard, and only the refetch
+            // replaces the retained verdict. The archived direction is hidden by that guard either
+            // way, so it cannot cover this.
+            const updateSpy = jest.spyOn(api, 'update').mockResolvedValue({ ...MOCK_FEATURE_FLAG, archived: false })
+            try {
+                useMocks({
+                    get: {
+                        [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                            200,
+                            { ...MOCK_FEATURE_FLAG, archived: false },
+                        ],
+                        [STATUS_URL]: () => [
+                            200,
+                            {
+                                ...MOCK_FEATURE_FLAG_STATUS,
+                                status: 'stale',
+                                reason: 'Flag has not been called in 45 days',
+                            },
+                        ],
+                    },
+                })
+                await expectLogic(logic, () =>
+                    logic.actions.updateFeatureFlagArchived({ archived: false })
+                ).toFinishAllListeners()
+
+                expect(logic.values.showStaleFlagBanner).toBe(true)
+            } finally {
+                updateSpy.mockRestore()
+            }
         })
     })
 

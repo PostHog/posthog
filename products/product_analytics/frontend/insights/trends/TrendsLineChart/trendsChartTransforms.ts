@@ -11,6 +11,7 @@ import type {
 
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
 import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
+import { computeMagnitudeAxisIds } from '../shared/magnitudeAxisIds'
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
 import type { CiRangesFn, GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
 
@@ -30,6 +31,7 @@ export interface TrendsResultLike {
 export interface BuildTrendsSeriesOpts<R extends TrendsResultLike, M = unknown> {
     /** Area fill under each series (web maps `display === ActionsAreaGraph`). */
     isArea?: boolean
+    /** Give series of different orders of magnitude their own y-axes (similar ones share). */
     showMultipleYAxes?: boolean
     // Negative number — index from the end where the in-progress tail begins. Omit to skip.
     incompletenessOffsetFromEnd?: number
@@ -60,10 +62,10 @@ export function computeDashedFromIndex(
 export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
     r: R,
     index: number,
-    opts: BuildTrendsSeriesOpts<R, M>
+    opts: BuildTrendsSeriesOpts<R, M>,
+    yAxisId: string = DEFAULT_Y_AXIS_ID
 ): Series<M> {
     const dashedFromIndex = computeDashedFromIndex(r, opts)
-    const yAxisId = opts.showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID
     const excluded = opts.getHidden ? opts.getHidden(r, index) : false
     const meta: M | undefined = opts.buildMeta ? opts.buildMeta(r, index) : undefined
     return {
@@ -83,7 +85,8 @@ export function buildTrendsSeries<R extends TrendsResultLike, M = unknown>(
     results: R[],
     opts: BuildTrendsSeriesOpts<R, M>
 ): Series<M>[] {
-    return results.map((r, index) => buildMainTrendsSeries(r, index, opts))
+    const yAxisIds = opts.showMultipleYAxes ? computeMagnitudeAxisIds(results.map((r) => r.data)) : undefined
+    return results.map((r, index) => buildMainTrendsSeries(r, index, opts, yAxisIds?.[index]))
 }
 
 export interface BuildDerivedConfigsOpts<R extends TrendsResultLike> {

@@ -24,3 +24,11 @@ tasks.0110_backfill_taskrun_origin_product
 # (the partition list is only known at runtime), which the type-based check can't see.
 warehouse_sources_queue.0008_sourcebatch_superseded
 warehouse_sources_queue.0009_sourcebatch_job_id_idx
+# Scans every flag row but writes only the few hundred that need cleaning, each as its own
+# compare-and-swap. Atomic would hold one transaction open across the whole scan, pinning xmin
+# on the table the flags API writes to. Re-running is a no-op: the transform is idempotent and
+# each swap only matches rows still holding the pre-clean value.
+feature_flags.0014_clean_flag_filters_inert_violations
+# Same shape as 0014: scans every flag but writes only the few that need clamping, each as its
+# own compare-and-swap. Re-running is a no-op, since a clamped set already sums to 100.
+feature_flags.0015_clamp_rollout_percentages_over_100

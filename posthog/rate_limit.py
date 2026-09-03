@@ -143,6 +143,28 @@ def get_route_from_path(path: str | None) -> str:
     return path_by_org_pattern.sub("/api/organizations/ORG_ID/", route_id)
 
 
+def hashed_personal_api_key_for_throttling(request: "Request") -> str | None:
+    """
+    Return a hash of the personal API key that authenticated this request, or None.
+
+    The authenticator comes first because it holds the key that actually passed validation.
+    Scraping the request instead would trust whichever candidate `find_key_with_source` reaches
+    first, and that is not always the one that authenticated: the search stops at the header, then
+    the body, then the query string, so a request carrying a real key in its body never validates
+    the query string. Bucketing on an unvalidated value lets a caller pick its own bucket.
+
+    The scrape stays as a fallback for requests no personal-key authenticator handled. It gets an
+    empty body on purpose, because reading `request.data` here consumes the stream and leaves
+    `request.body` unreadable for downstream signature verification.
+    """
+    key_hash = getattr(getattr(request, "successful_authenticator", None), "personal_api_key_hash", None)
+    if isinstance(key_hash, str):
+        return key_hash
+
+    key_with_source = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
+    return hash_key_value(key_with_source[0]) if key_with_source is not None else None
+
+
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):
     @staticmethod
     def safely_get_team_id_from_view(view):
@@ -191,8 +213,8 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
 
-        personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
-        if personal_api_key_only and request.user.is_authenticated and personal_api_key is None:
+        hashed_personal_api_key = hashed_personal_api_key_for_throttling(request)
+        if personal_api_key_only and request.user.is_authenticated and hashed_personal_api_key is None:
             return True
 
         try:
@@ -229,7 +251,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
                         "scope": scope,
                         "rate": rate,
                         "route": route,
-                        "hashed_personal_api_key": hash_key_value(personal_api_key[0]) if personal_api_key else None,
+                        "hashed_personal_api_key": hashed_personal_api_key,
                     },
                 )
                 RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=route, route=route).inc()
@@ -256,10 +278,8 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         """
         ident = None
         if request.user.is_authenticated:
-            api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
-            if api_key is not None:
-                ident = hash_key_value(api_key[0])
-            else:
+            ident = hashed_personal_api_key_for_throttling(request)
+            if ident is None:
                 try:
                     team_id = self.safely_get_team_id_from_view(view)
                     if team_id:
@@ -550,8 +570,7 @@ class _UserBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
 
     def get_cache_key(self, request: "Request", view: "APIView") -> str:
         if request.user.is_authenticated:
-            api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
-            ident = hash_key_value(api_key[0]) if api_key is not None else request.user.pk
+            ident = hashed_personal_api_key_for_throttling(request) or request.user.pk
         else:
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
@@ -1205,8 +1224,10 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
         return f"throttle_wizard_gateway_token_{hashlib.sha256(ident.encode()).hexdigest()}"
 
 
-def reserve_wizard_mint(request, view) -> str | None:
+def reserve_wizard_mint(request, view, limit: int | None = None) -> str | None:
     """Atomically consume one of this user's daily mints for this program, or raise.
+
+    `limit` replaces the throttle's daily count; None keeps the configured rate.
 
     Called immediately before the mint, after every gate, so a request refused by a
     gate spends nothing, while parallel requests cannot all slip under the ceiling
@@ -1242,7 +1263,7 @@ def reserve_wizard_mint(request, view) -> str | None:
     except Exception as e:
         capture_exception(e)
         return None
-    if count > throttle.num_requests:
+    if count > (throttle.num_requests if limit is None else limit):
         raise exceptions.Throttled(detail="This wizard program has used its daily run limit. Try again tomorrow.")
     return counter
 
@@ -1826,3 +1847,13 @@ class SupportSlackOAuthCallbackThrottle(IPThrottle):
 
     scope = "support_slack_oauth_callback"
     rate = "30/minute"
+
+
+class BatchExportsCountRowsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "batch_exports_count_rows_sustained"
+    rate = "120/hour"
+
+
+class BatchExportsCountRowsBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "batch_exports_count_rows_burst"
+    rate = "20/minute"

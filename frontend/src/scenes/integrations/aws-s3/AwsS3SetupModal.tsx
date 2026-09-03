@@ -4,26 +4,14 @@ import { Form } from 'kea-forms'
 import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonTabs } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-
-import { Region } from '~/types'
+import { AwsRoleRequirements } from 'scenes/integrations/components/AwsRoleRequirements'
 
 import { AwsS3SetupModalLogicProps, awsS3SetupModalLogic } from './awsS3SetupModalLogic'
 
-const POSTHOG_ROLE_ARN_BY_REGION: Partial<Record<Region, string>> = {
-    [Region.US]: 'arn:aws:iam::309986977637:role/posthog-external-batch-exports',
-    [Region.EU]: 'arn:aws:iam::623789312881:role/posthog-external-batch-exports',
-}
-
 export const AwsS3SetupModal = (props: AwsS3SetupModalLogicProps): JSX.Element => {
     const logic = awsS3SetupModalLogic(props)
-    const { currentOrganization } = useValues(organizationLogic)
-    const { preflight } = useValues(preflightLogic)
     const { authMode, isAwsS3IntegrationSubmitting } = useValues(logic)
     const { setAuthMode, submitAwsS3Integration } = useActions(logic)
-
-    const posthogRoleArn = preflight?.region ? POSTHOG_ROLE_ARN_BY_REGION[preflight.region] : undefined
 
     return (
         <LemonModal
@@ -72,47 +60,15 @@ export const AwsS3SetupModal = (props: AwsS3SetupModalLogicProps): JSX.Element =
                                 autoComplete="off"
                             />
                         </LemonField>
-                        <div className="border border-border rounded p-4 bg-bg-light flex flex-col gap-3 text-sm">
-                            <p className="font-semibold m-0">Requirements</p>
-                            <div className="flex gap-3 items-start">
-                                <span className="bg-primary-highlight text-primary-alt rounded-full w-5 h-5 flex items-center justify-center text-xs font-semibold shrink-0 mt-0.5">
-                                    1
-                                </span>
-                                <p className="m-0 text-secondary">
-                                    {posthogRoleArn ? (
-                                        <>
-                                            Create an IAM role with a trust policy that allows PostHog's role{' '}
-                                            <code>{posthogRoleArn}</code> to assume it.
-                                        </>
-                                    ) : (
-                                        <>
-                                            Create an IAM role with a trust policy that allows PostHog's role to assume
-                                            it. Check with your instance administrator to obtain the role to trust.
-                                        </>
-                                    )}
-                                </p>
-                            </div>
-                            <div className="flex gap-3 items-start">
-                                <span className="bg-primary-highlight text-primary-alt rounded-full w-5 h-5 flex items-center justify-center text-xs font-semibold shrink-0 mt-0.5">
-                                    2
-                                </span>
-                                <p className="m-0 text-secondary">
-                                    The trust policy must require an <code>sts:ExternalId</code> condition equal to{' '}
-                                    <code>posthog-{currentOrganization?.id}</code>. PostHog verifies this condition is
-                                    enforced and exports will fail without it.
-                                </p>
-                            </div>
-                            <div className="flex gap-3 items-start">
-                                <span className="bg-primary-highlight text-primary-alt rounded-full w-5 h-5 flex items-center justify-center text-xs font-semibold shrink-0 mt-0.5">
-                                    3
-                                </span>
-                                <p className="m-0 text-secondary">
+                        <AwsRoleRequirements
+                            permissions={
+                                <>
                                     Grant the role <code>s3:PutObject</code> and <code>s3:AbortMultipartUpload</code> on
                                     the destination bucket and prefix. If the bucket uses KMS encryption, also grant{' '}
                                     <code>kms:GenerateDataKey</code> and <code>kms:Decrypt</code> on the key.
-                                </p>
-                            </div>
-                        </div>
+                                </>
+                            }
+                        />
                     </>
                 ) : (
                     <>
