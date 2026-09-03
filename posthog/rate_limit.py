@@ -1745,6 +1745,26 @@ class PostHogConnectionForwardThrottle(PersonalApiKeyOrUserRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": f"{ident}:{pk}"}
 
 
+class HealthIssueKindRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Cooldown for a refresh scoped to specific check kinds.
+
+    A scoped refresh runs one cheap detection for a user who just fixed something, so it gets a
+    much shorter cooldown than the whole-project one — and its own bucket per set of kinds, so
+    re-checking one thing never locks out re-checking another.
+    """
+
+    scope = "health_issue_kind_refresh"
+    rate = "1/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        kinds = request.data.get("kinds") if isinstance(request.data, dict) else None
+        kinds_ident = ",".join(sorted(kinds)) if isinstance(kinds, list) else ""
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}:{kinds_ident}"}
+        return super().get_cache_key(request, view)
+
+
 class HealthIssueRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
     scope = "health_issue_refresh"
     rate = "1/5minutes"

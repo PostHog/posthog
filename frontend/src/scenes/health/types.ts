@@ -25,6 +25,25 @@ export interface HealthIssue {
     resolved_at: string | null
 }
 
+// A scoped re-check runs one cheap detection, so it gets a shorter cooldown than the
+// whole-project refresh. Mirrors HealthIssueKindRefreshThrottle on the backend.
+export const KIND_REFRESH_COOLDOWN_MS = 60 * 1000
+
+export type HealthCheckRunStatus = 'never_run' | 'healthy' | 'issues'
+
+export interface HealthCheckState {
+    kind: string
+    status: HealthCheckRunStatus
+    last_run_at: string | null
+    next_run_at: string | null
+    schedule: string | null
+    stale: boolean
+}
+
+export interface HealthChecksResponse {
+    results: HealthCheckState[]
+}
+
 export interface HealthIssueCounts {
     total: number
     by_severity: Partial<Record<HealthIssueSeverity, number>>

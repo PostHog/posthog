@@ -11,6 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.health_issue import HealthIssueSerializer
+from posthog.models.health_check_run import HealthCheckRun
 from posthog.models.health_issue import HealthIssue
 from posthog.models.team import Team
 from posthog.redis import get_client
@@ -26,6 +27,14 @@ class TestHealthIssueAPI(APIBaseTest):
         key = f"throttle_health_issue_refresh_team_{team_id or self.team.id}"
         cache.delete(key)
         self.addCleanup(cache.delete, key)
+
+    def _reset_kind_refresh_throttle(self, kinds: list[str], team_id: int | None = None) -> None:
+        key = f"throttle_health_issue_kind_refresh_team_{team_id or self.team.id}:{','.join(sorted(kinds))}"
+        cache.delete(key)
+        self.addCleanup(cache.delete, key)
+
+    def _check_state(self, response, kind: str) -> dict:
+        return next(check for check in response.json()["results"] if check["kind"] == kind)
 
     def _create_issue(self, **kwargs) -> HealthIssue:
         defaults = {
@@ -411,6 +420,81 @@ class TestHealthIssueAPI(APIBaseTest):
         data = response.json()
         self.assertEqual(data["scheduled_kinds"], [])
         self.assertGreater(len(data["kinds_failed"]), 0)
+
+    def test_checks_reports_a_check_that_never_ran_for_this_team(self):
+        response = self.client.get(self._url("/checks"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        state = self._check_state(response, "reverse_proxy")
+        self.assertEqual(state["status"], "never_run")
+        self.assertIsNone(state["last_run_at"])
+        self.assertTrue(state["stale"])
+        self.assertIsNotNone(state["next_run_at"])
+
+    @parameterized.expand([("healthy", False), ("issues", True)])
+    def test_checks_reports_what_the_last_run_found(self, expected_status, found_issues):
+        HealthCheckRun.objects.create(team=self.team, kind="reverse_proxy", found_issues=found_issues)
+
+        response = self.client.get(self._url("/checks"))
+
+        state = self._check_state(response, "reverse_proxy")
+        self.assertEqual(state["status"], expected_status)
+        self.assertIsNotNone(state["last_run_at"])
+        self.assertFalse(state["stale"])
+
+    def test_checks_marks_a_check_stale_once_it_misses_its_schedule(self):
+        HealthCheckRun.objects.create(
+            team=self.team,
+            kind="reverse_proxy",
+            found_issues=True,
+            last_run_at=datetime.now(UTC) - timedelta(days=3),
+        )
+
+        response = self.client.get(self._url("/checks"))
+
+        self.assertTrue(self._check_state(response, "reverse_proxy")["stale"])
+
+    def test_checks_only_reports_this_teams_runs(self):
+        other = Team.objects.create(organization=self.organization, name="Other")
+        HealthCheckRun.objects.create(team=other, kind="reverse_proxy", found_issues=True)
+
+        response = self.client.get(self._url("/checks"))
+
+        self.assertEqual(self._check_state(response, "reverse_proxy")["status"], "never_run")
+
+    @patch("posthog.tasks.health_checks.evaluate_health_check_for_team.delay")
+    def test_refresh_can_be_scoped_to_one_kind(self, mock_delay):
+        self._reset_kind_refresh_throttle(["reverse_proxy"])
+
+        response = self.client.post(self._url("/refresh"), {"kinds": ["reverse_proxy"]}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+
+        self.assertEqual(response.json()["scheduled_kinds"], ["reverse_proxy"])
+        self.assertEqual(mock_delay.call_count, 1)
+        self.assertEqual(mock_delay.call_args.kwargs, {"kind": "reverse_proxy", "team_id": self.team.id})
+
+    @parameterized.expand([("unknown kind", ["not_a_check"]), ("wrong shape", "reverse_proxy"), ("empty", [])])
+    @patch("posthog.tasks.health_checks.evaluate_health_check_for_team.delay")
+    def test_refresh_rejects_invalid_kinds(self, _name, kinds, mock_delay):
+        response = self.client.post(self._url("/refresh"), {"kinds": kinds}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_delay.assert_not_called()
+
+    @patch("posthog.tasks.health_checks.evaluate_health_check_for_team.delay")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_scoped_refresh_keeps_its_own_cooldown_per_kind(self, _enabled, _delay):
+        self._reset_kind_refresh_throttle(["reverse_proxy"])
+        self._reset_kind_refresh_throttle(["web_vitals"])
+
+        first = self.client.post(self._url("/refresh"), {"kinds": ["reverse_proxy"]}, format="json")
+        self.assertEqual(first.status_code, status.HTTP_202_ACCEPTED)
+
+        repeat = self.client.post(self._url("/refresh"), {"kinds": ["reverse_proxy"]}, format="json")
+        self.assertEqual(repeat.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        other_kind = self.client.post(self._url("/refresh"), {"kinds": ["web_vitals"]}, format="json")
+        self.assertEqual(other_kind.status_code, status.HTTP_202_ACCEPTED)
 
     @parameterized.expand(
         [

@@ -91,11 +91,20 @@ def update_record(*, proxy_record_id: uuid.UUID, message: t.Optional[str] = None
     if len(prs) == 0:
         raise RecordDeletedException("proxy record was deleted before workflow completed")
     pr = prs[0]
+    became_valid = status is not None and status != pr.status and status == ProxyRecord.Status.VALID
     if message is not None:
         pr.message = message
     if status is not None:
         pr.status = status
     pr.save()
+
+    if became_valid:
+        # The reverse proxy health check runs once a day, so without this the "no reverse proxy"
+        # warning stays up for the rest of the day after the proxy goes live. Imported here to keep
+        # the Celery task module off this module's import path.
+        from posthog.tasks.health_checks import schedule_reverse_proxy_recheck
+
+        schedule_reverse_proxy_recheck(pr.organization_id)
 
 
 @dataclass
