@@ -72,7 +72,8 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
 - `run_costs.py`
   What a run spent on model calls, for the staff-only cost readout in the roster's run tooltips.
   A scout run is a Tasks run, so its `$ai_generation` events land in the internal AI observability project stamped with `task_origin_product = 'signals_scout'` and the run's `task_run_id`; the sum per run comes from `tasks.facade.billing.get_local_task_run_token_costs`, which is keyed on the origin product rather than on `ai_product` — scout runs report `ai_product = 'signals_scout'`, so the desktop read's `posthog_code` filter priced every one of them at zero, and a report's pipeline stages report a different value per stage again.
-  A batch of runs costs one query, and each run's answer is cached: an hour for a settled run, whose spend is final, and a minute for a live one, whose total is still moving.
+  A batch of runs costs one query, and each run's answer is cached: an hour once the total is final, and a minute while it can still move.
+  A total can still move for three reasons — the run is still generating, the run settled inside `RUN_COST_INGESTION_GRACE` so its last generations may not have reached ClickHouse yet, or nothing is attributed to the run at all and the answer is not yet a number.
   Two things it will not do. It never reports a run with no attributed generation as `$0.00`, since a free run and an unattributed one are not the same thing — such a run carries no cost at all. And it never reports zero where there is no internal project to read: the batch comes back `available=false` instead. The read is region-local (`INTERNAL_LLM_ANALYTICS_TEAM_ID_BY_REGION` in `task_usage.py`), so both clouds price their own runs and neither needs the cross-region proxy the per-task desktop read uses.
 - `serializers.py`
   DRF serializers for the harness HTTP surface (runs, scratchpad, project profile).

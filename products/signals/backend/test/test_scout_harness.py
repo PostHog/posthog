@@ -18,6 +18,7 @@ from django.apps import apps
 from django.core.cache import cache
 from django.db import OperationalError
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -2485,12 +2486,21 @@ class TestScoutRunTokenCosts(BaseTest):
         super().setUp()
         cache.clear()
 
-    def _run(self, *, team: Team | None = None, task_run_status: str | None = None) -> SignalScoutRun:
+    def _run(
+        self,
+        *,
+        team: Team | None = None,
+        task_run_status: str | None = None,
+        settled_seconds_ago: int | None = None,
+    ) -> SignalScoutRun:
         team = team or self.team
         task_run = _make_task_run(team)
         if task_run_status is not None:
             task_run.status = task_run_status
             task_run.save(update_fields=["status"])
+        if settled_seconds_ago is not None:
+            task_run.completed_at = timezone.now() - timedelta(seconds=settled_seconds_ago)
+            task_run.save(update_fields=["completed_at"])
         config, _ = SignalScoutConfig.objects.get_or_create(team=team, skill_name="signals-scout-general")
         return SignalScoutRun.objects.create(
             team=team,
@@ -2531,19 +2541,28 @@ class TestScoutRunTokenCosts(BaseTest):
 
     @parameterized.expand(
         [
-            ("in_progress", "in_progress", Decimal("1"), run_costs.LIVE_RUN_COST_CACHE_TIMEOUT_SECONDS),
-            ("completed", "completed", Decimal("1"), run_costs.SETTLED_RUN_COST_CACHE_TIMEOUT_SECONDS),
-            ("completed but unpriced", "completed", None, run_costs.LIVE_RUN_COST_CACHE_TIMEOUT_SECONDS),
+            ("in_progress", "in_progress", None, Decimal("1"), run_costs.LIVE_RUN_COST_CACHE_TIMEOUT_SECONDS),
+            ("completed", "completed", None, Decimal("1"), run_costs.SETTLED_RUN_COST_CACHE_TIMEOUT_SECONDS),
+            ("completed but unpriced", "completed", None, None, run_costs.LIVE_RUN_COST_CACHE_TIMEOUT_SECONDS),
+            ("settled seconds ago", "completed", 5, Decimal("1"), run_costs.LIVE_RUN_COST_CACHE_TIMEOUT_SECONDS),
+            ("settled long ago", "completed", 60 * 60, Decimal("1"), run_costs.SETTLED_RUN_COST_CACHE_TIMEOUT_SECONDS),
         ]
     )
     def test_only_a_known_total_on_a_settled_run_is_cached_for_long(
-        self, _name: str, task_run_status: str, cost: Decimal | None, expected_timeout: int
+        self,
+        _name: str,
+        task_run_status: str,
+        settled_seconds_ago: int | None,
+        cost: Decimal | None,
+        expected_timeout: int,
     ) -> None:
         # A run still generating keeps spending, so caching its partial total for as long as a
         # finished run's would leave the roster showing a number that stopped moving. A settled run
         # with nothing attributed is the other unfinished answer: its generations may still be
         # crossing capture, or its model may not be priced yet, and both resolve within the hour.
-        run = self._run(task_run_status=task_run_status)
+        # A run that settled seconds ago is the same case with a number attached: the total can be
+        # short of its last generations until they land.
+        run = self._run(task_run_status=task_run_status, settled_seconds_ago=settled_seconds_ago)
         with (
             patch.object(
                 run_costs,
