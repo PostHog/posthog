@@ -603,6 +603,20 @@ class TestAlertFilterEvaluation(AlertTestMixin):
         assert delivered == 0
         client.chat_postMessage.assert_not_called()
 
+    def test_spiking_leaves_the_exceptions_status_visible(self):
+        # Spiking events carry no status, so an exception's own status property must
+        # stay filterable rather than being shadowed by a null.
+        client = self._mock_slack()
+        self._create_filtered_alert(
+            {"properties": [{"key": "status", "value": "open", "type": "event"}]}, triggers=["issue_spiking"]
+        )
+        self._patch_exception_properties({"status": "open"})
+
+        delivered = deliver_alert_notifications(self._inputs("$error_tracking_issue_spiking", status=None))
+
+        assert delivered == 1
+        client.chat_postMessage.assert_called_once()
+
     def test_lifecycle_only_properties_are_filterable(self):
         client = self._mock_slack()
         self._create_filtered_alert(
