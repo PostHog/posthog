@@ -241,7 +241,10 @@ class ChurnCohortSurfaced(AsyncOnlyScorerMixin, Scorer):
     notebook's markdown would let accounts named across separate scratch or retry
     notebooks combine into a score no single delivered notebook earns.
 
-    Self-skips (``None``) when the case does not opt in or was not seeded with a cohort.
+    Self-skips (``None``) only when the case does not opt in. A case that opts in but
+    arrives without a cohort scores ``0.0``: a timed-out run loses its seed, and skipping
+    it would drop the case from the average while every sibling scorer records a failure,
+    so timeouts would lift this metric.
     """
 
     def _name(self) -> str:
@@ -253,7 +256,7 @@ class ChurnCohortSurfaced(AsyncOnlyScorerMixin, Scorer):
         needle = ((output or {}).get("seed") or {}).get("churn_needle")
         accounts = needle.get("accounts") if isinstance(needle, dict) else None
         if not isinstance(accounts, list) or not accounts:
-            return Score(name=self._name(), score=None, metadata={"reason": "no churn needle configured"})
+            return Score(name=self._name(), score=0.0, metadata={"reason": "Opted in but the seed carries no cohort"})
         team_id = _seeded_team_id(output)
         if team_id is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No seed.team_id — case needs a seeder"})

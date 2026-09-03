@@ -123,3 +123,20 @@ def test_planted_persons_are_last_seen_at_their_newest_event(team: Team) -> None
     newest_event = max(event["timestamp"] for event in bulk_create_events.call_args.args[0])
     assert create_person.call_args_list
     assert all(call.kwargs["last_seen_at"] == newest_event for call in create_person.call_args_list)
+
+
+@pytest.mark.parametrize(
+    "expected,expected_score",
+    [
+        pytest.param({"churn_cohort_surfaced": {}}, 0.0, id="opted_in_without_a_seed"),
+        pytest.param({}, None, id="not_requested"),
+    ],
+)
+async def test_churn_cohort_surfaced_on_a_timed_out_case(
+    expected: dict[str, Any], expected_score: float | None
+) -> None:
+    timed_out = {"exit_code": 1, "stderr": "case timeout after 900s"}
+
+    score = await ChurnCohortSurfaced().eval_async(timed_out, expected)
+
+    assert score.score == expected_score
