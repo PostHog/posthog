@@ -13,7 +13,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.customer_analytics.backend.facade import tasks
+from products.customer_analytics.backend.logic import customer_tasks
 from products.customer_analytics.backend.models import Account, CustomerTask, CustomerTaskActivity
 from products.customer_analytics.backend.presentation.views.customer_tasks import (
     CustomerTaskCreateSerializer,
@@ -225,6 +225,149 @@ class CustomerTaskAPI(APIBaseTest):
             == status.HTTP_409_CONFLICT
         )
 
+    def _create_filtering_dataset(self) -> tuple[Account, User]:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
+        alpha_account = Account.objects.for_team(self.team.id).create(
+            team=self.team, name="Alpha account", created_by=self.user
+        )
+        beta_account = Account.objects.for_team(self.team.id).create(
+            team=self.team, name="Beta account", created_by=self.user
+        )
+        other_assignee = User.objects.create_and_join(self.organization, "filter-assignee@example.com", "testpassword")
+        timestamp = {day: datetime(2026, 1, day, tzinfo=UTC) for day in range(1, 6)}
+        self._create_ordering_task(
+            identifier=10,
+            name="Alpha",
+            description="Contains the search needle",
+            status_value="open",
+            account=alpha_account,
+            assigned_to=self.user,
+            due_at=timestamp[3],
+            created_at=timestamp[1],
+            updated_at=timestamp[1],
+        )
+        self._create_ordering_task(
+            identifier=11,
+            name="Bravo",
+            status_value="in_progress",
+            account=alpha_account,
+            assigned_to=other_assignee,
+            due_at=timestamp[1],
+            created_at=timestamp[2],
+            updated_at=timestamp[2],
+        )
+        self._create_ordering_task(
+            identifier=12,
+            name="Charlie",
+            status_value="completed",
+            account=beta_account,
+            assigned_to=None,
+            due_at=None,
+            created_at=timestamp[3],
+            updated_at=timestamp[3],
+        )
+        self._create_ordering_task(
+            identifier=13,
+            name="Delta",
+            status_value="canceled",
+            account=beta_account,
+            assigned_to=other_assignee,
+            due_at=timestamp[2],
+            created_at=timestamp[4],
+            updated_at=timestamp[4],
+        )
+        archived = self._create_ordering_task(
+            identifier=14,
+            name="Archived",
+            status_value="canceled",
+            account=beta_account,
+            assigned_to=other_assignee,
+            due_at=timestamp[4],
+            created_at=timestamp[5],
+            updated_at=timestamp[5],
+        )
+        CustomerTask.objects.for_team(self.team.id).filter(id=archived.id).update(archived_at=timestamp[5])
+        return alpha_account, other_assignee
+
+    @parameterized.expand(
+        [
+            ("search", "search", "needle", ("Alpha",)),
+            ("account", "account_id", "alpha_account", ("Alpha", "Bravo")),
+            ("status", "statuses", "canceled", ("Delta",)),
+        ]
+    )
+    def test_list_applies_scalar_filters(
+        self, _name: str, parameter: str, value: str, expected_names: tuple[str, ...]
+    ) -> None:
+        alpha_account, _ = self._create_filtering_dataset()
+        query_value = str(alpha_account.id) if value == "alpha_account" else value
+
+        response = self.client.get(self.url, {parameter: query_value})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(expected_names)
+        assert {task["name"] for task in response.json()["results"]} == set(expected_names)
+
+    @parameterized.expand(
+        [
+            ("me", "me", ("Alpha",)),
+            ("unassigned", "unassigned", ("Charlie",)),
+            ("member_id", "member_id", ("Bravo", "Delta")),
+        ]
+    )
+    def test_list_applies_assignee_filters(self, _name: str, assigned_to: str, expected_names: tuple[str, ...]) -> None:
+        _, other_assignee = self._create_filtering_dataset()
+        query_value = str(other_assignee.id) if assigned_to == "member_id" else assigned_to
+
+        response = self.client.get(self.url, {"assigned_to": query_value})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(expected_names)
+        assert {task["name"] for task in response.json()["results"]} == set(expected_names)
+
+    @parameterized.expand(
+        [
+            ("due_after", "due_after", "2026-01-02T00:00:00Z", ("Alpha", "Delta")),
+            ("due_before", "due_before", "2026-01-02T00:00:00Z", ("Bravo",)),
+            ("without_due_at", "has_due_at", "false", ("Charlie",)),
+        ]
+    )
+    def test_list_applies_due_filters(
+        self, _name: str, parameter: str, value: str, expected_names: tuple[str, ...]
+    ) -> None:
+        self._create_filtering_dataset()
+
+        response = self.client.get(self.url, {parameter: value})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(expected_names)
+        assert {task["name"] for task in response.json()["results"]} == set(expected_names)
+
+    def test_list_archive_state_all_includes_active_and_archived_tasks(self) -> None:
+        self._create_filtering_dataset()
+
+        response = self.client.get(self.url, {"archive_state": "all"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 5
+        assert {task["name"] for task in response.json()["results"]} == {
+            "Alpha",
+            "Archived",
+            "Bravo",
+            "Charlie",
+            "Delta",
+        }
+
+    def test_list_applies_ordering_limit_and_offset(self) -> None:
+        self._create_filtering_dataset()
+
+        response = self.client.get(self.url, {"ordering": "-name", "limit": 2, "offset": 1})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 4
+        assert [task["name"] for task in response.json()["results"]] == ["Charlie", "Bravo"]
+
     def _create_ordering_task(
         self,
         *,
@@ -314,13 +457,13 @@ class CustomerTaskAPI(APIBaseTest):
             ("created_at", ("Alpha", "Delta", "bravo", "charlie"), ("charlie", "bravo", "Delta", "Alpha")),
         ]
     )
-    def test_facade_orders_task_columns(
+    def test_logic_orders_task_columns(
         self, ordering: str, ascending: tuple[str, ...], descending: tuple[str, ...]
     ) -> None:
         self._create_ordering_dataset()
 
-        ascending_tasks = tasks._apply_ordering(CustomerTask.objects.for_team(self.team.id), ordering)
-        descending_tasks = tasks._apply_ordering(CustomerTask.objects.for_team(self.team.id), f"-{ordering}")
+        ascending_tasks = customer_tasks._apply_ordering(CustomerTask.objects.for_team(self.team.id), ordering)
+        descending_tasks = customer_tasks._apply_ordering(CustomerTask.objects.for_team(self.team.id), f"-{ordering}")
 
         assert list(ascending_tasks.values_list("name", flat=True)) == list(ascending)
         assert list(descending_tasks.values_list("name", flat=True)) == list(descending)
@@ -343,7 +486,7 @@ class CustomerTaskAPI(APIBaseTest):
             ("-created_at",),
         ]
     )
-    def test_facade_ordering_uses_id_tie_breaker(self, ordering: str) -> None:
+    def test_logic_ordering_uses_id_tie_breaker(self, ordering: str) -> None:
         timestamp = datetime(2026, 1, 1, tzinfo=UTC)
         self._create_ordering_task(
             identifier=1,
@@ -368,7 +511,7 @@ class CustomerTaskAPI(APIBaseTest):
             updated_at=timestamp,
         )
 
-        queryset = tasks._apply_ordering(CustomerTask.objects.for_team(self.team.id), ordering)
+        queryset = customer_tasks._apply_ordering(CustomerTask.objects.for_team(self.team.id), ordering)
 
         assert list(queryset.values_list("description", flat=True)) == ["Zulu", "Alpha"]
 

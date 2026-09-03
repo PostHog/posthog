@@ -99,7 +99,6 @@ class Migration(migrations.Migration):
                     "team",
                     models.ForeignKey(
                         db_constraint=False,
-                        db_index=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         to="posthog.team",
                     ),
@@ -157,30 +156,11 @@ class Migration(migrations.Migration):
                     "team",
                     models.ForeignKey(
                         db_constraint=False,
-                        db_index=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         to="posthog.team",
                     ),
                 ),
             ],
-        ),
-        migrations.AddIndex(
-            model_name="customertask",
-            index=models.Index(
-                fields=["team", "account", "archived_at", "status", "due_at"],
-                name="cust_task_account_view_idx",
-            ),
-        ),
-        migrations.AddIndex(
-            model_name="customertask",
-            index=models.Index(
-                fields=["team", "assigned_to", "archived_at", "status", "due_at"],
-                name="cust_task_assignee_inbox_idx",
-            ),
-        ),
-        migrations.AddIndex(
-            model_name="customertask",
-            index=models.Index(fields=["team", "status", "due_at"], name="cust_task_due_idx"),
         ),
         migrations.AddConstraint(
             model_name="customertask",
@@ -195,9 +175,5 @@ class Migration(migrations.Migration):
                 ),
                 name="customer_task_completion_consistency",
             ),
-        ),
-        migrations.AddIndex(
-            model_name="customertaskactivity",
-            index=models.Index(fields=["team", "task", "created_at"], name="cust_task_activity_idx"),
         ),
     ]

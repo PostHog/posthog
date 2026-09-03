@@ -20,7 +20,7 @@ class CustomerTaskActivityType(models.TextChoices):
 
 
 class CustomerTask(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     account = models.ForeignKey(
         "customer_analytics.Account",
         on_delete=models.CASCADE,
@@ -76,21 +76,10 @@ class CustomerTask(TeamScopedRootMixin, UUIDModel):
                 name="customer_task_completion_consistency",
             ),
         ]
-        indexes = [
-            models.Index(
-                fields=["team", "account", "archived_at", "status", "due_at"],
-                name="cust_task_account_view_idx",
-            ),
-            models.Index(
-                fields=["team", "assigned_to", "archived_at", "status", "due_at"],
-                name="cust_task_assignee_inbox_idx",
-            ),
-            models.Index(fields=["team", "status", "due_at"], name="cust_task_due_idx"),
-        ]
 
 
 class CustomerTaskActivity(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     task = models.ForeignKey(CustomerTask, on_delete=models.CASCADE, related_name="activities", db_index=False)
     actor = models.ForeignKey(
         "posthog.User",
@@ -104,8 +93,3 @@ class CustomerTaskActivity(TeamScopedRootMixin, UUIDModel):
     activity_type = models.CharField(max_length=20, choices=CustomerTaskActivityType.choices)
     changes = models.JSONField(default=list)
     created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        indexes = [
-            models.Index(fields=["team", "task", "created_at"], name="cust_task_activity_idx"),
-        ]

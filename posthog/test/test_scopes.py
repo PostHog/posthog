@@ -138,7 +138,8 @@ class TestScopeSets(BaseTest):
             self.assertIn(oidc, supported)
         self.assertEqual(supported - set(OIDC_SCOPES), UNPRIVILEGED_SCOPES)
 
-    def test_customer_task_scopes_are_not_available_to_project_secret_api_keys(self) -> None:
+    def test_project_secret_api_keys_exclude_user_bound_customer_task_scopes(self) -> None:
+        # Customer task endpoints need a user for RBAC and activity attribution.
         self.assertNotIn(("customer_task", "read"), PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)
         self.assertNotIn(("customer_task", "write"), PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)
 

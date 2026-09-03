@@ -244,6 +244,7 @@ export const OAUTH_SCOPES = [
 // applies to every future server-side scope addition the app relies on, even when
 // OAUTH_SCOPES itself is unchanged.
 // v7: "*" replaced with the explicit list above.
+// v9: Added customer_task scopes, so existing sessions must reauthorize to receive them.
 export const OAUTH_SCOPE_VERSION = 9;
 
 export function getOauthClientIdFromRegion(region: CloudRegion): string {
