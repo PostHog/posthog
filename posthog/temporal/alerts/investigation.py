@@ -10,33 +10,121 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from posthog.schema import AlertState
+from posthog.schema import AlertCalculationInterval, AlertState
+
+from posthog.dataclasses import frozen
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 
-INVESTIGATION_COOLDOWN = timedelta(hours=1)
+# A firing episode is the run of consecutive FIRING checks since the last check that was
+# not FIRING. Every check in the episode is eligible, up to this many investigations, so
+# a verdict that flips halfway through an incident still gets found. The budget is the
+# only cap: dismissals and confirmations spend it alike.
+MAX_INVESTIGATIONS_PER_EPISODE = 3
+
+# The cooldown only stops an alert that flaps inside one of its own intervals. It must
+# stay below the interval, or scheduler jitter decides whether the next scheduled check
+# investigates. Long intervals keep the historical one-hour ceiling.
+INVESTIGATION_COOLDOWN_MARGIN = timedelta(minutes=5)
+MAX_INVESTIGATION_COOLDOWN = timedelta(hours=1)
+MIN_INVESTIGATION_COOLDOWN = timedelta(minutes=5)
+
+_CALCULATION_INTERVAL_DURATIONS: dict[str, timedelta] = {
+    AlertCalculationInterval.REAL_TIME: timedelta(minutes=1),
+    AlertCalculationInterval.EVERY_15_MINUTES: timedelta(minutes=15),
+    AlertCalculationInterval.HOURLY: timedelta(hours=1),
+    AlertCalculationInterval.DAILY: timedelta(days=1),
+    AlertCalculationInterval.WEEKLY: timedelta(weeks=1),
+    AlertCalculationInterval.MONTHLY: timedelta(days=30),
+}
+
+# Statuses of a check whose investigation was started. SKIPPED never ran, so it costs no
+# budget; FAILED did run and costs one, which keeps a broken agent from retrying forever.
+_STARTED_INVESTIGATION_STATUSES = [
+    InvestigationStatus.PENDING,
+    InvestigationStatus.RUNNING,
+    InvestigationStatus.DONE,
+    InvestigationStatus.FAILED,
+]
 
 
-def should_trigger_investigation(
-    alert: AlertConfiguration,
-    *,
-    previous_state: str | None,
-    new_state: str,
-) -> bool:
-    """True when this fire is eligible for an investigation, ignoring cooldown.
+@frozen
+class EpisodeInvestigations:
+    """What the current firing episode already spent, seen from one check in it."""
+
+    started: int
+    first_check_id: str
+    previous_verdict: str | None
+
+    @property
+    def is_first(self) -> bool:
+        return self.started == 0
+
+
+@frozen
+class InvestigationDecision:
+    should_investigate: bool = False
+    is_first_of_episode: bool = False
+
+
+def investigation_cooldown(alert: AlertConfiguration) -> timedelta:
+    """The minimum gap between two investigations of the same alert."""
+    interval = _CALCULATION_INTERVAL_DURATIONS.get(alert.calculation_interval, MAX_INVESTIGATION_COOLDOWN)
+    return min(max(interval - INVESTIGATION_COOLDOWN_MARGIN, MIN_INVESTIGATION_COOLDOWN), MAX_INVESTIGATION_COOLDOWN)
+
+
+def episode_investigations(alert: AlertConfiguration, alert_check: AlertCheck) -> EpisodeInvestigations:
+    """Read the firing episode that `alert_check` belongs to.
+
+    The episode starts after the most recent check that was not FIRING, so a check
+    that does not fire resets the budget for the next episode.
+    """
+    earlier = AlertCheck.objects.filter(
+        alert_configuration=alert,
+        created_at__lte=alert_check.created_at,
+    ).exclude(id=alert_check.id)
+
+    episode_start = (
+        earlier.exclude(state=AlertState.FIRING).order_by("-created_at").values_list("created_at", flat=True).first()
+    )
+    if episode_start is not None:
+        earlier = earlier.filter(created_at__gt=episode_start)
+
+    first_check_id = earlier.order_by("created_at").values_list("id", flat=True).first()
+    previous_verdict = (
+        earlier.filter(investigation_verdict__isnull=False)
+        .order_by("-created_at")
+        .values_list("investigation_verdict", flat=True)
+        .first()
+    )
+    return EpisodeInvestigations(
+        started=earlier.filter(investigation_status__in=_STARTED_INVESTIGATION_STATUSES).count(),
+        first_check_id=str(first_check_id or alert_check.id),
+        previous_verdict=previous_verdict,
+    )
+
+
+def decide_investigation(alert: AlertConfiguration, alert_check: AlertCheck) -> InvestigationDecision:
+    """Whether this firing check gets an investigation, and whether it is the episode's first.
+
+    Only the first investigation of an episode may gate the notification. A later one
+    runs while the notification goes out on the normal path, because holding every
+    reminder of a long incident costs the user more than the verdict is worth.
 
     Cooldown is enforced by `claim_investigation_slot`, which does the read-then-write
     inside the caller's transaction.
     """
     if not alert.investigation_agent_enabled:
-        return False
+        return InvestigationDecision()
     if not alert.detector_config:
-        return False
-    if previous_state == AlertState.FIRING:
-        return False
-    if new_state != AlertState.FIRING:
-        return False
-    return True
+        return InvestigationDecision()
+    if alert_check.state != AlertState.FIRING:
+        return InvestigationDecision()
+
+    episode = episode_investigations(alert, alert_check)
+    if episode.started >= MAX_INVESTIGATIONS_PER_EPISODE:
+        return InvestigationDecision()
+    return InvestigationDecision(should_investigate=True, is_first_of_episode=episode.is_first)
 
 
 def claim_investigation_slot(alert: AlertConfiguration, alert_check: AlertCheck) -> bool:
@@ -48,7 +136,7 @@ def claim_investigation_slot(alert: AlertConfiguration, alert_check: AlertCheck)
 
     Caller must run this inside a transaction so the read-then-write is atomic.
     """
-    cooldown_since = datetime.now(UTC) - INVESTIGATION_COOLDOWN
+    cooldown_since = datetime.now(UTC) - investigation_cooldown(alert)
     recent = AlertCheck.objects.filter(
         alert_configuration=alert,
         created_at__gte=cooldown_since,
