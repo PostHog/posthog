@@ -81,6 +81,30 @@ describe('ChunkLoadErrorBoundary', () => {
         ).toBeInTheDocument()
     })
 
+    it('renders the fallback for repeated chunk errors when one is provided', () => {
+        const reload = jest.fn()
+        window.localStorage.setItem(RELOAD_GUARD_KEY, String(Date.now()))
+
+        render(
+            <TestErrorBoundary>
+                <ChunkLoadErrorBoundary
+                    reload={reload}
+                    fallback={(error) => <div>fallback: {(error as Error).message}</div>}
+                >
+                    <ThrowChunkError />
+                </ChunkLoadErrorBoundary>
+            </TestErrorBoundary>
+        )
+
+        expect(reload).not.toHaveBeenCalled()
+        expect(
+            screen.getByText('fallback: Failed to fetch dynamically imported module: /static/react-json-view.js')
+        ).toBeInTheDocument()
+        expect(
+            screen.queryByText('Failed to fetch dynamically imported module: /static/react-json-view.js')
+        ).not.toBeInTheDocument()
+    })
+
     it('lets non-chunk errors bubble to the parent error boundary', () => {
         const reload = jest.fn()
 
