@@ -2685,7 +2685,7 @@ export const UploadedMediaListParams = () => zod.object({
 export const UploadedMediaListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    purpose: zod.enum(['email']).describe('The library to list.'),
+    purpose: zod.enum(['canvas', 'email']).describe('The library to list.'),
 })
 
 /**
