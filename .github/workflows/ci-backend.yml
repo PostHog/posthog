@@ -808,9 +808,8 @@ jobs:
                   skip-token-revoke: true
 
             - parallel:
-                  # No backend:test here reads the workspace: every product's is a
-                  # plain pytest invocation. pnpm and Node are still needed, because
-                  # turbo shells out through pnpm to launch each script.
+                  # turbo launches each backend:test script through pnpm, so pnpm and
+                  # Node must stay on PATH even though nothing here reads the workspace.
                   - name: Set up pnpm and Node
                     uses: ./.github/actions/pnpm-install
                     with:
