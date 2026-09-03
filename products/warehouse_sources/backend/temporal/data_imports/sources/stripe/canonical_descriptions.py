@@ -552,7 +552,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME: {
         "description": "One customer's metered usage for one day, aggregated by the meter that recorded it. The first sync loads the last 90 complete UTC days, and later syncs add each day after the newest day the table holds.",
-        "docs_url": "https://stripe.com/docs/api/billing/meter-event_summary",
+        "docs_url": "https://stripe.com/docs/api/billing/meter-event-summary",
         "columns": {
             "id": _COMMON_COLUMNS["id"],
             "object": _COMMON_COLUMNS["object"],
