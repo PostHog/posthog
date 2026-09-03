@@ -113,10 +113,14 @@ export interface dataCatalogMetricSceneLogicActions {
     }
     loadMetricSuccess: (
         metric: DataCatalogMetricApi,
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         metric: DataCatalogMetricApi
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     loadRunResult: () => any
     loadRunResultFailure: (
