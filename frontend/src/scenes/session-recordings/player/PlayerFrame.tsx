@@ -98,11 +98,14 @@ export const PlayerFrame = (): JSX.Element => {
 
     // Need useEffect to populate replayer on component paint. Under the flag the frame may still be
     // loading, in which case handleFrameLoad does this instead.
+    // ownDocument is a dependency because flags resolve after the first paint. A user who holds a
+    // stale enabled flag paints the frame, then React swaps in the container below when the fresh
+    // value arrives, and the replayer must move with it.
     useEffect(() => {
         if (frameRef.current) {
             setRootFrame(frameRef.current)
         }
-    }, [sessionRecordingId, setRootFrame])
+    }, [sessionRecordingId, ownDocument, setRootFrame])
 
     useEffect(() => {
         applyFrameStyles()
