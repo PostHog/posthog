@@ -20,10 +20,10 @@ from typing import Any
 
 import structlog
 
-from posthog.dataclasses import frozen
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.ai.anomaly_investigation.metric_definition import unwrap_query_source
 
@@ -37,6 +37,7 @@ class _LibProvenance:
     lib: str
     events: int
     actors: int
+
 
 PROVENANCE_WINDOW_DAYS = 7
 # `$lib` cardinality for a single event is a handful of values, so this only ever trims
