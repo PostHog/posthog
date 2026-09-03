@@ -60,11 +60,9 @@ Pick the axis that matches the question:
 - **The distribution, not the rows?** → `vision-scanners-observations-stats` gives one scanner's status mix
   and success rate, distinct sessions covered, rating totals, and the per-type distributions (monitor verdict
   counts, classifier tag rankings, scorer score summary and histogram) without paging through observations.
-- **Has something already summarized this?** → if the scanner has digests or alerts attached, read them instead of
-  re-deriving the pattern: `vision-actions-list` (`?scanner=<id>`, or `vision-actions-retrieve` for one
-  action's selection and cadence), then `vision-actions-runs-list` and
-  `vision-actions-runs-retrieve` for a run's `synthesized_markdown`. The report cites its sources inline as
-  `[obs N]`, matching `observations[N-1]`, so you can check each claim against the observation it came from.
+- **Has something already summarized this?** → if the scanner has scout digests attached, read their inbox
+  reports instead of re-deriving the pattern (`inbox-reports-list`, filtered to the scout named after the
+  scanner).
 - **The full detail of one finding** → `vision-scanners-observations-get` or `vision-observations-retrieve` —
   returns the frozen `scanner_snapshot` (config at run time) and the complete `scanner_result`, including any
   event citations that link the finding back to specific events in the recording.

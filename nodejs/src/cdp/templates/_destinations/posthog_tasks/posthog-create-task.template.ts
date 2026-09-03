@@ -119,7 +119,7 @@ return response.body
             secret: false,
             required: false,
             description:
-                'Connectors from the MCP store the agent can use. Team-shared connections and the workflow creator’s own connections are available.',
+                'MCP servers the agent can use. Only servers shared with everyone in this project can be selected.',
         },
         {
             key: 'skills',

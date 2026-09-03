@@ -167,6 +167,7 @@ def build_dependent_resource(
             # below, so the child syncs exactly the way it does without this feature.
             warehouse_parent = False
         else:
+            parent_resource["parent_source"] = "warehouse"
             parent_resource["data_iterator"] = lambda: iter_parent_pages_from_warehouse(
                 table=parent_table,
                 parent_name=fanout.parent_name,

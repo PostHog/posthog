@@ -64,8 +64,14 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
     last_succeeded_at = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
-        help_text="When the check last passed, so a failing check can say how long it has been failing. "
+        help_text="When the check last passed. Read failing_since for how long a failing check has been failing. "
         "Null means it has not passed within the run retention window.",
+    )
+    failing_since = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the current streak of failing runs started, so a failing check can say how long "
+        "it has been failing. Null when the check is not failing.",
     )
     subject_status = serializers.CharField(
         read_only=True,
@@ -94,6 +100,7 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
             "last_run_at",
             "last_status",
             "last_succeeded_at",
+            "failing_since",
             "fingerprint",
             "created_source",
             "ai_model",
@@ -110,6 +117,7 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
             "last_run_at",
             "last_status",
             "last_succeeded_at",
+            "failing_since",
             "fingerprint",
             "created_by",
             "created_at",
@@ -253,12 +261,27 @@ class DataQualityCheckRunSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Severity this run was judged at. Null for runs recorded before snapshots existed.",
     )
+    check_name = serializers.SerializerMethodField(
+        help_text="Name the check carries now, so a run can be told from the others in its suite. "
+        "Null when the check is unnamed, has been hard deleted, or is out of your reach today -- "
+        "describe the run by check_type and column_name instead."
+    )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_check_name(self, obj: DataQualityCheckRun) -> str | None:
+        # A surface that serves runs from several checks passes the ones it may not name; a surface
+        # that already authorized the single check it serves passes nothing and names it.
+        check = obj.quality_check
+        if not check or check.id in self.context.get("unnamable_check_ids", frozenset()):
+            return None
+        return check.name or None
 
     class Meta:
         model = DataQualityCheckRun
         fields = [
             "id",
             "quality_check",
+            "check_name",
             "suite_run",
             "subject_type",
             "subject_uuid",

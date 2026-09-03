@@ -1359,6 +1359,10 @@ class DoraOverview:
     # (bots/drafts excluded; narrowed by github_team when given). Keyed on deploy time.
     median_merge_to_deploy_seconds: float | None
     median_merge_to_deploy_seconds_prev: float | None
+    # Median seconds from a PR's open to the first successful deployment containing it — the
+    # full-span twin of the merge-to-deploy median over the same deployed-PR population.
+    median_open_to_deploy_seconds: float | None
+    median_open_to_deploy_seconds_prev: float | None
     # PRs first deployed in the window (the population behind the medians and the box plot).
     deployed_pr_count: int
     deployed_pr_count_prev: int

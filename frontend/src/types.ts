@@ -305,6 +305,7 @@ export enum AccessControlResourceType {
     Ticket = 'ticket',
     SessionRecording = 'session_recording',
     SharingConfiguration = 'sharing_configuration',
+    Stamphog = 'stamphog',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
@@ -2542,6 +2543,8 @@ export interface Tileable {
     color: InsightColor | null
 }
 
+export type DashboardTileIdOrNew = number | null
+
 export interface DashboardTile<T = InsightModel> extends Tileable {
     id: number
     insight?: T
@@ -2776,6 +2779,7 @@ export type DashboardTemplateStoredInsightTile = {
     query?: Node | Record<string, unknown> | null
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
+    transparent_background?: boolean | null
     filters?: Record<string, unknown>
 }
 
@@ -2784,6 +2788,7 @@ export type DashboardTemplateStoredTextTile = {
     body: string
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
+    transparent_background?: boolean | null
 }
 
 export type DashboardTemplateStoredButtonTile = {
@@ -2796,6 +2801,7 @@ export type DashboardTemplateStoredButtonTile = {
     }
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
+    transparent_background?: boolean | null
 }
 
 export type DashboardTemplateStoredWidgetTile = {
@@ -2804,6 +2810,7 @@ export type DashboardTemplateStoredWidgetTile = {
     config?: Record<string, unknown>
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
+    transparent_background?: boolean | null
 }
 
 export type DashboardTemplateStoredTile =
@@ -6182,6 +6189,7 @@ export enum ActivityScope {
     INSTANCE_SETTING = 'InstanceSetting',
     SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
     SIGNAL_TEAM_CONFIG = 'SignalTeamConfig',
+    STAMPHOG_REPO_CONFIG = 'StamphogRepoConfig',
 }
 
 export type CommentType = {
@@ -7126,6 +7134,7 @@ export enum SDKKey {
     FLUTTER = 'flutter',
     GATSBY = 'gatsby',
     GO = 'go',
+    GOOGLE_ADK = 'google_adk',
     GOOGLE_GEMINI = 'google_gemini',
     GOOGLE_TAG_MANAGER = 'google_tag_manager',
     GROQ = 'groq',

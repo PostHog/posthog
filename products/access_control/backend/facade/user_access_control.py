@@ -80,6 +80,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "revenue_analytics",
     "session_recording",
     "sharing_configuration",
+    "stamphog",
     "survey",
     "ticket",
     "web_analytics",
@@ -116,11 +117,8 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     # the frontend mapping in sceneTypes.ts: Scene.MarketingAnalytics ->
     # AccessControlResourceType.WebAnalytics).
     "marketing_analytics": "web_analytics",
-    # Vision actions are a second data model of the Replay Vision product (the
-    # scanner's "and then…" automations) — configured via the same single
-    # replay_scanner rule rather than a separate resource.
-    "vision_action": "replay_scanner",
-    # Vision alerts follow the same rule: configured via the scanner's access level.
+    # Vision alerts are configured via the scanner's access level rather than a
+    # separate resource.
     "vision_alert": "replay_scanner",
 }
 
@@ -197,6 +195,9 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
     if resource == "llm_playground":
         # The playground is a single page, not a collection of objects
         return "LLM playground"
+    if resource == "stamphog":
+        # Product name: a proper noun, and it does not take a plural
+        return "Stamphog"
 
     # Default: replace underscores and add 's' for plural
     return f"{resource.replace('_', ' ')}s"
@@ -338,8 +339,6 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "customer_journey"
     if name in ("replayscanner", "replayobservation"):
         return "replay_scanner"
-    if name in ("visionaction", "visionactionrun"):
-        return "vision_action"
     if name in ("visionalertconfiguration", "visionalertevent"):
         return "vision_alert"
 
