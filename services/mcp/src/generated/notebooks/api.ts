@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -265,4 +265,15 @@ export const NotebooksSqlV2StateRetrieveParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     short_id: zod.string(),
+})
+
+/**
+ * Compute rates, presets, and the sizes the kernel config endpoint accepts. Static per region, so a client can fetch it once and price any shape a user picks.
+ */
+export const NotebooksKernelComputeOptionsRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })
