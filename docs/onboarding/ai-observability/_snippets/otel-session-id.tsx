@@ -4,7 +4,7 @@ import { StepDefinition } from '../../steps'
 
 export interface OtelSessionIdConfig {
     /** Language tabs the surrounding page shows, in the order it shows them. */
-    languages: ('Python' | 'Node')[]
+    languages: ('Python' | 'Node' | 'Go')[]
 }
 
 const PYTHON_CODE = `
@@ -67,9 +67,44 @@ class SessionIdSpanProcessor implements SpanProcessor {
 const reply = await sessionStore.run('conversation-abc', () => handleTurn(userMessage))
 `.trim()
 
+const GO_CODE = `
+import (
+    "context"
+
+    "go.opentelemetry.io/otel/attribute"
+    sdktrace "go.opentelemetry.io/otel/sdk/trace"
+)
+
+type sessionKey struct{}
+
+// WithAISession returns a context whose spans carry this session ID.
+func WithAISession(ctx context.Context, sessionID string) context.Context {
+    return context.WithValue(ctx, sessionKey{}, sessionID)
+}
+
+type SessionIDSpanProcessor struct{}
+
+func (SessionIDSpanProcessor) OnStart(parent context.Context, span sdktrace.ReadWriteSpan) {
+    if sessionID, ok := parent.Value(sessionKey{}).(string); ok {
+        span.SetAttributes(attribute.String("$ai_session_id", sessionID))
+    }
+}
+func (SessionIDSpanProcessor) OnEnd(sdktrace.ReadOnlySpan)      {}
+func (SessionIDSpanProcessor) Shutdown(context.Context) error   { return nil }
+func (SessionIDSpanProcessor) ForceFlush(context.Context) error { return nil }
+
+// Register it on the same provider as the PostHog processor:
+//   sdktrace.WithSpanProcessor(SessionIDSpanProcessor{})
+
+// Every span started from this context carries the session ID
+ctx = WithAISession(ctx, "conversation-abc")
+reply := handleTurn(ctx, userMessage)
+`.trim()
+
 const CODE_BY_LANGUAGE = {
     Python: { language: 'python', file: 'Python', code: PYTHON_CODE },
     Node: { language: 'typescript', file: 'Node', code: NODE_CODE },
+    Go: { language: 'go', file: 'Go', code: GO_CODE },
 }
 
 export const getOtelSessionIdStep = (ctx: OnboardingComponentsContext, config: OtelSessionIdConfig): StepDefinition => {

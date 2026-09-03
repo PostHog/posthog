@@ -29,6 +29,7 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
+from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
 from products.engineering_analytics.backend.logic.merge_queue import source_pr_string_expr
 
 # On a merge-queue gate run the emitter stamps ``ci.pr_number`` from the webhook payload, which names
@@ -50,9 +51,6 @@ SIGNAL_OUTCOMES = ["failed", "error", "rerun_passed", "xfailed"]
 PYTEST_CI_SERVICE_NAME = "ci-backend"
 JEST_CI_SERVICE_NAME = "ci-frontend"
 CI_SERVICE_NAMES = [PYTEST_CI_SERVICE_NAME, JEST_CI_SERVICE_NAME]
-
-# Spans emitted before the owner stamp existed (or from paths with no owner) group here.
-UNOWNED_TEAM = "unowned"
 
 
 _RUN_EVIDENCE = """
@@ -152,7 +150,13 @@ _SCAN_TEMPLATE = """
         name AS nodeid,
         attributes['test.selector'] AS selector,
         attributes['test.outcome'] AS outcome,
-        coalesce(nullIf(attributes['test.owner_team'], ''), {unowned_team}) AS owner_team,
+        -- An '@handle' stamp is a person from an owners.yaml first slot, not a team; older
+        -- spans carry them, so fold them into the unowned bucket instead of minting a row.
+        if(
+            startsWith(coalesce(attributes['test.owner_team'], ''), '@'),
+            {unowned_team},
+            coalesce(nullIf(attributes['test.owner_team'], ''), {unowned_team})
+        ) AS owner_team,
         if(__QUEUE_PR__ != '', __QUEUE_PR__, resource_attributes['ci.pr_number']) AS pr_number,
         resource_attributes['ci.branch'] AS branch,
         -- The emitter always stamps ci.run_id; the trace_id fallback (one trace per job) keeps an

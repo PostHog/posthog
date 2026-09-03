@@ -65,7 +65,7 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
     """Test that export_to_file_download_bucket_with_temporary_credentials exports data to S3.
 
     The activity obtains temporary credentials via STS role assumption, constructs
-    S3InsertInputs, and delegates to insert_into_s3_activity_from_stage. We verify
+    S3InsertInputs, and delegates to insert_into_s3_from_stage. We verify
     the data ends up in the expected S3 location and matches what ClickHouse produces.
     """
     if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:

@@ -10,23 +10,24 @@ This file is only for rules that are specific to `products/ai_observability/`
 for the directory map. Skip it if you already know where things live —
 it's orientation, not a rulebook.
 
-## Update both query runners together
+## Update all three query runners together
 
-`LLMTrace` and `LLMTraceEvent` are built by two parallel query runners:
+`LLMTrace` and `LLMTraceEvent` are built by three parallel query runners:
 
 - `posthog/hogql_queries/ai/trace_query_runner.py` (single trace read)
 - `posthog/hogql_queries/ai/traces_query_runner.py` (list of traces)
+- `posthog/hogql_queries/ai/session_query_runner.py` (traces in a session)
 
-Both define their own `_map_trace` and `_map_event`. Neither imports
-from the other. Any time you add, remove, or rename a field on
+Each defines its own `_map_trace` and `_map_event`. None imports
+from the others. Any time you add, remove, or rename a field on
 `LLMTrace` or `LLMTraceEvent`, or change how an event is shaped into
-either, **change both runners in the same PR** and cover the change in
-`posthog/hogql_queries/ai/test/`. The type checker will not catch drift
-here.
+any of them, **change all three runners in the same PR** and cover the
+change in `posthog/hogql_queries/ai/test/`. The type checker will not
+catch drift here.
 
 The same rule applies to routing via `ai_events` vs `events`. If one
-runner adopts a new code path, the other needs the matching change so
-single-trace and list reads don't diverge.
+runner adopts a new code path, the others need the matching change so
+single-trace, list, and session reads don't diverge.
 
 ## Product docs go under `docs/`
 

@@ -2536,8 +2536,10 @@ export interface CustomPropertyDefinitionApi {
     readonly created_by: number | null
     /** @nullable */
     readonly updated_at: string | null
-    /** Workflows that use this property, resolved by definition id. */
+    /** Workflows that use this property, resolved by definition id when the caller can view workflows. */
     readonly references: readonly CustomPropertyReferenceApi[]
+    /** Whether a workflow updates this property. Always returned, even when workflow details are hidden. */
+    readonly has_workflow_reference: boolean
 }
 
 export interface PaginatedCustomPropertyDefinitionListApi {
@@ -2608,8 +2610,10 @@ export interface PatchedCustomPropertyDefinitionApi {
     readonly created_by?: number | null
     /** @nullable */
     readonly updated_at?: string | null
-    /** Workflows that use this property, resolved by definition id. */
+    /** Workflows that use this property, resolved by definition id when the caller can view workflows. */
     readonly references?: readonly CustomPropertyReferenceApi[]
+    /** Whether a workflow updates this property. Always returned, even when workflow details are hidden. */
+    readonly has_workflow_reference?: boolean
 }
 
 /**
@@ -3702,7 +3706,7 @@ export type AccountsListParams = {
      */
     ordering?: string
     /**
-     * Case-insensitive substring search across account name and external ID.
+     * Case-insensitive substring search across account name and external ID. A query holding an email address also matches accounts that list it as a known email, and a query holding a domain matches accounts that own that email domain.
      */
     search?: string
     /**
