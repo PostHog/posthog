@@ -10,6 +10,7 @@ import {
     ErrorTrackingRelease,
     ErrorTrackingRuntime,
     ErrorTrackingStackFrame,
+    ErrorTrackingStackFrameRecord,
     ExceptionAttributes,
     FingerprintRecordPart,
 } from './types'
@@ -261,6 +262,34 @@ export function getExceptionRelease(properties: ErrorEventProperties): ErrorTrac
         project: typeof candidate.project === 'string' ? candidate.project : undefined,
         metadata,
     }
+}
+
+/**
+ * Whether this event went unmatched to a release because the SDK never reported one.
+ *
+ * The CLI can upload symbol sets that carry no release, and the release then comes from the
+ * `$release_id` the SDK puts on every event. An SDK from before that support reports nothing, so
+ * the exception ends up with no release at all. A symbol set cymbal fetched off the web is keyed
+ * by its URL rather than a chunk id, and carries no release either, so it does not count here.
+ */
+export function isReleaseIdMissingFromSDK(
+    properties: ErrorEventProperties,
+    frames: ErrorTrackingStackFrame[],
+    stackFrameRecords: Record<string, ErrorTrackingStackFrameRecord>
+): boolean {
+    if (!properties || properties['$release_id'] || getExceptionRelease(properties)) {
+        return false
+    }
+
+    const uploadedSymbolSets = frames
+        .map((frame) => stackFrameRecords[frame.raw_id])
+        .filter((record) => !!record?.symbol_set_ref && !isFetchedSymbolSetRef(record.symbol_set_ref))
+
+    return uploadedSymbolSets.length > 0 && uploadedSymbolSets.every((record) => !record.release)
+}
+
+function isFetchedSymbolSetRef(ref: string): boolean {
+    return ref.startsWith('http://') || ref.startsWith('https://')
 }
 
 // we had a bug where SDK was sending non-string values for exception value
