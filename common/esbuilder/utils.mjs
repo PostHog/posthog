@@ -122,7 +122,7 @@ export function copyIndexHtml(
         chunkMapFile = chunkMapFileName(entry, chunksToServe)
         fse.writeFileSync(path.resolve(absWorkingDir, 'dist', chunkMapFile), chunkMapFileContents(chunksToServe))
     }
-    const chunkCode = chunkLoaderScript(chunksToServe, chunkMapFile)
+    const chunkCode = Object.keys(chunks).length > 0 ? chunkLoaderScript(chunksToServe, chunkMapFile) : ''
 
     // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed
     // version fails to load (e.g. CDN returns 403). Mirrors the JS fallback above.
@@ -172,7 +172,7 @@ export function copyIndexHtml(
                     // adding elements to the DOM
                     ${cssFile ? cssLoader : ''}
                     ${scriptCode}
-                    ${Object.keys(chunks).length > 0 ? chunkCode : ''}
+                    ${chunkCode}
                 </script>
             </head>`
         )
