@@ -28,8 +28,8 @@ const isEventWithProperties = (event: PluginEvent): event is EventWithProperties
  * Pipeline steps:
  * 1. Normalize trace properties (all AI events)
  * 2. Normalize error messages (events with $ai_is_error=true)
- * 3. Extract model parameters (generation/embedding events only)
- * 4. Calculate costs (generation/embedding events only)
+ * 3. Calculate costs (generation/embedding events only)
+ * 4. Extract model parameters (generation/embedding events only)
  * 5. Extract tool calls (generation events only)
  */
 export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithProperties => {
@@ -51,12 +51,11 @@ export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithPrope
         return withErrorNormalization
     }
 
-    // Extraction runs before costing so flex pricing sees the promoted $ai_service_tier.
-    const withModelParams = extractCoreModelParams(withErrorNormalization)
+    const eventWithCosts = processCost(withErrorNormalization)
 
-    const eventWithCosts = processCost(withModelParams)
+    const withModelParams = extractCoreModelParams(eventWithCosts)
 
-    return processAiToolCallExtraction(eventWithCosts)
+    return processAiToolCallExtraction(withModelParams)
 }
 
 /**

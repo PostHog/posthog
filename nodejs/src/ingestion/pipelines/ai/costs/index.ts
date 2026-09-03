@@ -322,11 +322,5 @@ export const extractCoreModelParams = (event: EventWithProperties): EventWithPro
         event.properties.$ai_max_tokens = params.max_completion_tokens
     }
 
-    // An explicit $ai_service_tier (gateway emitters) wins over the served tier the
-    // @posthog/ai SDK records in the model parameters.
-    if (params.service_tier !== undefined && event.properties.$ai_service_tier === undefined) {
-        event.properties.$ai_service_tier = params.service_tier
-    }
-
     return event
 }

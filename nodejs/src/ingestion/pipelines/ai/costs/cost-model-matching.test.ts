@@ -165,6 +165,25 @@ describe('flex service tier pricing', () => {
         const result = findCostFromModel('gpt-4o-mini', { $ai_provider: 'openai', $ai_service_tier: tier })
         expect(result?.cost.cost.prompt_token).toBe(0.00000015)
     })
+
+    it('reads the served tier the SDK records inside $ai_model_parameters', () => {
+        // Without this fallback the fix is dead for @posthog/ai traffic, which is the only
+        // emitter of the tier today.
+        const result = findCostFromModel('gpt-4o-mini', {
+            $ai_provider: 'openai',
+            $ai_model_parameters: { temperature: 1, service_tier: 'flex' },
+        })
+        expect(result?.cost.cost.prompt_token).toBe(0.000000075)
+    })
+
+    it('prefers an explicit $ai_service_tier over the model parameters', () => {
+        const result = findCostFromModel('gpt-4o-mini', {
+            $ai_provider: 'openai',
+            $ai_service_tier: 'default',
+            $ai_model_parameters: { service_tier: 'flex' },
+        })
+        expect(result?.cost.cost.prompt_token).toBe(0.00000015)
+    })
 })
 
 describe('findCostFromModel()', () => {

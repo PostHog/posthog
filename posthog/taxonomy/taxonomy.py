@@ -2413,11 +2413,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The temperature parameter used in the request to the LLM API.",
             "examples": [0.7, 1.0],
         },
-        "$ai_service_tier": {
-            "label": "AI service tier (LLM)",
-            "description": "The service tier the provider served the request on, such as OpenAI's flex tier.",
-            "examples": ["flex", "default", "priority"],
-        },
         "$ai_input_state": {
             "label": "AI Input State (LLM)",
             "description": "Input state of the LLM agent.",

@@ -745,15 +745,6 @@
             "label": "AI score min (LLM)",
             "type": "Numeric"
         },
-        "$ai_service_tier": {
-            "description": "The service tier the provider served the request on, such as OpenAI's flex tier.",
-            "examples": [
-                "flex",
-                "default",
-                "priority"
-            ],
-            "label": "AI service tier (LLM)"
-        },
         "$ai_session_id": {
             "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
             "examples": [
@@ -5404,15 +5395,6 @@
             "description": "The minimum possible score for this evaluation metric.",
             "label": "AI score min (LLM)",
             "type": "Numeric"
-        },
-        "$ai_service_tier": {
-            "description": "The service tier the provider served the request on, such as OpenAI's flex tier.",
-            "examples": [
-                "flex",
-                "default",
-                "priority"
-            ],
-            "label": "AI service tier (LLM)"
         },
         "$ai_session_id": {
             "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
