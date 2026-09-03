@@ -642,11 +642,31 @@ describe('processAiEvent()', () => {
                 temperature: 0.5,
                 max_completion_tokens: 100,
                 stream: false,
+                service_tier: 'default',
             }
             const result = processAiEvent(event)
             expect(result.properties!.$ai_temperature).toBe(0.5)
             expect(result.properties!.$ai_max_tokens).toBe(100)
             expect(result.properties!.$ai_stream).toBe(false)
+            expect(result.properties!.$ai_service_tier).toBe('default')
+        })
+
+        it('does not overwrite an explicit $ai_service_tier with the model parameters value', () => {
+            event.properties!.$ai_service_tier = 'default'
+            event.properties!.$ai_model_parameters = { service_tier: 'flex' }
+            const result = processAiEvent(event)
+            expect(result.properties!.$ai_service_tier).toBe('default')
+        })
+
+        it('prices an SDK-recorded flex tier at half rate', () => {
+            // Guards the step order: extraction must run before costing, or flex
+            // events from @posthog/ai price at standard rates again.
+            const standard = processAiEvent({ ...event, properties: { ...event.properties } } as PluginEvent)
+            const flex = processAiEvent({
+                ...event,
+                properties: { ...event.properties, $ai_model_parameters: { service_tier: 'flex' } },
+            } as PluginEvent)
+            expect(flex.properties!.$ai_total_cost_usd).toBe(standard.properties!.$ai_total_cost_usd! / 2)
         })
 
         it('extracts anthropic-specific parameters', () => {

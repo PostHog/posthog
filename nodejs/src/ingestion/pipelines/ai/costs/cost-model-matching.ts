@@ -74,21 +74,17 @@ const resolveBedrockInferenceProfileProvider = (
 /**
  * OpenAI bills the flex service tier at half the standard token rates, uniformly across its
  * flex-capable models (https://developers.openai.com/api/docs/pricing?latest-pricing=flex);
- * other service_tier values ("auto", "default", "priority") price as standard. The served tier
- * arrives two ways: an explicit $ai_service_tier (gateway emitters), which wins, and the
- * service_tier the @posthog/ai SDK records inside $ai_model_parameters from the provider's
- * response.
+ * other service_tier values ("auto", "default", "priority") price as standard.
+ * extractCoreModelParams promotes the SDK-recorded served tier to $ai_service_tier before costing.
  */
 const applyServiceTierPricing = (result: CostModelResult, properties: Properties): CostModelResult => {
     const provider: unknown = properties['$ai_provider']
-    const modelParameters: unknown = properties['$ai_model_parameters']
-    const serviceTier: unknown =
-        properties['$ai_service_tier'] ??
-        (modelParameters && typeof modelParameters === 'object'
-            ? (modelParameters as Record<string, unknown>)['service_tier']
-            : undefined)
 
-    if (serviceTier !== 'flex' || !provider || resolveProviderAliases(String(provider).toLowerCase()) !== 'openai') {
+    if (
+        properties['$ai_service_tier'] !== 'flex' ||
+        !provider ||
+        resolveProviderAliases(String(provider).toLowerCase()) !== 'openai'
+    ) {
         return result
     }
 
