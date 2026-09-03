@@ -11,8 +11,8 @@ starting point and tune it against the rate-limit headers this domain records.
 Two very different consumers share this budget, so the priority lanes matter:
 - CRITICAL (interactive): signup enrichment and the ICP re-enrichment sweep run inside a
   90-second Temporal activity budget and must never be starved by bulk traffic.
-- BATCH: the weekly Salesforce enrichment job walks roughly 203,000 records over about 3.8 hours
-  and can back off when the budget is tight.
+- BATCH: the Salesforce enrichment sweep works through a large account backlog and can back off
+  when the budget is tight.
 
 Importing this module registers the policy as a side effect — import it (directly or via
 ``consume_harmonic``/``acquire_harmonic``) before using the ``harmonic:account:default`` key.

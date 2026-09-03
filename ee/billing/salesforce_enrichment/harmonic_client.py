@@ -35,6 +35,15 @@ class HarmonicCompanyLookup:
 # Harmonic documents this as the per-call cap on /enrichment_status URNs.
 _ENRICHMENT_STATUS_BATCH_SIZE = 50
 
+# enrich_companies_batch fires this many lookups concurrently per wave, re-pacing before each one,
+# so a wave that lands after the budget has been drawn down actually waits instead of bursting.
+_ENRICH_WAVE_SIZE = 10
+
+# Bounds how many times enrich_companies_batch retries a domain the egress limiter sheds, so a
+# sustained budget crunch degrades to a bounded number of misses within one call rather than
+# retrying forever.
+_ENRICH_MAX_ATTEMPTS = 3
+
 
 class AsyncHarmonicClient:
     """Async Harmonic API client, gated and recorded through the Harmonic egress transport.
@@ -226,6 +235,18 @@ class AsyncHarmonicClient:
             capture_exception(last_error, {"domain": domain, "failed_variation": last_error_variation})
         return HarmonicCompanyLookup(company=None, enrichment_urn=not_found_urn)
 
+    async def _enrich_company_by_domain_observing_denial(self, domain: str) -> Optional[dict[str, Any]]:
+        """Batch-path lookup that lets a HarmonicEgressBudgetExhausted denial propagate instead of
+        folding it into the same None enrich_company_by_domain returns for a genuine miss.
+
+        Delegates to enrich_company_by_domain_strict for its shed-always-wins precedence: a shed on
+        one domain variation is never treated as a not-found even when a sibling variation returned
+        a clean companyFound=false, because the shed means Harmonic was never asked. enrich_companies_batch
+        relies on that to know a domain was denied, not missing, so it can retry it in a later wave.
+        """
+        lookup = await self.enrich_company_by_domain_strict(domain)
+        return lookup.company
+
     async def get_company_by_urn(self, urn: str) -> Optional[dict[str, Any]]:
         """Resolve a Harmonic company URN (e.g. from relatedCompanies) via the REST profile endpoint.
 
@@ -293,29 +314,71 @@ class AsyncHarmonicClient:
         return statuses
 
     async def enrich_companies_batch(self, domains: list[str]) -> list[dict[str, Any] | None]:
-        """Enrich multiple domains concurrently.
+        """Enrich multiple domains concurrently, in waves paced against the shared egress budget.
+
+        Pacing is recomputed before each wave rather than once for the whole batch: pace_seconds
+        reads live limiter state, so only a wave that actually finds the budget consumed waits.
+        Pacing once up front and then gathering the whole batch would let a later wave burst past
+        the budget the instant an earlier wave (or unrelated traffic) had drawn it down, the same
+        defect as not pacing at all, just delayed.
+
+        A domain the limiter sheds mid-wave is not a miss: enrich_company_by_domain would fold that
+        denial into the same None a genuine not-found returns, and callers that persist results
+        (e.g. as a Salesforce account update) cannot tell the two apart. So a shed domain is retried
+        in a later wave, up to _ENRICH_MAX_ATTEMPTS, instead of being recorded immediately.
 
         Args:
             domains: List of company domains to enrich
 
         Returns:
-            List of company data dicts (None for failed enrichments)
+            List of company data dicts, same length and order as domains. A slot is None for a
+            genuine not-found or an operational failure, and also for a domain still shed after
+            every attempt: that last case is reported to error tracking first, since it must not
+            look like a genuine miss on inspection there even though the return value can't carry
+            the distinction (callers zip this list against the input domains).
         """
         if not domains:
             return []
 
-        # Paced once per batch, not once per domain: pacing inside each gathered task would let
-        # every task's wait elapse in parallel, so the batch would still fire all at once anyway.
-        pace = pace_seconds_harmonic(self.priority)
-        if pace > 0:
-            await asyncio.sleep(pace)
+        results: list[dict[str, Any] | None] = [None] * len(domains)
+        pending = list(range(len(domains)))
 
-        tasks = [self.enrich_company_by_domain(domain) for domain in domains]
+        for _attempt in range(_ENRICH_MAX_ATTEMPTS):
+            if not pending:
+                break
 
-        results: list[dict[str, Any] | BaseException | None] = await asyncio.gather(*tasks, return_exceptions=True)
+            denied: list[int] = []
+            for wave_start in range(0, len(pending), _ENRICH_WAVE_SIZE):
+                wave = pending[wave_start : wave_start + _ENRICH_WAVE_SIZE]
 
-        for result in results:
-            if isinstance(result, BaseException):
-                capture_exception(result)
+                # CRITICAL is never shed by the transport (_raise_if_denied never raises on it), so
+                # pacing it would only add latency to an interactive caller for no admission benefit.
+                if self.priority is not Priority.CRITICAL:
+                    pace = pace_seconds_harmonic(self.priority)
+                    if pace > 0:
+                        await asyncio.sleep(pace)
 
-        return [None if isinstance(result, BaseException) else result for result in results]
+                wave_results: list[dict[str, Any] | BaseException | None] = await asyncio.gather(
+                    *(self._enrich_company_by_domain_observing_denial(domains[i]) for i in wave),
+                    return_exceptions=True,
+                )
+
+                for index, result in zip(wave, wave_results):
+                    if isinstance(result, HarmonicEgressBudgetExhausted):
+                        denied.append(index)
+                    elif isinstance(result, BaseException):
+                        capture_exception(result)
+                    else:
+                        results[index] = result
+
+            pending = denied
+
+        for index in pending:
+            capture_exception(
+                HarmonicEgressBudgetExhausted(
+                    f"Harmonic egress budget denied this domain on every attempt ({_ENRICH_MAX_ATTEMPTS})"
+                ),
+                {"domain": domains[index]},
+            )
+
+        return results
