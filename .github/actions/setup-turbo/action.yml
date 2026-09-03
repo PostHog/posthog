@@ -54,7 +54,8 @@ runs:
               dest="$RUNNER_TEMP/turbo-bin"
               mkdir -p "$dest"
               tarball="$dest/turbo.tgz"
-              curl --fail --silent --show-error --location --retry 3 --retry-all-errors \
+              curl --fail --silent --show-error --location \
+                  --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
                   "https://registry.npmjs.org/@turbo/${platform}/-/${platform}-${version}.tgz" \
                   --output "$tarball"
 
