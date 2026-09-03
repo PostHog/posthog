@@ -151,6 +151,39 @@ class WidgetGenerationStepError(Exception):
                 status_code=status_code,
                 request_id=request_id,
             )
+        if status_code == 402:
+            denial = error.response.headers.get("X-PostHog-Denial", "").partition(":")[0]
+            suffix, detail = {
+                "insufficient_credits": (
+                    "insufficient_credits",
+                    "this project has no available AI credits. Add credits, then try again.",
+                ),
+                "budget_exceeded": (
+                    "budget_exceeded",
+                    "this project has reached its AI budget. Increase the budget, then try again.",
+                ),
+                "cap_exceeded": (
+                    "spending_limit_reached",
+                    "this project has reached its AI spending limit. Increase the limit, then try again.",
+                ),
+                "token_cap_exceeded": (
+                    "request_spending_limit_reached",
+                    "this generation has reached its AI spending limit. Start a new generation, then try again.",
+                ),
+            }.get(
+                denial,
+                (
+                    "billing_limit_reached",
+                    "this project has no available AI credits or has reached an AI spending limit. "
+                    "Add credits or increase the limit, then try again.",
+                ),
+            )
+            return cls(
+                f"{step} couldn't start because {detail}",
+                f"{code_prefix}_{suffix}",
+                status_code=status_code,
+                request_id=request_id,
+            )
         if status_code == 404:
             return cls(
                 f"{step} couldn't use the selected AI model. Choose another model and try again.",
@@ -418,6 +451,7 @@ def review_widget_source(
     trace_id: str,
     source: str,
     input_names: list[str],
+    api_key: str | None = None,
     client: Anthropic | None = None,
     is_cancelled: Callable[[], bool] = lambda: False,
 ) -> WidgetSecurityReview:
@@ -428,6 +462,7 @@ def review_widget_source(
         properties={"source_product": "notebook_widget_security_review"},
         distinct_id=f"team-{team_id}",
         team_id=team_id,
+        api_key=api_key,
     )
     deadline = monotonic() + WIDGET_SECURITY_REVIEW_TIMEOUT_SECONDS
     request = _security_review_prompt(source=source, input_names=input_names)
@@ -514,6 +549,7 @@ def generate_widget_source(
     schemas: list[dict[str, object]],
     input_names: list[str],
     model: str = DEFAULT_WIDGET_MODEL,
+    api_key: str | None = None,
     client: Anthropic | None = None,
     is_cancelled: Callable[[], bool] = lambda: False,
     base_source: str | None = None,
@@ -529,6 +565,7 @@ def generate_widget_source(
         properties={"source_product": "notebook_widget"},
         distinct_id=f"team-{team_id}",
         team_id=team_id,
+        api_key=api_key,
     )
     source: str | None = None
     title = ""

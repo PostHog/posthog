@@ -203,10 +203,12 @@ def get_anthropic_gateway_client(
     team_id: int | None = None,
     use_bedrock_fallback: bool = False,
     default_headers: Mapping[str, str] | None = None,
+    api_key: str | None = None,
 ) -> Anthropic:
     """Synchronous variant of :func:`get_async_anthropic_gateway_client`."""
-    if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
-        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+    resolved_api_key = api_key or settings.LLM_GATEWAY_API_KEY
+    if not settings.LLM_GATEWAY_URL or not resolved_api_key:
+        raise ValueError("LLM_GATEWAY_URL and an API key must be configured")
 
     headers = dict(default_headers or {})
     if team_id is not None:
@@ -217,7 +219,7 @@ def get_anthropic_gateway_client(
     base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}"
     return Anthropic(
         base_url=base_url,
-        api_key=settings.LLM_GATEWAY_API_KEY,
+        api_key=resolved_api_key,
         default_headers=headers or None,
         http_client=httpx.Client(trust_env=False),
     )
@@ -462,6 +464,7 @@ def build_anthropic_client(
     distinct_id: str | None = None,
     team_id: int | None = None,
     use_bedrock_fallback: bool = False,
+    api_key: str | None = None,
 ) -> Anthropic:
     """Build a native Anthropic client for synchronous Django worker code.
 
@@ -474,7 +477,7 @@ def build_anthropic_client(
         if team_id is not None:
             labels["team_id"] = str(team_id)
         return Anthropic(
-            api_key=gateway.api_key,
+            api_key=api_key or gateway.api_key,
             base_url=_anthropic_gateway_base_url(gateway.url),
             default_headers=ai_gateway_headers(
                 ai_product=ai_product,
@@ -490,4 +493,5 @@ def build_anthropic_client(
         team_id=team_id,
         use_bedrock_fallback=use_bedrock_fallback,
         default_headers=fallback_headers,
+        api_key=api_key,
     )

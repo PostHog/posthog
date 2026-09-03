@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import connection
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -17,8 +17,9 @@ from anthropic import APIStatusError
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import Team
+from posthog.models import ProjectSecretAPIKey, Team
 from posthog.models.organization import OrganizationMembership
+from posthog.models.project_secret_api_key import find_project_secret_api_key
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.notebook_integration import (
@@ -77,6 +78,7 @@ from products.notebooks.backend.widgets import (
     _version_input_contract,
     cancel_widget_generation,
     fail_widget_generation_capacity_job,
+    fail_widget_generation_job,
     get_widget_status,
     infer_widget_inputs,
     inspect_widget_inputs,
@@ -310,20 +312,24 @@ class TestWidgetGeneration(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (400, "source_generation_request_rejected", "rejected the request"),
-            (401, "source_generation_authentication_failed", "authenticate"),
-            (404, "source_generation_model_unavailable", "selected AI model"),
-            (429, "source_generation_rate_limited", "AI service is busy"),
-            (503, "source_generation_service_unavailable", "AI service is unavailable"),
+            (400, None, "source_generation_request_rejected", "rejected the request"),
+            (401, None, "source_generation_authentication_failed", "authenticate"),
+            (402, "insufficient_credits", "source_generation_insufficient_credits", "no available AI credits"),
+            (404, None, "source_generation_model_unavailable", "selected AI model"),
+            (429, None, "source_generation_rate_limited", "AI service is busy"),
+            (503, None, "source_generation_service_unavailable", "AI service is unavailable"),
         ]
     )
     def test_generation_reports_actionable_model_request_errors(
-        self, status_code: int, expected_code: str, expected_detail: str
+        self, status_code: int, denial: str | None, expected_code: str, expected_detail: str
     ) -> None:
         client = MagicMock()
         client.with_options.return_value = client
         request = httpx.Request("POST", "https://ai-gateway.example/v1/messages")
-        response = httpx.Response(status_code, request=request, headers={"request-id": "req_widget"})
+        headers = {"request-id": "req_widget"}
+        if denial:
+            headers["X-PostHog-Denial"] = denial
+        response = httpx.Response(status_code, request=request, headers=headers)
         client.messages.create.side_effect = APIStatusError("request failed", response=response, body=None)
 
         with self.assertRaises(WidgetSourceGenerationError) as error:
@@ -1489,6 +1495,66 @@ class TestWidgetData(APIBaseTest):
         assert log_context["upstream_status_code"] == 400
         assert log_context["upstream_request_id"] == "req_widget"
 
+    @override_settings(
+        AI_GATEWAY_URL="https://ai-gateway.example/v1",
+        AI_GATEWAY_API_KEY="phs_shared_key",
+        AI_GATEWAY_REDIS_URL=None,
+    )
+    def test_generation_worker_reports_missing_gateway_billing_configuration(self) -> None:
+        instance = self._mapping()
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=instance.widget,
+            instance=instance,
+            requested_by=self.user,
+            operation=GeneratedWidgetVersion.Operation.INITIAL,
+            prompt="Render a globe",
+            model="claude-sonnet-4-6",
+            input_contract=[],
+            schema_hash="",
+        )
+
+        with patch("products.notebooks.backend.widget_generation.generate_widget_source") as generate:
+            run_widget_generation_job(job.id, self.team.id)
+
+        generate.assert_not_called()
+        job.refresh_from_db()
+        assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
+        assert job.phase == "failed_generating_source"
+        assert job.error_code == "gateway_billing_not_configured"
+        assert "gateway billing is not configured" in (job.error_detail or "")
+
+    def test_generation_failure_recovery_removes_the_job_gateway_key(self) -> None:
+        instance = self._mapping()
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=instance.widget,
+            instance=instance,
+            requested_by=self.user,
+            operation=GeneratedWidgetVersion.Operation.INITIAL,
+            prompt="Render a globe",
+            model="claude-sonnet-4-6",
+            input_contract=[],
+            schema_hash="",
+        )
+        key_id = f"widget-{job.id.hex}"
+        ProjectSecretAPIKey.objects.create(
+            id=key_id,
+            team=self.team,
+            label=f"Notebook widget {job.id.hex[:24]}",
+            secure_value=f"sha256${'a' * 64}",
+            mask_value="phs_...test",
+            created_by=self.user,
+            scopes=["llm_gateway:read"],
+        )
+
+        fail_widget_generation_job(job.id, self.team.id)
+
+        assert not ProjectSecretAPIKey.objects.filter(id=key_id).exists()
+        job.refresh_from_db()
+        assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
+        assert job.error_code == "generation_abandoned"
+
     def test_generation_worker_does_not_publish_after_the_job_becomes_terminal(self) -> None:
         instance = self._mapping()
         base_version = self._pinned_version(instance)
@@ -1545,6 +1611,11 @@ class TestWidgetData(APIBaseTest):
         assert job.result_version_id is None
         assert GeneratedWidgetVersion.objects.for_team(self.team.id).filter(widget=instance.widget).count() == 1
 
+    @override_settings(
+        AI_GATEWAY_URL="https://ai-gateway.example/v1",
+        AI_GATEWAY_API_KEY="phs_shared_key",
+        AI_GATEWAY_REDIS_URL="redis://gateway",
+    )
     def test_generation_worker_persists_an_advisory_review_before_publication(self) -> None:
         instance = self._mapping()
         base_version = self._pinned_version(instance)
@@ -1576,8 +1647,22 @@ class TestWidgetData(APIBaseTest):
         )
         publication_id = uuid4()
         events: list[str] = []
+        gateway_api_keys: list[str] = []
 
-        def perform_review(**_kwargs: object) -> WidgetSecurityReview:
+        def generate_source(**kwargs: object) -> GeneratedWidgetSource:
+            gateway_api_key = cast(str, kwargs["api_key"])
+            credential = find_project_secret_api_key(gateway_api_key)
+            assert credential is not None
+            assert credential.team_id == self.team.id
+            assert credential.scopes == ["llm_gateway:read"]
+            gateway_api_keys.append(gateway_api_key)
+            return GeneratedWidgetSource(title="Lighter globe", source=source)
+
+        def perform_review(**kwargs: object) -> WidgetSecurityReview:
+            gateway_api_key = cast(str, kwargs["api_key"])
+            assert gateway_api_key == gateway_api_keys[0]
+            assert find_project_secret_api_key(gateway_api_key) is not None
+            gateway_api_keys.append(gateway_api_key)
             events.append("review")
             return security_review
 
@@ -1588,12 +1673,14 @@ class TestWidgetData(APIBaseTest):
         with (
             patch(
                 "products.notebooks.backend.widget_generation.generate_widget_source",
-                return_value=GeneratedWidgetSource(title="Lighter globe", source=source),
-            ),
+                side_effect=generate_source,
+            ) as generate,
             patch(
                 "products.notebooks.backend.widget_generation.review_widget_source",
                 side_effect=perform_review,
             ) as review,
+            patch("posthog.storage.gateway_credential_cache.project_gateway_credential") as project_credential,
+            patch("posthog.storage.gateway_credential_signal_handlers._best_effort_clear"),
             patch("products.canvas.backend.notebook_integration.get_notebook_canvas_source", return_value="source"),
             patch(
                 "products.canvas.backend.notebook_integration.prepare_notebook_canvas_source",
@@ -1623,6 +1710,11 @@ class TestWidgetData(APIBaseTest):
         assert version.security_review_model == WIDGET_SECURITY_REVIEW_MODEL
         assert version.security_review_version == "1"
         assert version.security_reviewed_at is not None
+        generate.assert_called_once()
+        assert gateway_api_keys[0] == gateway_api_keys[1]
+        assert find_project_secret_api_key(gateway_api_keys[0]) is None
+        project_credential.assert_called_once()
+        assert project_credential.call_args.args[0].team_id == self.team.id
         review.assert_called_once()
         assert review.call_args.kwargs["team_id"] == self.team.id
         assert review.call_args.kwargs["trace_id"] == f"notebook-widget-security-review-{job.id}"
