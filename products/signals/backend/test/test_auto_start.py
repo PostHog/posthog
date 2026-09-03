@@ -1073,26 +1073,33 @@ _EXISTING_PR_URL = "https://github.com/PostHog/posthog/pull/1"
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("supersede", "run_count", "implemented_at_run_count", "pr_url", "expected_allowed"),
+    ("status", "supersede", "run_count", "implemented_at_run_count", "pr_url", "expected_allowed"),
     [
         # The whole point: a later pass said the fix changed, and the report has a PR to replace.
-        (True, 2, 1, _EXISTING_PR_URL, True),
+        (SignalReport.Status.READY, True, 2, 1, _EXISTING_PR_URL, True),
         # The agent looked and decided the open PR still fits.
-        (False, 2, 1, _EXISTING_PR_URL, False),
+        (SignalReport.Status.READY, False, 2, 1, _EXISTING_PR_URL, False),
         # No decision at all — a first pass, or a report that predates superseding.
-        (None, 2, 1, _EXISTING_PR_URL, False),
+        (SignalReport.Status.READY, None, 2, 1, _EXISTING_PR_URL, False),
         # This pass already opened the replacement. Without this a retried evaluation opens a second.
-        (True, 2, 2, _EXISTING_PR_URL, False),
+        (SignalReport.Status.READY, True, 2, 2, _EXISTING_PR_URL, False),
         # The report's implementation run never opened a PR, so there is nothing to replace. Also
         # covers a report whose only PR came from a "Discuss" task: the handover can never close
         # one, so it must not be resolved here and promised a replacement.
-        (True, 2, 1, None, False),
+        (SignalReport.Status.READY, True, 2, 1, None, False),
+        # The pass that wrote the decision is still running, so the report's summary is the previous
+        # pass's. A reviewer edit landing here would build the replacement from that older prose and
+        # close the PR matching it, and stamp the pass out of its own settle-point turn.
+        (SignalReport.Status.IN_PROGRESS, True, 2, 1, _EXISTING_PR_URL, False),
+        # An archived report keeps its artefacts, so without this an edit could still trade its
+        # reviewed PR for a replacement after the report left the inbox.
+        (SignalReport.Status.SUPPRESSED, True, 2, 1, _EXISTING_PR_URL, False),
     ],
 )
-def test_resolve_supersede(team, supersede, run_count, implemented_at_run_count, pr_url, expected_allowed):
+def test_resolve_supersede(team, status, supersede, run_count, implemented_at_run_count, pr_url, expected_allowed):
     report = SignalReport.objects.create(
         team=team,
-        status=SignalReport.Status.READY,
+        status=status,
         title="t",
         summary="s",
         signal_count=2,

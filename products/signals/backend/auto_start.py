@@ -411,17 +411,24 @@ def _capture_steering_attached(*, team: Team, report_id: str, task_id: str, stee
 def _resolve_supersede(report: SignalReport, decision: ImplementationDecision | None) -> SupersedeDecision:
     """Decide whether this research pass may replace the report's existing implementation.
 
-    Two things must hold. The latest decision says the fix changed, and the report has researched
-    again since the pass its current PR was built from — which is what stops one decision opening
-    two PRs, and what bounds replacements to at most one per research pass. Research itself is
-    capped, so no separate cap is needed here; the last pass a report gets is also the one with the
-    most evidence, so it must stay able to correct the PR.
+    Three things must hold. The latest decision says the fix changed, the report has settled, and it
+    has researched again since the pass its current PR was built from — which is what stops one
+    decision opening two PRs, and what bounds replacements to at most one per research pass.
+    Research itself is capped, so no separate cap is needed here; the last pass a report gets is
+    also the one with the most evidence, so it must stay able to correct the PR.
 
     ``decision`` must be the one the report's current pass wrote. `run_count` cannot tell that on
     its own, because it rises when a pass starts rather than when a pass concludes, so the caller
     drops an older decision before it gets here (see `maybe_autostart_from_report_artefacts`).
     """
     if decision is None or not decision.supersede:
+        return NO_SUPERSEDE
+    if report.status != SignalReport.Status.READY:
+        # A replacement is built from `report.summary`, and the pass that wrote this decision does
+        # not write its prose until it reaches READY. So a re-evaluation that lands mid-pass (a
+        # reviewer edit is one) would build the replacement from the previous pass's summary, close
+        # the pull request that matched it, and spend the running pass's one allowance before its
+        # own settle point gets to. A report that has left the inbox does not replace its PR either.
         return NO_SUPERSEDE
     if report.run_count <= (report.implemented_at_run_count or 0):
         return NO_SUPERSEDE
