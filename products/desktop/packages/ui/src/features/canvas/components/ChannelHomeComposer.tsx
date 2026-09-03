@@ -534,6 +534,7 @@ export const ChannelHomeComposer = forwardRef<
                 supportsPiThinking ? currentPiThinkingLevel : undefined
               }
               thinkingLevels={piThinkingLevels}
+              analyticsSurface="channel_home"
               disabled={isBusy || isPiConfigLoading}
               isLoading={isPiConfigLoading}
               onChange={handlePiModelChange}
@@ -554,6 +555,7 @@ export const ChannelHomeComposer = forwardRef<
               adapter={adapter ?? "claude"}
               contextWindowOption={contextWindowOption}
               fastModeOption={fastModeOption}
+              analyticsSurface="channel_home"
               onChange={handleThoughtChange}
               onModelChange={handleModelChange}
               onAdapterChange={setAdapter}

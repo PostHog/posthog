@@ -1,6 +1,7 @@
 // Analytics event types and properties
 
 import type { Adapter, ModelAccess } from "./adapter";
+import type { AgentRuntime } from "./agent-runtime";
 import type { EffortLevel } from "./domain-types";
 import type { SourceProduct } from "./inbox-types";
 
@@ -418,6 +419,52 @@ export interface ModelSwitchWarningActionProperties
   action: "cancel" | "copy_handoff_summary" | "switch_now";
   result?: "failed" | "succeeded";
 }
+
+export type ModelPickerSurface =
+  | "session"
+  | "task_input"
+  | "channel_home"
+  | "quick_ask_settings"
+  | "task_agent_defaults";
+
+type ModelPickerSelectionControl =
+  | "slider"
+  | "advanced_model"
+  | "advanced_reasoning"
+  | "advanced_context_window"
+  | "advanced_harness"
+  | "advanced_billing"
+  | "fast_mode_toggle"
+  | "reset_default"
+  | "pi_model"
+  | "pi_reasoning"
+  | "pi_harness";
+
+export type ModelPickerInteractionProperties =
+  | {
+      surface: ModelPickerSurface;
+      runtime: AgentRuntime;
+      action: "opened";
+      initial_view: "slider" | "advanced" | "menu";
+    }
+  | {
+      surface: ModelPickerSurface;
+      runtime: AgentRuntime;
+      action: "advanced_opened";
+    }
+  | {
+      surface: ModelPickerSurface;
+      runtime: AgentRuntime;
+      action: "selection";
+      control: "slider";
+      changed: boolean;
+    }
+  | {
+      surface: ModelPickerSurface;
+      runtime: AgentRuntime;
+      action: "selection";
+      control: Exclude<ModelPickerSelectionControl, "slider">;
+    };
 
 // Tour events
 type TourAction = "started" | "step_advanced" | "dismissed" | "completed";
@@ -1557,6 +1604,7 @@ export const ANALYTICS_EVENTS = {
   SESSION_CONFIG_CHANGED: "Session config changed",
   MODEL_SWITCH_WARNING_SHOWN: "Model switch warning shown",
   MODEL_SWITCH_WARNING_ACTION: "Model switch warning action",
+  MODEL_PICKER_INTERACTION: "Model picker interaction",
 
   // Settings events
   SETTING_CHANGED: "Setting changed",
@@ -1765,6 +1813,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SESSION_CONFIG_CHANGED]: SessionConfigChangedProperties;
   [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_SHOWN]: ModelSwitchWarningShownProperties;
   [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION]: ModelSwitchWarningActionProperties;
+  [ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION]: ModelPickerInteractionProperties;
 
   // Settings events
   [ANALYTICS_EVENTS.SETTING_CHANGED]: SettingChangedProperties;

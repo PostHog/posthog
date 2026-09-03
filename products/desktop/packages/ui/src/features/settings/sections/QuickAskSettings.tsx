@@ -105,6 +105,7 @@ function AgentDefaults({
       thoughtOption={thoughtOption}
       modelOption={modelOption}
       adapter={adapter}
+      analyticsSurface="quick_ask_settings"
       onChange={handleThoughtChange}
       onModelChange={handleModelChange}
       onAdapterChange={(next) => {
