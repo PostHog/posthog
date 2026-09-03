@@ -1257,6 +1257,20 @@ class TestTruncateForCapture:
         assert result["$ai_input"] == "small input"
         assert result["$ai_output_choices"] == _TRUNCATION_MARKER
 
+    def test_oversized_ai_error_is_truncated(self) -> None:
+        large_error = "Error: Upstream provider failure: " + ("E" * (_MAX_SIZE + 1000))
+        properties = {
+            "$ai_model": "claude-3-opus",
+            "$ai_is_error": True,
+            "$ai_error": large_error,
+        }
+
+        result = _truncate_for_capture(properties)
+
+        assert _TRUNCATION_MARKER in result["$ai_error"]
+        assert result["$ai_error"].startswith("Error: Upstream provider failure:")
+        assert len(json.dumps(result)) <= _MAX_SIZE
+
     @pytest.mark.asyncio
     async def test_on_success_truncates_oversized_content(self) -> None:
         mock_client = MagicMock()
@@ -1494,3 +1508,75 @@ class TestTruncateForCapture:
             assert props["$ai_error"] == "Internal Server Error"
             assert props["team_id"] == 456
             assert props["ai_product"] == "wizard"
+
+    @pytest.mark.asyncio
+    async def test_on_failure_with_oversized_ai_error_truncates_error_and_remains_under_max_size(self) -> None:
+        mock_client = MagicMock()
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        auth_user = AuthenticatedUser(user_id=123, team_id=456, auth_method="personal_api_key", distinct_id="user-123")
+        large_error = "ProviderError: " + ("E" * (1024 * 1024))
+
+        kwargs = {
+            "standard_logging_object": {
+                "model": "claude-3-opus",
+                "custom_llm_provider": "anthropic",
+                "error_str": large_error,
+            },
+            "litellm_params": {},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+        ):
+            await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert len(json.dumps(props)) <= _MAX_SIZE
+            assert props["$ai_is_error"] is True
+            assert _TRUNCATION_MARKER in props["$ai_error"]
+            assert props["$ai_error"].startswith("ProviderError:")
+            assert props["team_id"] == 456
+
+    def test_extract_metadata_excludes_litellm_hidden_params_and_optional_params(self) -> None:
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        kwargs = {
+            "litellm_params": {
+                "metadata": {
+                    "user_stage": "production",
+                    "token_count": 128,
+                    "hidden_params": {
+                        "api_base": "https://api.openai.com/v1",
+                        "response_headers": {"x-request-id": "req-123"},
+                        "optional_params": {"oauth_client_secret": "sensitive-oauth-secret"},
+                    },
+                    "api_base": "https://api.openai.com/v1",
+                    "optional_params": {"key": "val"},
+                    "response_headers": {"server": "cloudflare"},
+                }
+            }
+        }
+        with patch("llm_gateway.callbacks.posthog.get_caller_metadata", return_value=None):
+            extracted = callback._extract_metadata(kwargs)
+
+        assert extracted == {"user_stage": "production", "token_count": 128}
+        assert "hidden_params" not in extracted
+        assert "api_base" not in extracted
+        assert "optional_params" not in extracted
+        assert "response_headers" not in extracted
+
+    def test_extract_metadata_prefers_caller_metadata_from_request_context(self) -> None:
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        caller_metadata = {"client_passed_property": "secure_value"}
+        kwargs = {
+            "litellm_params": {
+                "metadata": {
+                    "litellm_internal_field": "should_be_ignored",
+                }
+            }
+        }
+        with patch("llm_gateway.callbacks.posthog.get_caller_metadata", return_value=caller_metadata):
+            extracted = callback._extract_metadata(kwargs)
+
+        assert extracted == caller_metadata

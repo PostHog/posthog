@@ -40,6 +40,15 @@ throttle_context_var: ContextVar[ThrottleContext | None] = ContextVar("throttle_
 auth_user_var: ContextVar[AuthenticatedUser | None] = ContextVar("auth_user", default=None)
 time_to_first_token_var: ContextVar[float | None] = ContextVar("time_to_first_token", default=None)
 effort_var: ContextVar[str | None] = ContextVar("effort", default=None)
+caller_metadata_var: ContextVar[dict[str, Any] | None] = ContextVar("caller_metadata", default=None)
+
+
+def get_caller_metadata() -> dict[str, Any] | None:
+    return caller_metadata_var.get()
+
+
+def set_caller_metadata(metadata: dict[str, Any] | None) -> None:
+    caller_metadata_var.set(metadata)
 
 
 def get_request_context() -> RequestContext | None:
@@ -170,6 +179,7 @@ def extract_posthog_use_bedrock_fallback_from_headers(request: Request) -> bool 
 
 
 def rebuild_request_context(product: str) -> None:
+    set_caller_metadata(None)
     ctx = request_context_var.get()
     if ctx is None:
         set_request_context(RequestContext(request_id="", product=product))

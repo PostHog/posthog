@@ -23,6 +23,7 @@ from llm_gateway.observability import capture_exception
 from llm_gateway.request_context import (
     rebuild_request_context,
     set_auth_user,
+    set_caller_metadata,
     set_effort,
     set_time_to_first_token,
 )
@@ -239,6 +240,9 @@ async def handle_llm_request(
 
     rebuild_request_context(product)
     set_auth_user(user)
+
+    raw_metadata = request_data.get("metadata")
+    set_caller_metadata(dict(raw_metadata) if isinstance(raw_metadata, dict) else None)
 
     # Stash effort for the PostHog callback to stamp on the $ai_generation event (mirrors
     # time_to_first_token). Set unconditionally so a stale value can't leak if the context

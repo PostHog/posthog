@@ -15,6 +15,7 @@ from llm_gateway.products.config import get_product_config
 from llm_gateway.rate_limiting.cost_refresh import normalize_metric_labels
 from llm_gateway.request_context import (
     get_auth_user,
+    get_caller_metadata,
     get_effort,
     get_posthog_flags,
     get_posthog_properties,
@@ -133,6 +134,11 @@ _LITELLM_INTERNAL_METADATA_KEYS = frozenset({
     "user_api_key_end_user_id",
     "user_id",
     "headers",
+    "response_headers",
+    "additional_headers",
+    "api_base",
+    "optional_params",
+    "hidden_params",
     "authorization",
     "authorization_header",
     "auth",
@@ -142,6 +148,7 @@ _LITELLM_INTERNAL_METADATA_KEYS = frozenset({
     "api_secret_key",
     "client_secret",
     "client_token",
+    "oauth_client_secret",
     "secret_key",
     "private_key",
     "access_token",
@@ -294,6 +301,21 @@ def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
                 result.pop(key, None)
             if current_size <= _MAX_CAPTURE_SIZE:
                 return result
+
+    # Phase 3: If still oversized before returning, truncate $ai_error so provider error events are not dropped.
+    # Preserve the beginning of the error message for debugging while appending the truncation marker.
+    if current_size > _MAX_CAPTURE_SIZE and "$ai_error" in result and result["$ai_error"] != _TRUNCATION_MARKER:
+        err_val = result["$ai_error"]
+        err_str = err_val if isinstance(err_val, str) else json.dumps(err_val, default=str)
+        head_limit = 2048
+        if len(err_str) > head_limit:
+            truncated_err = err_str[:head_limit] + " " + _TRUNCATION_MARKER
+        else:
+            truncated_err = _TRUNCATION_MARKER
+        old_len = len(json.dumps(err_val, default=str))
+        new_len = len(json.dumps(truncated_err))
+        current_size -= max(0, old_len - new_len)
+        result["$ai_error"] = truncated_err
 
     return result
 
@@ -597,5 +619,24 @@ class PostHogCallback(InstrumentedCallback):
             client.shutdown()
 
     def _extract_metadata(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        caller_metadata = get_caller_metadata()
+        if caller_metadata is not None:
+            return caller_metadata
+
         litellm_params = kwargs.get("litellm_params", {}) or {}
-        return litellm_params.get("metadata", {}) or {}
+        raw_metadata = litellm_params.get("metadata")
+        if not isinstance(raw_metadata, dict):
+            raw_metadata = kwargs.get("metadata")
+        if not isinstance(raw_metadata, dict):
+            standard_logging_object = kwargs.get("standard_logging_object", {}) or {}
+            raw_metadata = standard_logging_object.get("metadata")
+        if not isinstance(raw_metadata, dict):
+            return {}
+
+        return {
+            k: v
+            for k, v in raw_metadata.items()
+            if isinstance(k, str)
+            and k not in _LITELLM_INTERNAL_METADATA_KEYS
+            and k != "hidden_params"
+        }
