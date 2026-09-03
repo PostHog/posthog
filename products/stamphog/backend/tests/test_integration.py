@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 from pathlib import Path
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -2264,7 +2265,6 @@ def test_mint_pins_allowed_models_when_configured(team, stamphog_chain: Stamphog
             **_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5", "claude-haiku-4-5", ""]
         ),
         patch.object(activities.requests, "post", mint),
-        patch.object(activities.activity.logger, "warning") as warning,
     ):
         stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
 
@@ -2272,8 +2272,6 @@ def test_mint_pins_allowed_models_when_configured(team, stamphog_chain: Stamphog
     assert mint.call_args_list[0].kwargs["json"]["allowed_models"] == ["claude-sonnet-5", "claude-haiku-4-5"]
     env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
     assert env["AI_GATEWAY_API_KEY"] == "phe_run"
-    # An honored pin is silent; the warning is for a gateway that dropped it.
-    assert not any("without a model pin" in str(call.args[0]) for call in warning.call_args_list)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -2286,33 +2284,36 @@ def test_mint_omits_allowed_models_by_default(team, stamphog_chain: StamphogChai
     with (
         override_settings(**_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=[]),
         patch.object(activities.requests, "post", mint),
-        patch.object(activities.activity.logger, "warning") as warning,
     ):
         stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
 
     assert "allowed_models" not in mint.call_args_list[0].kwargs["json"]
-    # No pin was asked for, so a missing echo is not a dropped pin.
-    assert not any("without a model pin" in str(call.args[0]) for call in warning.call_args_list)
+    # No pin was asked for, so a missing echo is not a dropped pin and the review runs.
+    env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
+    assert env["AI_GATEWAY_API_KEY"] == "phe_run"
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_mint_warns_when_the_gateway_ignores_the_model_pin(team, stamphog_chain: StamphogChain) -> None:
-    # A gateway replica that predates the pin field mints an unpinned token. The review still runs
-    # (the token works); the missing echo is logged so the unpinned state is visible.
+def test_mint_fails_closed_when_the_gateway_ignores_the_model_pin(team, stamphog_chain: StamphogChain) -> None:
+    # A gateway replica that predates the pin field ignores it and mints an unpinned token. The
+    # token is revoked and the run fails: a sandbox never sees a credential looser than asked for.
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 120, "sha120a")
-    mint = MagicMock(return_value=_mint_response(201, {"token": "phe_run"}))
+    mint = MagicMock(side_effect=[_mint_response(201, {"token": "phe_run"}), _mint_response(200, {"revoked": True})])
 
     with (
         override_settings(**_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5"]),
         patch.object(activities.requests, "post", mint),
-        patch.object(activities.activity.logger, "warning") as warning,
     ):
         stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
 
-    assert any("without a model pin" in str(call.args[0]) for call in warning.call_args_list)
-    env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
-    assert env["AI_GATEWAY_API_KEY"] == "phe_run"
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert run.status == ReviewRunStatus.FAILED
+    assert "model pin" in (run.error or "")
+    assert stamphog_chain.sandbox_class.created_configs == []
+    _, revoke_call = mint.call_args_list
+    assert revoke_call.args == ("https://ai-gateway.test/v1/tokens/revoke",)
+    assert revoke_call.kwargs["json"] == {"token": "phe_run"}
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -2362,7 +2363,7 @@ def test_scoped_token_is_revoked_when_the_sandbox_phase_fails(team, stamphog_cha
     # a live token minted for it, and the token dies with the attempt.
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 123, "sha123a")
-    broken_sandbox = fakes.make_fake_sandbox_class(fakes.approved_engine_output())
+    broken_sandbox: Any = fakes.make_fake_sandbox_class(fakes.approved_engine_output())
     broken_sandbox.create_error = RuntimeError("modal is down")
     mint = MagicMock(side_effect=[_mint_response(201, {"token": "phe_run"}), _mint_response(200, {"revoked": True})])
 

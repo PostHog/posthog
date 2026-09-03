@@ -179,8 +179,9 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
 
     Pinned to product and team and capped in spend and lifetime, so a leak buys little. Retries once
     on 429, 5xx and network errors; any other refusal is final, and hosted runs have no shared-key
-    fallback. Kept separate from the tasks and wizard minters: each product owns its failure
-    posture, and this cap and TTL are documented invariants rather than ops knobs.
+    fallback. A token minted without a requested model pin is revoked and fails the run. Kept
+    separate from the tasks and wizard minters: each product owns its failure posture, and this cap
+    and TTL are documented invariants rather than ops knobs.
     """
     body: dict[str, object] = {
         "cap_usd": _REVIEWER_TOKEN_CAP_USD,
@@ -215,8 +216,13 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
                     payload, token = {}, None
                 if token:
                     if allowed_models and not payload.get("allowed_models"):
-                        # A gateway without the pin field ignores it; the token works unpinned, so warn.
-                        activity.logger.warning(f"Run {run.id}: gateway minted the reviewer token without a model pin")
+                        # A gateway that predates the pin field ignores it and mints an unpinned token.
+                        _release_reviewer_token(gateway, token)
+                        AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned").inc()
+                        raise RuntimeError(
+                            "The gateway minted the reviewer token without the required model pin; "
+                            "hosted reviews require the LLM gateway"
+                        )
                     AI_GATEWAY_TOKEN_MINTS.labels(result="ok").inc()
                     return token
                 last_error = "mint response carried no token"
