@@ -202,12 +202,21 @@ def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
     # The estimate is advisory — never fail a scanner save over it, and keep the save's latency tail short.
     try:
         refresh_scanner_estimate(scanner, budget=SAVE_ESTIMATE_BUDGET)
-    except (ValidationError, PermissionDenied):
-        # The targeted experiment cannot give an exposed population. The usual case is a draft
-        # experiment created together with the scanner, which the hourly refresher picks up after
-        # launch. The creator can also have lost experiment access. The sweep skips the same two
-        # states, so keep them off the error path here.
-        logger.info("replay_vision.estimate_linkage_unresolved", scanner_id=str(scanner.id))
+    except (ValidationError, PermissionDenied) as error:
+        # The estimate cannot resolve the scanner's population, so it has nothing to count. Three
+        # groups of causes reach here, and the sweep skips its tick on the same set. The experiment
+        # cannot answer for its exposed sessions: a draft that has not launched, a deleted
+        # experiment, no feature flag, group aggregation, no variants, a variant that was renamed
+        # away, or exposures that are still computing. The creator lost access to the experiment.
+        # Or the persisted query can no longer build, for example a deleted action or a bad cohort
+        # reference. A save must not fail on any of them, and the usual one is the draft a wizard
+        # creates next to the scanner, so log the reason at info and leave the error path clear.
+        # `reason` takes `detail` because a DRF ValidationError stringifies as an ErrorDetail list.
+        logger.info(
+            "replay_vision.estimate_linkage_unresolved",
+            scanner_id=str(scanner.id),
+            reason=error.detail,
+        )
     except Exception:
         logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
 

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.utils import timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.exceptions import (
     PermissionDenied,
     ValidationError as DRFValidationError,
@@ -383,11 +384,18 @@ class TestRefreshScannerEstimateActivity:
     )
     def test_reports_an_unresolvable_experiment_as_not_refreshed(self, _name: str, error: Exception) -> None:
         scanner = _make_scanner()
+        labels = {"outcome": "experiment_linkage_unresolved"}
+        before = REGISTRY.get_sample_value("replay_vision_estimate_outcomes_total", labels) or 0.0
+
         with patch(_ACTIVITY_HELPER, side_effect=error):
             refreshed = refresh_scanner_estimate_activity(
                 RefreshScannerEstimateInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
+
         assert refreshed is False
+        # The workflow discards the return value, so this counter is the only thing that separates a
+        # skipped scanner from a refreshed one.
+        assert REGISTRY.get_sample_value("replay_vision_estimate_outcomes_total", labels) == before + 1
 
 
 @pytest.mark.django_db(transaction=True)
