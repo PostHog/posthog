@@ -29,7 +29,12 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+)
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.organization import OrganizationMembership
@@ -366,6 +371,12 @@ class EnterpriseExperimentsViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object: Literal["experiment"] = "experiment"
+    # A project secret API key can read experiment definitions, so a warehouse or ETL sync runs on
+    # a project-wide credential instead of one tied to a person's account. Reading only: creating
+    # and mutating experiments stays session/PAT/OAuth-only, and `experiment:write` is not a
+    # grantable PSAK scope.
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    psak_allowed_actions = ["list", "retrieve"]
     serializer_class = ExperimentSerializer
     queryset = (
         Experiment.objects.select_related(
