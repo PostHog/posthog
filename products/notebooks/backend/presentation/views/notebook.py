@@ -78,6 +78,7 @@ from products.notebooks.backend.facade.widgets import (
     WidgetError,
     WidgetPermissions,
     WidgetRateLimitError,
+    call_widget_tool,
     cancel_widget_generation,
     get_widget_status,
     infer_widget_inputs,
@@ -158,7 +159,6 @@ from products.notebooks.backend.sql_v2_variables import (
 )
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
-from products.notebooks.backend.widget_tools import call_widget_tool
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 

@@ -5,6 +5,7 @@ from products.notebooks.backend.widget_models import (
     WIDGET_MODEL_CHOICES,
     WidgetPermissions,
 )
+from products.notebooks.backend.widget_tools import call_widget_tool
 from products.notebooks.backend.widgets import (
     WidgetConflictError,
     WidgetError,
@@ -30,6 +31,7 @@ __all__ = [
     "WidgetError",
     "WidgetRateLimitError",
     "WidgetPermissions",
+    "call_widget_tool",
     "cancel_widget_generation",
     "get_widget_status",
     "infer_widget_inputs",
