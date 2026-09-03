@@ -854,7 +854,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     570: ErrorCodeMeta("DATA_TYPE_INCOMPATIBLE_WITH_PROTOBUF_FIELD"),
     571: ErrorCodeMeta("DATABASE_REPLICATION_FAILED"),
     572: ErrorCodeMeta(
-        "TOO_MANY_QUERY_PLAN_OPTIMIZATIONS", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR
+        # The raw CH message names only an internal optimizer limit, so we tell the user what to do instead.
+        "TOO_MANY_QUERY_PLAN_OPTIMIZATIONS",
+        user_safe="This query is too complex to plan. Simplify it, for example with fewer joins, subqueries, or filter conditions.",
+        category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
     ),  # optimizer exceeded max iteration passes
     573: ErrorCodeMeta("EPOLL_ERROR"),
     574: ErrorCodeMeta("DISTRIBUTED_TOO_MANY_PENDING_BYTES"),
