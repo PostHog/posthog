@@ -28,6 +28,24 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose builds to read.
+    canvas-connectors-retrieve:
+        operation: canvases_connectors_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List canvas connectors
+        description: >
+            List the connector catalog a canvas can read live third-party data through with `ph.connectors.call`: every
+            native provider (GitHub) and every MCP store server the authenticated user has connected, each with its
+            tools, their argument schemas, and authoring docs. Use this before writing a canvas that shows pull
+            requests, calendar events, issues, or any other data that must stay fresh per viewer, then declare each
+            provider and tool you call in the project's `capabilities.connectors`. Calls run with the VIEWER's own
+            connection at view time, never the author's, so results are never baked into the source. Only read-only
+            tools may be declared. Pass `mcp_hosts` to include a server the user has not connected yet.
     canvas-create:
         operation: canvases_create
         enabled: true
@@ -308,27 +326,6 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose source to read.
-    canvas-connectors-retrieve:
-        operation: canvases_connectors_retrieve
-        enabled: true
-        scopes:
-            - canvas:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List canvas connectors
-        description: >
-            List the connector catalog a canvas can read live third-party data through with `ph.connectors.call`:
-            every native provider (GitHub) and every MCP store server the authenticated user has connected, each
-            with its tools, their argument schemas, and authoring docs. Use this before writing a canvas that shows
-            pull requests, calendar events, issues, or any other data that must stay fresh per viewer, then declare
-            each provider and tool you call in the project's `capabilities.connectors`. Calls run with the VIEWER's
-            own connection at view time, never the author's, so results are never baked into the source. Only
-            read-only tools may be declared. Pass `mcp_hosts` to include a server the user has not connected yet.
-    canvases-connectors-call:
-        operation: canvases_connectors_call
-        enabled: false
     canvas-state-retrieve:
         operation: canvases_state_retrieve
         enabled: true
@@ -385,6 +382,9 @@ tools:
         enabled: false
     canvases-build-action-create:
         operation: canvases_build_action_create
+        enabled: false
+    canvases-connectors-call:
+        operation: canvases_connectors_call
         enabled: false
     canvases-destroy:
         operation: canvases_destroy
