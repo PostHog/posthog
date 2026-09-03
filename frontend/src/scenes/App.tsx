@@ -15,7 +15,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
 import { OAuthCallback } from 'lib/oauth/OAuthCallback'
 import { oauthLogic } from 'lib/oauth/oauthLogic'
-import { retryImport } from 'lib/utils/retryImport'
+import { lazyWithRetry, retryImport } from 'lib/utils/retryImport'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -33,8 +33,8 @@ const AuthenticatedShell = React.lazy(() => retryImport(() => import('./Authenti
 // graph is most of the authenticated navigation. Importing it here put ~3.7 MiB of logged-in UI on
 // the boot path that /login and /signup preload. Its dependencies already ship with the shell, so
 // for logged-in users this chunk is small and is prefetched alongside the shell below.
-const ProductEmptyStateGate = React.lazy(() =>
-    retryImport(() => import('lib/components/ProductEmptyState/ProductEmptyStateGate')).then((m) => ({
+const ProductEmptyStateGate = lazyWithRetry(() =>
+    import('lib/components/ProductEmptyState/ProductEmptyStateGate').then((m) => ({
         default: m.ProductEmptyStateGate,
     }))
 )
