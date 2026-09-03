@@ -44,6 +44,19 @@ describe('columnConfiguratorLogic', () => {
         })
     })
 
+    it('edits the column at the index the editor was opened on', async () => {
+        await expectLogic(logic, () => logic.actions.openColumnEditor(2)).toMatchValues({
+            editingColumnIndex: 2,
+            editingColumn: 'ant',
+        })
+
+        await expectLogic(logic, () => logic.actions.setColumns(['a', 'b', 'anteater', 'aardvark'])).toMatchValues({
+            columns: ['a', 'b', 'anteater', 'aardvark'],
+            editingColumnIndex: null,
+            editingColumn: null,
+        })
+    })
+
     it('cannot duplicate columns', async () => {
         await expectLogic(logic, () => {
             logic.actions.selectColumn('added')
