@@ -572,18 +572,24 @@ class TileLayoutsSerializer(serializers.Serializer):
 
 
 class CreateTextTileRequestSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=["text", "image"],
+        required=False,
+        default="text",
+        help_text="Tile type. Use image for a body with exactly one Markdown image. Defaults to text.",
+    )
     body = serializers.CharField(
         min_length=1,
         max_length=4000,
         required=True,
         allow_blank=False,
         help_text=(
-            "Markdown body for the text tile. Supports headings, lists, and inline formatting. "
-            "Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters."
+            "Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. "
+            "Image tiles require exactly one Markdown image. Max 4000 characters."
         ),
         error_messages={
-            "min_length": "Text body cannot be empty",
-            "max_length": "Text body cannot exceed 4000 characters",
+            "min_length": "Tile body cannot be empty",
+            "max_length": "Tile body cannot exceed 4000 characters",
         },
     )
     layouts = TileLayoutsSerializer(
@@ -1673,7 +1679,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
             new_data.pop("dashboards", None)
             new_tags = new_data.pop("tags", None)
             insight_serializer = InsightSerializer(data=new_data, context=self.context)
-            insight_serializer.is_valid()
+            if not insight_serializer.is_valid():
+                # `save()` on an invalid serializer is a 500 that names no tile. The copy fails
+                # whenever it inherits something invalid, such as a name that " (Copy)" pushes
+                # past the column limit, or a definition the insight write rules reject.
+                source = existing_tile.insight
+                reasons = "; ".join(
+                    f"{field}: {' '.join(str(message) for message in messages)}"
+                    for field, messages in insight_serializer.errors.items()
+                )
+                raise exceptions.ValidationError(
+                    f'Can\'t copy the insight "{source.name or source.derived_name or source.short_id}". {reasons}'
+                )
             insight_serializer.save()
             insight = cast(Insight, insight_serializer.instance)
 

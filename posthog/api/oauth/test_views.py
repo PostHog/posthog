@@ -3755,6 +3755,38 @@ class TestOAuthAPI(APIBaseTest):
             self.assertEqual(data["token_type"], "refresh_token")
             self.assertNotIn("scope", data)
 
+    @parameterized.expand(["access_token", "refresh_token"])
+    def test_introspection_with_bearer_token_rejects_a_different_applications_token(self, token_type):
+        # The `introspection` scope says the caller may introspect, not whose tokens it may
+        # read. Any self-registered client can obtain the scope, so without an ownership
+        # check the bearer path reads back every other application's tokens.
+        caller_token, _ = self._create_access_and_refresh_tokens(scopes="openid introspection")
+
+        other_app = OAuthApplication.objects.create(
+            name="Other Bearer App",
+            client_id="other_bearer_client_id",
+            client_secret="other_bearer_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://other.example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+        )
+        other_access_token, other_refresh_token = self._create_token_pair_for_app(other_app)
+        token = other_access_token if token_type == "access_token" else other_refresh_token
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": token.token},
+            headers={"Authorization": f"Bearer {caller_token.token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["active"])
+        self.assertEqual(len(data), 1)
+
     def test_introspection_with_invalid_token(self):
         authorization_header = self.get_basic_auth_header(
             "test_confidential_client_id", "test_confidential_client_secret"
@@ -3974,6 +4006,41 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertFalse(data["active"])
+
+    @parameterized.expand(
+        [
+            ("access_token_deactivated_user", "access_token", "deactivated", False),
+            ("refresh_token_deactivated_user", "refresh_token", "deactivated", False),
+            # Client-credentials grants have no resource owner, so a userless access
+            # token must stay introspectable. OAuthRefreshToken.user is not nullable.
+            ("access_token_without_user", "access_token", "userless", True),
+        ]
+    )
+    def test_introspection_reflects_token_user_status(
+        self, _name: str, token_type: str, user_state: str, expected_active: bool
+    ):
+        access_token, refresh_token = self._create_access_and_refresh_tokens()
+        token = access_token if token_type == "access_token" else refresh_token
+
+        if user_state == "deactivated":
+            self.user.is_active = False
+            self.user.save()
+        else:
+            access_token.user = None
+            access_token.save()
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": token.token},
+            headers={
+                "Authorization": self.get_basic_auth_header(
+                    "test_confidential_client_id", "test_confidential_client_secret"
+                )
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["active"], expected_active)
 
     def test_self_introspection_with_revoked_token_fails(self):
         """A revoked (deleted) token cannot self-introspect."""

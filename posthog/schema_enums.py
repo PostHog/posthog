@@ -527,11 +527,6 @@ class AssistantTool(StrEnum):
     LABEL_REPLAY_VISION_OBSERVATION = "label_replay_vision_observation"
     ANALYZE_REPLAY_VISION_IMPACT = "analyze_replay_vision_impact"
     SUGGEST_REPLAY_VISION_TAGS = "suggest_replay_vision_tags"
-    READ_REPLAY_VISION_ACTIONS = "read_replay_vision_actions"
-    UPDATE_REPLAY_VISION_ACTION = "update_replay_vision_action"
-    DELETE_REPLAY_VISION_ACTION = "delete_replay_vision_action"
-    RUN_REPLAY_VISION_ACTION = "run_replay_vision_action"
-    CREATE_REPLAY_VISION_ACTION = "create_replay_vision_action"
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
     OPEN_ACCOUNT = "open_account"
@@ -693,6 +688,13 @@ class ChartDisplayType(StrEnum):
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
     SCATTER_PLOT = "ScatterPlot"
+
+
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class Curve(StrEnum):
@@ -880,6 +882,21 @@ class CurrencyCode(StrEnum):
     YER = "YER"
     ZAR = "ZAR"
     ZMW = "ZMW"
+
+
+class CustomBotField(StrEnum):
+    FIELD_RAW_USER_AGENT = "$raw_user_agent"
+    FIELD_IP = "$ip"
+    FIELD_LIB = "$lib"
+    FIELD_HOST = "$host"
+    FIELD_PATHNAME = "$pathname"
+    FIELD_CURRENT_URL = "$current_url"
+
+
+class CustomBotMatcher(StrEnum):
+    CONTAINS = "contains"
+    REGEX = "regex"
+    CIDR = "cidr"
 
 
 class CustomChannelField(StrEnum):
@@ -2631,6 +2648,10 @@ class ExternalDataSourceType(StrEnum):
     COOLIFY = "Coolify"
     SOCIAL_PILOT = "SocialPilot"
     ROKT_ADS = "RoktAds"
+    STRATO = "Strato"
+    MEDUSA = "Medusa"
+    MEMBRAIN = "Membrain"
+    RECALL_AI = "RecallAI"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2784,13 +2805,6 @@ class FunnelVizType(StrEnum):
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
     FLOW = "flow"
-
-
-class LegendPosition(StrEnum):
-    TOP = "top"
-    BOTTOM = "bottom"
-    LEFT = "left"
-    RIGHT = "right"
 
 
 class Position(StrEnum):
@@ -3702,6 +3716,7 @@ class ProductKey(StrEnum):
     PIPELINE_DESTINATIONS = "pipeline_destinations"
     PIPELINE_TRANSFORMATIONS = "pipeline_transformations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
+    POSTHOG_AI_ONBOARDING = "posthog_ai_onboarding"
     PRODUCT_ANALYTICS = "product_analytics"
     PRODUCT_TOURS = "product_tours"
     PULSE = "pulse"

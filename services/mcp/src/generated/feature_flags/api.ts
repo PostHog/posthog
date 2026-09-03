@@ -3,12 +3,12 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 21 enabled ops
+ * PostHog API - MCP 25 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
-export const FeatureFlagsCopyFlagsCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsCopyFlagsCreateParams = () => zod.object({
     organization_id: zod
         .string()
         .describe(
@@ -22,7 +22,7 @@ export const featureFlagsCopyFlagsCreateBodyCopyScheduleDefault = false
 export const featureFlagsCopyFlagsCreateBodyDisableCopiedFlagDefault = false
 export const featureFlagsCopyFlagsCreateBodyCopyDependenciesDefault = false
 
-export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
+export const FeatureFlagsCopyFlagsCreateBody = () => zod.object({
     feature_flag_key: zod.string().describe('Key of the feature flag to copy'),
     from_project: zod.number().describe('Source project ID to copy the flag from'),
     target_project_ids: zod
@@ -51,7 +51,7 @@ export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
  *
  * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsListParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -59,7 +59,7 @@ export const FeatureFlagsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsListQueryParams = () => zod.object({
     active: zod.enum(['STALE', 'false', 'true']).optional(),
     archived: zod
         .enum(['false', 'true'])
@@ -108,7 +108,7 @@ export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
  *
  * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -118,7 +118,7 @@ export const FeatureFlagsCreateParams = /* @__PURE__ */ zod.object({
 
 export const featureFlagsCreateBodyFiltersOneEarlyExitDefault = false
 
-export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
+export const FeatureFlagsCreateBody = () => zod.object({
     key: zod.string().optional().describe('Feature flag key.'),
     name: zod
         .string()
@@ -475,7 +475,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
  *
  * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsRetrieveParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -489,7 +489,7 @@ export const FeatureFlagsRetrieveParams = /* @__PURE__ */ zod.object({
  *
  * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -500,7 +500,7 @@ export const FeatureFlagsPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const featureFlagsPartialUpdateBodyFiltersOneEarlyExitDefault = false
 
-export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const FeatureFlagsPartialUpdateBody = () => zod.object({
     key: zod.string().optional().describe('Feature flag key.'),
     name: zod
         .string()
@@ -855,7 +855,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const FeatureFlagsDestroyParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -869,7 +869,7 @@ export const FeatureFlagsDestroyParams = /* @__PURE__ */ zod.object({
  *
  * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsActivityRetrieveParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsActivityRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -882,7 +882,7 @@ export const featureFlagsActivityRetrieveQueryLimitDefault = 10
 
 export const featureFlagsActivityRetrieveQueryPageDefault = 1
 
-export const FeatureFlagsActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsActivityRetrieveQueryParams = () => zod.object({
     limit: zod
         .number()
         .min(1)
@@ -892,9 +892,63 @@ export const FeatureFlagsActivityRetrieveQueryParams = /* @__PURE__ */ zod.objec
 })
 
 /**
+ * Archive a feature flag, hiding it from the default flag list.
+ *
+ * Sets `archived` to true. An archived flag must be disabled, so an enabled flag also gets
+ * `active` set to false in the same write. Targeting, variants and payloads are left as
+ * they are, and linked experiment and survey history is preserved. Archiving an enabled
+ * flag is refused when other active flags depend on it. An already-archived flag is
+ * returned unchanged.
+ */
+export const FeatureFlagsArchiveCreateParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * Get other active flags that depend on this flag.
  */
-export const FeatureFlagsDependentFlagsListParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsDependentFlagsListParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Disable a feature flag.
+ *
+ * Sets `active` to false and changes nothing else. Targeting, variants, payloads, tags and
+ * archived state are left as they are. Refused when other active flags depend on this one.
+ * An already-disabled flag is returned unchanged.
+ *
+ * A disabled flag stops evaluating for every consumer, including a linked experiment or a
+ * session replay setting. Read the full definition first to report that impact.
+ */
+export const FeatureFlagsDisableCreateParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Enable a feature flag.
+ *
+ * Sets `active` to true and changes nothing else. Targeting, variants, payloads, tags and
+ * archived state are left as they are. An archived flag is refused: unarchive it first. A
+ * flag whose own flag dependencies are disabled is also refused. An already-enabled flag
+ * is returned unchanged.
+ */
+export const FeatureFlagsEnableCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -908,7 +962,7 @@ export const FeatureFlagsDependentFlagsListParams = /* @__PURE__ */ zod.object({
  *
  * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsStatusRetrieveParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsStatusRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -924,7 +978,7 @@ export const FeatureFlagsStatusRetrieveParams = /* @__PURE__ */ zod.object({
  * optionally at a historical timestamp. When a timestamp is provided, both the flag
  * conditions and person properties are evaluated as they existed at that time.
  */
-export const FeatureFlagsTestEvaluationCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsTestEvaluationCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -933,7 +987,7 @@ export const FeatureFlagsTestEvaluationCreateParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
+export const FeatureFlagsTestEvaluationCreateBody = () => zod.object({
     distinct_id: zod
         .string()
         .optional()
@@ -952,6 +1006,21 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Restore an archived feature flag to the default flag list.
+ *
+ * Sets `archived` to false and changes nothing else. The flag stays disabled; enable it
+ * with a separate call. An already-unarchived flag is returned unchanged.
+ */
+export const FeatureFlagsUnarchiveCreateParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * Bulk delete feature flags by filter criteria or explicit IDs.
  *
  * Accepts either:
@@ -963,7 +1032,7 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
  * Uses bulk operations for efficiency: database updates are batched and cache
  * invalidation happens once at the end rather than per-flag.
  */
-export const FeatureFlagsBulkDeleteCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsBulkDeleteCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -971,7 +1040,7 @@ export const FeatureFlagsBulkDeleteCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
+export const FeatureFlagsBulkDeleteCreateBody = () => zod.object({
     filters: zod
         .object({
             active: zod
@@ -1033,7 +1102,7 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
  * Get feature flag keys by IDs.
  * Accepts a list of feature flag IDs and returns a mapping of ID to key.
  */
-export const FeatureFlagsBulkKeysRetrieveParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsBulkKeysRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1041,7 +1110,7 @@ export const FeatureFlagsBulkKeysRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const FeatureFlagsBulkKeysRetrieveBody = /* @__PURE__ */ zod.object({
+export const FeatureFlagsBulkKeysRetrieveBody = () => zod.object({
     ids: zod
         .array(zod.unknown())
         .optional()
@@ -1069,7 +1138,7 @@ export const FeatureFlagsBulkKeysRetrieveBody = /* @__PURE__ */ zod.object({
  * - "remove": Remove specific tags from each object
  * - "set": Replace all tags on each object with the provided list
  */
-export const FeatureFlagsBulkUpdateTagsCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsBulkUpdateTagsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1079,7 +1148,7 @@ export const FeatureFlagsBulkUpdateTagsCreateParams = /* @__PURE__ */ zod.object
 
 export const featureFlagsBulkUpdateTagsCreateBodyIdsMax = 500
 
-export const FeatureFlagsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
+export const FeatureFlagsBulkUpdateTagsCreateBody = () => zod.object({
     ids: zod
         .array(zod.number())
         .max(featureFlagsBulkUpdateTagsCreateBodyIdsMax)
@@ -1098,7 +1167,7 @@ export const FeatureFlagsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
  *
  * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsEvaluationReasonsRetrieveParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsEvaluationReasonsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1108,7 +1177,7 @@ export const FeatureFlagsEvaluationReasonsRetrieveParams = /* @__PURE__ */ zod.o
 
 export const featureFlagsEvaluationReasonsRetrieveQueryGroupsDefault = `{}`
 
-export const FeatureFlagsEvaluationReasonsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsEvaluationReasonsRetrieveQueryParams = () => zod.object({
     distinct_id: zod.string().min(1).describe('User distinct ID'),
     flag_keys: zod
         .array(zod.string())
@@ -1127,7 +1196,7 @@ export const FeatureFlagsEvaluationReasonsRetrieveQueryParams = /* @__PURE__ */ 
  *
  * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsMyFlagsRetrieveParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsMyFlagsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1137,7 +1206,7 @@ export const FeatureFlagsMyFlagsRetrieveParams = /* @__PURE__ */ zod.object({
 
 export const featureFlagsMyFlagsRetrieveQueryGroupsDefault = `{}`
 
-export const FeatureFlagsMyFlagsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsMyFlagsRetrieveQueryParams = () => zod.object({
     flag_keys: zod
         .array(zod.string())
         .optional()
@@ -1155,7 +1224,7 @@ export const FeatureFlagsMyFlagsRetrieveQueryParams = /* @__PURE__ */ zod.object
  *
  * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsUserBlastRadiusCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsUserBlastRadiusCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1163,7 +1232,7 @@ export const FeatureFlagsUserBlastRadiusCreateParams = /* @__PURE__ */ zod.objec
         ),
 })
 
-export const FeatureFlagsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
+export const FeatureFlagsUserBlastRadiusCreateBody = () => zod.object({
     condition: zod.record(zod.string(), zod.unknown()).describe('The release condition to evaluate'),
     group_type_index: zod
         .number()
@@ -1174,7 +1243,7 @@ export const FeatureFlagsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object(
 /**
  * Create, read, update and delete scheduled changes.
  */
-export const ScheduledChangesListParams = /* @__PURE__ */ zod.object({
+export const ScheduledChangesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1182,7 +1251,7 @@ export const ScheduledChangesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ScheduledChangesListQueryParams = /* @__PURE__ */ zod.object({
+export const ScheduledChangesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     model_name: zod
         .string()
@@ -1195,7 +1264,7 @@ export const ScheduledChangesListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Create, read, update and delete scheduled changes.
  */
-export const ScheduledChangesCreateParams = /* @__PURE__ */ zod.object({
+export const ScheduledChangesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1208,7 +1277,7 @@ export const scheduledChangesCreateBodyRecordIdMax = 200
 export const scheduledChangesCreateBodyIsRecurringDefault = false
 export const scheduledChangesCreateBodyCronExpressionMax = 100
 
-export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
+export const ScheduledChangesCreateBody = () => zod.object({
     record_id: zod
         .string()
         .max(scheduledChangesCreateBodyRecordIdMax)
@@ -1252,7 +1321,7 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Create, read, update and delete scheduled changes.
  */
-export const ScheduledChangesRetrieveParams = /* @__PURE__ */ zod.object({
+export const ScheduledChangesRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this scheduled change.'),
     project_id: zod
         .string()
@@ -1264,7 +1333,7 @@ export const ScheduledChangesRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Create, read, update and delete scheduled changes.
  */
-export const ScheduledChangesPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const ScheduledChangesPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this scheduled change.'),
     project_id: zod
         .string()
@@ -1277,7 +1346,7 @@ export const scheduledChangesPartialUpdateBodyRecordIdMax = 200
 
 export const scheduledChangesPartialUpdateBodyCronExpressionMax = 100
 
-export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const ScheduledChangesPartialUpdateBody = () => zod.object({
     record_id: zod
         .string()
         .max(scheduledChangesPartialUpdateBodyRecordIdMax)
@@ -1325,7 +1394,7 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * Create, read, update and delete scheduled changes.
  */
-export const ScheduledChangesDestroyParams = /* @__PURE__ */ zod.object({
+export const ScheduledChangesDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this scheduled change.'),
     project_id: zod
         .string()

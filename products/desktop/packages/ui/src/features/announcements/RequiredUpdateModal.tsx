@@ -50,7 +50,7 @@ export function RequiredUpdateModal({
       >
         <AnnouncementHero
           hero={announcement.hero}
-          defaultHedgehog="builder"
+          defaultHedgehog="level-up"
           defaultColor="#f54e00"
         />
         <DialogBody>

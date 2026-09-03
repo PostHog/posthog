@@ -125,6 +125,7 @@ class SensitiveConfig(TypedDict, total=False):
 class TemplateOAuthCredentials(TypedDict, total=False):
     client_id: str
     client_secret: str
+    token_endpoint_auth_method: str
 
 
 InstallSource = Literal["posthog", "twig", "posthog-code"]
@@ -148,12 +149,12 @@ def normalize_mcp_icon_domain(value: str) -> str:
 
 
 class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    """A curated, pre-registered MCP server. PostHog operators register a real
-    OAuth app with the provider ahead of time and paste the client_id /
-    client_secret in Django admin. The credentials are shared across every user
-    who installs the template — users only get their own per-user access/refresh
-    tokens. User-added servers (see MCPServerInstallation without a template
-    FK) go through per-user DCR instead."""
+    """A curated, pre-registered MCP server.
+
+    Shared OAuth clients use an existing instance credential source or encrypted
+    credentials provisioned on the template. Each installation still stores its
+    own user tokens. User-added servers use per-user DCR instead.
+    """
 
     name = models.CharField(max_length=200)
     url = models.URLField(max_length=2048, unique=True)
@@ -168,6 +169,8 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default="dev", db_default="dev")
     oauth_issuer_url = models.URLField(max_length=2048, blank=True, default="")
     oauth_metadata = models.JSONField(default=dict, blank=True)
+    oauth_scope_allowlist = models.JSONField(null=True, blank=True, default=None)
+    oauth_credentials_source = models.CharField(max_length=64, blank=True, default="", db_default="")
     oauth_credentials = EncryptedJSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=False)
 
@@ -328,6 +331,11 @@ class MCPGatewayServer(TeamScopedRootMixin, UUIDModel):
     template = models.ForeignKey(
         MCPServerTemplate, on_delete=models.SET_NULL, related_name="gateway_servers", null=True, blank=True
     )
+    # How members authenticate to a custom server, copied from the credential
+    # that registered the row. Later connections follow it instead of asking
+    # each member to guess. Templates carry their own auth_type. Blank on rows
+    # that predate the column; members then choose.
+    auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, blank=True, default="", db_default="")
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )

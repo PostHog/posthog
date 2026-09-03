@@ -157,17 +157,24 @@ interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
 }
 
 function getRegexValidationError(operator: PropertyOperator, value: any): string | null {
-    if (isOperatorRegex(operator)) {
+    if (!isOperatorRegex(operator)) {
+        return null
+    }
+    // A regex operator can hold several values (e.g. a multi-value `visited_page` filter), so the
+    // value is an array. RE2JS.compile expects a single string and crashes on an array, so validate
+    // each pattern and surface the first that fails.
+    const patterns: unknown[] = Array.isArray(value) ? value : [value]
+    for (const pattern of patterns) {
         try {
-            RE2JS.compile(value)
+            RE2JS.compile(String(pattern))
         } catch (error) {
-            return formatRE2Error(error as Error, value)
+            return formatRE2Error(error as Error, String(pattern))
         }
     }
     return null
 }
 
-function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
+export function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
     const regexErrorMessage = getRegexValidationError(operator, value)
     if (regexErrorMessage != null) {
         return regexErrorMessage

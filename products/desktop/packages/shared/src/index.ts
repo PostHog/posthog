@@ -15,6 +15,7 @@ export type {
   AgentToolCallLocation,
   AgentToolCallStatus,
   AgentToolKind,
+  AgentTurnUsage,
 } from "./agent-conversation";
 export * from "./agent-runtime";
 export * from "./analytics-events";
@@ -142,6 +143,7 @@ export {
   isNotAuthenticatedError,
   isRateLimitError,
   isTransientUpstreamError,
+  isTurnEndedWithoutResponseError,
   NotAuthenticatedError,
   type PromptFailure,
   type PromptFailureKind,

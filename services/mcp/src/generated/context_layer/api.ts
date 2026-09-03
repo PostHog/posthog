@@ -12,7 +12,7 @@ import * as zod from 'zod'
  * The channel's page path. When the channel has no page yet, responds with the canonical path to create it at and `exists: false`.
  * @summary Resolve a channel's wiki page
  */
-export const ContextLayerAgentChannelPagesRetrieveParams = /* @__PURE__ */ zod.object({
+export const ContextLayerAgentChannelPagesRetrieveParams = () => zod.object({
     channel_id: zod.string(),
     project_id: zod
         .string()
@@ -32,7 +32,7 @@ export const ContextLayerAgentChannelPagesRetrieveParams = /* @__PURE__ */ zod.o
  * organization it may act for, and is not a scope on the wiki itself.
  * @summary Read a wiki page
  */
-export const ContextLayerAgentPagesRetrieveParams = /* @__PURE__ */ zod.object({
+export const ContextLayerAgentPagesRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -40,7 +40,7 @@ export const ContextLayerAgentPagesRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ContextLayerAgentPagesRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const ContextLayerAgentPagesRetrieveQueryParams = () => zod.object({
     path: zod.string().describe('Repo-relative Markdown path of the page to read.'),
 })
 
@@ -55,7 +55,7 @@ export const ContextLayerAgentPagesRetrieveQueryParams = /* @__PURE__ */ zod.obj
  * organization it may act for, and is not a scope on the wiki itself.
  * @summary Create or replace a wiki page
  */
-export const ContextLayerAgentPagesUpdateParams = /* @__PURE__ */ zod.object({
+export const ContextLayerAgentPagesUpdateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -67,7 +67,7 @@ export const contextLayerAgentPagesUpdateBodyPathMax = 512
 
 export const contextLayerAgentPagesUpdateBodyContentMax = 1000000
 
-export const ContextLayerAgentPagesUpdateBody = /* @__PURE__ */ zod
+export const ContextLayerAgentPagesUpdateBody = () => zod
     .object({
         path: zod
             .string()
