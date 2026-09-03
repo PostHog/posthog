@@ -8,6 +8,12 @@ import { NotebookNodeType } from 'scenes/notebooks/types'
 // The removed code cells (in-browser-kernel Python, DuckDB SQL, HogQL SQL) and the sandbox-kernel
 // cell each one becomes. The legacy SQL cells named their dataframe `duck_df` / `hogql_df` when the
 // author never set a name, so that default is written out to keep downstream references working.
+//
+// A DuckSQL cell also changes dialect. SQLV2 picks its engine per run: it goes to DuckDB only when
+// the query reads a frame that a Python cell made, and to HogQL against ClickHouse otherwise. So a
+// converted DuckSQL cell that used DuckDB-only syntax reports a query error until its author adapts
+// the code. That is still better than skipping the conversion, because an unconverted legacy tag
+// renders as an unknown component and cannot run at all.
 const LEGACY_CODE_CELL_TAGS: Record<string, { tagName: string; defaultReturnVariable: string | null }> = {
     Python: { tagName: 'PythonV2', defaultReturnVariable: null },
     DuckSQL: { tagName: 'SQLV2', defaultReturnVariable: 'duck_df' },
