@@ -237,6 +237,80 @@ const heatmapsSavedUpdate = (): ToolBase<
     },
 })
 
+const WebAnalyticsBotRulesListSchema = () => z.object({})
+
+const webAnalyticsBotRulesList = (): ToolBase<
+    ReturnType<typeof WebAnalyticsBotRulesListSchema>,
+    WithPostHogUrl<Schemas.CustomBotRule[]>
+> => ({
+    name: 'web-analytics-bot-rules-list',
+    schema: WebAnalyticsBotRulesListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof WebAnalyticsBotRulesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomBotRule[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/`,
+        })
+        return await withPostHogUrl(context, result, '/web')
+    },
+})
+
+const WebAnalyticsBotRulesCreateSchema = () => {
+    const WebAnalyticsBotRulesCreateBody = orvalSchemas.WebAnalyticsBotRulesCreateBody()
+    return WebAnalyticsBotRulesCreateBody
+}
+
+const webAnalyticsBotRulesCreate = (): ToolBase<
+    ReturnType<typeof WebAnalyticsBotRulesCreateSchema>,
+    Schemas.CustomBotRule
+> => ({
+    name: 'web-analytics-bot-rules-create',
+    schema: WebAnalyticsBotRulesCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WebAnalyticsBotRulesCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
+        if (params.matcher !== undefined) {
+            body['matcher'] = params.matcher
+        }
+        if (params.pattern !== undefined) {
+            body['pattern'] = params.pattern
+        }
+        if (params.category !== undefined) {
+            body['category'] = params.category
+        }
+        const result = await context.api.request<Schemas.CustomBotRule>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/`,
+            body,
+        })
+        return result
+    },
+})
+
+const WebAnalyticsBotRulesDestroySchema = () => {
+    const WebAnalyticsBotRulesDestroyParams = orvalSchemas.WebAnalyticsBotRulesDestroyParams()
+    return WebAnalyticsBotRulesDestroyParams.omit({ project_id: true })
+}
+
+const webAnalyticsBotRulesDestroy = (): ToolBase<ReturnType<typeof WebAnalyticsBotRulesDestroySchema>, unknown> => ({
+    name: 'web-analytics-bot-rules-destroy',
+    schema: WebAnalyticsBotRulesDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WebAnalyticsBotRulesDestroySchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const WebAnalyticsPathCleaningSuggestionsApplySchema = () => {
     const WebAnalyticsPathCleaningSuggestionsApplyParams = orvalSchemas.WebAnalyticsPathCleaningSuggestionsApplyParams()
     return WebAnalyticsPathCleaningSuggestionsApplyParams.omit({ project_id: true })
@@ -617,6 +691,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'heatmaps-saved-list': heatmapsSavedList,
     'heatmaps-saved-regenerate': heatmapsSavedRegenerate,
     'heatmaps-saved-update': heatmapsSavedUpdate,
+    'web-analytics-bot-rules-list': webAnalyticsBotRulesList,
+    'web-analytics-bot-rules-create': webAnalyticsBotRulesCreate,
+    'web-analytics-bot-rules-destroy': webAnalyticsBotRulesDestroy,
     'web-analytics-path-cleaning-suggestions-apply': webAnalyticsPathCleaningSuggestionsApply,
     'web-analytics-path-cleaning-suggestions-generate': webAnalyticsPathCleaningSuggestionsGenerate,
     'web-analytics-weekly-digest': webAnalyticsWeeklyDigest,

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -431,6 +431,70 @@ export const WebAnalyticsWeeklyDigestQueryParams = () => zod.object({
         .number()
         .default(webAnalyticsWeeklyDigestQueryDaysDefault)
         .describe('Lookback window in days (1–90). Defaults to 7.'),
+})
+
+/**
+ * The project's own bot rules, in the order they are checked at query time.
+ * @summary List custom bot rules
+ */
+export const WebAnalyticsBotRulesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Add one bot rule to the project. The pattern is rejected if it cannot run, because a broken rule would break every query that classifies traffic for the project.
+ * @summary Create a custom bot rule
+ */
+export const WebAnalyticsBotRulesCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WebAnalyticsBotRulesCreateBody = () => zod.object({
+    name: zod
+        .string()
+        .describe(
+            'Label reported by the `Bot name` property when the rule matches. Also the operator for a rule on a bot PostHog does not know.'
+        ),
+    key: zod
+        .string()
+        .describe('Event property the rule reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url.'),
+    matcher: zod
+        .string()
+        .describe(
+            "How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), or 'cidr' (an IP network range, only valid with the `$ip` property)."
+        ),
+    pattern: zod
+        .string()
+        .describe(
+            "Value matched against the property named by `key`. For 'cidr' this is a network range like 192.0.2.0\/24."
+        ),
+    category: zod
+        .string()
+        .optional()
+        .describe(
+            "Reported by the `Traffic category` property. Defaults to 'custom'. A built-in category such as ai_crawler or search_crawler relabels the traffic type too."
+        ),
+})
+
+/**
+ * Remove one bot rule by its id. The built-in bot list is unaffected.
+ * @summary Delete a custom bot rule
+ */
+export const WebAnalyticsBotRulesDestroyParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })
 
 /**

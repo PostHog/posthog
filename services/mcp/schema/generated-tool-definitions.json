@@ -12026,6 +12026,48 @@
             "readOnlyHint": false
         }
     },
+    "web-analytics-bot-rules-create": {
+        "description": "Add one bot rule so traffic matching it classifies as a bot. Set `key` to the event property to read (such as $raw_user_agent or $ip), `matcher` to 'contains' (case-insensitive substring), 'regex' (RE2), or 'cidr' (an IP network range, only with $ip), `pattern` to the value to match, and `name` to the label to report. Optionally set `category` to a built-in category like ai_crawler to relabel the traffic type. The rule is rejected if its pattern cannot run. Use this when a scraper is hitting the site that the built-in list misses.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Create a custom bot rule",
+        "title": "Create a custom bot rule",
+        "required_scopes": ["web_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "web-analytics-bot-rules-destroy": {
+        "description": "Delete one bot rule by its `id` (from the list tool). The built-in bot list is unaffected.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Delete a custom bot rule",
+        "title": "Delete a custom bot rule",
+        "required_scopes": ["web_analytics:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "web-analytics-bot-rules-list": {
+        "description": "List the project's own bot rules. Each rule names an event property, how to match it, a value, and the label reported when it matches. Rules extend PostHog's built-in bot list, so `Is bot` (isLikelyBot), `Bot name`, and `Traffic category` reflect them everywhere — insights, web analytics, session filters, and SQL.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "List custom bot rules",
+        "title": "List custom bot rules",
+        "required_scopes": ["web_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "web-analytics-path-cleaning-suggestions-apply": {
         "description": "Apply a suggested set of path-cleaning rules by its health-issue `id`, merging them into the project's path cleaning configuration. Existing rules are never overwritten — only new rules are appended — and the underlying `path_cleaning_suggestions` health issue is resolved. Returns how many rules were added. Requires project admin (the same gate as editing path cleaning rules in team settings). Applying changes historical numbers in every Web analytics and Paths chart that has cleaning enabled, so confirm with the user before calling this.",
         "category": "Web analytics",
