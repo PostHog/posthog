@@ -10,6 +10,8 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
 
+import type { CustomerTaskApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+
 import { BusinessType, customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
 
 function setBusinessTypeOnMountedLogic(businessType: BusinessType): void {
@@ -95,6 +97,91 @@ export const B2BModeWithoutGroups: Story = {
     },
     parameters: {
         pageUrl: urls.customerAnalyticsDashboard(),
+    },
+}
+
+const customerTaskStoryItems: CustomerTaskApi[] = [
+    {
+        id: '018f47de-7e12-7000-8000-000000000041',
+        account: { id: '018f47de-7e12-7000-8000-000000000051', name: 'Acme Inc' },
+        name: 'Review renewal feedback',
+        description:
+            'Summarize recent feedback, confirm the renewal risks, and prepare the account review notes before the customer meeting next week.',
+        status: 'open',
+        assigned_to: {
+            id: 178,
+            email: 'alex@example.com',
+            first_name: 'Alex',
+            last_name: 'Morgan',
+        },
+        due_at: '2024-01-12T16:00:00Z',
+        completed_at: null,
+        completed_by: null,
+        created_by: null,
+        archived_at: null,
+        created_at: '2024-01-08T10:00:00Z',
+        updated_at: '2024-01-14T14:30:00Z',
+        can_edit: true,
+    },
+    {
+        id: '018f47de-7e12-7000-8000-000000000042',
+        account: { id: '018f47de-7e12-7000-8000-000000000052', name: 'Globex' },
+        name: 'Confirm implementation timeline',
+        description: 'Check the rollout dates with the engineering team.',
+        status: 'open',
+        assigned_to: {
+            id: 202,
+            email: 'taylor@example.com',
+            first_name: 'Taylor',
+            last_name: 'Rivera',
+        },
+        due_at: '2024-01-18T11:00:00Z',
+        completed_at: null,
+        completed_by: null,
+        created_by: null,
+        archived_at: null,
+        created_at: '2024-01-09T09:00:00Z',
+        updated_at: '2024-01-13T16:15:00Z',
+        can_edit: true,
+    },
+    {
+        id: '018f47de-7e12-7000-8000-000000000043',
+        account: null,
+        name: 'Share adoption report',
+        description: null,
+        status: 'open',
+        assigned_to: null,
+        due_at: null,
+        completed_at: null,
+        completed_by: null,
+        created_by: null,
+        archived_at: null,
+        created_at: '2024-01-10T13:00:00Z',
+        updated_at: '2024-01-12T09:45:00Z',
+        can_edit: true,
+    },
+]
+
+export const CustomerTasks: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                'api/projects/:team_id/customer_tasks/': {
+                    count: customerTaskStoryItems.length,
+                    next: null,
+                    previous: null,
+                    results: customerTaskStoryItems,
+                },
+            },
+        })
+        return <App />
+    },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.CUSTOMER_ANALYTICS, FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS],
+        pageUrl: urls.customerAnalyticsTasks(),
+        testOptions: {
+            waitForSelector: '[data-attr="customer-task-name"]',
+        },
     },
 }
 

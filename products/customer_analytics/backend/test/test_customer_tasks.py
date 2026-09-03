@@ -10,7 +10,9 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.personal_api_key import hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.logic import customer_tasks
@@ -144,6 +146,77 @@ class CustomerTaskAPI(APIBaseTest):
             == status.HTTP_200_OK
         )
 
+    def test_child_only_member_cannot_access_parent_tasks(self) -> None:
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
+        member = User.objects.create_and_join(self.organization, "child-member@example.com", "testpassword")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=environment,
+            resource="project",
+            resource_id=str(environment.id),
+            access_level="member",
+            organization_member=membership,
+        )
+        CustomerTask.objects.for_team(self.team.id).create(team=self.team, name="Parent task")
+        self.client.force_login(member)
+
+        response = self.client.get(f"/api/projects/{environment.id}/customer_tasks/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_child_scoped_api_key_cannot_access_parent_tasks(self) -> None:
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
+        CustomerTask.objects.for_team(self.team.id).create(team=self.team, name="Parent task")
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Child-scoped key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["customer_task:read"],
+            scoped_teams=[environment.id],
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+        response = self.client.get(f"/api/projects/{environment.id}/customer_tasks/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_child_customer_task_access_does_not_grant_parent_task_access(self) -> None:
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
+        member = User.objects.create_and_join(self.organization, "child-editor@example.com", "testpassword")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_analytics",
+            resource_id=None,
+            access_level="none",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=environment,
+            resource="customer_analytics",
+            resource_id=None,
+            access_level="editor",
+            organization_member=membership,
+        )
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{environment.id}/customer_tasks/",
+            {"name": "Parent task"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not CustomerTask.objects.for_team(self.team.id).exists()
+
     def test_assignee_can_only_read_and_update_assigned_tasks_and_loses_access_on_reassignment(self) -> None:
         assignee = User.objects.create_and_join(self.organization, "assignee@example.com", "testpassword")
         other_assignee = User.objects.create_and_join(self.organization, "other-assignee@example.com", "testpassword")
@@ -202,6 +275,57 @@ class CustomerTaskAPI(APIBaseTest):
         self.client.force_login(assignee)
         assert self.client.get(self.url).json()["results"] == []
         assert self.client.get(f"{self.url}{created.json()['id']}/").status_code == status.HTTP_404_NOT_FOUND
+
+    def test_activities_redact_inaccessible_and_malformed_historical_accounts(self) -> None:
+        viewer = User.objects.create_and_join(self.organization, "activity-viewer@example.com", "testpassword")
+        membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
+        visible_account = Account.objects.unscoped().create(team=self.team, name="Visible account")
+        hidden_account = Account.objects.unscoped().create(team=self.team, name="Hidden account")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(hidden_account.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        task = CustomerTask.objects.for_team(self.team.id).create(team=self.team, name="Account history")
+        stored_changes = [
+            {
+                "field": "account",
+                "before": {"id": str(hidden_account.id), "name": hidden_account.name},
+                "after": {"id": str(visible_account.id), "name": visible_account.name},
+            },
+            {
+                "field": "account",
+                "before": {"id": "not-an-account-id", "name": "Malformed account"},
+                "after": ["malformed"],
+            },
+        ]
+        activity = CustomerTaskActivity.objects.for_team(self.team.id).create(
+            team=self.team,
+            task=task,
+            actor=self.user,
+            activity_type="updated",
+            changes=stored_changes,
+        )
+        self.client.force_login(viewer)
+
+        response = self.client.get(f"{self.url}{task.id}/activities/")
+
+        assert response.status_code == status.HTTP_200_OK
+        changes = response.json()["results"][0]["changes"]
+        assert changes[0] == {
+            "field": "account",
+            "before": {"id": None, "name": "Restricted account"},
+            "after": {"id": str(visible_account.id), "name": visible_account.name},
+        }
+        assert changes[1] == {
+            "field": "account",
+            "before": {"id": None, "name": "Restricted account"},
+            "after": {"id": None, "name": "Restricted account"},
+        }
+        activity.refresh_from_db()
+        assert activity.changes == stored_changes
 
     def test_cross_team_tasks_are_not_listed(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")

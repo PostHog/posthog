@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import cached_property
 from typing import Any, cast
 
 from drf_spectacular.helpers import forced_singular_serializer
@@ -15,9 +16,15 @@ from rest_framework.views import APIView
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import User
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission, TeamMemberAccessPermission
+from posthog.models import Team, User
+from posthog.permissions import (
+    APIScopePermission,
+    PostHogFeatureFlagPermission,
+    TeamMemberAccessPermission,
+    get_authenticator_scoped_team_ids,
+)
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG
 
@@ -254,6 +261,24 @@ def _paginated_response(
     return paginator.get_paginated_response(serializer_class(instance=page, many=True).data)
 
 
+class CustomerTaskCanonicalTeamAccessPermission(BasePermission):
+    message = "You don't have access to the project."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if not request.user.is_authenticated:
+            return True
+        customer_task_view = cast(CustomerTaskViewSet, view)
+        if customer_task_view.canonical_team_id == customer_task_view.team_id:
+            return True
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        if scoped_team_ids and customer_task_view.canonical_team_id not in scoped_team_ids:
+            return False
+        membership_level = customer_task_view.user_permissions.team(
+            customer_task_view.canonical_team
+        ).effective_membership_level
+        return membership_level is not None
+
+
 class CustomerTaskPermission(BasePermission):
     message = "You do not have access to this customer task."
 
@@ -276,13 +301,38 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     posthog_feature_flag = CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG
     scope_object_read_actions = ["list", "retrieve", "activities"]
     scope_object_write_actions = ["create", "update", "partial_update", "archive", "restore"]
-    permission_classes = [PostHogFeatureFlagPermission, CustomerTaskPermission]
+    permission_classes = [
+        CustomerTaskCanonicalTeamAccessPermission,
+        PostHogFeatureFlagPermission,
+        CustomerTaskPermission,
+    ]
+
+    @cached_property
+    def canonical_team_id(self) -> int:
+        return self.team.parent_team_id or self.team.id
+
+    @cached_property
+    def canonical_team(self) -> Team:
+        if self.canonical_team_id == self.team.id:
+            return self.team
+        parent_team = self.team.parent_team
+        assert parent_team is not None
+        return parent_team
+
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        return UserAccessControl(
+            user=cast(User, self.request.user),
+            team=self.canonical_team,
+            organization_id=self.organization_id,
+        )
 
     def dangerously_get_permissions(self) -> list[BasePermission]:
         return [
             IsAuthenticated(),
             APIScopePermission(),
             TeamMemberAccessPermission(),
+            CustomerTaskCanonicalTeamAccessPermission(),
             PostHogFeatureFlagPermission(),
             CustomerTaskPermission(),
         ]
@@ -294,7 +344,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         data = request.validated_query_data
         page, count = api.list_customer_tasks(
-            team_id=self.team_id,
+            team_id=self.canonical_team_id,
             user_access_control=self.user_access_control,
             filters=contracts.CustomerTaskListFilters(
                 search=data.get("search", "").strip() or None,
@@ -315,7 +365,9 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(responses={200: CustomerTaskSerializer, 404: OpenApiResponse(description="Task not found.")})
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         task = api.get_customer_task(
-            team_id=self.team_id, task_id=self.kwargs["pk"], user_access_control=self.user_access_control
+            team_id=self.canonical_team_id,
+            task_id=self.kwargs["pk"],
+            user_access_control=self.user_access_control,
         )
         if task is None:
             return Response({"detail": "Task not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -326,7 +378,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = CustomerTaskCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         task = api.create_customer_task(
-            team=self.team,
+            team=self.canonical_team,
             input=contracts.CreateCustomerTaskInput(**serializer.validated_data),
             actor=cast(User, request.user),
             user_access_control=self.user_access_control,
@@ -341,7 +393,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise ValidationError({"detail": "Change at least one task field."})
         data = serializer.validated_data
         task = api.update_customer_task(
-            team=self.team,
+            team=self.canonical_team,
             task_id=self.kwargs["pk"],
             input=contracts.UpdateCustomerTaskInput(
                 **data,
@@ -367,7 +419,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["post"])
     def archive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         task = api.archive_customer_task(
-            team_id=self.team_id,
+            team_id=self.canonical_team_id,
             task_id=self.kwargs["pk"],
             actor=cast(User, request.user),
             user_access_control=self.user_access_control,
@@ -380,7 +432,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["post"])
     def restore(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         task = api.restore_customer_task(
-            team_id=self.team_id,
+            team_id=self.canonical_team_id,
             task_id=self.kwargs["pk"],
             actor=cast(User, request.user),
             user_access_control=self.user_access_control,
@@ -399,7 +451,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def activities(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         data = request.validated_query_data
         result = api.list_customer_task_activities(
-            team_id=self.team_id,
+            team_id=self.canonical_team_id,
             task_id=self.kwargs["pk"],
             user_access_control=self.user_access_control,
             offset=data["offset"],

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
@@ -41,8 +41,12 @@ const accountlessTask: CustomerTaskApi = {
     can_edit: false,
 }
 
-function tableHeaders(container: HTMLElement): HTMLTableCellElement[] {
-    return Array.from(container.querySelectorAll('thead th'))
+function tableHeaders(table: HTMLElement): HTMLTableCellElement[] {
+    return Array.from(table.querySelectorAll('thead th'))
+}
+
+function findTableHeader(table: HTMLElement, title: string): HTMLTableCellElement | undefined {
+    return tableHeaders(table).find((header) => header.textContent?.trim() === title)
 }
 
 describe('CustomerTasksTable', () => {
@@ -61,23 +65,21 @@ describe('CustomerTasksTable', () => {
         logic.unmount()
     })
 
-    test('renders Task first with a linked, two-line description preview', async () => {
+    test('renders task details and opens the editor', async () => {
         await expectLogic(logic).toFinishAllListeners()
 
-        const { container } = render(
+        render(
             <Provider>
                 <CustomerTasksTable logic={logic} context="inbox" />
             </Provider>
         )
 
-        expect(tableHeaders(container)[0].textContent).toContain('Task')
-        expect(tableHeaders(container).at(-1)).not.toHaveClass('LemonTable__header--actionable')
-        const taskName = screen.getByText('Follow up')
-        expect(taskName).toHaveClass('Link', 'Link--subtle', 'font-semibold')
-        expect(taskName).not.toHaveClass('LemonButton')
-        const descriptionPreview = container.querySelector('tbody .line-clamp-2')
-        expect(descriptionPreview).toHaveTextContent('First line Second line Third line')
-        expect(descriptionPreview).toHaveClass('text-muted', 'line-clamp-2')
+        const table = screen.getByRole('table')
+        expect(tableHeaders(table)[0]).toHaveTextContent('Task')
+        const taskName = within(table).getByText('Follow up')
+        const taskRow = taskName.closest('tr')
+        expect(taskRow).not.toBeNull()
+        expect(within(taskRow!).getByText('First line Second line Third line')).toBeInTheDocument()
 
         fireEvent.click(taskName)
         expect(screen.getByText('Edit task')).toBeInTheDocument()
@@ -92,7 +94,7 @@ describe('CustomerTasksTable', () => {
         })
         logic.actions.loadTaskPage()
         await expectLogic(logic).toFinishAllListeners()
-        expect(container.querySelector('tbody .line-clamp-2')).not.toBeInTheDocument()
+        expect(within(table).queryByText('First line Second line Third line')).not.toBeInTheDocument()
     })
 
     test.each([
@@ -104,25 +106,22 @@ describe('CustomerTasksTable', () => {
         ['Account', 'account'],
     ])('orders by %s on the server and resets pagination', async (header, ordering) => {
         await expectLogic(logic).toFinishAllListeners()
-        const { container } = render(
+        render(
             <Provider>
                 <CustomerTasksTable logic={logic} context="inbox" />
             </Provider>
         )
+        const table = screen.getByRole('table')
 
         logic.actions.setPage(2)
         await expectLogic(logic).toFinishAllListeners()
         mockList.mockClear()
 
-        const tableHeader = tableHeaders(container).find((element) => element.textContent?.includes(header))
+        const tableHeader = findTableHeader(table, header)
         if (!tableHeader) {
             throw new Error(`Missing ${header} table header`)
         }
-        const tableHeaderContent = tableHeader.querySelector('.LemonTable__header-content')
-        if (!tableHeaderContent) {
-            throw new Error(`Missing ${header} table header content`)
-        }
-        fireEvent.click(tableHeaderContent)
+        fireEvent.click(within(tableHeader).getByText(header))
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.page).toBe(1)
@@ -131,12 +130,12 @@ describe('CustomerTasksTable', () => {
 
     test('shows Account ordering only in the inbox', async () => {
         await expectLogic(logic).toFinishAllListeners()
-        const { container } = render(
+        render(
             <Provider>
                 <CustomerTasksTable logic={logic} context="inbox" />
             </Provider>
         )
-        expect(tableHeaders(container).some((element) => element.textContent?.includes('Account'))).toBe(true)
+        expect(findTableHeader(screen.getByRole('table'), 'Account')).not.toBeUndefined()
 
         cleanup()
         logic.unmount()
@@ -149,8 +148,6 @@ describe('CustomerTasksTable', () => {
             </Provider>
         )
 
-        expect(tableHeaders(accountTable.container).some((element) => element.textContent?.includes('Account'))).toBe(
-            false
-        )
+        expect(findTableHeader(accountTable.getByRole('table'), 'Account')).toBeUndefined()
     })
 })

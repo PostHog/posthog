@@ -4579,19 +4579,48 @@ def _to_customer_task_view(task: CustomerTask, user_access_control: "UserAccessC
     )
 
 
-def _to_customer_task_activity_view(activity: CustomerTaskActivity) -> contracts.CustomerTaskActivityView:
+def _to_customer_task_change_value(
+    *, field: str, value: object | None, visible_account_ids: frozenset[str]
+) -> object | None:
+    if field != "account" or value is None:
+        return value
+    if isinstance(value, dict):
+        account_id = value.get("id")
+        account_name = value.get("name")
+        if isinstance(account_id, str) and isinstance(account_name, str):
+            try:
+                normalized_account_id = str(UUID(account_id))
+            except ValueError:
+                pass
+            else:
+                if normalized_account_id in visible_account_ids:
+                    return {"id": account_id, "name": account_name}
+    return {"id": None, "name": "Restricted account"}
+
+
+def _to_customer_task_activity_view(
+    activity: CustomerTaskActivity, visible_account_ids: frozenset[str]
+) -> contracts.CustomerTaskActivityView:
+    changes = []
+    for change in activity.changes:
+        if not isinstance(change, dict):
+            continue
+        field = str(change.get("field", ""))
+        changes.append(
+            contracts.CustomerTaskChange(
+                field=field,
+                before=_to_customer_task_change_value(
+                    field=field, value=change.get("before"), visible_account_ids=visible_account_ids
+                ),
+                after=_to_customer_task_change_value(
+                    field=field, value=change.get("after"), visible_account_ids=visible_account_ids
+                ),
+            )
+        )
     return contracts.CustomerTaskActivityView(
         id=activity.id,
         activity_type=activity.activity_type,
-        changes=[
-            contracts.CustomerTaskChange(
-                field=str(change.get("field", "")),
-                before=change.get("before"),
-                after=change.get("after"),
-            )
-            for change in activity.changes
-            if isinstance(change, dict)
-        ],
+        changes=changes,
         actor=_to_customer_task_user_view(activity.actor),
         created_at=activity.created_at,
     )
@@ -4713,8 +4742,9 @@ def list_customer_task_activities(
     )
     if result is None:
         return None
-    activities, count = result
-    return [_to_customer_task_activity_view(activity) for activity in activities], count
+    return [
+        _to_customer_task_activity_view(activity, result.visible_account_ids) for activity in result.activities
+    ], result.total_count
 
 
 # --- EventStream ---
