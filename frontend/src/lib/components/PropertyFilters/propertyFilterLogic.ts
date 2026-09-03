@@ -4,6 +4,7 @@ import { MakeLogicType, actions, kea, key, listeners, path, props, propsChanged,
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import {
     isBehavioralPropertyFilter,
+    isCohortPropertyFilter,
     isValidPropertyFilter,
     parseProperties,
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
@@ -196,13 +197,22 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
                 const groupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[property.type]
                 if (groupType && recentTaxonomicFiltersLogic.isMounted()) {
                     const groupName = TAXONOMIC_GROUP_TYPE_TO_DISPLAY_NAME[groupType] ?? groupType
+                    // A cohort filter has the constant key `id` and holds the cohort id in
+                    // `value`, so the cohort id is what identifies the recent entry. Every other
+                    // filter type is identified by its key.
+                    const isCohort = isCohortPropertyFilter(property)
+                    const recentValue = isCohort ? property.value : property.key
                     // For Flag filters `key` is the numeric flag ID (see FlagPropertyFilter); the
-                    // human-readable key lives in `label`, set at selection time.
-                    const displayName = ('label' in property && property.label) || property.key
+                    // human-readable key lives in `label`, set at selection time. Cohorts keep the
+                    // name in `cohort_name`.
+                    const displayName =
+                        ('label' in property && property.label) ||
+                        (isCohort && property.cohort_name) ||
+                        String(recentValue)
                     recentTaxonomicFiltersLogic.actions.recordRecentFilter({
                         groupType,
                         groupName,
-                        value: property.key,
+                        value: recentValue,
                         item: { name: displayName },
                         teamId: teamLogic.values.currentTeamId ?? undefined,
                         propertyFilter: property,

@@ -222,6 +222,9 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     values.describeProperty,
                     item
                 )
+                if (!filter) {
+                    return
+                }
 
                 // Add cohort name if this is a cohort filter
                 if (propertyType === 'cohort' && item?.name) {

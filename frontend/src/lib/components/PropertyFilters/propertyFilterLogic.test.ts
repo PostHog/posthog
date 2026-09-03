@@ -1,8 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
-import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { createDefaultPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import {
+    expandRecentsForDisplay,
+    hasRecentContext,
+    recentTaxonomicFiltersLogic,
+} from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -321,6 +326,53 @@ describe('propertyFilterLogic', () => {
             expect(recents).toHaveLength(1)
             expect(recents[0].value).toBe('2')
             expect(recents[0].item).toMatchObject({ name: 'test-flag' })
+        })
+
+        it('records a cohort under its id and name, not the constant key', async () => {
+            const logic = mountLogic({ propertyFilters: [{}] as AnyPropertyFilter[] })
+            logic.actions.setFilter(0, {
+                key: 'id',
+                value: 42,
+                cohort_name: 'Power users',
+                type: PropertyFilterType.Cohort,
+                operator: PropertyOperator.In,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            const recents = recentsLogic.values.recentFilters
+            expect(recents).toHaveLength(1)
+            expect(recents[0].value).toBe(42)
+            expect(recents[0].item).toMatchObject({ name: 'Power users' })
+        })
+
+        it('replays the value-less twin of a cohort recent as a filter on that cohort', async () => {
+            const logic = mountLogic({ propertyFilters: [{}] as AnyPropertyFilter[] })
+            logic.actions.setFilter(0, {
+                key: 'id',
+                value: 42,
+                cohort_name: 'Power users',
+                type: PropertyFilterType.Cohort,
+                operator: PropertyOperator.In,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            // The picker offers a value-less twin of every complete recent. Selecting it carries
+            // only the recorded value, so that value has to be enough to rebuild the filter.
+            const bareTwin = expandRecentsForDisplay(recentsLogic.values.recentFilterItems).find(
+                (item) => hasRecentContext(item) && !item._recentContext.propertyFilter
+            )
+            const sourceValue = hasRecentContext(bareTwin) ? bareTwin._recentContext.sourceValue : undefined
+
+            expect(sourceValue).toBe(42)
+            expect(
+                createDefaultPropertyFilter(
+                    null,
+                    sourceValue as number,
+                    PropertyFilterType.Cohort,
+                    { type: TaxonomicFilterGroupType.Cohorts } as TaxonomicFilterGroup,
+                    () => null
+                )
+            ).toEqual({ key: 'id', value: 42, type: PropertyFilterType.Cohort, operator: PropertyOperator.In })
         })
     })
 })

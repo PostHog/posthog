@@ -398,6 +398,9 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                         values.describeProperty,
                         item
                     )
+                    if (!newPropertyFilter) {
+                        return
+                    }
 
                     newValues.push(newPropertyFilter)
                 } else {

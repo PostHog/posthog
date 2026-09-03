@@ -329,6 +329,26 @@ describe('recentTaxonomicFiltersLogic', () => {
         expect(logic.values.recentFilters).toHaveLength(0)
     })
 
+    it('does not offer a cohort recent whose value is not a cohort id', () => {
+        logic.actions.recordRecentFilter({
+            groupType: TaxonomicFilterGroupType.Cohorts,
+            groupName: 'Cohorts',
+            value: 'id',
+            item: { name: 'id' },
+            propertyFilter: { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
+        })
+        logic.actions.recordRecentFilter({
+            groupType: TaxonomicFilterGroupType.Cohorts,
+            groupName: 'Cohorts',
+            value: 42,
+            item: { name: 'Power users' },
+            propertyFilter: { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
+        })
+
+        expect(logic.values.recentFilterItems).toHaveLength(1)
+        expect(logic.values.recentFilterItems[0]).toMatchObject({ name: 'Power users' })
+    })
+
     it('ignores selections with null value', () => {
         logic.actions.recordRecentFilter({
             groupType: TaxonomicFilterGroupType.Events,

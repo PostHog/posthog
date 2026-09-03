@@ -2,7 +2,7 @@ import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } fro
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { IconClock, IconCopy, IconInfo, IconRefresh, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
+import { IconClock, IconCopy, IconInfo, IconRefresh, IconTrash, IconUpload } from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -46,7 +46,7 @@ import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generate
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
-import { cohortCountWarningLogic } from './cohortCountWarningLogic'
+import { CohortCountWarning } from './CohortCountWarning'
 import { CohortSceneMenuBar } from './CohortSceneMenuBar'
 import { createCohortDataNodeLogicKey } from './cohortUtils'
 import { PersonSelectList } from './PersonSelectList'
@@ -193,8 +193,6 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
-    const warningLogic = cohortCountWarningLogic({ cohort, query: effectiveQuery, dataNodeLogicKey })
-    const { shouldShowCountWarning } = useValues(warningLogic)
 
     const cohortId = typeof cohort.id === 'number' ? cohort.id : null
 
@@ -762,11 +760,11 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                         cohort.count != undefined &&
                                                         `(${cohort.count})`}
                                                 </span>
-                                                {shouldShowCountWarning && (
-                                                    <Tooltip title="The displayed number of persons is less than the cohort count due to deleted persons. This is expected behavior for dynamic cohorts where persons may be deleted after being counted.">
-                                                        <IconWarning className="text-warning ml-2" />
-                                                    </Tooltip>
-                                                )}
+                                                <CohortCountWarning
+                                                    cohort={cohort}
+                                                    query={effectiveQuery}
+                                                    dataNodeLogicKey={dataNodeLogicKey}
+                                                />
                                             </>
                                         }
                                         description="Persons who match the following criteria will be part of the cohort."

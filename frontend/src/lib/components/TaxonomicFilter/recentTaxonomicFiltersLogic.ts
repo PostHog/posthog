@@ -125,6 +125,16 @@ export function expandRecentsForDisplay(
     return result
 }
 
+/** A cohort recent is stored under the cohort id, because a cohort filter holds the id in
+ *  `value` and always has the constant key `id`. An entry whose value is not a numeric id
+ *  points at no cohort, so it can never build a filter and must not be offered. */
+function isResolvableRecentFilter(recentFilter: RecentTaxonomicFilter): boolean {
+    if (recentFilter.groupType === TaxonomicFilterGroupType.Cohorts) {
+        return Number.isInteger(Number(recentFilter.value))
+    }
+    return true
+}
+
 function isDuplicateRecentFilter(
     existing: RecentTaxonomicFilter,
     incoming: { groupType: TaxonomicFilterGroupType; value: TaxonomicFilterValue; propertyFilter?: AnyPropertyFilter }
@@ -275,7 +285,7 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
         recentFilterItems: [
             (s) => [s.recentFilters],
             (recentFilters: RecentTaxonomicFilter[]): TaxonomicDefinitionTypes[] =>
-                recentFilters.map(
+                recentFilters.filter(isResolvableRecentFilter).map(
                     (f) =>
                         ({
                             ...f.item,
