@@ -640,23 +640,32 @@ class TestSdkBreakdown(BaseTest):
         rust/feature-flags/src/handler/types.rs
 
         If this test fails after adding a new SDK to Rust, update SDK_LIBRARIES
-        in posthog/models/feature_flag/flag_analytics.py to match.
+        in products/feature_flags/backend/flag_analytics.py to match.
         """
         expected_libraries = [
             "posthog-js",
             "posthog-node",
+            "posthog-node-mcp",
+            "posthog-edge",
+            "posthog-convex",
             "posthog-python",
+            "posthog-python-mcp",
             "posthog-php",
             "posthog-ruby",
+            "posthog-rails",
             "posthog-go",
             "posthog-java",
             "posthog-dotnet",
+            "posthog-aspnetcore",
             "posthog-elixir",
             "posthog-rs",
             "posthog-android",
             "posthog-ios",
             "posthog-react-native",
             "posthog-flutter",
+            "posthog-kmp",
+            "posthog-unity",
+            "posthog-server",
             "other",
         ]
         self.assertEqual(SDK_LIBRARIES, expected_libraries)
