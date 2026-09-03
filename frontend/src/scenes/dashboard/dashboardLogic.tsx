@@ -407,6 +407,9 @@ export interface dashboardLogicActions {
         queryStartTime: number
         shortId: InsightShortId
     }
+    addSeparatorTile: () => {
+        value: true
+    }
     addWidgetTileFinished: () => {
         value: true
     }
@@ -611,9 +614,6 @@ export interface dashboardLogicActions {
         value: true
     }
     openImageTileModal: () => {
-        value: true
-    }
-    addSeparatorTile: () => {
         value: true
     }
     openTextTileModal: () => {
