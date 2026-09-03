@@ -6,7 +6,7 @@ from typing import cast
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models import Team
 
 from products.surveys.backend.responses.fetch_rows import SUBMISSION_GROUPING_KEY

@@ -44,8 +44,8 @@ def remove_code_based_verification_bypass(email: str) -> None:
 
 
 # Global kill-switch: when this Redis key is present, code-based verification is skipped for every
-# user (e.g. while transactional email delivery is down and the verification link can't be
-# delivered). The key carries the reason/actor/timestamp and a mandatory TTL so it auto-re-enables.
+# user (e.g. while transactional email delivery is down and the login code can't be delivered).
+# The key carries the reason/actor/timestamp and a mandatory TTL so it auto-re-enables.
 # Only the email factor is affected — TOTP and passkey 2FA are gated earlier in the login flow.
 CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY = "code_based_verification_global_disable"
 MAX_CODE_BASED_VERIFICATION_GLOBAL_DISABLE_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
@@ -316,17 +316,22 @@ class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
     the login attempt's issuance time, valid for CODE_TTL_SECONDS, and rotates
     automatically on login, password change, email change, or deactivation."""
 
-    def make_code(self, user: AbstractBaseUser, issued_at: int) -> str:
-        """Deterministic CODE_LENGTH-digit code for this user and issuance time."""
+    def make_code(self, user: AbstractBaseUser, issued_at: int, target: str = "") -> str:
+        """Deterministic CODE_LENGTH-digit code for this user and issuance time.
+
+        `target` binds the code to the address it authorizes. Without it, two sends for the same
+        user in the same second derive the same code. A code mailed to one address could then
+        verify another. Login and signup have no target and use the default.
+        """
         digest = salted_hmac(
             self.key_salt,
-            self._make_hash_value(user, issued_at),
+            self._make_hash_value(user, issued_at, target),
             secret=self.secret,
             algorithm=self.algorithm,
         ).hexdigest()
         return f"{int(digest, 16) % (10**CODE_LENGTH):0{CODE_LENGTH}d}"
 
-    def check_code(self, user: AbstractBaseUser, code: str, issued_at: int) -> bool:
+    def check_code(self, user: AbstractBaseUser, code: str, issued_at: int, target: str = "") -> bool:
         """Constant-time compare against the expected code, rejecting expired codes.
 
         Brute-force resistance does not come from the code's entropy (6 digits is
@@ -337,15 +342,19 @@ class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
             return False
         if int(time.time()) - issued_at > CODE_TTL_SECONDS:
             return False
-        return constant_time_compare(self.make_code(user, issued_at), code)
+        return constant_time_compare(self.make_code(user, issued_at, target), code)
 
-    def _make_hash_value(self, user: AbstractBaseUser, timestamp: int) -> str:
-        """Include last_login and is_active to invalidate tokens after use or deactivation."""
+    def _make_hash_value(self, user: AbstractBaseUser, timestamp: int, target: str = "") -> str:
+        """Include last_login and is_active to invalidate tokens after use or deactivation.
+
+        `target` is the address an email change code authorizes, so a code cannot verify a
+        different address. Login and signup leave it empty.
+        """
         from posthog.models.user import User
 
         usable_user: User = User.objects.get(pk=user.pk)
         login_timestamp = "" if user.last_login is None else user.last_login.replace(microsecond=0, tzinfo=None)
-        return f"{usable_user.pk}{usable_user.email}{usable_user.password}{usable_user.is_active}{login_timestamp}{timestamp}"
+        return f"{usable_user.pk}{usable_user.email}{usable_user.password}{usable_user.is_active}{login_timestamp}{timestamp}{target}"
 
 
 code_based_verification_token_generator = CodeBasedVerificationTokenGenerator()

@@ -21,6 +21,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -87,6 +88,14 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             "MetricsQuery composes one HogQL query per clause via the metrics facade; there is no single statement"
         )
 
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        # `display` is presentation only — `_to_request` never reads it, so it must not namespace
+        # the cache. Without this, adding a goal line re-runs every bucket in ClickHouse, and two
+        # tiles differing only in chart type would each hold their own entry.
+        payload["query"].pop("display", None)
+        return payload
+
     def _query_date_range(self) -> QueryDateRange:
         # explicitDate keeps second-granular windows intact; without it,
         # QueryDateRange rounds date_to up to end of day.
@@ -135,7 +144,13 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
 
     def _calculate(self) -> MetricsQueryResponse:
         self._enforce_alpha_gate_for_anonymous_viewers()
-        series = run_metric_query(team=self.team, request=self._to_request())
+        try:
+            series = run_metric_query(team=self.team, request=self._to_request())
+        except ValueError as exc:
+            # The facade signals user errors (bad formula, unknown clause alias, bad
+            # quantile) with ValueError; /query only exposes typed errors, so a bare
+            # ValueError would surface as a 500 instead of a 400.
+            raise ExposedHogQLError(str(exc)) from exc
         return MetricsQueryResponse(
             results=[
                 MetricsQuerySeries(

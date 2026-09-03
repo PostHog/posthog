@@ -4,7 +4,6 @@ import {
   CheckIcon,
   CrosshairSimpleIcon,
   FlagIcon,
-  GitPullRequestIcon,
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
 import {
@@ -21,21 +20,15 @@ import { type ReactNode, useId, useMemo } from "react";
 
 interface InboxSearchFilterBarProps {
   searchPlaceholder?: string;
-  /** The sectioned inbox filters by PR state; the legacy tabs already are one. */
-  showPrFilter?: boolean;
+  showSourceFilter?: boolean;
 }
-
-const PR_FILTER_OPTIONS = [
-  { value: "with_pr", label: "Has a PR" },
-  { value: "without_pr", label: "No PR yet" },
-] as const;
 
 const FILTER_ITEM_CLASS =
   "flex w-full items-center justify-between rounded-sm px-1.5 py-1 text-left text-[14px] text-gray-12 transition-colors hover:bg-(--gray-3) focus-visible:bg-(--gray-3) focus-visible:outline-none";
 
 export function InboxSearchFilterBar({
   searchPlaceholder = "Search by title or description…",
-  showPrFilter = false,
+  showSourceFilter = true,
 }: InboxSearchFilterBarProps) {
   const inputId = useId();
   const searchQuery = useInboxSignalsFilterStore((s) => s.searchQuery);
@@ -57,9 +50,6 @@ export function InboxSearchFilterBar({
   const setPriorityFilter = useInboxSignalsFilterStore(
     (s) => s.setPriorityFilter,
   );
-  const prFilter = useInboxSignalsFilterStore((s) => s.prFilter);
-  const setPrFilter = useInboxSignalsFilterStore((s) => s.setPrFilter);
-
   const sourceOptions = useInboxSourceFilterOptions(sourceProductFilter);
   const selectedSources = useMemo(
     () => new Set(sourceProductFilter),
@@ -89,70 +79,38 @@ export function InboxSearchFilterBar({
         />
       </label>
 
-      <InboxFilterPopover
-        label="Source"
-        value={inboxSourceFilterLabel(sourceProductFilter)}
-        icon={<CrosshairSimpleIcon size={13} className="text-gray-10" />}
-        active={sourceProductFilter.length > 0}
-      >
-        <Flex direction="column" gap="0">
-          <InboxFilterAnyItem
-            active={sourceProductFilter.length === 0}
-            onClick={clearSourceProductFilter}
-          />
-          {sourceOptions.map((option) => {
-            const isActive = selectedSources.has(option.value);
-            return (
-              <button
-                key={option.value}
-                type="button"
-                className={FILTER_ITEM_CLASS}
-                onClick={() => toggleSourceProduct(option.value)}
-              >
-                <span className="flex min-w-0 items-center gap-1.5">
-                  {option.icon}
-                  <span className="truncate">{option.label}</span>
-                </span>
-                {isActive ? (
-                  <CheckIcon size={12} className="shrink-0 text-gray-12" />
-                ) : null}
-              </button>
-            );
-          })}
-        </Flex>
-      </InboxFilterPopover>
-
-      {showPrFilter && (
+      {showSourceFilter && (
         <InboxFilterPopover
-          label="Pull request"
-          value={
-            PR_FILTER_OPTIONS.find((option) => option.value === prFilter)
-              ?.label ?? "All reports"
-          }
-          icon={<GitPullRequestIcon size={13} className="text-gray-10" />}
-          active={prFilter !== "all"}
+          label="Source"
+          value={inboxSourceFilterLabel(sourceProductFilter)}
+          icon={<CrosshairSimpleIcon size={13} className="text-gray-10" />}
+          active={sourceProductFilter.length > 0}
         >
-          <div className="flex flex-col">
+          <Flex direction="column" gap="0">
             <InboxFilterAnyItem
-              active={prFilter === "all"}
-              onClick={() => setPrFilter("all")}
+              active={sourceProductFilter.length === 0}
+              onClick={clearSourceProductFilter}
             />
-            {PR_FILTER_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={FILTER_ITEM_CLASS}
-                onClick={() =>
-                  setPrFilter(prFilter === option.value ? "all" : option.value)
-                }
-              >
-                <span className="truncate">{option.label}</span>
-                {prFilter === option.value ? (
-                  <CheckIcon size={12} className="shrink-0 text-gray-12" />
-                ) : null}
-              </button>
-            ))}
-          </div>
+            {sourceOptions.map((option) => {
+              const isActive = selectedSources.has(option.value);
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={FILTER_ITEM_CLASS}
+                  onClick={() => toggleSourceProduct(option.value)}
+                >
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    {option.icon}
+                    <span className="truncate">{option.label}</span>
+                  </span>
+                  {isActive ? (
+                    <CheckIcon size={12} className="shrink-0 text-gray-12" />
+                  ) : null}
+                </button>
+              );
+            })}
+          </Flex>
         </InboxFilterPopover>
       )}
 

@@ -50,6 +50,7 @@ import {
 } from "@posthog/core/speech/identifiers";
 import { resolveService } from "@posthog/di/container";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
+import { DISK_CACHE_IMAGES } from "@posthog/platform/disk-cache";
 import {
   HOST_CAPABILITIES,
   type HostCapabilities,
@@ -123,6 +124,7 @@ import {
 import { ELEVENLABS_API_KEY_STORE_KEY } from "@posthog/workspace-server/services/speech/identifiers";
 import { container } from "@renderer/di/container";
 import { RendererAuthSideEffects } from "@renderer/platform-adapters/auth-side-effects";
+import { desktopDiskCacheImages } from "@renderer/platform-adapters/desktop-disk-cache-images";
 import { gitCacheKeyProvider } from "@renderer/platform-adapters/git-cache-keys";
 import { RendererHedgehogModeHost } from "@renderer/platform-adapters/hedgehog-mode-host";
 import { setupStore } from "@renderer/platform-adapters/setup";
@@ -137,6 +139,10 @@ container.bind(GIT_CACHE_KEY_PROVIDER).toConstantValue(gitCacheKeyProvider);
 // archive
 container.load(archiveModule);
 container.bind(ARCHIVE_CLIENT).toConstantValue({
+  archive: (input) => hostTrpcClient.archive.archive.mutate(input),
+  refreshArchiveState: async () => {
+    await queryClient.invalidateQueries({ queryKey: [["archive"]] });
+  },
   unarchive: (input) => hostTrpcClient.archive.unarchive.mutate(input),
   delete: (input) => hostTrpcClient.archive.delete.mutate(input),
   showArchivedTaskContextMenu: (input) =>
@@ -443,3 +449,5 @@ container.bind(SETUP_STORE).toConstantValue(setupStore);
 container
   .bind(HOST_CAPABILITIES)
   .toConstantValue({ localWorkspaces: true } satisfies HostCapabilities);
+
+container.bind(DISK_CACHE_IMAGES).toConstantValue(desktopDiskCacheImages);

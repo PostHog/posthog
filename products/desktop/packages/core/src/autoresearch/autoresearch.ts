@@ -59,7 +59,7 @@ let runCounter = 0;
  */
 export const REMINDER_GRACE_MS = 1_500;
 export const RECOVERY_BASE_DELAY_MS = 60_000;
-export const RECOVERY_MAX_DELAY_MS = 15 * 60_000;
+const RECOVERY_MAX_DELAY_MS = 15 * 60_000;
 /** Recovery gives up after this many attempts; manual Resume still works. */
 export const MAX_RECOVERY_ATTEMPTS = 20;
 

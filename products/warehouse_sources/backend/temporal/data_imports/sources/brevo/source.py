@@ -32,6 +32,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.brevo import BrevoSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+BREVO_INVALID_API_KEY_MESSAGE = (
+    "Brevo authentication failed. Your API key is invalid or expired - please generate a new key and reconnect."
+)
+
 
 @SourceRegistry.register
 class BrevoSource(ResumableSource[BrevoSourceConfig, BrevoResumeConfig]):
@@ -53,7 +57,7 @@ class BrevoSource(ResumableSource[BrevoSourceConfig, BrevoResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error: Unauthorized for url": "Brevo authentication failed. Your API key is invalid or expired - please generate a new key and reconnect.",
+            "401 Client Error: Unauthorized for url": BREVO_INVALID_API_KEY_MESSAGE,
             "403 Client Error: Forbidden for url": "Your Brevo API key does not have the required permissions. Please check the key and reconnect.",
         }
 
@@ -102,7 +106,7 @@ You can create an API key in your [Brevo account settings](https://app.brevo.com
         if validate_brevo_credentials(config.api_key):
             return True, None
 
-        return False, "Invalid Brevo API key"
+        return False, BREVO_INVALID_API_KEY_MESSAGE
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[BrevoResumeConfig]:
         return ResumableSourceManager[BrevoResumeConfig](inputs, BrevoResumeConfig)

@@ -4,14 +4,24 @@ use std::time::Instant;
 
 use hogvm::{sync_execute, ExecutionContext, Program};
 use napi_derive::napi;
+use rayon::prelude::*;
 use serde_json::Value;
 
 use crate::ext_fns::transformation_ext_fns;
 use crate::logs;
 
+// Floor on the derived rayon chunk size: each chunk rebuilds the Program and ExecutionContext
+// (STL + ext fns), so chunks need enough events to amortize that setup.
+const MIN_PARALLEL_CHUNK_SIZE: usize = 50;
+
 // The Node VM has no heap ceiling; the crate's 1MB default trips on real events with large
-// properties. A cap, not a preallocation.
+// properties. A cap (not a preallocation), and rayon bounds how many contexts run at once.
 const MAX_HEAP_SIZE_BYTES: usize = 64 * 1024 * 1024;
+
+/// Prefix marking an event whose globals could not be converted at the napi boundary (e.g.
+/// NaN/Infinity numbers, which serde_json can't represent). Contract with the Node caller: these
+/// mean "this event never executed", so it alone falls back to the Node VM.
+pub const MARSHAL_ERROR_PREFIX: &str = "marshal_error:";
 
 #[napi(object)]
 pub struct HogExecResult {
@@ -25,33 +35,89 @@ pub struct HogExecResult {
     pub logs_truncated: bool,
 }
 
+/// Build a `Program` (validating + pre-decoding the token stream once) from a raw bytecode
+/// array. The `Err` string is in the shape the per-event results carry.
+pub fn build_program(tokens: Vec<Value>) -> Result<Program, String> {
+    if tokens.is_empty() {
+        return Err("invalid program: bytecode must be a non-empty array".to_string());
+    }
+    Program::new(tokens).map_err(|e| format!("invalid program: {e}"))
+}
+
 pub fn run_batch(
     tokens: &[Value],
     events: &[Value],
+    parallel: bool,
     max_steps: Option<usize>,
 ) -> Vec<HogExecResult> {
-    if tokens.is_empty() {
-        return events
-            .iter()
-            .map(|_| error_result("invalid program: bytecode must be a non-empty array", 0.0))
-            .collect();
+    match build_program(tokens.to_vec()) {
+        Ok(program) => run_batch_program(&program, events, parallel, max_steps),
+        Err(e) => events.iter().map(|_| error_result(&e, 0.0)).collect(),
     }
-
-    run_chunk(tokens, events, max_steps)
 }
 
-// Run the events through one reused ExecutionContext (STL and ext fns built once, globals
-// swapped per event), sequentially on the calling thread.
-fn run_chunk(tokens: &[Value], chunk: &[Value], max_steps: Option<usize>) -> Vec<HogExecResult> {
-    let program = match Program::new(tokens.to_vec()) {
-        Ok(p) => p,
-        Err(e) => {
-            return chunk
-                .iter()
-                .map(|_| error_result(&format!("invalid program: {e}"), 0.0))
-                .collect();
+/// Like [`run_batch`], but tolerates events whose JS→JSON conversion failed at the napi boundary:
+/// an `Err(reason)` event gets a `marshal_error:<reason>` result and only the converted events
+/// execute, so one unrepresentable event can't fail the whole batch. Results stay in input order.
+pub fn run_batch_salvaged(
+    tokens: &[Value],
+    events: Vec<Result<Value, String>>,
+    parallel: bool,
+    max_steps: Option<usize>,
+) -> Vec<HogExecResult> {
+    let mut ok_events = Vec::with_capacity(events.len());
+    let mut slots: Vec<Option<String>> = Vec::with_capacity(events.len());
+    for event in events {
+        match event {
+            Ok(value) => {
+                ok_events.push(value);
+                slots.push(None);
+            }
+            Err(reason) => slots.push(Some(reason)),
         }
-    };
+    }
+
+    let mut executed = run_batch(tokens, &ok_events, parallel, max_steps).into_iter();
+    slots
+        .into_iter()
+        .map(|slot| match slot {
+            Some(reason) => error_result(&format!("{MARSHAL_ERROR_PREFIX}{reason}"), 0.0),
+            None => executed
+                .next()
+                .expect("run_batch returns one result per event"),
+        })
+        .collect()
+}
+
+/// Like `run_batch` but from an already-built `Program` — no per-call copy, validation, or
+/// token decode. This is the registered-program path.
+pub fn run_batch_program(
+    program: &Program,
+    events: &[Value],
+    parallel: bool,
+    max_steps: Option<usize>,
+) -> Vec<HogExecResult> {
+    if !parallel {
+        return run_chunk(program, events, max_steps);
+    }
+
+    // Chunk size follows the batch so any batch worth parallelizing splits across the rayon
+    // pool; a fixed size tied to the caller's max batch size would put the whole batch in one
+    // chunk and never fan out.
+    let chunk_size = events
+        .len()
+        .div_ceil(rayon::current_num_threads())
+        .max(MIN_PARALLEL_CHUNK_SIZE);
+    events
+        .par_chunks(chunk_size)
+        .flat_map_iter(|chunk| run_chunk(program, chunk, max_steps).into_iter())
+        .collect()
+}
+
+// Run a slice of events through one reused ExecutionContext (STL and ext fns built once, globals
+// swapped per event), sequentially on the calling thread.
+fn run_chunk(program: &Program, chunk: &[Value], max_steps: Option<usize>) -> Vec<HogExecResult> {
+    let program = program.clone();
 
     // Coercing comparisons are the TS reference's semantics (unifyComparisonTypes): ordering
     // coerces across number/string/boolean/null instead of erroring.
@@ -150,24 +216,45 @@ mod tests {
         ]
     }
 
+    // print(globals.<global>) (POP the call result), then return 1+2
+    fn print_global_program(global: &str) -> Vec<Value> {
+        let mut program = vec![
+            json!("_H"),
+            json!(1),
+            json!(32),
+            json!(global),
+            json!(1),
+            json!(1),
+            json!(2),
+            json!("print"),
+            json!(1),
+            json!(35),
+        ];
+        program.extend(add_program().into_iter().skip(2));
+        program
+    }
+
     #[test]
     fn executes_each_event_with_its_own_globals_in_order() {
+        // Enough events for several rayon chunks in the parallel case.
         let events: Vec<Value> = (0..1200)
             .map(|i| json!({ "name": i.to_string() }))
             .collect();
-        let results = run_batch(&get_global_program("name"), &events, None);
-        assert_eq!(results.len(), events.len());
-        for (i, r) in results.iter().enumerate() {
-            assert_eq!(r.error, None);
-            assert_eq!(r.result, Some(json!(i.to_string())));
-            assert!(r.duration_us > 0.0);
+        for parallel in [false, true] {
+            let results = run_batch(&get_global_program("name"), &events, parallel, None);
+            assert_eq!(results.len(), events.len());
+            for (i, r) in results.iter().enumerate() {
+                assert_eq!(r.error, None);
+                assert_eq!(r.result, Some(json!(i.to_string())));
+                assert!(r.duration_us > 0.0);
+            }
         }
     }
 
     #[test]
     fn per_event_error_does_not_fail_the_batch() {
         let events = vec![json!({ "name": "ok" }), json!({ "other": 1 })];
-        let results = run_batch(&get_global_program("name"), &events, None);
+        let results = run_batch(&get_global_program("name"), &events, false, None);
         assert_eq!(results[0].result, Some(json!("ok")));
         assert!(results[1].result.is_none());
         assert!(results[1].error.as_deref().unwrap().contains("name"));
@@ -175,7 +262,12 @@ mod tests {
 
     #[test]
     fn invalid_program_errors_every_event() {
-        let results = run_batch(&[json!("not bytecode")], &[json!({}), json!({})], None);
+        let results = run_batch(
+            &[json!("not bytecode")],
+            &[json!({}), json!({})],
+            false,
+            None,
+        );
         assert_eq!(results.len(), 2);
         for r in &results {
             assert!(r.error.as_deref().unwrap().starts_with("invalid program"));
@@ -184,8 +276,38 @@ mod tests {
 
     #[test]
     fn empty_program_errors_every_event() {
-        let results = run_batch(&[], &[json!({})], None);
+        let results = run_batch(&[], &[json!({})], false, None);
         assert!(results[0].error.is_some());
+    }
+
+    #[test]
+    fn salvaged_batch_interleaves_marshal_errors_in_input_order() {
+        let events = vec![
+            Ok(json!({ "name": "a" })),
+            Err("nan in globals".to_string()),
+            Ok(json!({ "name": "b" })),
+        ];
+        let results = run_batch_salvaged(&get_global_program("name"), events, false, None);
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].result, Some(json!("a")));
+        assert_eq!(
+            results[1].error.as_deref(),
+            Some("marshal_error:nan in globals")
+        );
+        assert_eq!(results[1].duration_us, 0.0);
+        assert_eq!(results[2].result, Some(json!("b")));
+    }
+
+    #[test]
+    fn salvaged_batch_with_all_marshal_errors_executes_nothing() {
+        let events = vec![Err("x".to_string()), Err("y".to_string())];
+        let results = run_batch_salvaged(&add_program(), events, false, None);
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|r| r
+            .error
+            .as_deref()
+            .unwrap()
+            .starts_with(MARSHAL_ERROR_PREFIX)));
     }
 
     #[test]
@@ -200,7 +322,7 @@ mod tests {
             json!(13),
             json!(38),
         ];
-        let results = run_batch(&gt_true_zero, &[json!({})], None);
+        let results = run_batch(&gt_true_zero, &[json!({})], false, None);
         assert_eq!(results[0].error, None);
         assert_eq!(results[0].result, Some(json!(true)));
 
@@ -214,22 +336,27 @@ mod tests {
             json!(15),
             json!(38),
         ];
-        let results = run_batch(&lt_zero_null, &[json!({})], None);
+        let results = run_batch(&lt_zero_null, &[json!({})], false, None);
         assert_eq!(results[0].error, None);
         assert_eq!(results[0].result, Some(json!(false)));
     }
 
     #[test]
     fn max_steps_budget_is_enforced() {
-        let results = run_batch(&add_program(), &[json!({})], Some(1));
+        let results = run_batch(&add_program(), &[json!({})], false, Some(1));
         assert!(results[0].error.is_some());
-        let results = run_batch(&add_program(), &[json!({})], None);
+        let results = run_batch(&add_program(), &[json!({})], false, None);
         assert_eq!(results[0].result, Some(json!(3)));
     }
 
     #[test]
     fn posthog_capture_errors_like_the_node_executor() {
-        let results = run_batch(&call_fn_program("postHogCapture", "x"), &[json!({})], None);
+        let results = run_batch(
+            &call_fn_program("postHogCapture", "x"),
+            &[json!({})],
+            false,
+            None,
+        );
         assert!(results[0]
             .error
             .as_deref()
@@ -242,6 +369,7 @@ mod tests {
         let results = run_batch(
             &call_fn_program("generateMessagingPreferencesUrl", "x"),
             &[json!({})],
+            false,
             None,
         );
         assert!(results[0]
@@ -257,6 +385,7 @@ mod tests {
         let results = run_batch(
             &call_fn_program("geoipLookup", "89.160.20.129"),
             &[json!({})],
+            false,
             None,
         );
         assert!(results[0]
@@ -274,6 +403,7 @@ mod tests {
         let results = run_batch(
             &call_fn_program("someFunctionNobodyImplements", "x"),
             &[json!({})],
+            false,
             None,
         );
         assert!(results[0]
@@ -282,7 +412,7 @@ mod tests {
             .unwrap()
             .starts_with("Unknown function "));
 
-        let results = run_batch(&get_global_program("missing"), &[json!({})], None);
+        let results = run_batch(&get_global_program("missing"), &[json!({})], false, None);
         assert!(results[0]
             .error
             .as_deref()
@@ -304,7 +434,7 @@ mod tests {
             json!(35),
         ];
         program.extend(add_program().into_iter().skip(2));
-        let results = run_batch(&program, &[json!({})], None);
+        let results = run_batch(&program, &[json!({})], false, None);
         assert_eq!(results[0].error, None);
         assert_eq!(results[0].result, Some(json!(3)));
         assert_eq!(results[0].logs, vec!["x".to_string()]);
@@ -314,22 +444,26 @@ mod tests {
     // print(globals.g) — non-string args are JSON-serialized like the Node executor's handler.
     #[test]
     fn print_serializes_non_string_args_and_does_not_leak_across_events() {
-        let program = vec![
-            json!("_H"),
-            json!(1),
-            json!(32),
-            json!("g"),
-            json!(1),
-            json!(1),
-            json!(2),
-            json!("print"),
-            json!(1),
-            json!(38),
-        ];
+        let program = print_global_program("g");
         let events = vec![json!({ "g": { "a": 1 } }), json!({ "g": "plain" })];
-        let results = run_batch(&program, &events, None);
+        let results = run_batch(&program, &events, false, None);
         assert_eq!(results[0].logs, vec![r#"{"a":1}"#.to_string()]);
         assert_eq!(results[1].logs, vec!["plain".to_string()]);
+    }
+
+    #[test]
+    fn parallel_execution_does_not_mix_print_logs_across_events() {
+        // Enough events for several chunks spread over rayon workers.
+        let events: Vec<Value> = (0..1500)
+            .map(|i| json!({ "g": format!("marker-{i}") }))
+            .collect();
+        let results = run_batch(&print_global_program("g"), &events, true, None);
+        assert_eq!(results.len(), events.len());
+        for (i, r) in results.iter().enumerate() {
+            assert_eq!(r.error, None);
+            assert_eq!(r.logs, vec![format!("marker-{i}")]);
+            assert!(!r.logs_truncated);
+        }
     }
 
     #[test]
@@ -347,7 +481,7 @@ mod tests {
             ]);
         }
         program.extend(add_program().into_iter().skip(2));
-        let results = run_batch(&program, &[json!({})], None);
+        let results = run_batch(&program, &[json!({})], false, None);
         assert_eq!(results[0].error, None);
         assert_eq!(results[0].logs.len(), crate::logs::MAX_CAPTURED_LOGS);
         assert!(results[0].logs_truncated);
@@ -355,7 +489,7 @@ mod tests {
         // Sequential run_batch executes on the calling thread — the same thread-local buffer the
         // truncating execution above just used. Nothing may carry over into the next execution
         // (this is the back-to-back executeSync shape of the primary path).
-        let results = run_batch(&add_program(), &[json!({})], None);
+        let results = run_batch(&add_program(), &[json!({})], false, None);
         assert_eq!(results[0].logs, Vec::<String>::new());
         assert!(!results[0].logs_truncated);
     }
@@ -366,12 +500,14 @@ mod tests {
         let results = run_batch(
             &call_fn_program("isKnownBotUserAgent", "Mozilla/5.0 GoogleBot/2.1"),
             &[json!({})],
+            false,
             None,
         );
         assert_eq!(results[0].result, Some(json!(true)));
         let results = run_batch(
             &call_fn_program("isKnownBotUserAgent", "Mozilla/5.0 Safari"),
             &[json!({})],
+            false,
             None,
         );
         assert_eq!(results[0].result, Some(json!(false)));
@@ -383,12 +519,14 @@ mod tests {
         let results = run_batch(
             &call_fn_program("isKnownBotIp", "1.2.3.4"),
             &[json!({})],
+            false,
             None,
         );
         assert_eq!(results[0].result, Some(json!(true)));
         let results = run_batch(
             &call_fn_program("isKnownBotIp", "1.2.3.40"),
             &[json!({})],
+            false,
             None,
         );
         assert_eq!(results[0].result, Some(json!(false)));
@@ -399,6 +537,7 @@ mod tests {
         let results = run_batch(
             &call_fn_program("cleanNullValues", "unused"),
             &[json!({})],
+            false,
             None,
         );
         // A string arg passes through untouched.
@@ -420,6 +559,7 @@ mod tests {
         let results = run_batch(
             &program,
             &[json!({ "g": { "a": null, "b": 1, "c": [null, 2] } })],
+            false,
             None,
         );
         assert_eq!(results[0].result, Some(json!({ "b": 1, "c": [2] })));

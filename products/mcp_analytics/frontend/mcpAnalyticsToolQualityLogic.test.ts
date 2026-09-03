@@ -205,6 +205,31 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             expect(logic.values.selectedTool).toBe('tool_a')
         })
 
+        it('keeps the current rows visible while another page loads', async () => {
+            mockApi.query.mockImplementation(async (query: any) => {
+                if (query.kind !== NodeKind.MCPToolQualityRowsQuery) {
+                    return { results: [] }
+                }
+                const tool = query.offset === 0 ? 'page-one-tool' : 'page-two-tool'
+                return { ...emptyToolRowsResponse, results: [toolRowResult(tool)], totalCount: 100 }
+            })
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['page-one-tool'])
+
+            logic.actions.setToolQualityPageIndex(1)
+
+            expect(logic.values.toolRowsPageLoading).toBe(true)
+            expect(logic.values.loadedToolQualityPageIndex).toBe(0)
+            expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['page-one-tool'])
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.loadedToolQualityPageIndex).toBe(1)
+            expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['page-two-tool'])
+        })
+
         it('sends search, global sort, and page offsets to the rows query', async () => {
             mockApi.query.mockImplementation(async (query: any) =>
                 query.kind === NodeKind.MCPToolQualityRowsQuery

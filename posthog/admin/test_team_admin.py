@@ -25,11 +25,13 @@ from posthog.llm.gateway_internal_client import (
 )
 from posthog.models import Organization
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.personhog_client.fake_client import FakePersonHogClient
 from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.services.email_sending_tier import TierDecision
 
 
 def _attach_messages(request) -> None:
@@ -676,6 +678,70 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         assert self.mock_suspend_email.delay.call_args.kwargs["team_id"] == self.team.id
         assert self.mock_suspend_email.delay.call_args.kwargs["reason"] == "Hard bounce rate above 5%"
         assert self.mock_notification.call_count == 1
+
+    def test_suspend_drops_the_tier_to_zero_even_when_pinned(self) -> None:
+        config = get_or_create_team_extension(
+            self.team, TeamWorkflowsConfig, defaults={"email_sending_tier": 3, "email_sending_tier_pinned": True}
+        )
+
+        response = self.admin.suspend_email_sending_view(self._post({"reason": "spam complaints"}), str(self.team.pk))
+        assert response.status_code == 302
+
+        config.refresh_from_db()
+        assert config.email_sending_suspended_at is not None
+        assert config.email_sending_tier == 0
+        assert config.email_sending_tier_updated_at is not None
+
+    def test_tier_actions_render_without_a_nested_form(self) -> None:
+        # The field renders inside the admin's team change form. A nested <form> would break the page,
+        # so the actions must submit the surrounding form through formaction instead.
+        html = self.admin.email_sending_tier_actions(self.team)
+        assert "<form" not in html
+        assert html.count('formmethod="post"') == 2
+        assert "Save tier" in html
+        assert "Recompute now" in html
+
+    def test_tier_actions_use_a_nonce_script_not_inline_handlers(self) -> None:
+        # Admin pages serve a CSP with no unsafe-inline/unsafe-hashes on script-src, so inline
+        # onclick/onsubmit attributes are dropped. The recompute confirm must run from a nonce'd
+        # script, which needs the request in the render context.
+        request = self.factory.get(f"/admin/posthog/team/{self.team.pk}/change/")
+        request.user = self.user
+        request.csp_nonce = "test-nonce-value"  # type: ignore[attr-defined]
+        _attach_messages(request)
+        self.admin._current_request = request
+
+        html = self.admin.email_sending_tier_actions(self.team)
+
+        assert "onclick=" not in html
+        assert "onsubmit=" not in html
+        assert 'nonce="test-nonce-value"' in html
+
+    def test_recompute_message_names_the_hold_reason(self) -> None:
+        # A held recompute used to report a canned guess ("pinned or does not meet the promotion
+        # bar"), which misled staff when the real reason was the dwell or a cooldown.
+        request = self._post()
+        with patch(
+            "posthog.admin.admins.team_admin.recompute_email_sending_tier_for_team",
+            return_value=TierDecision(team_id=self.team.id, previous_tier=4, new_tier=4, reason="too_soon"),
+        ):
+            response = self.admin.recompute_email_sending_tier_view(request, str(self.team.pk))
+        assert response.status_code == 302
+        rendered = [str(message) for message in request._messages]
+        assert any("keeps tier 4" in message and "has not held its current tier" in message for message in rendered)
+
+    def test_recompute_creates_a_missing_workflows_config(self) -> None:
+        # A team that predates the extension signal can have no config row, and the sweep skips a
+        # rowless team, so the recompute action must create the row before it runs.
+        TeamWorkflowsConfig.objects.filter(team_id=self.team.pk).delete()
+        assert self._config() is None
+        with patch(
+            "posthog.admin.admins.team_admin.recompute_email_sending_tier_for_team", return_value=None
+        ) as mock_recompute:
+            response = self.admin.recompute_email_sending_tier_view(self._post(), str(self.team.pk))
+        assert response.status_code == 302
+        mock_recompute.assert_called_once_with(self.team.id)
+        assert self._config() is not None
 
     def test_suspend_is_idempotent(self) -> None:
         self.admin.suspend_email_sending_view(self._post({"reason": "first"}), str(self.team.pk))

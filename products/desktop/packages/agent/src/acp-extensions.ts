@@ -19,6 +19,8 @@ export const POSTHOG_NOTIFICATIONS = {
   /** Task run has started execution */
   RUN_STARTED: "_posthog/run_started",
 
+  COMMAND_DISPATCHED: "_posthog/agent_command_dispatched",
+
   /** Task has completed (success or failure) */
   TASK_COMPLETE: "_posthog/task_complete",
 
@@ -99,6 +101,27 @@ export const POSTHOG_NOTIFICATIONS = {
   /** Desktop → sandbox reply to an MCP relay request (docs/CLOUD-MCP-RELAY.md). */
   MCP_RESPONSE: "_posthog/mcp_response",
 } as const;
+
+export type SteerDeclineCause =
+  | "cancelled"
+  | "compacting"
+  | "continuation_failed"
+  | "no_in_flight_turn"
+  | "no_owner_turn"
+  | "steer_in_flight"
+  | "turn_ended_first"
+  | "turn_failed"
+  | "turn_not_steerable";
+
+export function steerDeclined(cause: SteerDeclineCause): {
+  stopReason: "end_turn";
+  _meta: { steer: false; steerDeclineCause: SteerDeclineCause };
+} {
+  return {
+    stopReason: "end_turn",
+    _meta: { steer: false, steerDeclineCause: cause },
+  };
+}
 
 export type NativeGoalState = {
   objective: string;

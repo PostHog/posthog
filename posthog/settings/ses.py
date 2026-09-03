@@ -33,3 +33,20 @@ SES_TENANT_CONFIGURATION_SETS: list[str] = [
 WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS: list[str] = [
     arn.strip() for arn in os.getenv("WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS", "").split(",") if arn.strip()
 ]
+
+# SES ISP dimension values to break sending health down by. The only API that names providers is
+# GetDomainStatisticsReport, which needs the Deliverability dashboard subscription, so the list
+# comes from us, and SES gives no way to check a name up front: it validates the format only, and
+# accepts any well-formed word, inventions included. Two consequences.
+#
+# A name SES has no data for is harmless. It costs one query set and yields no row, because
+# providers with zero sends are dropped. That is why both spellings are listed for the two
+# families whose SES name is unconfirmed, Microsoft and Apple: the right one wins and the other
+# disappears. Prune the losers once VDM has collected.
+#
+# A name holding "." or "&" is not harmless. SES rejects "Mail.ru", "Web.de" and "AT&T" with
+# BadRequestException, which fails the whole BatchGetMetricData request and hides the entire
+# breakdown rather than one row. Those are plausible providers to reach for, so check a new value
+# against the API before adding it: query SEND for the name over a window VDM has data for, and
+# treat volume as the only proof the name is real.
+SES_ISP_DIMENSIONS: list[str] = ["Gmail", "Yahoo", "Outlook", "Hotmail", "Apple", "iCloud"]

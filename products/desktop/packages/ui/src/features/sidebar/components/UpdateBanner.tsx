@@ -1,4 +1,4 @@
-import { ArrowsClockwise, Gift, Spinner, X } from "@phosphor-icons/react";
+import { ArrowsClockwise, Gift, X } from "@phosphor-icons/react";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useUpdateBannerStore } from "@posthog/ui/features/updates/updateBannerStore";
 import { useUpdateModalStore } from "@posthog/ui/features/updates/updateModalStore";
@@ -6,6 +6,7 @@ import {
   useInstallUpdate,
   useUpdateView,
 } from "@posthog/ui/features/updates/updateStore";
+import { Spin, Spinner } from "@posthog/ui/primitives/Spinner";
 import { Box } from "@radix-ui/themes";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -71,7 +72,7 @@ export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
                 className="flex items-center gap-1.5 text-(--green-11) text-[13px] opacity-70"
                 onClick={openModal}
               >
-                <Spinner size={14} className="animate-spin" />
+                <Spinner size={14} />
                 <span>Downloading update... {percent}%</span>
               </button>
             )}
@@ -96,7 +97,9 @@ export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
 
             {status === "installing" && (
               <div className="flex items-center gap-1.5 text-(--green-11) text-[13px] opacity-70">
-                <ArrowsClockwise size={14} className="animate-spin" />
+                <Spin>
+                  <ArrowsClockwise size={14} />
+                </Spin>
                 <span>Restarting...</span>
               </div>
             )}
@@ -222,10 +225,9 @@ export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
             {status === "installing" && (
               <BannerCard key="installing">
                 <div className="flex w-full items-center gap-2 rounded-md border border-[var(--green-a5)] bg-[var(--green-a3)] px-3 py-2.5 text-[13px] text-[var(--green-11)]">
-                  <ArrowsClockwise
-                    size={16}
-                    className="shrink-0 animate-spin"
-                  />
+                  <Spin className="shrink-0">
+                    <ArrowsClockwise size={16} />
+                  </Spin>
                   <span className="font-medium">Restarting...</span>
                 </div>
               </BannerCard>

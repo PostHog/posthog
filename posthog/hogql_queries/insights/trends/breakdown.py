@@ -24,7 +24,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
-from posthog.hogql_queries.insights.utils.breakdowns import (
+from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER,
     BREAKDOWN_OTHER_STRING_LABEL,

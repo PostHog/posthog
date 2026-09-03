@@ -86,6 +86,7 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
                 get_experiment_stats_method(experiment),
                 experiment.exposure_criteria,
                 only_count_matured_users=experiment.only_count_matured_users,
+                excluded_variants=experiment.excluded_variants,
             )
 
             experiment_metrics.append(
@@ -377,6 +378,7 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
                 get_experiment_stats_method(experiment),
                 experiment.exposure_criteria,
                 only_count_matured_users=experiment.only_count_matured_users,
+                excluded_variants=experiment.excluded_variants,
             )
 
             experiment_metrics.append(

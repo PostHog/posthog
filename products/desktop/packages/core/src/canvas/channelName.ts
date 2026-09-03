@@ -1,6 +1,6 @@
 export const PERSONAL_CHANNEL_NAME = "me";
 
-export const GENERAL_CHANNEL_NAME = "general";
+const GENERAL_CHANNEL_NAME = "general";
 
 export interface ChannelIdentity {
   system_role?: "personal" | "general" | null;
@@ -70,7 +70,7 @@ export function channelDisplayReference(
 
 // The server normalizes a name to this shape (`normalize_channel_name`), so anything
 // else would be stored as something other than what the field showed.
-export const CHANNEL_NAME_PATTERN = /^[a-z0-9-]+$/;
+const CHANNEL_NAME_PATTERN = /^[a-z0-9-]+$/;
 
 function replaceChannelNameSeparators(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -88,13 +88,13 @@ export function normalizeChannelName(name: string): string {
 // treated as valid here — callers already gate on a non-empty trimmed value, so
 // this validator only judges the character set.
 /**
- * Names a space can't take, because the private space already answers to them
- * and a second space wearing one is a space pretending to be yours.
+ * Names a space can't take, because a default space already answers to them and
+ * a second space wearing one is a space pretending to be that one.
  *
  * Client-side only, so it stops the two forms that create and rename spaces —
  * not the API, and not a space that took the name before this landed.
  */
-const RESERVED_CHANNEL_NAMES = new Set([
+const RESERVED_PERSONAL_NAMES = new Set([
   PERSONAL_CHANNEL_NAME,
   PERSONAL_CHANNEL_LABEL,
 ]);
@@ -105,8 +105,12 @@ export function validateChannelName(name: string): string | null {
   if (!CHANNEL_NAME_PATTERN.test(trimmed)) {
     return "Use only lowercase letters, numbers, and hyphens.";
   }
-  if (RESERVED_CHANNEL_NAMES.has(trimmed.toLowerCase())) {
+  const lowered = trimmed.toLowerCase();
+  if (RESERVED_PERSONAL_NAMES.has(lowered)) {
     return `"${trimmed}" is reserved for your private space.`;
+  }
+  if (normalizeChannelName(lowered) === GENERAL_CHANNEL_NAME) {
+    return `"${trimmed}" is reserved for your team's shared space.`;
   }
   return null;
 }

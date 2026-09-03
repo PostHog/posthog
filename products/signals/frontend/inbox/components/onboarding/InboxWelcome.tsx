@@ -1,14 +1,20 @@
 import './InboxWelcome.scss'
 
-import { useActions } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconRewindPlay, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
+import { IconCheck, IconRewindPlay, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IconSlack } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
+import { urls } from 'scenes/urls'
 
 import { captureInboxWelcomeCommandCopied, captureInboxWelcomeViewed } from '../../inboxAnalytics'
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
@@ -59,6 +65,48 @@ function CommandCta(): JSX.Element {
             >
                 {copied ? 'Copied' : 'Copy'}
             </button>
+        </div>
+    )
+}
+
+function GithubFirstCta(): JSX.Element {
+    useMountedLogic(integrationsLogic)
+    const { githubIntegrations, integrationsLoading } = useValues(integrationsLogic)
+    const hasGithubIntegration = githubIntegrations.some(
+        (integration) => integration.installation_status !== 'unavailable'
+    )
+
+    if (integrationsLoading) {
+        return <LemonSkeleton className="h-10 w-64 rounded" />
+    }
+
+    if (hasGithubIntegration) {
+        return (
+            <>
+                <div className="mb-4">
+                    <LemonTag type="success" icon={<IconCheck />}>
+                        GitHub connected
+                    </LemonTag>
+                </div>
+                <h2 className="mb-4 text-lg font-semibold">Almost there</h2>
+                <CommandCta />
+                <p className="mt-3.5 max-w-[520px] text-[13px] text-tertiary">
+                    Run the setup agent in your repo to pick the signal sources and scouts to watch. PRs start landing
+                    in this inbox.
+                </p>
+            </>
+        )
+    }
+
+    return (
+        <div className="w-full max-w-[560px] text-left">
+            <GithubIntegration
+                next={combineUrl(urls.inbox(), { setup: 'github-first' }).url}
+                connectSurface="inbox_welcome"
+                connectText="Connect GitHub"
+                emphasizeConnect
+                showPersonalConnectionHelp={false}
+            />
         </div>
     )
 }
@@ -195,6 +243,9 @@ function LoopDiagram(): JSX.Element {
  * Rendered in place of the report list and without the tab bar: a full-pane welcome, not a tab.
  */
 export function InboxWelcome(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const githubFirst = !!featureFlags[FEATURE_FLAGS.GITHUB_FIRST_SELF_DRIVING_ONBOARDING]
+
     useEffect(() => {
         captureInboxWelcomeViewed()
     }, [])
@@ -213,11 +264,17 @@ export function InboxWelcome(): JSX.Element {
                         PostHog watches your session replays, errors, and Slack. When it finds something worth fixing,
                         it writes the pull request. You review and merge.
                     </p>
-                    <CommandCta />
-                    <p className="mt-3.5 max-w-[520px] text-[13px] text-tertiary">
-                        Run it in your repo. That's the whole setup: it connects GitHub and picks the signal sources and
-                        scouts to watch. PRs start landing in this inbox.
-                    </p>
+                    {githubFirst ? (
+                        <GithubFirstCta />
+                    ) : (
+                        <>
+                            <CommandCta />
+                            <p className="mt-3.5 max-w-[520px] text-[13px] text-tertiary">
+                                Run it in your repo. That's the whole setup: it connects GitHub and picks the signal
+                                sources and scouts to watch. PRs start landing in this inbox.
+                            </p>
+                        </>
+                    )}
                     <ManualSetupAction />
                 </div>
             </div>

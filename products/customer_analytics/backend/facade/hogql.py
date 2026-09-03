@@ -1329,7 +1329,7 @@ custom_property_definitions: PostgresTable = PostgresTable(
         ),
         "display_type": StringDatabaseField(
             name="display_type",
-            description="How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.",
+            description="How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select' (allowed options stored on the definition), or 'link'.",
         ),
         "_is_big_number": BooleanDatabaseField(name="is_big_number", hidden=True),
         "is_big_number": ExpressionField(

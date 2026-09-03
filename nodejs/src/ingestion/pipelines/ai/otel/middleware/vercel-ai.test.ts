@@ -137,6 +137,62 @@ describe('vercel-ai middleware', () => {
             expect(event.properties!['$ai_stop_reason']).toBe('stop')
         })
 
+        it('maps the Vercel AI Gateway reported cost to $ai_total_cost_usd', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'gen_ai.response.model': 'gpt-4o-mini',
+                'gen_ai.usage.input_tokens': 23,
+                'gen_ai.usage.output_tokens': 14,
+                'ai.response.providerMetadata': JSON.stringify({ gateway: { cost: '0.001234' } }),
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_total_cost_usd']).toBe(0.001234)
+            expect(event.properties!['$ai_cost_passthrough']).toBe(true)
+            expect(event.properties!['ai.response.providerMetadata']).toBeUndefined()
+        })
+
+        it('does not override a total cost the caller already set', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                $ai_total_cost_usd: 0.5,
+                'ai.response.providerMetadata': JSON.stringify({ gateway: { cost: '0.001234' } }),
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_total_cost_usd']).toBe(0.5)
+            expect(event.properties!['$ai_cost_passthrough']).toBeUndefined()
+        })
+
+        // The AI SDK records the same providerMetadata on the parent ai.generateText span.
+        it('leaves the gateway cost off the parent span', () => {
+            const event = createEvent('$ai_span', {
+                'ai.operationId': 'ai.generateText',
+                $ai_parent_id: 'parent-1',
+                'ai.response.providerMetadata': JSON.stringify({ gateway: { cost: '0.001234' } }),
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_total_cost_usd']).toBeUndefined()
+            expect(event.properties!['$ai_cost_passthrough']).toBeUndefined()
+        })
+
+        it.each([
+            ['no gateway cost', JSON.stringify({ gateway: { generationId: 'gen-1' } })],
+            ['non-numeric cost', JSON.stringify({ gateway: { cost: 'free' } })],
+            ['no gateway metadata', '{}'],
+            ['malformed json', 'not json'],
+        ])('leaves cost unset when providerMetadata has %s', (_label, providerMetadata) => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.response.providerMetadata': providerMetadata,
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_total_cost_usd']).toBeUndefined()
+            expect(event.properties!['$ai_cost_passthrough']).toBeUndefined()
+        })
+
         it('ignores empty functionId telemetry', () => {
             const event = createEvent('$ai_generation', {
                 'ai.operationId': 'ai.generateText.doGenerate',
@@ -157,6 +213,17 @@ describe('vercel-ai middleware', () => {
 
             expect(event.properties!['gen_ai.response.finish_reasons']).toBeUndefined()
             expect(event.properties!['$ai_stop_reason']).toBe('length')
+        })
+
+        it('ignores an oversized stop reason and falls through to the next source', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.response.finishReason': 'x'.repeat(129),
+                'gen_ai.response.finish_reasons': ['stop'],
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_stop_reason']).toBe('stop')
         })
 
         it('normalizes AI SDK v7 detailed usage without relying on global cache semantics', () => {
@@ -629,6 +696,30 @@ describe('vercel-ai middleware', () => {
             convertOtelEvent(event)
             expect(event.properties!['$ai_lib']).toBe('opentelemetry/vercel-ai')
             expect(event.properties!['$ai_framework']).toBe('vercel')
+        })
+    })
+
+    describe('AI SDK 7 gen_ai-native spans', () => {
+        it('processes a gen_ai-native generation that carries only ai.usage.* and ai.telemetry.metadata.*', () => {
+            // @ai-sdk/otel's OpenTelemetry integration drops ai.operationId and
+            // emits standard gen_ai.* plus supplemental ai.usage.* / ai.telemetry.metadata.*.
+            // The middleware must still run so attribution and usage normalization happen.
+            const event = createEvent('$ai_generation', {
+                'gen_ai.operation.name': 'chat',
+                'gen_ai.response.model': 'gemini-2.5-pro',
+                'gen_ai.usage.output_tokens': 20,
+                'ai.usage.outputTokenDetails.reasoningTokens': 5,
+                'ai.telemetry.metadata.$ai_session_id': 'session-abc',
+                $ai_parent_id: 'parent-span',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_session_id']).toBe('session-abc')
+            expect(event.properties!['$ai_reasoning_tokens']).toBe(5)
+            expect(event.properties!['$ai_framework']).toBe('vercel')
+            expect(event.properties!['$ai_lib']).toBe('opentelemetry/vercel-ai')
+            expect(event.properties!['ai.telemetry.metadata.$ai_session_id']).toBeUndefined()
+            expect(event.properties!['ai.usage.outputTokenDetails.reasoningTokens']).toBeUndefined()
         })
     })
 
