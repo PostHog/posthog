@@ -202,7 +202,7 @@ export const workspaceRouter = router({
   markViewed: publicProcedure
     .input(markViewedInput)
     .mutation(({ ctx, input }) =>
-      getMetadata(ctx.container).markViewed(input.taskId, input.activityAt),
+      getMetadata(ctx.container).markViewed(input.taskId),
     ),
 
   markActivity: publicProcedure

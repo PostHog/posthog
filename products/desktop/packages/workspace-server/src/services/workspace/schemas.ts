@@ -219,7 +219,6 @@ export const togglePinOutput = z.object({
 
 export const markViewedInput = z.object({
   taskId: z.string(),
-  activityAt: z.string().optional(),
 });
 
 export const markActivityInput = z.object({

@@ -9,11 +9,6 @@ import {
 } from "@posthog/host-router/client";
 import { getAuthenticatedClient } from "@posthog/ui/features/auth/authClientImperative";
 import {
-  ACTIVE_VIEW_PROVIDER,
-  type IActiveView,
-} from "@posthog/ui/features/notifications/identifiers";
-import { routeNotification } from "@posthog/ui/features/notifications/routeNotification";
-import {
   IMPERATIVE_QUERY_CLIENT,
   type ImperativeQueryClient,
 } from "@posthog/ui/shell/queryClient";
@@ -31,40 +26,17 @@ function invalidateTimestamps(): void {
   ).invalidateQueries({ queryKey: TASK_TIMESTAMPS_QUERY_KEY });
 }
 
-function isViewingTask(taskId: string): boolean {
-  const view = resolveService<IActiveView>(ACTIVE_VIEW_PROVIDER);
-  return (
-    routeNotification({
-      appFocused: view.hasFocus(),
-      viewingTarget: view.getActiveTarget(),
-      notificationTarget: { kind: "task", taskId },
-    }) === "suppress"
-  );
-}
-
-async function markActivity(taskId: string): Promise<void> {
-  const keepRead = isViewingTask(taskId);
-  const api = workspace();
-  await api.markActivity.mutate({ taskId });
-  if (keepRead) {
-    await api.markViewed.mutate({ taskId });
-  }
-  invalidateTimestamps();
-}
-
 export const taskViewedApi = {
   async loadTimestamps(): Promise<Record<string, TaskTimestamps>> {
     return parseTimestamps(await workspace().getAllTaskTimestamps.query());
   },
 
-  markAsViewed(taskId: string, activityAt?: string): void {
-    void workspace()
-      .markViewed.mutate({ taskId, activityAt })
-      .then(invalidateTimestamps);
+  markAsViewed(taskId: string): void {
+    void workspace().markViewed.mutate({ taskId }).then(invalidateTimestamps);
   },
 
   markActivity(taskId: string): void {
-    void markActivity(taskId);
+    void workspace().markActivity.mutate({ taskId }).then(invalidateTimestamps);
   },
 };
 
