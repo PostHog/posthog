@@ -91,8 +91,8 @@ class TestSourceIdentity:
         for name in ("per_series_aligner", "alignment_period_seconds", "cross_series_reducer", "group_by_fields"):
             assert required[name] is False
 
-    def test_retargeting_the_project_re_requires_the_key(self):
-        assert GcpCloudMonitoringSource().connection_host_fields == ["project_id"]
+    def test_retargeting_the_project_or_filter_re_requires_the_key(self):
+        assert GcpCloudMonitoringSource().connection_host_fields == ["project_id", "metric_filter"]
 
     def test_table_catalog_is_published_without_credentials(self):
         assert GcpCloudMonitoringSource.lists_tables_without_credentials is True

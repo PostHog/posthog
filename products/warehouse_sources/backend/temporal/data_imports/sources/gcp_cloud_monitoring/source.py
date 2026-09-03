@@ -66,9 +66,10 @@ class GcpCloudMonitoringSource(ResumableSource[GcpCloudMonitoringSourceConfig, G
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # The key file is the credential; retargeting the project it is sent against must
-        # re-require it.
-        return ["project_id"]
+        # The key file is the credential. `project_id` decides where it is sent and `metric_filter`
+        # decides which data it reads, so retargeting either must re-require it — otherwise an
+        # editor without the key could reuse the preserved one to pull any series it can read.
+        return ["project_id", "metric_filter"]
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
