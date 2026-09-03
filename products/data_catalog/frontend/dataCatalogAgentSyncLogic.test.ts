@@ -1,3 +1,7 @@
+import { router } from 'kea-router'
+
+import { urls } from 'scenes/urls'
+
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
@@ -13,6 +17,7 @@ import {
     RELATIONSHIP_TOOLS,
 } from './dataCatalogAgentSyncLogic'
 import { DATA_CATALOG_MCP_TOOLS } from './generated/agentContext'
+import { relationshipsLogic } from './relationshipsLogic'
 
 // The reload targets are stubs here: this file covers which reloads the sync logic asks for, not
 // what the catalog logics do with them.
@@ -20,6 +25,13 @@ jest.mock('./certificationsLogic', () => ({
     certificationsLogic: {
         isMounted: () => true,
         actions: { loadCertifications: jest.fn(), loadDatabase: jest.fn() },
+    },
+}))
+
+jest.mock('./relationshipsLogic', () => ({
+    relationshipsLogic: {
+        isMounted: () => true,
+        actions: { loadPendingCount: jest.fn(), loadProposals: jest.fn(), loadJoins: jest.fn() },
     },
 }))
 
@@ -120,6 +132,17 @@ describe('dataCatalogAgentSyncLogic', () => {
 
         expect(certificationsLogic.actions.loadCertifications).toHaveBeenCalled()
         expect(certificationsLogic.actions.loadDatabase).not.toHaveBeenCalled()
+    })
+
+    it('keeps the joins reload when a second relationship write coalesces with it', async () => {
+        foregroundStreamLogic.actions.setForegroundStream('run-1', 'panel-1')
+        router.actions.push(urls.dataCatalog(), { tab: 'relationships' })
+
+        toolStreamEventsLogic.actions.emitToolEvent(toolEvent({ toolName: 'data-catalog-relationship-accept-execute' }))
+        toolStreamEventsLogic.actions.emitToolEvent(toolEvent({ toolName: 'data-catalog-relationship-propose' }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(relationshipsLogic.actions.loadJoins).toHaveBeenCalled()
     })
 
     it('classifies every generated tool that can mutate or read a metric result', () => {
