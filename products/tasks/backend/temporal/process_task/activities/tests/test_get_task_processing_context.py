@@ -11,6 +11,7 @@ from asgiref.sync import async_to_sync
 from posthog.models import OrganizationMembership, User
 from posthog.models.user_integration import UserIntegration
 
+from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
@@ -21,6 +22,7 @@ from products.tasks.backend.constants import (
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
+    STORE_SKILLS_STATE_KEY,
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
     vm_sandbox_default_custom_image,
@@ -28,7 +30,7 @@ from products.tasks.backend.constants import (
     vm_sandbox_origin_rollout_percentages,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
-from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task
+from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -514,8 +516,8 @@ class TestGetTaskProcessingContextActivity:
         org_id = str(test_task.team.organization_id)
         assert kwargs["groups"] == {"organization": org_id}
         assert kwargs["group_properties"] == {"organization": {"id": org_id}}
-        sandbox_args, _sandbox_kwargs = feature_enabled_mock.call_args_list[1]
-        assert sandbox_args[0] == SANDBOX_EVENT_INGEST_FEATURE_FLAG
+        evaluated_flags = [args[0] for args, _kwargs in feature_enabled_mock.call_args_list]
+        assert SANDBOX_EVENT_INGEST_FEATURE_FLAG in evaluated_flags
 
     @pytest.mark.django_db(transaction=True)
     def test_pi_runtime_enables_event_ingest_without_bypassing_persistent_upload_rollout(
@@ -551,6 +553,49 @@ class TestGetTaskProcessingContextActivity:
 
         assert result.sandbox_event_ingest_enabled is False
         assert result.agent_proxy_keep_stream_open is False
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "flag_value,expected_state",
+        [
+            (True, "resolved"),
+            (False, []),
+            (None, "untouched"),  # a flag-service outage must not clear stubs a resumed sandbox still has
+        ],
+    )
+    def test_store_skills_state_follows_the_sandbox_flag(
+        self, activity_environment, test_task, user, flag_value, expected_state
+    ):
+        LLMSkill.objects.create(
+            team=test_task.team,
+            name="my-skill",
+            description="Forecast  quota\nusage. " + "x" * 400,
+            body="# The real instructions\n",
+            version=1,
+            is_latest=True,
+            created_by=user,
+        )
+        task_run = test_task.create_run()
+        TaskRun.update_state_atomic(task_run.id, updates={STORE_SKILLS_STATE_KEY: [{"name": "from-last-session"}]})
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        with patch(
+            "products.tasks.backend.logic.services.store_skills.posthog_feature_flag_value",
+            return_value=flag_value,
+        ):
+            async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        stored = TaskRun.objects.get(id=task_run.id).state[STORE_SKILLS_STATE_KEY]
+        if expected_state == "untouched":
+            assert stored == [{"name": "from-last-session"}]
+        elif expected_state == "resolved":
+            assert len(stored) == 1
+            assert stored[0]["name"] == "my-skill"
+            assert stored[0]["version"] == 1
+            assert stored[0]["description"].startswith("Forecast quota usage. xxx")
+            assert len(stored[0]["description"]) == 300
+        else:
+            assert stored == expected_state
 
     @pytest.mark.django_db(transaction=True)
     def test_pr_loop_enabled_for_signal_report_origin_ignores_flag(self, activity_environment, test_task):

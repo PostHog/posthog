@@ -121,6 +121,7 @@ export {
   isSkillBundleArtifactMetadata,
   isTerminalStatus,
   type PendingFollowupMessage,
+  type StoreSkillStub,
   type Task,
   type TaskRun,
   type TaskRunArtifact,

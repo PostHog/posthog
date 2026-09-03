@@ -312,6 +312,19 @@ export function readPendingFollowupMessages(
   return parsed.success ? parsed.data : [];
 }
 
+/**
+ * One skills-store skill the sandbox agent lists as a local skill. The task
+ * worker resolves the list into run state; the agent renders a pointer
+ * SKILL.md per entry and fetches the body over MCP only when it is invoked.
+ */
+const storeSkillStubSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  version: z.number(),
+});
+
+export type StoreSkillStub = z.infer<typeof storeSkillStubSchema>;
+
 const taskRunStateFields = {
   ai_stage: optionalField(z.string()),
   auto_publish: optionalField(z.boolean()),
@@ -337,6 +350,7 @@ const taskRunStateFields = {
   slack_notified_pr_url: optionalField(z.string()),
   slack_thread_url: optionalField(z.string()),
   snapshot_kind: optionalField(z.string()),
+  store_skills: optionalField(z.array(storeSkillStubSchema)),
   token_usage: optionalField(z.record(z.string(), z.unknown())),
 } satisfies z.ZodRawShape;
 
