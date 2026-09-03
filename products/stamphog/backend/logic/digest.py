@@ -53,8 +53,7 @@ _DIGEST_MAX_TOKENS = 4096
 # than waiting another half minute for it.
 _HEADLINE_TIMEOUT_SECONDS = 30.0
 _HEADLINE_MAX_RETRIES = 1
-# The headline is one to three sentences over at most MAX_DIGEST_PRS lines; the gateway sizes
-# its admission hold from max_tokens, so the selection call's ceiling would over-reserve here.
+# One to three sentences; the gateway sizes its admission hold from max_tokens.
 _HEADLINE_MAX_TOKENS = 512
 
 # A payload rail, never an editorial rule. Slack rejects a message past 50 blocks and the thread
@@ -643,9 +642,8 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
 
 
 def _complete(client: Any, team_id: int, prompt: str, *, max_tokens: int = _DIGEST_MAX_TOKENS) -> str:
-    # Anthropic Messages shape: the Go gateway serves Claude models on this route only. The
-    # source_product label rides on the client's default headers; metadata.user_id keeps the
-    # Python-gateway fallback's end-user attribution (the Go gateway reads the distinct-id header).
+    # Messages shape: the Go gateway serves Claude models on this route only. metadata.user_id is
+    # for the Python-gateway fallback; the Go gateway reads the distinct-id header.
     response = client.messages.create(
         model=_DIGEST_MODEL,
         max_tokens=max_tokens,

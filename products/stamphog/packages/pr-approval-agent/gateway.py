@@ -10,8 +10,7 @@ import os
 import json
 from urllib.parse import urlparse
 
-# Hosted runs carry this pinned on their scoped token; the blob copy tags standard-credential
-# (local) runs. No $ai_ prefix (gateway strips those).
+# Pinned on the hosted token; the blob copy tags local (standard-credential) runs. No $ai_ prefix.
 AI_PRODUCT = "stamphog"
 
 

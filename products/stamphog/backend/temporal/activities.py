@@ -121,8 +121,7 @@ def _load_run(input: StamphogReviewInput) -> ReviewRun:
     )
 
 
-# Scoped-token shape for hosted reviews on the Go ai-gateway. The cap is ~8x the largest run
-# observed ($0.59 over 14 days); the TTL outlives the 30-minute review activity timeout.
+# The cap bounds what a leaked token can spend; the TTL must outlive the 30-minute review activity.
 STAMPHOG_AI_PRODUCT = "stamphog"
 _REVIEWER_TOKEN_CAP_USD = "5"
 _REVIEWER_TOKEN_TTL_SECONDS = 3600
@@ -147,10 +146,7 @@ def _is_legacy_stamphog_route(url: str) -> bool:
 
 
 def _connected_user(run: ReviewRun) -> User:
-    """The user who connected the repo's installation; every sandbox credential is minted under them.
-
-    Fails closed when the repo was never synced or the user is gone; re-syncing stamps a fresh identity.
-    """
+    """The connecting user every sandbox credential is minted under; missing or inactive fails the run."""
     user_id = run.pull_request.repo_config.connected_by_user_id
     if user_id is None:
         raise RuntimeError(
@@ -166,14 +162,11 @@ def _connected_user(run: ReviewRun) -> User:
 
 
 def _mint_reviewer_oauth_token(run: ReviewRun, user: User) -> str:
-    """Short-lived OAuth token for the legacy Python gateway's stamphog product route.
+    """Short-lived OAuth token for the legacy gateway's stamphog route.
 
-    Minted under the shared sandbox OAuth app, carrying only ``llm_gateway:read`` plus the
-    ``internal_run:read`` provenance marker — the legacy route sets ``requires_server_credential``
-    and refuses OAuth tokens without the marker, so a user's own Desktop OAuth token can't reach it.
-    The marker is passed explicitly instead of ``include_internal_scopes=True`` to keep the rest of
-    the internal bundle (``task:write``) out of a sandbox that runs an LLM over untrusted PR content.
-    A leaked token buys a few hours of stamphog-route LLM calls and nothing else.
+    Carries only ``llm_gateway:read`` plus the ``internal_run:read`` marker that route requires.
+    Never ``include_internal_scopes=True``: it drags ``task:write`` into a sandbox running an LLM
+    over untrusted PR content.
     """
     return create_oauth_access_token_for_user(
         user, run.team_id, scopes=["llm_gateway:read", "internal_run:read"], include_internal_scopes=False
@@ -181,18 +174,12 @@ def _mint_reviewer_oauth_token(run: ReviewRun, user: User) -> str:
 
 
 def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: User) -> str:
-    """Per-run ``phe_`` scoped token for the Go ai-gateway, minted with the worker's ``phs_``.
+    """Per-run ``phe_`` minted with the worker's ``phs_``, which never enters the sandbox.
 
-    Pinned to product ``stamphog`` with the customer team as ``obo`` and the connecting user as the
-    acting identity, and capped in spend and lifetime, so a leaked token buys a few dollars of
-    Sonnet calls under stamphog's own tag and nothing else. The worker's ``phs_`` never enters the
-    sandbox. Retries once on rate limits, 5xx and network errors; any other refusal is final. Fails
-    closed: hosted runs never fall back to a shared key.
-
-    Deliberately a local copy of the tasks and wizard minters rather than a shared helper: each
-    product owns its failure posture (this one raises, tasks falls back) and its cap and TTL are
-    documented security invariants in AGENTS.md, not ops knobs. The transport is the gateway's
-    stable ``POST /v1/tokens`` contract.
+    Pinned to product and team and capped in spend and lifetime, so a leak buys little. Retries once
+    on 429, 5xx and network errors; any other refusal is final, and hosted runs have no shared-key
+    fallback. Kept separate from the tasks and wizard minters: each product owns its failure
+    posture, and this cap and TTL are documented invariants rather than ops knobs.
     """
     body: dict[str, object] = {
         "cap_usd": _REVIEWER_TOKEN_CAP_USD,
@@ -202,8 +189,7 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
     }
     if user.distinct_id:
         body["user"] = user.distinct_id
-    # A trailing or doubled comma in the env value would send an empty model id the gateway
-    # rejects, and a mint 400 fails every review.
+    # An empty entry (a trailing comma) is a mint 400, which fails every review.
     allowed_models = [model.strip() for model in settings.STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS if model.strip()]
     if allowed_models:
         body["allowed_models"] = allowed_models
@@ -228,8 +214,7 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
                     payload, token = {}, None
                 if token:
                     if allowed_models and not payload.get("allowed_models"):
-                        # A gateway replica that predates the pin field ignores it: the token works
-                        # but is unpinned, so say so rather than fail the review.
+                        # A gateway without the pin field ignores it; the token works unpinned, so warn.
                         activity.logger.warning(f"Run {run.id}: gateway minted the reviewer token without a model pin")
                     AI_GATEWAY_TOKEN_MINTS.labels(result="ok").inc()
                     return token
@@ -249,13 +234,10 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
 
 
 def _release_reviewer_token(gateway: AIGatewayConfig | None, token: str) -> None:
-    """Best-effort revoke of the per-run credential once its sandbox is gone.
+    """Best-effort revoke once the sandbox is gone; the TTL outlives the review by design.
 
-    The token's TTL outlives the review by design; revoking it at the run's end closes that window
-    for a token that leaked through a channel the exact-string scrub does not cover. A revoke
-    failure only logs (the token then expires with its TTL) and never changes the run's outcome.
-    A ``phe_`` is revoked at the gateway; a legacy OAuth token is a row this worker created, so it
-    is deleted here.
+    A failure only logs (the token then expires) and never changes the run's outcome. A legacy
+    OAuth token is a row this worker created, so it is deleted here.
     """
     try:
         if gateway is None:
@@ -288,15 +270,11 @@ def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConf
     own, and an org-wide Anthropic key must never ride into a sandbox that runs an LLM over untrusted
     PR content.
 
-    Two gateways are supported, selected by the worker settings. When ``AI_GATEWAY_URL`` and
-    ``AI_GATEWAY_API_KEY`` both name the Go ai-gateway (``https://<host>/v1`` plus a ``phs_``), the
-    token is a per-run ``phe_`` minted with that key (``_mint_reviewer_scoped_token``). Without the
-    key, ``AI_GATEWAY_URL`` must be the legacy Python gateway's stamphog product route
-    (``https://<gateway>/stamphog/v1``) and the token is an OAuth token that route allowlists
-    (``_mint_reviewer_oauth_token``). Any other URL without a key fails the run: the OAuth token is
-    a standard credential on the Go gateway, so handing it out with the Go URL would run the review
-    uncapped and unpinned. Either way the sandbox sees the same two variables. Returns the env and
-    the Go config the token was minted from (None on the legacy path) so the caller can revoke it.
+    With ``AI_GATEWAY_URL`` and ``AI_GATEWAY_API_KEY`` both set, the token is a per-run ``phe_`` from
+    the Go ai-gateway; with the URL alone it must be the legacy ``/stamphog/v1`` route and the token
+    is the OAuth token that route allowlists. Any other pairing fails the run: the OAuth token is a
+    standard credential on the Go gateway and must never be sent there. Returns the env and the Go
+    config (None on the legacy path) so the caller can revoke the token.
 
     POSTHOG_API_KEY/POSTHOG_HOST let the engine emit its stamphog_review_completed event and LLM
     traces from inside the sandbox. The capture key is a public project write token — the same class of
@@ -304,8 +282,7 @@ def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConf
     added to _llm_env_secrets so persisted output stays tidy. STAMPHOG_EXTRA_PROPERTIES stamps the
     hosted runtime/team/run context onto those events.
     """
-    # Only call the resolver with a key present: without one it would log a misconfiguration
-    # warning on every review in the legacy regions.
+    # Skip the resolver without a key: it warns per call, and legacy regions run keyless for good.
     gateway = resolve_ai_gateway_config() if settings.AI_GATEWAY_API_KEY else None
     if gateway is not None:
         if _is_legacy_stamphog_route(gateway.url):

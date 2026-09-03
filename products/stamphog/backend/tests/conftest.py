@@ -193,9 +193,8 @@ def stamphog_chain() -> Iterator[StamphogChain]:
                 STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key(),
             )
         )
-        # Hosted reviews hard-require a gateway (no raw-Anthropic fallback); point the worker settings
-        # at the legacy stamphog product route like today's production. Go-gateway tests override both
-        # settings of the pair locally.
+        # Hosted reviews require a gateway; the fixture points settings at the legacy stamphog route.
+        # Go-gateway tests override both settings of the pair locally.
         stack.enter_context(override_settings(AI_GATEWAY_URL="https://llm-gateway.test/stamphog/v1"))
         # mark_review_failed emits a failure event through the real analytics client — a network
         # boundary, faked like the rest. Tests asserting on the event re-patch this locally.

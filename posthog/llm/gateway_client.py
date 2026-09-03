@@ -469,11 +469,9 @@ def build_anthropic_client(
 ) -> Anthropic:
     """Sync variant of :func:`build_async_anthropic_client`, plus caller ``properties``.
 
-    ``properties`` are extra event labels: they ride the ``X-PostHog-Properties`` blob in gateway
-    mode and the ``x-posthog-property-<key>`` headers on the Python-gateway fallback, so a label
-    lands on the captured generation whichever gateway serves it. ``distinct_id`` is a Go-gateway
-    header only; the Go gateway ignores ``metadata.user_id``, so callers that also set it for the
-    Python-gateway fallback should pass the same value here.
+    Labels ride the ``X-PostHog-Properties`` blob in gateway mode and ``x-posthog-property-<key>``
+    headers on the fallback. ``distinct_id`` is a Go-gateway header only; the Go gateway ignores
+    ``metadata.user_id``.
     """
     gateway = resolve_ai_gateway_config()
     if gateway:

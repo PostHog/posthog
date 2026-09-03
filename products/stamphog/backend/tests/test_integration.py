@@ -722,8 +722,8 @@ def test_scoped_token_mint_does_not_retry_a_credential_rejection(team, stamphog_
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_half_configured_go_gateway_keeps_the_oauth_path(team, stamphog_chain: StamphogChain) -> None:
-    # Today's production shape: AI_GATEWAY_URL set to the legacy stamphog route, no AI_GATEWAY_API_KEY.
-    # The worker keeps minting OAuth tokens for that route and never calls the mint API.
+    # The keyless shape: AI_GATEWAY_URL on the legacy stamphog route, no AI_GATEWAY_API_KEY. The worker
+    # mints OAuth tokens for that route and never calls the mint API.
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 116, "sha116a")
     mint = MagicMock()
@@ -2421,8 +2421,8 @@ def test_a_legacy_oauth_token_is_deleted_after_the_run(team, user, stamphog_chai
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_key_with_the_legacy_url_fails_before_the_mint(team, stamphog_chain: StamphogChain) -> None:
-    # The mirror misconfiguration: an ai-gateway key next to the legacy route. The phs_ must not be
-    # posted to the Python host; the run fails with a config message instead of a mint outage.
+    # An ai-gateway key next to the legacy route: the phs_ must not be posted to the Python host, so
+    # the run fails with a config message before any mint.
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 126, "sha126a")
     mint = MagicMock()
