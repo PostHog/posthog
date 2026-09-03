@@ -2,93 +2,110 @@ import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { AssistantMessage } from '~/queries/schema/schema-assistant-messages'
 
+// Status words for a running turn. All hog, on purpose: a wait is one of the few
+// moments a customer reads our copy word by word, so it may as well sound like us.
+// `products/desktop/packages/core/src/sessions/thinkingActivities.ts` keeps the same
+// list for PostHog Desktop — keep the two together.
 export const THINKING_MESSAGES = [
-    'Booping', // playful interaction
-    'Crunching', // data in progress
-    'Digging', // going deep
-    'Fetching', // retrieving something
-    'Inferring', // making sense of things
-    'Indexing', // organizing info
-    'Juggling', // handling multiple things
-    'Noodling', // casual problem-solving
-    'Peeking', // quick look
-    'Percolating', // slow thinking
-    'Poking', // testing ideas
-    'Pondering', // thoughtful pause
-    'Scanning', // fast overview
-    'Scrambling', // chaotic progress
-    'Sifting', // sorting signal from noise
-    'Sniffing', // searching with instinct
-    'Spelunking', // deep exploration
-    'Tinkering', // tweaking stuff
-    'Unraveling', // breaking things down
-    'Decoding', // translating complexity
-    'Trekking', // on a journey
-    'Sorting', // putting things in order
-    'Trimming', // cleaning things up
-    'Mulling', // slow consideration
-    'Surfacing', // bringing something up
-    'Rummaging', // messy searching
-    'Scouting', // looking ahead
-    'Scouring', // intense searching
-    'Threading', // connecting things
-    'Hunting', // focused seeking
-    'Swizzling', // techy weirdness
-    'Grokking', // deep understanding
-    'Hedging', // hedgehog pun
-    'Posthogging', // brand pun
-    'Self-driving', // autonomy pun
+    'Booping', // the classic snoot boop
+    'Snuffling', // hedgehog for "searching"
+    'Snouting', // nose first, as always
+    'Snoutlining', // outlining, but with the nose
+    'Snoutdiving', // straight into the data
+    'Quilling', // growing a spike for this one
+    'Requilling', // a lost quill grows back, so does a lost thought
+    'Quillsharpening', // old tools, new answers
+    'Quillcounting', // about 5,000 of them, one moment please
+    'Quillcrafting', // building with our Quill design system
+    'Bristling', // spikes up, work on
+    'Prickling', // a hunch, with points
+    'Pincushioning', // the problem now has holes in it
+    'Curling', // spiky ball mode, for thinking
+    'Unrolling', // the ball opens, the answer shows
+    'Burrowing', // down through the stack
+    'Rooting', // through the logs
+    'Foraging', // for the one event that explains it
+    'Rummaging', // untidy, but productive
+    'Anointing', // hedgehogs self-anoint, we self-review
+    'Arraying', // a group of hedgehogs is truly called an array
+    'Purring', // the sound of a content hedgehog
+    'Chirping', // a hedgehog with news
+    'Scuttling', // short legs, high speed
+    'Waddling', // not fast, but arriving
+    'Trundling', // slow and sure
+    'Brambling', // through the thorny part
+    'Hedgerowing', // working along the hedge
+    'Hedgeclipping', // cutting back the overgrowth
+    'Topiarying', // giving the hedge a shape
+    'Hedgemazing', // finding the way through
+    'Hedgehugging', // careful, but warm
+    'Leafpiling', // building a nest for the answer
+    'Nesting', // structure first
+    'Nightshifting', // hedgehogs work nights
+    'Moonlighting', // a second shift, by moonlight
+    'Wheelrunning', // a hedgehog runs kilometers each night
+    'Hogletting', // small steps now, big hog later
+    'Molehilling', // turning your mountain back into a molehill
+    'Spelunking', // deep in the caves of your codebase
+    'Mudlarking', // there is treasure in the mud
+    'Trufflehunting', // hogs find the valuable part
+    'Hedgehogging', // the most hedgehog thing possible
+    'Posthogging', // brand pun, no apologies
+    'Hedging', // hedgehog pun, kept from the old list
+    'Hoggifying', // to make a thing more hog
+    'Hog-easing', // smooth, like a good animation curve
+    'Hogitating', // cogitating, with more snout
+    'Hogorithming', // the algorithm, but hog
+    'Hogothesizing', // forming a hypothesis
+    'Hogtimizing', // making it faster
+    'Hogstimating', // a hog's guess, honestly given
+    'Hogsembling', // putting the parts together
+    'Hogfactoring', // same behavior, better shape
+    'Hogpiling', // every idea at once
+    'Hogwarming', // warming the cache
+    'Hogwrangling', // many hogs, one direction
+    'Hogtrotting', // the hog trot: a working pace
+    'Wholehogging', // going the whole hog
+    'Hedgineering', // engineering, but spikier
+    'Hedgeploying', // sending it out
+    'Hogfooding', // we use PostHog on PostHog
+    'Hogcasting', // telling everybody at once
+    'Squeaking', // a small sound, a big question
+    'Flagging', // feature flags, our favorite switch
+    'Funneling', // step, then step, then step
+    'Cohorting', // grouping your people
+    'Sessionizing', // events become a session
+    'Replaying', // watching it happen again
+    'Autocapturing', // catching events you did not name
+    'Dashboarding', // one page, many answers
+    'Experimenting', // A, B, and a verdict
+    'Instrumenting', // adding the measurement that was missing
+    'Materializing', // like a materialized view, but for thoughts
+    'HogQLing', // SQL, with a snout
+    'Sandboxing', // this turn really does run in a sandbox
+    'Warehousing', // moving the big data in
+    'Pipelining', // data in, data out
     'Signaling', // signals pun
-    'Scheming', // clever planning
-    'Unfurling', // opening up ideas
-    'Puzzling', // solving something tricky
-    'Dissecting', // breaking it apart
-    'Stacking', // building layers
-    'Snuffling', // hedgehog behavior
-    'Hashing', // working something out
-    'Clustering', // grouping related things
-    'Teasing', // nudging out meaning
-    'Cranking', // pushing through work
+    'Self-driving', // autonomy pun
+    'Surveying', // asking your users directly
+    'Heatmapping', // where the clicks are
+    'Symbolicating', // turning a stack trace into names
+    'Backfilling', // filling in yesterday
+    'Deduping', // one of each is enough
+    'Sharding', // many small parts, one whole
+    'Batching', // all of it, in one go
+    'Debouncing', // wait, then act
+    'Linting', // small corrections, quietly
+    'Compiling', // the slow, honest part
+    'Migrating', // moving the schema forward
+    'Rebasing', // history, tidied
     'Merging', // putting ideas together
-    'Snooping', // poking around data
-    'Rewiring', // making new connections
-    'Bundling', // grouping ideas
-    'Linking', // making a connection
-    'Mapping', // plotting points
-    'Tickling', // triggering results lightly
-    'Flicking', // small, quick action
-    'Hopping', // fast, light progress
-    'Rolling', // forward movement
-    'Zipping', // fast execution
-    'Twisting', // shifting structure
-    'Blooming', // ideas forming
-    'Sparking', // fresh thought forming
-    'Nesting', // organizing structure
-    'Looping', // revisiting paths
-    'Wiring', // making connections
-    'Snipping', // precise cutting
-    'Zoning', // deep focus
-    'Tracing', // following logic
-    'Warping', // reshaping view
-    'Twinkling', // flicker of insight
-    'Flipping', // shifting state
-    'Priming', // getting ready
-    'Snagging', // quick retrieval
-    'Scuttling', // fast, scurrying motion
-    'Framing', // contextualizing view
-    'Sharpening', // refining details
-    'Flibbertigibbeting', // flustered but active chaos
-    'Kerfuffling', // low-stakes commotion
-    'Dithering', // indecisive processing
-    'Discombobulating', // intentionally confused
-    'Rambling', // aimless but possibly insightful
-    'Befuddling', // trying to untangle confusion
-    'Waffling', // bouncing between options
-    'Muckling', // clinging onto something
-    'Hobnobbing', // talking to the data gods
-    'Galumphing', // awkward progress
-    'Puttering', // low-energy thinking
-    'Whiffling', // light, directionless searching
+    'Bisecting', // half of the history is innocent
+    'Yakshaving', // the real task is three yaks down
+    'Rubberducking', // explaining it to the hedgehog
+    'Prototyping', // the fast, wrong first version
+    'Shipping', // the point of all this
+    'Untangling', // one thread at a time
     'Thinking', // just thinking, like in the old days
 ]
 
