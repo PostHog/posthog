@@ -15,8 +15,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use cohort_core::hogvm::analysis::{analyze_condition, Projection, ReadPath};
-use cohort_core::{evaluate_detailed, EvalOutcome};
-use serde_json::{Map, Value};
+use cohort_core::{
+    build_behavioral_globals, classify_vm_error, evaluate_detailed, CohortStreamEvent, EvalOutcome,
+    VmErrorClass,
+};
+use serde_json::{json, Map, Value};
 
 /// The catalog loader appends a `RETURN` to every stored program, and the parity runner does the
 /// same, so the analysis has to see the bytecode in that form and not the raw fixture.
@@ -229,5 +232,85 @@ fn the_branch_lowered_fixtures_narrow_to_a_read_set() {
             !paths.is_empty(),
             "`{name}` narrowed to an empty read set, which cannot be right for a property filter"
         );
+    }
+}
+
+/// A production filter on `organization.properties.name`, where `organization` is a team-defined
+/// group type. HogQL aliases such a name onto `group_0` when it prints SQL, but the bytecode
+/// compiler emits the written chain, so the root reaches the VM and no globals dict carries it.
+///
+/// Not a `hogvm_parity` fixture: both runners of that directory panic on a non-`Matched` outcome,
+/// and this program raises rather than returning a bool, so adding it there would break the
+/// processor's parity suite.
+///
+/// The two halves together are the equivalence the fixtures assert for ordinary programs. The
+/// analysis claims no reads, and the program decides the same way on the full globals as on the
+/// empty projection those reads produce, because the absent root raises on both. What the condition
+/// does is unchanged — it already collapses to `false` in production and counts an `unknown_ref`.
+/// Only its classification moved.
+#[test]
+fn an_absent_group_type_root_claims_no_reads_and_raises_either_way() {
+    // organization.properties.name == 'Example Org'
+    let bytecode = vec![
+        json!("_H"),
+        json!(1),
+        json!(32),
+        json!("Example Org"),
+        json!(32),
+        json!("name"),
+        json!(32),
+        json!("properties"),
+        json!(32),
+        json!("organization"),
+        json!(1),
+        json!(3),
+        json!(11),
+        Value::from(OP_RETURN),
+    ];
+
+    let projection = analyze_condition(&bytecode).projection;
+    let Projection::Reads(paths) = projection else {
+        panic!("a root no globals dict carries should claim a read set: {projection:?}");
+    };
+    assert!(
+        paths.is_empty(),
+        "claimed {:?} for a root that reads no event data",
+        paths.iter().map(ReadPath::render).collect::<Vec<_>>()
+    );
+
+    let full = build_behavioral_globals(&event()).expect("the event's payloads are valid JSON");
+    let projected = project_globals(&full, &paths);
+    assert_eq!(
+        projected,
+        Value::Object(Map::new()),
+        "an empty read set has to prune the globals to nothing"
+    );
+    for (shape, globals) in [("full", full), ("projected", projected)] {
+        match evaluate_detailed(&bytecode, globals) {
+            EvalOutcome::VmError(error) => assert_eq!(
+                classify_vm_error(&error),
+                VmErrorClass::UnknownReference,
+                "the {shape} globals raised something other than an unknown reference: {error:?}"
+            ),
+            other => panic!("the {shape} globals did not raise: {other:?}"),
+        }
+    }
+}
+
+fn event() -> CohortStreamEvent {
+    CohortStreamEvent {
+        team_id: 42,
+        person_id: "p-123".to_string(),
+        distinct_id: "d-1".to_string(),
+        uuid: "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string(),
+        event: "$pageview".to_string(),
+        timestamp: "2026-05-26 12:34:56.789000".to_string(),
+        properties: Some(r#"{"$browser":"Chrome"}"#.to_string()),
+        person_properties: Some(r#"{"email":"u@p.com"}"#.to_string()),
+        elements_chain: None,
+        source_offset: 0,
+        source_partition: 0,
+        redirected_from: None,
+        redirect_hops: 0,
     }
 }

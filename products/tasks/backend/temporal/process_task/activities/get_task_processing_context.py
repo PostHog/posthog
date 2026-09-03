@@ -858,18 +858,17 @@ def _resolve_sandbox_backend(
     run_id: str,
     state: dict | None,
     task_runtime: str,
-    custom_image_name: str | None,
+    has_user_custom_image: bool,
 ) -> str:
     """Pick the sandbox provider for this run.
 
-    Hogland only takes plain default-template ACP runs. A custom image (hogland has
-    only the default golden template) or the Pi runtime are hard incapabilities —
-    hogland cannot run them, so they force Modal even with the flag on. The Modal
-    VM-sandbox and network-allowlist flags are runtime *preferences*, not
-    incapabilities: a run the hogland flag (or override) selects wins hogland over
-    them. The caller then forces both off so the run provisions as a plain hogland
-    box; egress stays enforced in-box by agentsh via the run's allowed_domains.
-    Fails closed to Modal.
+    Hogland only takes plain golden-template ACP runs. A user/environment custom image
+    or the Pi runtime are hard incapabilities — hogland runs only its own golden, so
+    those force Modal even with the flag on. The Modal VM-sandbox / network-allowlist
+    flags and the org *default* image are runtime preferences, not incapabilities: a
+    run the hogland flag (or override) selects wins hogland over them, and the caller
+    forces them off so the run provisions on hogland's golden. Egress stays enforced
+    in-box by agentsh via the run's allowed_domains. Fails closed to Modal.
     """
     raw_override = (state or {}).get("sandbox_backend")
     override = raw_override if isinstance(raw_override, str) and raw_override in ("modal", "hogland") else None
@@ -881,19 +880,20 @@ def _resolve_sandbox_backend(
 
     # Hard gates: a "hogland" result (override OR flag) is only allowed when hogland is
     # available (US region + configured URL/token) and can actually run this run (no
-    # custom image, no Pi runtime). These sit ahead of the override so a stale or forged
-    # `hogland` carried across a cloud resume can't defeat the EU guard or route an
-    # incapable run to hogland.
+    # user custom image, no Pi runtime). These sit ahead of the override so a stale or
+    # forged `hogland` carried across a cloud resume can't defeat the EU guard or route
+    # an incapable run to hogland.
     if not settings.HOGLAND_API_URL or not (settings.HOGLAND_API_TOKEN_FILE or settings.HOGLAND_API_TOKEN):
         return "modal"
     # Hogland runs in the US only; EU runs stay on Modal regardless of flag/override state.
     if getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU":
         return "modal"
-    # Hard hogland incapabilities: a custom image or the Pi runtime cannot run on the
-    # default golden template, so keep those on Modal even when the flag is on. The
-    # Modal VM-sandbox / network-allowlist flags are deliberately NOT gated here — a
-    # flagged run wins hogland over them (the caller forces both off for hogland runs).
-    if custom_image_name is not None or task_runtime == Task.Runtime.PI:
+    # Hard hogland incapabilities: a user/environment custom image or the Pi runtime
+    # cannot run on hogland's golden, so keep those on Modal even when the flag is on.
+    # The org default image (default_custom_image) is NOT gated here — hogland serves
+    # its golden equivalent — nor are the Modal VM-sandbox / network-allowlist flags; a
+    # flagged run wins hogland over all of them (the caller forces them off).
+    if has_user_custom_image or task_runtime == Task.Runtime.PI:
         return "modal"
 
     # Past the gates, a "hogland" override pins the run (the canary lever), no flag eval.
@@ -1364,16 +1364,21 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         state=state,
         task_runtime=task.runtime,
-        custom_image_name=custom_image_name,
+        # Only a real user/environment image is a hogland incapability. The org default
+        # image (default_custom_image, applied when the user picked none) is not — hogland
+        # serves its golden equivalent — so it must not gate the run onto Modal.
+        has_user_custom_image=environment_custom_image_name is not None,
     )
     if sandbox_backend == "hogland":
-        # Hogland runs are plain default-template runs, so the Modal VM-runtime and
-        # network-allowlist preferences don't apply. Force both off so provisioning
-        # builds a DEFAULT_BASE hogland box (not a Modal VM_BASE config) and skips the
-        # Modal provider-layer allowlist. Egress stays enforced in-box by agentsh, which
-        # keys on the run's allowed_domains independently of use_modal_network_allowlist.
+        # Hogland runs are plain golden-template runs, so the Modal VM-runtime,
+        # network-allowlist, and org-default-image preferences don't apply. Force them off
+        # so provisioning builds a plain hogland box on the golden (not a Modal VM_BASE
+        # config with a default image) and skips the Modal provider-layer allowlist. Egress
+        # stays enforced in-box by agentsh, which keys on the run's allowed_domains
+        # independently of use_modal_network_allowlist.
         use_modal_vm_sandbox = False
         use_modal_network_allowlist = False
+        custom_image_name = None
     emit_agent_log(
         run_id,
         "debug",

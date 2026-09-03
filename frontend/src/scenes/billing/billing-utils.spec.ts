@@ -468,8 +468,8 @@ describe('getUsageLimitConsequence', () => {
         expect(getUsageLimitConsequence('PostHog AI')).toEqual('PostHog AI will be unavailable')
     })
 
-    it('should return specific message for Inbox', () => {
-        expect(getUsageLimitConsequence('Inbox')).toEqual('Inbox agents will be paused')
+    it('should return specific message for the self-driving inbox', () => {
+        expect(getUsageLimitConsequence('Self-driving inbox')).toEqual('self-driving agents will be paused')
     })
 
     it('should return generic message for other products', () => {
@@ -516,11 +516,11 @@ describe('buildUsageLimitReachedMessage', () => {
         )
     })
 
-    it('should build message for Inbox with specific consequence', () => {
-        const result = buildUsageLimitReachedMessage([{ name: 'Inbox', subscribed: true }])
+    it('should name the self-driving inbox by its app name, not its billing name', () => {
+        const result = buildUsageLimitReachedMessage([{ type: 'inbox', name: 'Inbox', subscribed: true }])
         expect(result.title).toEqual('Usage limit reached')
         expect(result.message).toEqual(
-            'You have reached the usage limit for Inbox. Please increase your billing limit or Inbox agents will be paused.'
+            'You have reached the usage limit for Self-driving inbox. Please increase your billing limit or self-driving agents will be paused.'
         )
     })
 

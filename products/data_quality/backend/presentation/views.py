@@ -9,7 +9,7 @@ a suite-run handle to poll.
 
 import json
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import ClassVar, cast
 from uuid import UUID
 
@@ -49,7 +49,7 @@ from .serializers import (
 )
 
 _RECENT_RUNS_LIMIT = 50
-_LAST_RUN_FIELDS = ("last_status", "last_run_at", "last_succeeded_at")
+_LAST_RUN_FIELDS = ("last_status", "last_run_at", "last_succeeded_at", "failing_since")
 
 
 class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
@@ -121,14 +121,24 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
     def _hidden_check_ids(self, checks: list[DataQualityCheck]) -> set[UUID]:
         # The same rule the information_schema loaders apply, so REST and SQL cannot come to
         # different answers about the same check.
-        return api.hidden_check_ids(self.team_id, checks, self._denial_context())
+        visible = api.visible_checks(self.team_id, checks, self._denial_context())
+        return {check.id for check in checks} - {check.id for check in visible}
+
+    def _unnamable_check_ids(self, runs: Sequence[DataQualityCheckRun]) -> set[UUID]:
+        # A run is judged by the identities it recorded, but the name on its check is present tense.
+        # Withhold the name of a check that is out of reach today, even where the run it left behind
+        # stays readable on its own terms.
+        if not self._can_be_object_denied():
+            return set()
+        checks = {run.quality_check.id: run.quality_check for run in runs if run.quality_check}
+        return self._hidden_check_ids(list(checks.values()))
 
     def _readable_runs(self, runs: QuerySet[DataQualityCheckRun]) -> QuerySet[DataQualityCheckRun]:
         # Excluded in SQL rather than per page, so a run that read a subject out of reach is gone
         # before the window that bounds what is served.
         if not self._can_be_object_denied():
             return runs
-        return runs.exclude(api.unreadable_runs_q(self._denial_context()))
+        return api.without_denied_runs(runs, self._denial_context())
 
     def _require_referenced_subject_access(self, check_type: str, config: dict) -> None:
         """403 a definition that reads a subject the caller cannot be shown to be allowed.
@@ -276,25 +286,37 @@ class _BaseCheckViewSet(_SubjectScopedViewSet, AccessControlViewSetMixin, viewse
             config=data.get("config") or {},
             **optional,
         )
+        # A create can land on a check that already exists, whose last run read a subject this
+        # caller is denied. Blank that run the way an edit does, or the fingerprint match becomes
+        # the one way to read history that list hides, retrieve 403s and runs/ empties.
+        if not created and self._last_run_is_hidden(check):
+            self._redact_last_run(check)
         return Response(
             self.get_serializer(check).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
+
+    def _last_run_is_hidden(self, check: DataQualityCheck) -> bool:
+        return self._can_be_object_denied() and check.id in self._hidden_check_ids([check])
+
+    @staticmethod
+    def _redact_last_run(check: DataQualityCheck) -> None:
+        for field in _LAST_RUN_FIELDS:
+            setattr(check, field, None)
 
     def perform_update(self, serializer: BaseSerializer) -> None:
         # The candidate definition, not the stored one: an edit that points the check at a new
         # relationships target or rewrites its custom SQL has to clear that subject too, before it
         # is saved and the worker starts running it.
         check = cast(DataQualityCheck, serializer.instance)
-        redact_last_run = self._can_be_object_denied() and check.id in self._hidden_check_ids([check])
+        redact_last_run = self._last_run_is_hidden(check)
         data = serializer.validated_data
         self._require_referenced_subject_access(
             data.get("check_type", check.check_type), data.get("config", check.config) or {}
         )
         updated_check = cast(DataQualityCheck, serializer.save())
         if redact_last_run:
-            for field in _LAST_RUN_FIELDS:
-                setattr(updated_check, field, None)
+            self._redact_last_run(updated_check)
 
     def perform_destroy(self, instance: DataQualityCheck) -> None:
         api.soft_delete_check(instance)
@@ -453,10 +475,15 @@ class _BaseSuiteRunViewSet(
     @action(methods=["GET"], detail=True, url_path="check_runs", pagination_class=None)
     def check_runs(self, request: Request, **kwargs) -> Response:
         suite_run = self.get_object()
-        runs = self._readable_runs(
-            DataQualityCheckRun.objects.for_team(self.team_id).filter(suite_run=suite_run)
-        ).select_related("quality_check")
-        return Response(DataQualityCheckRunSerializer(list(runs.order_by("-created_at")), many=True).data)
+        runs = list(
+            self._readable_runs(DataQualityCheckRun.objects.for_team(self.team_id).filter(suite_run=suite_run))
+            .select_related("quality_check")
+            .order_by("-created_at")
+        )
+        serializer = DataQualityCheckRunSerializer(
+            runs, many=True, context={"unnamable_check_ids": self._unnamable_check_ids(runs)}
+        )
+        return Response(serializer.data)
 
 
 def _parent_id_parameter(name: str, description: str) -> Callable[[type], type]:

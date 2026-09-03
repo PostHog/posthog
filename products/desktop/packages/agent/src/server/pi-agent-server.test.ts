@@ -78,6 +78,80 @@ describe("PiAgentServer", () => {
     expect(shutdown).toHaveBeenCalledOnce();
   });
 
+  it("emits RTK savings for a cloud Pi run", async () => {
+    const enqueue = vi.fn();
+    const server = new PiAgentServer(
+      config({
+        model: "claude-opus-4-6",
+        resolveRtkSavings: async () => ({
+          totalCommands: 3,
+          inputTokens: 1_000,
+          outputTokens: 400,
+          tokensSaved: 600,
+        }),
+      }),
+    ) as unknown as {
+      eventStreamSender: { enqueue: typeof enqueue };
+      emitRtkSavings(): Promise<void>;
+    };
+    server.eventStreamSender = { enqueue };
+
+    await server.emitRtkSavings();
+
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notification: expect.objectContaining({
+          method: "_posthog/rtk_savings",
+          params: expect.objectContaining({
+            runtime_adapter: "pi",
+            model: "claude-opus-4-6",
+            cumulative_commands: 3,
+            cumulative_tokens_saved: 600,
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("emits RTK savings before stopping after a fatal error", async () => {
+    const enqueue = vi.fn();
+    const stop = vi.fn(async () => {});
+    const updateTaskRun = vi.fn(async () => {});
+    const server = new PiAgentServer(
+      config({
+        resolveRtkSavings: async () => ({
+          totalCommands: 1,
+          inputTokens: 100,
+          outputTokens: 50,
+          tokensSaved: 50,
+        }),
+      }),
+    ) as unknown as {
+      broadcast: ReturnType<typeof vi.fn>;
+      syncTaskSession: ReturnType<typeof vi.fn>;
+      flushConversationLog: ReturnType<typeof vi.fn>;
+      eventStreamSender: { enqueue: typeof enqueue; stop: typeof stop };
+      posthogAPI: { updateTaskRun: typeof updateTaskRun };
+      reportFatalError(error: unknown): Promise<void>;
+    };
+    server.broadcast = vi.fn();
+    server.syncTaskSession = vi.fn(async () => {});
+    server.flushConversationLog = vi.fn(async () => {});
+    server.eventStreamSender = { enqueue, stop };
+    server.posthogAPI = { updateTaskRun };
+
+    await server.reportFatalError(new Error("failure"));
+
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notification: expect.objectContaining({
+          method: "_posthog/rtk_savings",
+        }),
+      }),
+    );
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
   it.each([
     ["task", { task_id: "task-2", run_id: "run-1", team_id: 1 }],
     ["run", { task_id: "task-1", run_id: "run-2", team_id: 1 }],

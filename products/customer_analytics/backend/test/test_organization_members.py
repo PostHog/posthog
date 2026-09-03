@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
@@ -30,12 +31,14 @@ class TestOrganizationMembersForAccountAPI(APIBaseTest):
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_returns_slim_members_of_target_org_when_staff_and_flag_enabled(self, _mock_flag):
-        self._join(
+        ada = self._join(
             "cust1@example.com",
             first_name="Ada",
             distinct_id="distinct-1",
             level=OrganizationMembership.Level.ADMIN,
         )
+        ada.last_login = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+        ada.save(update_fields=["last_login"])
         self._join("cust2@example.com", first_name="Grace", distinct_id="distinct-2")
 
         response = self.client.get(self._url(self.target_org.id))
@@ -47,9 +50,13 @@ class TestOrganizationMembersForAccountAPI(APIBaseTest):
         results = body["results"]
         self.assertEqual({r["user"]["email"] for r in results}, {"cust1@example.com", "cust2@example.com"})
         self.assertEqual({r["user"]["distinct_id"] for r in results}, {"distinct-1", "distinct-2"})
-        self.assertEqual(set(results[0].keys()), {"id", "user", "level"})
+        self.assertEqual(set(results[0].keys()), {"id", "user", "level", "last_login"})
         self.assertEqual(
             {r["user"]["email"]: r["level"] for r in results}, {"cust1@example.com": 8, "cust2@example.com": 1}
+        )
+        self.assertEqual(
+            {r["user"]["email"]: r["last_login"] for r in results},
+            {"cust1@example.com": "2026-01-02T03:04:05Z", "cust2@example.com": None},
         )
 
     @parameterized.expand(

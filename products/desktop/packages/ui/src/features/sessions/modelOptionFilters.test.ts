@@ -52,6 +52,34 @@ describe("modelOptionFilters", () => {
     },
   );
 
+  it("drops a group emptied by a disabled flag, heading and all", () => {
+    const option: SessionConfigOption = {
+      type: "select",
+      id: "model",
+      name: "Model",
+      currentValue: "claude-opus-5",
+      options: [
+        {
+          group: "anthropic",
+          name: "Anthropic",
+          options: [{ value: "claude-opus-5", name: "Claude Opus 5" }],
+        },
+        {
+          group: "moonshotai",
+          name: "Moonshot AI",
+          options: [{ value: "moonshotai/kimi-k3", name: "Kimi K3" }],
+        },
+      ],
+    };
+
+    expect(
+      stripDisabledModelOption(option, { ...enabledFlags, kimi: false }),
+    ).toMatchObject({
+      currentValue: "claude-opus-5",
+      options: [{ group: "anthropic" }],
+    });
+  });
+
   it.each(rolloutModels)(
     "removes only $flag models when its flag is disabled",
     ({ flag, id }) => {

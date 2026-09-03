@@ -28,6 +28,7 @@ from products.alerts.backend.destinations import (
     alert_internal_event_delivered,
     group_alert_destination_rows,
     list_active_alert_destinations,
+    redact_urls_in_name,
     serialize_deliveries,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
@@ -728,6 +729,24 @@ class TestListActiveAlertDestinations(AlertDestinationTestCase):
         )
 
         assert [d.name for d in destinations] == ["Webhook discord.com"]
+
+
+class TestRedactUrlsInName:
+    @parameterized.expand(
+        [
+            # A scheme glued to a word character used to skip the match entirely, leaving the
+            # credential path in a name any read surface then showed.
+            ("scheme_glued_to_a_word_character", "hook_https://hooks.example.com/p/s3cr3t", "hook_hooks.example.com"),
+            ("punctuation_after_the_url_survives", "Docs (https://example.com/p/s3cr3t)", "Docs (example.com)"),
+            (
+                "every_url_in_the_name_is_redacted",
+                "a https://one.example.com/s, b https://two.example.com/s",
+                "a one.example.com, b two.example.com",
+            ),
+        ]
+    )
+    def test_redacts_a_url_to_its_host(self, _name: str, name: str, expected: str) -> None:
+        assert redact_urls_in_name(name) == expected
 
 
 class TestSerializeDeliveries(APIBaseTest):

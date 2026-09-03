@@ -281,6 +281,13 @@ services:
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
+            # Read side of the session recording V2 blob store. Must point at the same
+            # SeaweedFS the ingestion-sessionreplay writer uses — without these the
+            # service falls back to its localhost:8333 default, so every playback
+            # request 500s with ECONNREFUSED ("We're unable to play this recording").
+            SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
+            SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
+            SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             # Must resolve to the same value as the web and worker services, which send it as
             # X-Internal-Api-Secret. The JWT signing secret is deliberately left unset here, so hobby
@@ -290,6 +297,7 @@ services:
             - db
             - redis7
             - clickhouse
+            - seaweedfs
 
     ingestion-error-tracking:
         extends:

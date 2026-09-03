@@ -2,28 +2,22 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    StamphogDigestRunsListQueryParams,
-    StamphogPullRequestsListQueryParams,
-    StamphogPullRequestsRetrieveParams,
-    StamphogRepoConfigsDestroyParams,
-    StamphogRepoConfigsListQueryParams,
-    StamphogRepoConfigsRetrieveParams,
-    StamphogReviewRunsListQueryParams,
-    StamphogReviewRunsRetrieveParams,
-} from '@/generated/stamphog/api'
+import * as orvalSchemas from '@/generated/stamphog/api'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const StamphogDigestRunsListSchema = StamphogDigestRunsListQueryParams
+const StamphogDigestRunsListSchema = () => {
+    const StamphogDigestRunsListQueryParams = orvalSchemas.StamphogDigestRunsListQueryParams()
+    return StamphogDigestRunsListQueryParams
+}
 
 const stamphogDigestRunsList = (): ToolBase<
-    typeof StamphogDigestRunsListSchema,
+    ReturnType<typeof StamphogDigestRunsListSchema>,
     WithPostHogUrl<Schemas.PaginatedDigestRunList>
 > => ({
     name: 'stamphog-digest-runs-list',
-    schema: StamphogDigestRunsListSchema,
-    handler: async (context: Context, params: z.infer<typeof StamphogDigestRunsListSchema>) => {
+    schema: StamphogDigestRunsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StamphogDigestRunsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedDigestRunList>({
             method: 'GET',
@@ -38,12 +32,18 @@ const stamphogDigestRunsList = (): ToolBase<
     },
 })
 
-const StamphogPullRequestsGetSchema = StamphogPullRequestsRetrieveParams.omit({ project_id: true })
+const StamphogPullRequestsGetSchema = () => {
+    const StamphogPullRequestsRetrieveParams = orvalSchemas.StamphogPullRequestsRetrieveParams()
+    return StamphogPullRequestsRetrieveParams.omit({ project_id: true })
+}
 
-const stamphogPullRequestsGet = (): ToolBase<typeof StamphogPullRequestsGetSchema, Schemas.StamphogPullRequest> => ({
+const stamphogPullRequestsGet = (): ToolBase<
+    ReturnType<typeof StamphogPullRequestsGetSchema>,
+    Schemas.StamphogPullRequest
+> => ({
     name: 'stamphog-pull-requests-get',
-    schema: StamphogPullRequestsGetSchema,
-    handler: async (context: Context, params: z.infer<typeof StamphogPullRequestsGetSchema>) => {
+    schema: StamphogPullRequestsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StamphogPullRequestsGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.StamphogPullRequest>({
             method: 'GET',
@@ -53,15 +53,18 @@ const stamphogPullRequestsGet = (): ToolBase<typeof StamphogPullRequestsGetSchem
     },
 })
 
-const StamphogPullRequestsListSchema = StamphogPullRequestsListQueryParams
+const StamphogPullRequestsListSchema = () => {
+    const StamphogPullRequestsListQueryParams = orvalSchemas.StamphogPullRequestsListQueryParams()
+    return StamphogPullRequestsListQueryParams
+}
 
 const stamphogPullRequestsList = (): ToolBase<
-    typeof StamphogPullRequestsListSchema,
+    ReturnType<typeof StamphogPullRequestsListSchema>,
     WithPostHogUrl<Schemas.PaginatedStamphogPullRequestList>
 > => ({
     name: 'stamphog-pull-requests-list',
-    schema: StamphogPullRequestsListSchema,
-    handler: async (context: Context, params: z.infer<typeof StamphogPullRequestsListSchema>) => {
+    schema: StamphogPullRequestsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StamphogPullRequestsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedStamphogPullRequestList>({
             method: 'GET',
@@ -77,12 +80,15 @@ const stamphogPullRequestsList = (): ToolBase<
     },
 })
 
-const StamphogRepoConfigsDeleteSchema = StamphogRepoConfigsDestroyParams.omit({ project_id: true })
+const StamphogRepoConfigsDeleteSchema = () => {
+    const StamphogRepoConfigsDestroyParams = orvalSchemas.StamphogRepoConfigsDestroyParams()
+    return StamphogRepoConfigsDestroyParams.omit({ project_id: true })
+}
 
-const stamphogRepoConfigsDelete = (): ToolBase<typeof StamphogRepoConfigsDeleteSchema, unknown> => ({
+const stamphogRepoConfigsDelete = (): ToolBase<ReturnType<typeof StamphogRepoConfigsDeleteSchema>, unknown> => ({
     name: 'stamphog-repo-configs-delete',
-    schema: StamphogRepoConfigsDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof StamphogRepoConfigsDeleteSchema>) => {
+    schema: StamphogRepoConfigsDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StamphogRepoConfigsDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -92,12 +98,18 @@ const stamphogRepoConfigsDelete = (): ToolBase<typeof StamphogRepoConfigsDeleteS
     },
 })
 
-const StamphogRepoConfigsGetSchema = StamphogRepoConfigsRetrieveParams.omit({ project_id: true })
+const StamphogRepoConfigsGetSchema = () => {
+    const StamphogRepoConfigsRetrieveParams = orvalSchemas.StamphogRepoConfigsRetrieveParams()
+    return StamphogRepoConfigsRetrieveParams.omit({ project_id: true })
+}
 
-const stamphogRepoConfigsGet = (): ToolBase<typeof StamphogRepoConfigsGetSchema, Schemas.StamphogRepoConfig> => ({
+const stamphogRepoConfigsGet = (): ToolBase<
+    ReturnType<typeof StamphogRepoConfigsGetSchema>,
+    Schemas.StamphogRepoConfig
+> => ({
     name: 'stamphog-repo-configs-get',
-    schema: StamphogRepoConfigsGetSchema,
-    handler: async (context: Context, params: z.infer<typeof StamphogRepoConfigsGetSchema>) => {
+    schema: StamphogRepoConfigsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StamphogRepoConfigsGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.StamphogRepoConfig>({
             method: 'GET',
@@ -107,15 +119,18 @@ const stamphogRepoConfigsGet = (): ToolBase<typeof StamphogRepoConfigsGetSchema,
     },
 })
 
-const StamphogRepoConfigsListSchema = StamphogRepoConfigsListQueryParams
+const StamphogRepoConfigsListSchema = () => {
+    const StamphogRepoConfigsListQueryParams = orvalSchemas.StamphogRepoConfigsListQueryParams()
+    return StamphogRepoConfigsListQueryParams
+}
 
 const stamphogRepoConfigsList = (): ToolBase<
-    typeof StamphogRepoConfigsListSchema,
+    ReturnType<typeof StamphogRepoConfigsListSchema>,
     WithPostHogUrl<Schemas.PaginatedStamphogRepoConfigList>
 > => ({
     name: 'stamphog-repo-configs-list',
-    schema: StamphogRepoConfigsListSchema,
-    handler: async (context: Context, params: z.infer<typeof StamphogRepoConfigsListSchema>) => {
+    schema: StamphogRepoConfigsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StamphogRepoConfigsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedStamphogRepoConfigList>({
             method: 'GET',
@@ -129,12 +144,15 @@ const stamphogRepoConfigsList = (): ToolBase<
     },
 })
 
-const StamphogReviewRunsGetSchema = StamphogReviewRunsRetrieveParams.omit({ project_id: true })
+const StamphogReviewRunsGetSchema = () => {
+    const StamphogReviewRunsRetrieveParams = orvalSchemas.StamphogReviewRunsRetrieveParams()
+    return StamphogReviewRunsRetrieveParams.omit({ project_id: true })
+}
 
-const stamphogReviewRunsGet = (): ToolBase<typeof StamphogReviewRunsGetSchema, Schemas.ReviewRun> => ({
+const stamphogReviewRunsGet = (): ToolBase<ReturnType<typeof StamphogReviewRunsGetSchema>, Schemas.ReviewRun> => ({
     name: 'stamphog-review-runs-get',
-    schema: StamphogReviewRunsGetSchema,
-    handler: async (context: Context, params: z.infer<typeof StamphogReviewRunsGetSchema>) => {
+    schema: StamphogReviewRunsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StamphogReviewRunsGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ReviewRun>({
             method: 'GET',
@@ -144,15 +162,18 @@ const stamphogReviewRunsGet = (): ToolBase<typeof StamphogReviewRunsGetSchema, S
     },
 })
 
-const StamphogReviewRunsListSchema = StamphogReviewRunsListQueryParams
+const StamphogReviewRunsListSchema = () => {
+    const StamphogReviewRunsListQueryParams = orvalSchemas.StamphogReviewRunsListQueryParams()
+    return StamphogReviewRunsListQueryParams
+}
 
 const stamphogReviewRunsList = (): ToolBase<
-    typeof StamphogReviewRunsListSchema,
+    ReturnType<typeof StamphogReviewRunsListSchema>,
     WithPostHogUrl<Schemas.PaginatedReviewRunList>
 > => ({
     name: 'stamphog-review-runs-list',
-    schema: StamphogReviewRunsListSchema,
-    handler: async (context: Context, params: z.infer<typeof StamphogReviewRunsListSchema>) => {
+    schema: StamphogReviewRunsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StamphogReviewRunsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedReviewRunList>({
             method: 'GET',

@@ -5,9 +5,11 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
+import { TZLabel } from 'lib/components/TZLabel'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { cn } from 'lib/utils/css-classes'
 
+import { TRACING_DATE_FORMAT, TRACING_DISPLAY_TIMEZONE, TRACING_TIME_FORMAT } from '../../dateFormats'
 import { formatDuration } from '../../TraceWaterfallView'
 import type { TracingOrderBy, TracingOrderDirection } from '../../tracingFiltersLogic'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
@@ -25,7 +27,7 @@ const LOAD_MORE_THRESHOLD = 10
 
 // Default column widths (px), in render order. Anyone can drag a column wider or narrower from here.
 const SPAN_COLUMNS: ResizableColumnSpec[] = [
-    { key: 'timestamp', width: 190 },
+    { key: 'timestamp', width: 215 },
     { key: 'name', width: 320, grow: true },
     { key: 'service', width: 200 },
     { key: 'kind', width: 90 },
@@ -164,7 +166,17 @@ function SpanRow({
             role="button"
             tabIndex={0}
         >
-            <TableCell width={widths.timestamp}>{new Date(span.timestamp).toLocaleString()}</TableCell>
+            <TableCell width={widths.timestamp}>
+                <span className="font-mono">
+                    <TZLabel
+                        time={span.timestamp}
+                        formatDate={TRACING_DATE_FORMAT}
+                        formatTime={TRACING_TIME_FORMAT}
+                        displayTimezone={TRACING_DISPLAY_TIMEZONE}
+                        showSeconds
+                    />
+                </span>
+            </TableCell>
             <TableCell width={widths.name}>
                 <span className="flex items-center gap-2 truncate">
                     <span className="truncate">{span.name}</span>
