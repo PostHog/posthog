@@ -40,7 +40,6 @@ export const hogFunctionsCreateBodyNameMax = 400
 export const hogFunctionsCreateBodyInputsSchemaItemRequiredDefault = false
 export const hogFunctionsCreateBodyInputsSchemaItemSecretDefault = false
 export const hogFunctionsCreateBodyInputsSchemaItemHiddenDefault = false
-export const hogFunctionsCreateBodyInputsSchemaItemSecretEntriesDefault = false
 export const hogFunctionsCreateBodyFiltersOneSourceDefault = `events`
 export const hogFunctionsCreateBodyMaskingOneTtlMin = 60
 export const hogFunctionsCreateBodyMaskingOneTtlMax = 86400
@@ -48,7 +47,6 @@ export const hogFunctionsCreateBodyMaskingOneTtlMax = 86400
 export const hogFunctionsCreateBodyMappingsItemInputsSchemaItemRequiredDefault = false
 export const hogFunctionsCreateBodyMappingsItemInputsSchemaItemSecretDefault = false
 export const hogFunctionsCreateBodyMappingsItemInputsSchemaItemHiddenDefault = false
-export const hogFunctionsCreateBodyMappingsItemInputsSchemaItemSecretEntriesDefault = false
 export const hogFunctionsCreateBodyMappingsItemFiltersSourceDefault = `events`
 export const hogFunctionsCreateBodyTemplateIdMax = 400
 
@@ -124,7 +122,7 @@ export const HogFunctionsCreateBody = () => zod.object({
                 default: zod.unknown().optional(),
                 secret: zod.boolean().default(hogFunctionsCreateBodyInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsCreateBodyInputsSchemaItemHiddenDefault),
-                secret_entries: zod.boolean().default(hogFunctionsCreateBodyInputsSchemaItemSecretEntriesDefault),
+                secret_entries: zod.boolean().optional(),
                 description: zod.string().optional(),
                 templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
             })
@@ -225,9 +223,7 @@ export const HogFunctionsCreateBody = () => zod.object({
                             hidden: zod
                                 .boolean()
                                 .default(hogFunctionsCreateBodyMappingsItemInputsSchemaItemHiddenDefault),
-                            secret_entries: zod
-                                .boolean()
-                                .default(hogFunctionsCreateBodyMappingsItemInputsSchemaItemSecretEntriesDefault),
+                            secret_entries: zod.boolean().optional(),
                             description: zod.string().optional(),
                             templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                         })
@@ -311,7 +307,6 @@ export const hogFunctionsPartialUpdateBodyNameMax = 400
 export const hogFunctionsPartialUpdateBodyInputsSchemaItemRequiredDefault = false
 export const hogFunctionsPartialUpdateBodyInputsSchemaItemSecretDefault = false
 export const hogFunctionsPartialUpdateBodyInputsSchemaItemHiddenDefault = false
-export const hogFunctionsPartialUpdateBodyInputsSchemaItemSecretEntriesDefault = false
 export const hogFunctionsPartialUpdateBodyFiltersOneSourceDefault = `events`
 export const hogFunctionsPartialUpdateBodyMaskingOneTtlMin = 60
 export const hogFunctionsPartialUpdateBodyMaskingOneTtlMax = 86400
@@ -319,7 +314,6 @@ export const hogFunctionsPartialUpdateBodyMaskingOneTtlMax = 86400
 export const hogFunctionsPartialUpdateBodyMappingsItemInputsSchemaItemRequiredDefault = false
 export const hogFunctionsPartialUpdateBodyMappingsItemInputsSchemaItemSecretDefault = false
 export const hogFunctionsPartialUpdateBodyMappingsItemInputsSchemaItemHiddenDefault = false
-export const hogFunctionsPartialUpdateBodyMappingsItemInputsSchemaItemSecretEntriesDefault = false
 export const hogFunctionsPartialUpdateBodyMappingsItemFiltersSourceDefault = `events`
 export const hogFunctionsPartialUpdateBodyTemplateIdMax = 400
 
@@ -395,9 +389,7 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                 default: zod.unknown().optional(),
                 secret: zod.boolean().default(hogFunctionsPartialUpdateBodyInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsPartialUpdateBodyInputsSchemaItemHiddenDefault),
-                secret_entries: zod
-                    .boolean()
-                    .default(hogFunctionsPartialUpdateBodyInputsSchemaItemSecretEntriesDefault),
+                secret_entries: zod.boolean().optional(),
                 description: zod.string().optional(),
                 templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
             })
@@ -498,9 +490,7 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                             hidden: zod
                                 .boolean()
                                 .default(hogFunctionsPartialUpdateBodyMappingsItemInputsSchemaItemHiddenDefault),
-                            secret_entries: zod
-                                .boolean()
-                                .default(hogFunctionsPartialUpdateBodyMappingsItemInputsSchemaItemSecretEntriesDefault),
+                            secret_entries: zod.boolean().optional(),
                             description: zod.string().optional(),
                             templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                         })
@@ -610,7 +600,6 @@ export const hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailM
 export const hogFunctionsInvocationsCreateBodyConfigurationOneInputsSchemaItemRequiredDefault = false
 export const hogFunctionsInvocationsCreateBodyConfigurationOneInputsSchemaItemSecretDefault = false
 export const hogFunctionsInvocationsCreateBodyConfigurationOneInputsSchemaItemHiddenDefault = false
-export const hogFunctionsInvocationsCreateBodyConfigurationOneInputsSchemaItemSecretEntriesDefault = false
 export const hogFunctionsInvocationsCreateBodyConfigurationOneFiltersOneSourceDefault = `events`
 export const hogFunctionsInvocationsCreateBodyConfigurationOneMaskingOneTtlMin = 60
 export const hogFunctionsInvocationsCreateBodyConfigurationOneMaskingOneTtlMax = 86400
@@ -618,7 +607,6 @@ export const hogFunctionsInvocationsCreateBodyConfigurationOneMaskingOneTtlMax =
 export const hogFunctionsInvocationsCreateBodyConfigurationOneMappingsItemInputsSchemaItemRequiredDefault = false
 export const hogFunctionsInvocationsCreateBodyConfigurationOneMappingsItemInputsSchemaItemSecretDefault = false
 export const hogFunctionsInvocationsCreateBodyConfigurationOneMappingsItemInputsSchemaItemHiddenDefault = false
-export const hogFunctionsInvocationsCreateBodyConfigurationOneMappingsItemInputsSchemaItemSecretEntriesDefault = false
 export const hogFunctionsInvocationsCreateBodyConfigurationOneMappingsItemFiltersSourceDefault = `events`
 export const hogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneNameMax = 400
 
@@ -765,11 +753,7 @@ export const HogFunctionsInvocationsCreateBody = () => zod.object({
                         hidden: zod
                             .boolean()
                             .default(hogFunctionsInvocationsCreateBodyConfigurationOneInputsSchemaItemHiddenDefault),
-                        secret_entries: zod
-                            .boolean()
-                            .default(
-                                hogFunctionsInvocationsCreateBodyConfigurationOneInputsSchemaItemSecretEntriesDefault
-                            ),
+                        secret_entries: zod.boolean().optional(),
                         description: zod.string().optional(),
                         integration: zod.string().optional(),
                         integration_key: zod.string().optional(),
@@ -897,11 +881,7 @@ export const HogFunctionsInvocationsCreateBody = () => zod.object({
                                         .default(
                                             hogFunctionsInvocationsCreateBodyConfigurationOneMappingsItemInputsSchemaItemHiddenDefault
                                         ),
-                                    secret_entries: zod
-                                        .boolean()
-                                        .default(
-                                            hogFunctionsInvocationsCreateBodyConfigurationOneMappingsItemInputsSchemaItemSecretEntriesDefault
-                                        ),
+                                    secret_entries: zod.boolean().optional(),
                                     description: zod.string().optional(),
                                     integration: zod.string().optional(),
                                     integration_key: zod.string().optional(),

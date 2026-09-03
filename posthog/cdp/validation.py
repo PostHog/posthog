@@ -562,8 +562,9 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     secret = serializers.BooleanField(default=False)
     hidden = serializers.BooleanField(default=False)
     # For `dictionary` inputs: individual entries may keep their values encrypted. See
-    # posthog.cdp.secret_entries.
-    secret_entries = serializers.BooleanField(default=False)
+    # posthog.cdp.secret_entries. Left absent rather than defaulted, so no other input's schema
+    # grows a key it has no use for.
+    secret_entries = serializers.BooleanField(required=False)
     description = serializers.CharField(required=False)
     integration = serializers.CharField(required=False)
     integration_key = serializers.CharField(required=False)

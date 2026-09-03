@@ -30,6 +30,7 @@ export interface hogFunctionStepLogicValues {
                 bytecode?: any
                 order?: number | undefined
                 secret?: boolean | undefined
+                secret_keys?: string[] | undefined
                 templating?: 'hog' | 'liquid' | undefined
                 value: any
             }
@@ -45,6 +46,7 @@ export interface hogFunctionStepLogicValues {
                     bytecode?: any
                     order?: number | undefined
                     secret?: boolean | undefined
+                    secret_keys?: string[] | undefined
                     templating?: 'hog' | 'liquid' | undefined
                     value: any
                 }
@@ -64,6 +66,7 @@ export interface hogFunctionStepLogicValues {
                     bytecode?: any
                     order?: number | undefined
                     secret?: boolean | undefined
+                    secret_keys?: string[] | undefined
                     templating?: 'hog' | 'liquid' | undefined
                     value: any
                 }
@@ -85,6 +88,7 @@ export interface hogFunctionStepLogicActions {
                 bytecode?: any
                 order?: number | undefined
                 secret?: boolean | undefined
+                secret_keys?: string[] | undefined
                 templating?: 'hog' | 'liquid' | undefined
                 value: any
             }
@@ -97,6 +101,7 @@ export interface hogFunctionStepLogicActions {
                     bytecode?: any
                     order?: number | undefined
                     secret?: boolean | undefined
+                    secret_keys?: string[] | undefined
                     templating?: 'hog' | 'liquid' | undefined
                     value: any
                 }
@@ -121,6 +126,7 @@ export interface hogFunctionStepLogicActions {
                     bytecode?: any
                     order?: number | undefined
                     secret?: boolean | undefined
+                    secret_keys?: string[] | undefined
                     templating?: 'hog' | 'liquid' | undefined
                     value: any
                 }
@@ -134,6 +140,7 @@ export interface hogFunctionStepLogicActions {
                     bytecode?: any
                     order?: number | undefined
                     secret?: boolean | undefined
+                    secret_keys?: string[] | undefined
                     templating?: 'hog' | 'liquid' | undefined
                     value: any
                 }
@@ -157,6 +164,7 @@ export interface hogFunctionStepLogicActions {
                 bytecode?: any
                 order?: number | undefined
                 secret?: boolean | undefined
+                secret_keys?: string[] | undefined
                 templating?: 'hog' | 'liquid' | undefined
                 value: any
             }
@@ -169,6 +177,7 @@ export interface hogFunctionStepLogicActions {
                     bytecode?: any
                     order?: number | undefined
                     secret?: boolean | undefined
+                    secret_keys?: string[] | undefined
                     templating?: 'hog' | 'liquid' | undefined
                     value: any
                 }
@@ -182,6 +191,7 @@ export interface hogFunctionStepLogicActions {
                 bytecode?: any
                 order?: number | undefined
                 secret?: boolean | undefined
+                secret_keys?: string[] | undefined
                 templating?: 'hog' | 'liquid' | undefined
                 value: any
             }
@@ -194,6 +204,7 @@ export interface hogFunctionStepLogicActions {
                     bytecode?: any
                     order?: number | undefined
                     secret?: boolean | undefined
+                    secret_keys?: string[] | undefined
                     templating?: 'hog' | 'liquid' | undefined
                     value: any
                 }

@@ -462,6 +462,7 @@ export interface workflowLogicActions {
                                         bytecode?: any
                                         order?: number | undefined
                                         secret?: boolean | undefined
+                                        secret_keys?: string[] | undefined
                                         templating?: 'hog' | 'liquid' | undefined
                                         value: any
                                     }
@@ -477,6 +478,7 @@ export interface workflowLogicActions {
                                                         bytecode?: any
                                                         order?: number | undefined
                                                         secret?: boolean | undefined
+                                                        secret_keys?: string[] | undefined
                                                         templating?: 'hog' | 'liquid' | undefined
                                                         value: any
                                                     }
@@ -503,6 +505,7 @@ export interface workflowLogicActions {
                                                     requiredScopes?: string | undefined
                                                     requires_field?: string | undefined
                                                     secret?: boolean | undefined
+                                                    secret_entries?: boolean | undefined
                                                     templating?: boolean | undefined
                                                     type:
                                                         | 'boolean'
@@ -574,6 +577,7 @@ export interface workflowLogicActions {
                                         bytecode?: any
                                         order?: number | undefined
                                         secret?: boolean | undefined
+                                        secret_keys?: string[] | undefined
                                         templating?: 'hog' | 'liquid' | undefined
                                         value: any
                                     }
@@ -623,6 +627,7 @@ export interface workflowLogicActions {
                                         bytecode?: any
                                         order?: number | undefined
                                         secret?: boolean | undefined
+                                        secret_keys?: string[] | undefined
                                         templating?: 'hog' | 'liquid' | undefined
                                         value: any
                                     }
@@ -671,6 +676,7 @@ export interface workflowLogicActions {
                                         bytecode?: any
                                         order?: number | undefined
                                         secret?: boolean | undefined
+                                        secret_keys?: string[] | undefined
                                         templating?: 'hog' | 'liquid' | undefined
                                         value: any
                                     }
@@ -804,6 +810,7 @@ export interface workflowLogicActions {
                                               bytecode?: any
                                               order?: number | undefined
                                               secret?: boolean | undefined
+                                              secret_keys?: string[] | undefined
                                               templating?: 'hog' | 'liquid' | undefined
                                               value: any
                                           }
@@ -819,6 +826,7 @@ export interface workflowLogicActions {
                                               bytecode?: any
                                               order?: number | undefined
                                               secret?: boolean | undefined
+                                              secret_keys?: string[] | undefined
                                               templating?: 'hog' | 'liquid' | undefined
                                               value: any
                                           }
@@ -834,6 +842,7 @@ export interface workflowLogicActions {
                                               bytecode?: any
                                               order?: number | undefined
                                               secret?: boolean | undefined
+                                              secret_keys?: string[] | undefined
                                               templating?: 'hog' | 'liquid' | undefined
                                               value: any
                                           }
@@ -1079,6 +1088,7 @@ export interface workflowLogicActions {
                                     bytecode?: any
                                     order?: number | undefined
                                     secret?: boolean | undefined
+                                    secret_keys?: string[] | undefined
                                     templating?: 'hog' | 'liquid' | undefined
                                     value: any
                                 }
@@ -1094,6 +1104,7 @@ export interface workflowLogicActions {
                                     bytecode?: any
                                     order?: number | undefined
                                     secret?: boolean | undefined
+                                    secret_keys?: string[] | undefined
                                     templating?: 'hog' | 'liquid' | undefined
                                     value: any
                                 }
@@ -1109,6 +1120,7 @@ export interface workflowLogicActions {
                                     bytecode?: any
                                     order?: number | undefined
                                     secret?: boolean | undefined
+                                    secret_keys?: string[] | undefined
                                     templating?: 'hog' | 'liquid' | undefined
                                     value: any
                                 }
@@ -1148,6 +1160,7 @@ export interface workflowLogicActions {
                             requiredScopes?: string | undefined
                             requires_field?: string | undefined
                             secret?: boolean | undefined
+                            secret_entries?: boolean | undefined
                             templating?: boolean | undefined
                             type:
                                 | 'boolean'
@@ -1317,6 +1330,7 @@ export interface workflowLogicActions {
                                         bytecode?: any
                                         order?: number | undefined
                                         secret?: boolean | undefined
+                                        secret_keys?: string[] | undefined
                                         templating?: 'hog' | 'liquid' | undefined
                                         value: any
                                     }
@@ -1332,6 +1346,7 @@ export interface workflowLogicActions {
                                                         bytecode?: any
                                                         order?: number | undefined
                                                         secret?: boolean | undefined
+                                                        secret_keys?: string[] | undefined
                                                         templating?: 'hog' | 'liquid' | undefined
                                                         value: any
                                                     }
@@ -1358,6 +1373,7 @@ export interface workflowLogicActions {
                                                     requiredScopes?: string | undefined
                                                     requires_field?: string | undefined
                                                     secret?: boolean | undefined
+                                                    secret_entries?: boolean | undefined
                                                     templating?: boolean | undefined
                                                     type:
                                                         | 'boolean'
@@ -1429,6 +1445,7 @@ export interface workflowLogicActions {
                                         bytecode?: any
                                         order?: number | undefined
                                         secret?: boolean | undefined
+                                        secret_keys?: string[] | undefined
                                         templating?: 'hog' | 'liquid' | undefined
                                         value: any
                                     }
@@ -1478,6 +1495,7 @@ export interface workflowLogicActions {
                                         bytecode?: any
                                         order?: number | undefined
                                         secret?: boolean | undefined
+                                        secret_keys?: string[] | undefined
                                         templating?: 'hog' | 'liquid' | undefined
                                         value: any
                                     }
@@ -1526,6 +1544,7 @@ export interface workflowLogicActions {
                                         bytecode?: any
                                         order?: number | undefined
                                         secret?: boolean | undefined
+                                        secret_keys?: string[] | undefined
                                         templating?: 'hog' | 'liquid' | undefined
                                         value: any
                                     }
@@ -1659,6 +1678,7 @@ export interface workflowLogicActions {
                                               bytecode?: any
                                               order?: number | undefined
                                               secret?: boolean | undefined
+                                              secret_keys?: string[] | undefined
                                               templating?: 'hog' | 'liquid' | undefined
                                               value: any
                                           }
@@ -1674,6 +1694,7 @@ export interface workflowLogicActions {
                                               bytecode?: any
                                               order?: number | undefined
                                               secret?: boolean | undefined
+                                              secret_keys?: string[] | undefined
                                               templating?: 'hog' | 'liquid' | undefined
                                               value: any
                                           }
@@ -1689,6 +1710,7 @@ export interface workflowLogicActions {
                                               bytecode?: any
                                               order?: number | undefined
                                               secret?: boolean | undefined
+                                              secret_keys?: string[] | undefined
                                               templating?: 'hog' | 'liquid' | undefined
                                               value: any
                                           }
@@ -1934,6 +1956,7 @@ export interface workflowLogicActions {
                                     bytecode?: any
                                     order?: number | undefined
                                     secret?: boolean | undefined
+                                    secret_keys?: string[] | undefined
                                     templating?: 'hog' | 'liquid' | undefined
                                     value: any
                                 }
@@ -1949,6 +1972,7 @@ export interface workflowLogicActions {
                                     bytecode?: any
                                     order?: number | undefined
                                     secret?: boolean | undefined
+                                    secret_keys?: string[] | undefined
                                     templating?: 'hog' | 'liquid' | undefined
                                     value: any
                                 }
@@ -1964,6 +1988,7 @@ export interface workflowLogicActions {
                                     bytecode?: any
                                     order?: number | undefined
                                     secret?: boolean | undefined
+                                    secret_keys?: string[] | undefined
                                     templating?: 'hog' | 'liquid' | undefined
                                     value: any
                                 }
@@ -2003,6 +2028,7 @@ export interface workflowLogicActions {
                             requiredScopes?: string | undefined
                             requires_field?: string | undefined
                             secret?: boolean | undefined
+                            secret_entries?: boolean | undefined
                             templating?: boolean | undefined
                             type:
                                 | 'boolean'
@@ -2145,6 +2171,7 @@ export interface workflowLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -2160,6 +2187,7 @@ export interface workflowLogicActions {
                                           bytecode?: any
                                           order?: number | undefined
                                           secret?: boolean | undefined
+                                          secret_keys?: string[] | undefined
                                           templating?: 'hog' | 'liquid' | undefined
                                           value: any
                                       }
@@ -2186,6 +2214,7 @@ export interface workflowLogicActions {
                                       requiredScopes?: string | undefined
                                       requires_field?: string | undefined
                                       secret?: boolean | undefined
+                                      secret_entries?: boolean | undefined
                                       templating?: boolean | undefined
                                       type:
                                           | 'boolean'
@@ -2241,6 +2270,7 @@ export interface workflowLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -2256,6 +2286,7 @@ export interface workflowLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -2271,6 +2302,7 @@ export interface workflowLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -2286,6 +2318,7 @@ export interface workflowLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -2302,6 +2335,7 @@ export interface workflowLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -2329,6 +2363,7 @@ export interface workflowLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -2524,6 +2559,7 @@ export interface workflowLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -2539,6 +2575,7 @@ export interface workflowLogicActions {
                                           bytecode?: any
                                           order?: number | undefined
                                           secret?: boolean | undefined
+                                          secret_keys?: string[] | undefined
                                           templating?: 'hog' | 'liquid' | undefined
                                           value: any
                                       }
@@ -2565,6 +2602,7 @@ export interface workflowLogicActions {
                                       requiredScopes?: string | undefined
                                       requires_field?: string | undefined
                                       secret?: boolean | undefined
+                                      secret_entries?: boolean | undefined
                                       templating?: boolean | undefined
                                       type:
                                           | 'boolean'
@@ -2620,6 +2658,7 @@ export interface workflowLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -2635,6 +2674,7 @@ export interface workflowLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -2650,6 +2690,7 @@ export interface workflowLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -2665,6 +2706,7 @@ export interface workflowLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -2681,6 +2723,7 @@ export interface workflowLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -2708,6 +2751,7 @@ export interface workflowLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -2893,6 +2937,7 @@ export interface workflowLogicMeta {
                                         bytecode?: any
                                         order?: number | undefined
                                         secret?: boolean | undefined
+                                        secret_keys?: string[] | undefined
                                         templating?: 'hog' | 'liquid' | undefined
                                         value: any
                                     }
@@ -2908,6 +2953,7 @@ export interface workflowLogicMeta {
                                         bytecode?: any
                                         order?: number | undefined
                                         secret?: boolean | undefined
+                                        secret_keys?: string[] | undefined
                                         templating?: 'hog' | 'liquid' | undefined
                                         value: any
                                     }
@@ -2923,6 +2969,7 @@ export interface workflowLogicMeta {
                                         bytecode?: any
                                         order?: number | undefined
                                         secret?: boolean | undefined
+                                        secret_keys?: string[] | undefined
                                         templating?: 'hog' | 'liquid' | undefined
                                         value: any
                                     }

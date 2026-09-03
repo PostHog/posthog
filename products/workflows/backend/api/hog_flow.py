@@ -377,10 +377,10 @@ def partition_flow_secrets(
                 # A dictionary input can keep only some of its own entries encrypted; the public
                 # half (names included) stays in the action. See posthog.cdp.secret_entries.
                 if has_secret_entries(inputs.get(key)):
-                    public, secret = split_secret_entries(inputs[key])
-                    inputs[key] = public
-                    if secret.get("value"):
-                        moved[key] = secret
+                    split = split_secret_entries(inputs[key])
+                    inputs[key] = split.public
+                    if split.secret.get("value"):
+                        moved[key] = split.secret
             if moved:
                 encrypted[action["id"]] = moved
         stripped.append(action)

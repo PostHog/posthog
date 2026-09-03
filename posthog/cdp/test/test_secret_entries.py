@@ -36,26 +36,26 @@ class TestSecretEntries(SimpleTestCase):
         assert secret_entry_names(input_obj) == expected
 
     def test_split_moves_only_the_named_entries(self) -> None:
-        public, secret = split_secret_entries(self._headers_input())
+        split = split_secret_entries(self._headers_input())
 
-        assert public["value"] == {"Content-Type": "application/json"}
-        assert secret["value"] == {"x-api-token": "tok_HqZ2NmVrTt"}
+        assert split.public["value"] == {"Content-Type": "application/json"}
+        assert split.secret["value"] == {"x-api-token": "tok_HqZ2NmVrTt"}
         # The names have to survive in the clear, or a read-back cannot tell which rows are secret.
-        assert public["secret_keys"] == ["x-api-token"]
+        assert split.public["secret_keys"] == ["x-api-token"]
 
     def test_split_moves_the_bytecode_of_a_secret_entry(self) -> None:
         # Compiled bytecode embeds the literal value, so leaving it behind would keep the
         # credential readable in the unencrypted column.
-        public, secret = split_secret_entries(self._headers_input())
+        split = split_secret_entries(self._headers_input())
 
-        assert public["bytecode"] == {"Content-Type": ["_H", 1, 32, "application/json"]}
-        assert secret["bytecode"] == {"x-api-token": ["_H", 1, 32, "tok_HqZ2NmVrTt"]}
+        assert split.public["bytecode"] == {"Content-Type": ["_H", 1, 32, "application/json"]}
+        assert split.secret["bytecode"] == {"x-api-token": ["_H", 1, 32, "tok_HqZ2NmVrTt"]}
 
     def test_merge_rebuilds_the_input(self) -> None:
         original = self._headers_input()
-        public, secret = split_secret_entries(original)
+        split = split_secret_entries(original)
 
-        assert merge_secret_entries(public, secret) == original
+        assert merge_secret_entries(split.public, split.secret) == original
 
     def test_recover_carries_over_an_untouched_entry(self) -> None:
         # The editor omits a secret entry it did not retype. Without recovery, saving an unrelated

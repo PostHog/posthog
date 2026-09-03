@@ -271,9 +271,9 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
                 # whole input; the names stay in the clear so a read-back can still render those
                 # rows. See posthog.cdp.secret_entries.
                 if has_secret_entries(value):
-                    public, secret = split_secret_entries(value)
-                    final_inputs[schema["key"]] = public
-                    final_encrypted_inputs[schema["key"]] = secret
+                    split = split_secret_entries(value)
+                    final_inputs[schema["key"]] = split.public
+                    final_encrypted_inputs[schema["key"]] = split.secret
                 else:
                     final_inputs[schema["key"]] = value
             else:

@@ -170,7 +170,6 @@
                         "type": "boolean"
                     },
                     "secret_entries": {
-                        "default": false,
                         "type": "boolean"
                     },
                     "templating": {
@@ -353,7 +352,6 @@
                                             "type": "boolean"
                                         },
                                         "secret_entries": {
-                                            "default": false,
                                             "type": "boolean"
                                         },
                                         "templating": {

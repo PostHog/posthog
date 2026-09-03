@@ -1,4 +1,6 @@
-import { CyclotronInputType, HogFunctionType } from '../types'
+import { CyclotronInputType } from '~/cdp/schema/cyclotron'
+
+import { HogFunctionType } from '../types'
 
 /**
  * Per-entry secrets inside a `dictionary` input.
@@ -16,8 +18,8 @@ import { CyclotronInputType, HogFunctionType } from '../types'
 
 export type ResolvedSecretEntries = { ok: true; entries: Record<string, string> } | { ok: false; error: string }
 
-export function secretEntryNames(input: CyclotronInputType | undefined): string[] {
-    const names = (input as { secret_keys?: unknown } | undefined)?.secret_keys
+export function secretEntryNames(input: CyclotronInputType | null | undefined): string[] {
+    const names = (input as { secret_keys?: unknown } | null | undefined)?.secret_keys
     if (!Array.isArray(names)) {
         return []
     }

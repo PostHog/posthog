@@ -16,9 +16,20 @@ Whole-input secrets are untouched by any of this. An input is per-entry only whe
 `secret_keys`.
 """
 
+from dataclasses import field
 from typing import Any, Optional
 
+from posthog.dataclasses import frozen
+
 SECRET_KEYS_FIELD = "secret_keys"
+
+
+@frozen
+class SplitInput:
+    """One input's two halves. Named because swapping them would store the credentials in the clear."""
+
+    public: dict
+    secret: dict = field(repr=False)
 
 
 def secret_entry_names(input_obj: Any) -> list[str]:
@@ -35,36 +46,37 @@ def has_secret_entries(input_obj: Any) -> bool:
     return bool(secret_entry_names(input_obj))
 
 
-def _split_by_names(mapping: Any, names: list[str]) -> tuple[dict, dict]:
+def _split_by_names(mapping: Any, names: list[str]) -> SplitInput:
     if not isinstance(mapping, dict):
-        return {}, {}
-    public = {key: value for key, value in mapping.items() if key not in names}
-    secret = {key: value for key, value in mapping.items() if key in names}
-    return public, secret
+        return SplitInput(public={}, secret={})
+    return SplitInput(
+        public={key: value for key, value in mapping.items() if key not in names},
+        secret={key: value for key, value in mapping.items() if key in names},
+    )
 
 
-def split_secret_entries(input_obj: Any) -> tuple[dict, dict]:
+def split_secret_entries(input_obj: Any) -> SplitInput:
     """Split one per-entry input into its public half and its encrypted half.
 
     The public half keeps `secret_keys`, so a later read knows which rows to render as secret
     without their values, and a later split knows what to move again.
     """
     if not isinstance(input_obj, dict):
-        return {}, {}
+        return SplitInput(public={}, secret={})
 
     names = secret_entry_names(input_obj)
-    public_value, secret_value = _split_by_names(input_obj.get("value"), names)
-    public_bytecode, secret_bytecode = _split_by_names(input_obj.get("bytecode"), names)
+    value = _split_by_names(input_obj.get("value"), names)
+    bytecode = _split_by_names(input_obj.get("bytecode"), names)
 
-    public = {**input_obj, "value": public_value}
+    public = {**input_obj, "value": value.public}
     if isinstance(input_obj.get("bytecode"), dict):
-        public["bytecode"] = public_bytecode
+        public["bytecode"] = bytecode.public
 
-    secret: dict[str, Any] = {"value": secret_value}
-    if secret_bytecode:
-        secret["bytecode"] = secret_bytecode
+    secret: dict[str, Any] = {"value": value.secret}
+    if bytecode.secret:
+        secret["bytecode"] = bytecode.secret
 
-    return public, secret
+    return SplitInput(public=public, secret=secret)
 
 
 def merge_secret_entries(public: Any, secret: Any) -> dict:
