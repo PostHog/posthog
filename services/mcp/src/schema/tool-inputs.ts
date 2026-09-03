@@ -676,44 +676,68 @@ export const ExecuteSQLSchema = z.object({
         ),
 })
 
-const ReadEventsQuerySchema = z.object({
-    kind: z.literal('events'),
-    limit: z.number().int().min(1).max(500).default(500).optional().describe('Number of events to return per page.'),
-    offset: z.number().int().min(0).default(0).optional().describe('Number of events to skip for pagination.'),
-})
+// Every read below is strict so a field it does not have is named back to the caller. Left
+// open, an ignored `search` or `property_name` returns a confident answer to a different
+// question than the one asked.
+const ReadEventsQuerySchema = z
+    .object({
+        kind: z.literal('events'),
+        limit: z
+            .number()
+            .int()
+            .min(1)
+            .max(500)
+            .default(500)
+            .optional()
+            .describe('Number of events to return per page.'),
+        offset: z.number().int().min(0).default(0).optional().describe('Number of events to skip for pagination.'),
+    })
+    .strict()
 
-const ReadEventPropertiesQuerySchema = z.object({
-    kind: z.literal('event_properties'),
-    event_name: z.string().describe('The name of the event that you want to retrieve properties for.'),
-})
+const ReadEventPropertiesQuerySchema = z
+    .object({
+        kind: z.literal('event_properties'),
+        event_name: z.string().describe('The name of the event that you want to retrieve properties for.'),
+    })
+    .strict()
 
-const ReadEntityPropertiesQuerySchema = z.object({
-    kind: z.literal('entity_properties'),
-    entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
-})
+const ReadEntityPropertiesQuerySchema = z
+    .object({
+        kind: z.literal('entity_properties'),
+        entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
+    })
+    .strict()
 
-const ReadActionPropertiesQuerySchema = z.object({
-    kind: z.literal('action_properties'),
-    action_id: z.number().int().describe('The ID of the action that you want to retrieve properties for.'),
-})
+const ReadActionPropertiesQuerySchema = z
+    .object({
+        kind: z.literal('action_properties'),
+        action_id: z.number().int().describe('The ID of the action that you want to retrieve properties for.'),
+    })
+    .strict()
 
-const ReadEntitySamplePropertyValuesQuerySchema = z.object({
-    kind: z.literal('entity_property_values'),
-    entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
-    property_name: z.string().describe('Verified property name of an entity.'),
-})
+const ReadEntitySamplePropertyValuesQuerySchema = z
+    .object({
+        kind: z.literal('entity_property_values'),
+        entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
+        property_name: z.string().describe('Verified property name of an entity.'),
+    })
+    .strict()
 
-const ReadEventSamplePropertyValuesQuerySchema = z.object({
-    kind: z.literal('event_property_values'),
-    event_name: z.string().describe('Verified event name'),
-    property_name: z.string().describe('Verified property name of an event.'),
-})
+const ReadEventSamplePropertyValuesQuerySchema = z
+    .object({
+        kind: z.literal('event_property_values'),
+        event_name: z.string().describe('Verified event name'),
+        property_name: z.string().describe('Verified property name of an event.'),
+    })
+    .strict()
 
-const ReadActionSamplePropertyValuesQuerySchema = z.object({
-    kind: z.literal('action_property_values'),
-    action_id: z.number().int().describe('Verified action ID'),
-    property_name: z.string().describe('Verified property name of an action.'),
-})
+const ReadActionSamplePropertyValuesQuerySchema = z
+    .object({
+        kind: z.literal('action_property_values'),
+        action_id: z.number().int().describe('Verified action ID'),
+        property_name: z.string().describe('Verified property name of an action.'),
+    })
+    .strict()
 
 const ReadDataSchemaBodySchema = z.object({
     query: z
@@ -729,23 +753,136 @@ const ReadDataSchemaBodySchema = z.object({
         .describe('The data schema query to execute.'),
 })
 
-// Person and session properties are read through `entity_properties`, but the two names below
-// read so naturally next to `event_properties` that callers keep sending them. Accept them:
-// the call says exactly what it wants, and a rejection costs the caller a whole round trip.
-const READ_DATA_SCHEMA_KIND_ALIASES: Record<string, { kind: string; entity: string }> = {
+/**
+ * Names callers reach for instead of the seven declared kinds. Each one says exactly which
+ * read it wants, so a rejection only costs a round trip. `person_properties` and
+ * `session_properties` read so naturally next to `event_properties` that callers keep sending
+ * them; the rest are the plural/singular and list/definition variants of the same words.
+ */
+const READ_DATA_SCHEMA_KIND_ALIASES: Record<string, { kind: string; entity?: string }> = {
+    event: { kind: 'events' },
+    events_list: { kind: 'events' },
+    event_list: { kind: 'events' },
+    list_events: { kind: 'events' },
+    all_events: { kind: 'events' },
+    event_names: { kind: 'events' },
+    event_definitions: { kind: 'events' },
+    taxonomy: { kind: 'events' },
+    event_property: { kind: 'event_properties' },
+    entity_property: { kind: 'entity_properties' },
+    action_property: { kind: 'action_properties' },
     person_properties: { kind: 'entity_properties', entity: 'person' },
     session_properties: { kind: 'entity_properties', entity: 'session' },
+    group_properties: { kind: 'entity_properties' },
+    person_property_values: { kind: 'entity_property_values', entity: 'person' },
+    session_property_values: { kind: 'entity_property_values', entity: 'session' },
+    group_property_values: { kind: 'entity_property_values' },
+    event_property_value: { kind: 'event_property_values' },
+    entity_property_value: { kind: 'entity_property_values' },
+    action_property_value: { kind: 'action_property_values' },
 }
+
+/** Kinds that name the read but not the subject, so the sibling fields pick the branch. */
+const READ_DATA_SCHEMA_AMBIGUOUS_KINDS = new Set(['properties', 'property', 'values', 'property_values'])
+
+/** Field names callers use for the seven schemas' own fields. */
+const READ_DATA_SCHEMA_FIELD_ALIASES: Record<string, string> = {
+    event: 'event_name',
+    eventName: 'event_name',
+    event_names: 'event_name',
+    property: 'property_name',
+    propertyName: 'property_name',
+    property_key: 'property_name',
+    entity_type: 'entity',
+    entityType: 'entity',
+    group_type: 'entity',
+    groupType: 'entity',
+    action: 'action_id',
+    actionId: 'action_id',
+}
+
+const READ_DATA_SCHEMA_KINDS = new Set([
+    'events',
+    'event_properties',
+    'entity_properties',
+    'action_properties',
+    'entity_property_values',
+    'event_property_values',
+    'action_property_values',
+])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/** A whole-number string is a number the caller spelled as text, nothing else. */
+function coerceCount(value: unknown): unknown {
+    return typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value
+}
+
+/** Applies the field aliases, unwraps a single-element list, and reads numbers out of strings. */
+function normalizeQueryFields(source: Record<string, unknown>): Record<string, unknown> {
+    const fields: Record<string, unknown> = {}
+    for (const [key, rawValue] of Object.entries(source)) {
+        const name = READ_DATA_SCHEMA_FIELD_ALIASES[key] ?? key
+        // A one-event list means that event. A longer list needs one call per event, so leave
+        // it for the schema to reject rather than answer about an event the caller did not pick.
+        const value = name === 'event_name' && Array.isArray(rawValue) && rawValue.length === 1 ? rawValue[0] : rawValue
+        if (fields[name] === undefined) {
+            fields[name] = value
+        }
+    }
+    if (fields['action_id'] !== undefined) {
+        fields['action_id'] = coerceCount(fields['action_id'])
+    }
+    if (fields['limit'] !== undefined) {
+        const limit = coerceCount(fields['limit'])
+        // 500 is the page size the backend caps at anyway, so a bigger ask is answered, not refused.
+        fields['limit'] = typeof limit === 'number' ? Math.min(limit, 500) : limit
+    }
+    if (fields['offset'] !== undefined) {
+        fields['offset'] = coerceCount(fields['offset'])
+    }
+    return fields
+}
+
+/** Picks the branch a kind-less or ambiguously-kinded call is describing from its own fields. */
+function inferKind(fields: Record<string, unknown>): string | undefined {
+    const hasValue = fields['property_name'] !== undefined
+    if (fields['event_name'] !== undefined) {
+        return hasValue ? 'event_property_values' : 'event_properties'
+    }
+    if (fields['action_id'] !== undefined) {
+        return hasValue ? 'action_property_values' : 'action_properties'
+    }
+    if (fields['entity'] !== undefined) {
+        return hasValue ? 'entity_property_values' : 'entity_properties'
+    }
+    return undefined
+}
+
+const READ_DATA_SCHEMA_QUERY_FIELDS = new Set([
+    'kind',
+    'event_name',
+    'entity',
+    'action_id',
+    'property_name',
+    'limit',
+    'offset',
+])
+
 /**
- * Accept a call that puts the query fields at the top level (`{kind, event_name}`) instead of
- * under `query`, and an aliased `kind`. Both say exactly what they want, so a rejection only
- * costs the caller a round trip. `query` still wins whenever it is an object, so a well-formed
- * call is never reinterpreted.
+ * Accept the shapes callers keep sending for a read that is never ambiguous: the query fields
+ * at the top level instead of under `query`, an aliased kind or field name, a count written as
+ * a string, a kind left out entirely. Each one says what it wants, so a rejection only costs a
+ * round trip. `query` still wins whenever it is an object, so a well-formed call is never
+ * reinterpreted.
+ *
+ * Two things are deliberately left to fail. A field the tool does not have (a `search` term on
+ * an events read) reaches the schema, because the events read returns the full list and
+ * dropping the term would answer a different question than the one asked. And a caller that
+ * named nothing this tool understands gets the events list only when it sent no other field —
+ * otherwise it is asking about something else and deserves to hear so.
  *
  * Same `z.preprocess` seam as `normalizeParamAliases`, and transparent to JSON Schema output
  * for the same reason: the advertised shape stays the wrapped one.
@@ -755,12 +892,47 @@ function normalizeReadDataSchemaInput(input: unknown): unknown {
         return input
     }
     const { query, ...topLevel } = input
-    const source = isRecord(query) ? query : typeof topLevel['kind'] === 'string' ? topLevel : query
-    if (!isRecord(source)) {
-        return input
+    let source: Record<string, unknown>
+    if (isRecord(query)) {
+        source = query
+    } else if (typeof query === 'string' && READ_DATA_SCHEMA_KINDS.has(query)) {
+        source = { ...topLevel, kind: query }
+    } else if (typeof query === 'string' && READ_DATA_SCHEMA_KIND_ALIASES[query]) {
+        source = { ...topLevel, kind: query }
+    } else {
+        // A free-text `query` is a schema question with no kind in it, so it is dropped and the
+        // remaining fields decide the read.
+        source = topLevel
     }
-    const alias = typeof source['kind'] === 'string' ? READ_DATA_SCHEMA_KIND_ALIASES[source['kind']] : undefined
-    return { query: alias ? { ...source, ...alias } : source }
+
+    const rawKind = typeof source['kind'] === 'string' ? source['kind'] : undefined
+    const alias = rawKind ? READ_DATA_SCHEMA_KIND_ALIASES[rawKind] : undefined
+    const fields = normalizeQueryFields(source)
+    if (alias?.entity !== undefined && fields['entity'] === undefined) {
+        fields['entity'] = alias.entity
+    }
+
+    let kind = alias?.kind ?? rawKind
+    if (kind === undefined || READ_DATA_SCHEMA_AMBIGUOUS_KINDS.has(kind)) {
+        kind = inferKind(fields)
+    }
+    if (kind === undefined) {
+        const named = Object.keys(fields).filter((key) => key !== 'kind')
+        if (named.every((key) => READ_DATA_SCHEMA_QUERY_FIELDS.has(key))) {
+            kind = 'events'
+        }
+    }
+    if (kind === undefined) {
+        return { query: source }
+    }
+
+    // Paging belongs to the events read alone. Every other kind returns one entity's schema, so
+    // a stray page size is noise rather than a different question.
+    if (kind !== 'events') {
+        delete fields['limit']
+        delete fields['offset']
+    }
+    return { query: { ...fields, kind } }
 }
 
 export const ReadDataSchemaSchema = z.preprocess(normalizeReadDataSchemaInput, ReadDataSchemaBodySchema)
