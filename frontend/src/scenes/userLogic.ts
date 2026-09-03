@@ -760,16 +760,18 @@ export const userLogic = kea<userLogicType>([
         },
         updateHasSeenProductIntroFor: async ({ productKey, value }, breakpoint) => {
             await breakpoint(10)
-            await api
-                .update('api/users/@me/', {
-                    has_seen_product_intro_for: {
-                        ...values.user?.has_seen_product_intro_for,
-                        [productKey]: value,
-                    },
-                })
-                .then(() => {
-                    actions.loadUser()
-                })
+            try {
+                // Its own endpoint rather than a field on the user PATCH: that one needs a recently
+                // authenticated session, so a risk step-up would answer a dismissal with the re-auth modal.
+                // It also merges the key server-side, so two tabs can't drop each other's write.
+                await api.update('api/users/@me/product_intro_seen', { product_key: productKey, seen: value })
+                actions.loadUser()
+            } catch (error: any) {
+                // Marking an intro seen runs behind whatever the user is already doing, so a failure is
+                // logged rather than surfaced: a toast would land on top of the intro they just dismissed.
+                // The intro comes back next visit, which is the honest outcome of a write that didn't land.
+                console.error(error)
+            }
         },
         switchTeam: ({ teamId, destination }) => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
