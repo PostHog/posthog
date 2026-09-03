@@ -21,7 +21,7 @@ from posthog.models import Team
 from posthog.models.event.util import bulk_create_events
 from posthog.models.person.util import create_person, create_person_distinct_id
 
-from products.notebooks.evals.synthesizer import CHURN_TOKEN, ChurnAccount, build_churn_needle
+from products.notebooks.evals.synthesizer import CHURN_TOKEN, SIGNUP_EVENT, ChurnAccount, build_churn_needle
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 # Realistic props for the planted file events, so a churn query that groups or filters on
@@ -43,6 +43,11 @@ def seed_case_team(context: CustomPromptSandboxContext) -> dict[str, Any]:
 
 
 def _event_properties(event: str, account: ChurnAccount) -> dict[str, Any]:
+    # The simulation captures the signup before it links the person to an account, so a
+    # real signed_up carries from_invite and no group. Planting a group on it would make
+    # the event less like the ones around it, not more.
+    if event == SIGNUP_EVENT:
+        return {"from_invite": False}
     props: dict[str, Any] = {"$group_0": account.account_key}
     props.update(_FILE_EVENT_PROPS.get(event, {}))
     return props
@@ -78,16 +83,20 @@ def seed_churn_signal(context: CustomPromptSandboxContext) -> dict[str, Any]:
         for slot, planted in enumerate(needle.schedule):
             # Spread events within their day so ordering and per-day counts stay stable.
             timestamp = now - timedelta(days=planted.days_before_now, minutes=slot)
+            properties = _event_properties(planted.event, account)
+            group_columns = (
+                {"group0_properties": {"name": f"{account.name} workspace"}} if "$group_0" in properties else {}
+            )
             events.append(
                 {
                     "event": planted.event,
                     "team": team,
                     "distinct_id": account.distinct_id,
                     "timestamp": timestamp,
-                    "properties": _event_properties(planted.event, account),
+                    "properties": properties,
                     "person_id": person_uuid,
                     "person_properties": person_properties,
-                    "group0_properties": {"name": f"{account.name} workspace"},
+                    **group_columns,
                 }
             )
     bulk_create_events(events)

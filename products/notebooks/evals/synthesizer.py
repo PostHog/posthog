@@ -25,6 +25,8 @@ _FIRST_NAMES = ("ada", "bianca", "caleb", "dara", "elias", "farah", "gideon", "h
 # cohort reads as churn whichever behaviour an analysis keys on.
 _SESSION_EVENTS = ("logged_in", "uploaded_file", "uploaded_file", "downloaded_file", "shared_file_link")
 
+SIGNUP_EVENT = "signed_up"
+
 
 @frozen
 class ChurnAccount:
@@ -56,8 +58,8 @@ def build_churn_needle(
     newest_active_day: int = 70,
     session_stride_days: int = 4,
 ) -> ChurnNeedle:
-    """Build the planted cohort: ``count`` accounts, each very active from
-    ``oldest_active_day`` down to ``newest_active_day`` days ago, then silent.
+    """Build the planted cohort: ``count`` accounts, each signing up
+    ``oldest_active_day`` days ago, very active until ``newest_active_day``, then silent.
 
     The gap between ``newest_active_day`` and today is the churn signal — power users
     who stopped — so keep it wide relative to the demo's ~120-day window.
@@ -77,10 +79,17 @@ def build_churn_needle(
         )
         for i, name in enumerate(_FIRST_NAMES[:count])
     )
-    schedule = tuple(
-        PlantedEvent(event=event, days_before_now=day)
-        for day in range(oldest_active_day, newest_active_day - 1, -session_stride_days)
-        for event in _SESSION_EVENTS
+    # The signup comes first: every simulated account emits ``signed_up`` before anything
+    # else, and the simulation makes it a precondition for logging in, uploading, and
+    # sharing. A cohort without one is a shape the fixture never holds, so an analysis
+    # that builds its customer base from signups would drop every planted account.
+    schedule = (
+        PlantedEvent(event=SIGNUP_EVENT, days_before_now=oldest_active_day),
+        *(
+            PlantedEvent(event=event, days_before_now=day)
+            for day in range(oldest_active_day - 1, newest_active_day - 1, -session_stride_days)
+            for event in _SESSION_EVENTS
+        ),
     )
     return ChurnNeedle(
         accounts=accounts,

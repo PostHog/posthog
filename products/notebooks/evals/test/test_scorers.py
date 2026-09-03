@@ -16,7 +16,7 @@ from posthog.models.scoping import team_scope
 
 from products.notebooks.backend.models import Notebook, NotebookNodeRun
 from products.notebooks.evals.scorers import CellRunsCompleted, ChurnCohortSurfaced
-from products.notebooks.evals.synthesizer import CHURN_TOKEN, build_churn_needle
+from products.notebooks.evals.synthesizer import CHURN_TOKEN, SIGNUP_EVENT, build_churn_needle
 
 _ACCOUNTS: list[dict[str, Any]] = [
     {
@@ -98,3 +98,11 @@ def test_read_runs_skips_soft_deleted_notebooks(team: Team) -> None:
         runs = CellRunsCompleted._read_runs(team.id)
 
     assert [(run["notebook_short_id"], run["node_type"]) for run in runs] == [("delivered", "hogql")]
+
+
+def test_churn_needle_plants_one_signup_before_every_session() -> None:
+    signup, *sessions = build_churn_needle().schedule
+
+    assert signup.event == SIGNUP_EVENT
+    assert all(planted.days_before_now < signup.days_before_now for planted in sessions)
+    assert all(planted.event != SIGNUP_EVENT for planted in sessions)
