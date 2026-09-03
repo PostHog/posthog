@@ -127,7 +127,13 @@ function EnvironmentBadge({ mode }: { mode: WorkspaceMode | null }) {
   );
 }
 
-function EmptyCell({ cellIndex }: { cellIndex: number }) {
+function EmptyCell({
+  cellIndex,
+  replaceExisting,
+}: {
+  cellIndex: number;
+  replaceExisting: boolean;
+}) {
   const [selectorOpen, setSelectorOpen] = useState(false);
   // The command-center terminal is unavailable on cloud-only hosts.
   const { localWorkspaces } = useHostCapabilities();
@@ -171,8 +177,8 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
   );
 
   const handleNewTask = useCallback(() => {
-    if (sessionId) startCreating(cellIndex, sessionId);
-  }, [startCreating, cellIndex, sessionId]);
+    if (sessionId) startCreating(cellIndex, sessionId, replaceExisting);
+  }, [startCreating, cellIndex, sessionId, replaceExisting]);
 
   // Claiming the tile is what keeps the run in the grid: without it the task
   // exists but its session has nowhere to render.
@@ -675,7 +681,12 @@ export function CommandCenterPanel({
   }
 
   if (!cell.taskId || !cell.task) {
-    return <EmptyCell cellIndex={cell.cellIndex} />;
+    return (
+      <EmptyCell
+        cellIndex={cell.cellIndex}
+        replaceExisting={cell.taskId !== null}
+      />
+    );
   }
 
   return (

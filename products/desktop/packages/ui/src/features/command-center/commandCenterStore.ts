@@ -63,7 +63,11 @@ interface CommandCenterStoreActions {
   setZoom: (zoom: number) => void;
   zoomIn: () => void;
   zoomOut: () => void;
-  startCreating: (cellIndex: number, sessionId: string) => void;
+  startCreating: (
+    cellIndex: number,
+    sessionId: string,
+    replaceExisting?: boolean,
+  ) => void;
   stopCreating: (sessionId: string) => void;
   finishCreating: (sessionId: string, taskId: string) => boolean;
   requestPlacement: (placement: CommandCenterPlacement) => void;
@@ -296,13 +300,16 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
       zoomOut: () =>
         set((state) => ({ zoom: clampZoom(state.zoom - ZOOM_STEP) })),
 
-      startCreating: (cellIndex, sessionId) =>
+      startCreating: (cellIndex, sessionId, replaceExisting = false) =>
         set((state) => {
           if (cellIndex < 0 || cellIndex >= state.cells.length) return state;
-          if (state.cells[cellIndex] != null) return state;
+          if (state.cells[cellIndex] != null && !replaceExisting) return state;
+          const cells = [...state.cells];
+          cells[cellIndex] = null;
           if (state.composer) return state;
           return {
             activeCellIndex: cellIndex,
+            cells,
             composer: { cellIndex, sessionId },
             pendingPlacement: null,
             // Starting to type is curation. It also prevents a late bootstrap

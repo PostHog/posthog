@@ -224,6 +224,24 @@ describe("CommandCenterPanel", () => {
     expect(mocks.store.startCreating).toHaveBeenCalledWith(
       2,
       "cc-cell-us:2:user-1-2",
+      false,
+    );
+  });
+
+  it("replaces an unresolved task when starting a new task in its empty tile", () => {
+    render(
+      <CommandCenterPanel
+        cell={{ ...emptyCell, taskId: "unresolved-task" }}
+        isActiveSession={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
+
+    expect(mocks.store.startCreating).toHaveBeenCalledWith(
+      2,
+      "cc-cell-us:2:user-1-2",
+      true,
     );
   });
 

@@ -286,6 +286,23 @@ describe("commandCenterStore", () => {
   });
 
   describe("in-tile composer", () => {
+    it("replaces an unresolved cell only when the caller allows it", () => {
+      useCommandCenterStore.setState({
+        cells: [null, "unresolved-task", null, null],
+      });
+
+      store().startCreating(1, "session-1");
+      expect(store().composer).toBeNull();
+      expect(store().cells[1]).toBe("unresolved-task");
+
+      store().startCreating(1, "session-1", true);
+      expect(store().composer).toEqual({
+        cellIndex: 1,
+        sessionId: "session-1",
+      });
+      expect(store().cells[1]).toBeNull();
+    });
+
     it("keeps the first active composer and marks the grid curated", () => {
       store().startCreating(2, "session-2");
       store().startCreating(1, "session-1");
