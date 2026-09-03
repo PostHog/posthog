@@ -703,7 +703,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption({ currentValue: "max" })}
-          modelOption={claudeModelOption("claude-fable-5")}
+          modelOption={claudeModelOption("claude-fable-5-1")}
           adapter="claude"
           onChange={onChange}
           onModelChange={onModelChange}
@@ -738,7 +738,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption({ currentValue: "max" })}
-          modelOption={claudeModelOption("claude-fable-5")}
+          modelOption={claudeModelOption("claude-fable-5-1")}
           adapter="claude"
           onChange={onChange}
           onModelChange={onModelChange}
@@ -771,7 +771,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption({ currentValue: "max" })}
-          modelOption={claudeModelOption("claude-fable-5")}
+          modelOption={claudeModelOption("claude-fable-5-1")}
           adapter="claude"
           fastModeOption={fast}
           resetToDefaultDisabled
