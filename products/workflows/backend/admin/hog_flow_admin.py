@@ -9,6 +9,7 @@ import structlog
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.services.workflow_email_health import (
+    PAUSED_BY_STAFF,
     pause_workflow_email_sending,
     resume_workflow_email_sending,
 )
@@ -109,6 +110,7 @@ class HogFlowAdmin(admin.ModelAdmin):
                 hog_flow_id=str(hog_flow.id),
                 hog_flow_name=hog_flow.name or "",
                 reason=STAFF_PAUSE_REASON,
+                paused_by=PAUSED_BY_STAFF,
             ):
                 paused += 1
                 logger.warning(
@@ -124,7 +126,7 @@ class HogFlowAdmin(admin.ModelAdmin):
         self.message_user(
             request,
             f"Paused email sending for {paused} workflow(s). Workers pick this up within a few minutes; "
-            "the project's admins have been notified and can resume it themselves.",
+            "the project's admins have been notified. Only staff can resume a staff pause.",
             level=messages.WARNING if paused else messages.INFO,
         )
 
@@ -132,7 +134,7 @@ class HogFlowAdmin(admin.ModelAdmin):
     def resume_email_sending(self, request: HttpRequest, queryset: QuerySet[HogFlow]) -> None:
         resumed = 0
         for hog_flow in queryset.filter(email_sending_paused_at__isnull=False):
-            if resume_workflow_email_sending(hog_flow):
+            if resume_workflow_email_sending(hog_flow, actor=PAUSED_BY_STAFF):
                 resumed += 1
                 logger.info(
                     "admin_resume_workflow_email_sending",

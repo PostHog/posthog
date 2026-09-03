@@ -81,7 +81,7 @@ def _make_scanner(team: Team, **overrides: Any) -> ReplayScanner:
         "name": "reconciler-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_7_FLASH,
+        "model": ScannerModel.GEMINI_3_8_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -269,6 +269,7 @@ async def _run_reconcile(mocks: _ReconcileMocks, patched: bool = True):
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.logger", fake_logger),
         patch("temporalio.workflow.patched", return_value=patched),
+        patch("temporalio.workflow.deprecate_patch"),
     ):
         return await ReconcileScannerSchedulesWorkflow().run(ReconcileScannerSchedulesInputs())
 
@@ -622,7 +623,7 @@ def _make_inline_scanner(team: Team, *, key: str, age: dt.timedelta) -> ReplaySc
         inline_key=key,
         scanner_type=ScannerType.MONITOR,
         scanner_config={"prompt": f"p-{key}"},
-        model=ScannerModel.GEMINI_3_7_FLASH,
+        model=ScannerModel.GEMINI_3_8_FLASH,
         enabled=False,
         sampling_rate=0.0,
     )
