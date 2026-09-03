@@ -1753,6 +1753,13 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           void this.refuseTurnWithMessage(policyErrorMessage);
           return;
         }
+        // ChatGPT's own usage limit, not a PostHog gateway denial — show the
+        // account's real reason (it already includes a reset time) instead
+        // of the generic fallback below.
+        if (codexErrorInfo === "usageLimitExceeded" && message) {
+          void this.refuseTurnWithMessage(message);
+          return;
+        }
         void this.failTurn(
           new RequestError(
             ACP_INTERNAL_ERROR_CODE,
