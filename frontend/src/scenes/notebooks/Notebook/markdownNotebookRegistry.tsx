@@ -601,7 +601,7 @@ export function RealNotebookNodeIdentityAndViewEdit({
     notebookNodeType: NotebookNodeType
     options: CreatePostHogWidgetNodeOptions<any>
 }): JSX.Element | null {
-    const hasId = 'id' in options.attributes
+    const hasId = notebookNodeType !== NotebookNodeType.GeneratedWidget && 'id' in options.attributes
     if (!hasId && !options.views) {
         return null
     }
