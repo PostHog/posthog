@@ -164,7 +164,9 @@ function AppScene(): JSX.Element | null {
         // Scenes that declare an empty state are gated behind the product's
         // setup screen until the product has data (or the user skips).
         const resolvedNode = emptyState ? (
-            <ProductEmptyStateGate emptyState={emptyState}>{sceneNode}</ProductEmptyStateGate>
+            <ProductEmptyStateGate emptyState={emptyState} params={activeSceneComponentParams}>
+                {sceneNode}
+            </ProductEmptyStateGate>
         ) : (
             sceneNode
         )

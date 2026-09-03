@@ -53,6 +53,18 @@ class TestCascadeSelectRepository:
         with resolve, list_repos:
             assert cascade_select_repository(1, 2, "", single_repo_wins=single_repo_wins) == expected
 
+    def test_archived_lone_repo_is_not_taken(self):
+        # An archived repo accepts no pull request, so single_repo_wins must drop it before the
+        # lone-repo shortcut. Dropping the team's only repo leaves no candidate, so the caller starts
+        # repo-less rather than targeting an unpushable repo. A repo cached before the flag existed
+        # carries no `archived` and stays a candidate.
+        github = MagicMock()
+        github.list_all_cached_repositories.return_value = [
+            {"full_name": "owner/retired", "archived": True},
+        ]
+        with patch(f"{_CASCADE}.resolve_team_github_integration", return_value=github):
+            assert cascade_select_repository(1, 2, "", single_repo_wins=True) is None
+
     @pytest.mark.django_db
     def test_unsynced_cache_is_read_without_a_live_sync(self, team):
         # Request-path callers pass allow_refresh=False, so a never-synced cache
