@@ -54,20 +54,29 @@ const AWAITED_TEMPLATES: Record<string, AwaitedTemplate> = {
     },
 }
 
-// Total workflow variables are capped at 5KB, and the step result is what `output_variable` stores.
+// The step result is what `output_variable` stores, and the executor fails the step when total
+// workflow variables pass its 5KB cap. Strings in the result are cut to what still fits, with room
+// left for the ids, the status, and the keys themselves.
 const RESUME_RESULT_STRING_CAP = 1500
+const VARIABLES_BYTE_CAP = 5120
+const VARIABLES_HEADROOM_BYTES = 512
 
 const counterAwaitedStepStaleResume = new Counter({
     name: 'cdp_hogflow_awaited_step_stale_resume',
     help: 'A parked step received a wake keyed to an earlier visit of the same step and kept waiting.',
 })
 
+const resumeStringCap = (variables: Record<string, unknown>): number => {
+    const used = Buffer.byteLength(JSON.stringify(variables), 'utf8')
+    return Math.max(0, Math.min(RESUME_RESULT_STRING_CAP, VARIABLES_BYTE_CAP - VARIABLES_HEADROOM_BYTES - used))
+}
+
+// A string cut to zero is dropped rather than stored empty, so a template reading it sees "unset".
 const truncateStringValues = (obj: Record<string, unknown>, cap: number): Record<string, unknown> =>
     Object.fromEntries(
-        Object.entries(obj).map(([key, value]) => [
-            key,
-            typeof value === 'string' && value.length > cap ? value.slice(0, cap) : value,
-        ])
+        Object.entries(obj)
+            .filter(([, value]) => !(typeof value === 'string' && cap === 0))
+            .map(([key, value]) => [key, typeof value === 'string' && value.length > cap ? value.slice(0, cap) : value])
     )
 
 export class HogFunctionHandler implements ActionHandler {
@@ -205,7 +214,9 @@ export class HogFunctionHandler implements ActionHandler {
             timestamp: DateTime.now(),
             message: `${actionIdForLogging(action)} Waiting for the ${awaited.noun} to finish (up to ${awaited.maxWait.toHuman()})`,
         })
-        return { scheduledAt: deadline }
+        // The dispatch ids are stored now, not only on resume, so a step that later fails still
+        // leaves them in variables for the steps `on_error: continue` carries on to.
+        return { scheduledAt: deadline, result: dispatch }
     }
 
     private resumeAwaitedStep(
@@ -220,7 +231,10 @@ export class HogFunctionHandler implements ActionHandler {
         if (resume?.key === awaiting.key) {
             delete currentAction.awaitingResume
             delete currentAction.resumeResult
-            const payload = truncateStringValues(resume.result ?? {}, RESUME_RESULT_STRING_CAP)
+            const payload = truncateStringValues(
+                resume.result ?? {},
+                resumeStringCap(result.invocation.state.variables ?? {})
+            )
             if (resume.status !== 'completed') {
                 const detail = typeof payload.error_message === 'string' ? `: ${payload.error_message}` : ''
                 const outcome = resume.status === 'cancelled' ? 'was cancelled' : 'failed'

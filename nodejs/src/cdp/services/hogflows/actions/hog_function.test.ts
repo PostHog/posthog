@@ -706,6 +706,8 @@ describe('HogFunctionHandler', () => {
 
             expect(handlerResult.nextAction).toBeUndefined()
             expect(handlerResult.scheduledAt!.diff(before).as('minutes')).toBeGreaterThanOrEqual(190)
+            // Stored at park time so a later failure still leaves the ids for the next steps.
+            expect(handlerResult.result).toEqual({ id: 't1', run_id: 'r1' })
             expect(invocationResult.invocation.state.currentAction?.awaitingResume).toEqual({
                 key: dispatchKey,
                 deadlineAt: handlerResult.scheduledAt!.toISO(),
@@ -770,6 +772,28 @@ describe('HogFunctionHandler', () => {
                 })
                 expect(invocationResult.invocation.state.currentAction?.awaitingResume).toBeUndefined()
                 expect(invocationResult.invocation.state.currentAction?.resumeResult).toBeUndefined()
+            })
+
+            it.each([
+                ['cuts the summary to what fits', 4000, 608],
+                ['drops the summary when nothing fits', 4700, undefined],
+            ])('%s under the variable cap', async (_, usedBytes, expectedLength) => {
+                invocation.state.variables = { ticket_body: 'y'.repeat(usedBytes - '{"ticket_body":""}'.length) }
+                invocation.state.currentAction!.resumeResult = {
+                    key: dispatchKey,
+                    status: 'completed',
+                    result: { final_message: 'x'.repeat(5000), pr_urls: ['u'] },
+                }
+
+                const { handlerResult } = await execute()
+
+                const stored = handlerResult.result as Record<string, unknown>
+                expect(stored.pr_urls).toEqual(['u'])
+                if (expectedLength === undefined) {
+                    expect(stored).not.toHaveProperty('final_message')
+                } else {
+                    expect((stored.final_message as string).length).toBe(expectedLength)
+                }
             })
 
             it('fails the step when the task did not complete', async () => {
