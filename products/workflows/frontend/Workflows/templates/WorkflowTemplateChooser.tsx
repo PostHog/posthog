@@ -1,32 +1,27 @@
 import './WorkflowTemplateChooser.scss'
 
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
 
-import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonDialog, LemonTag } from '@posthog/lemon-ui'
+import { LemonDialog } from '@posthog/lemon-ui'
 
-import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import BlankWorkflowHog from 'public/blank-dashboard-hog.png'
-
 import type { HogFlowTemplate } from '../hogflows/types'
 import { newWorkflowLogic } from '../newWorkflowLogic'
+import { WorkflowTemplateBlankPreview } from './WorkflowTemplateBlankPreview'
+import { WorkflowTemplateCard } from './WorkflowTemplateCard'
+import { getTemplateScopeLabel, getTemplateTriggerLabel } from './workflowTemplateDisplay'
 import { workflowTemplatesLogic } from './workflowTemplatesLogic'
+import { WorkflowTemplateSteps } from './WorkflowTemplateSteps'
 
 interface WorkflowTemplateChooserProps {
     showEmptyWorkflow?: boolean
 }
 
-// Adapted from DashboardTemplateChooser.tsx; try to keep parity for a consistent user experience
 export function WorkflowTemplateChooser(props: WorkflowTemplateChooserProps): JSX.Element {
     const { filteredTemplates, workflowTemplatesLoading } = useValues(workflowTemplatesLogic)
     const { deleteHogflowTemplate } = useActions(workflowTemplatesLogic)
@@ -48,34 +43,28 @@ export function WorkflowTemplateChooser(props: WorkflowTemplateChooserProps): JS
     }
 
     return (
-        <div className="WorkflowTemplateChooser">
-            {props.showEmptyWorkflow && (
-                <TemplateItem
-                    key={0}
-                    template={{
-                        name: 'Empty workflow',
-                        description: 'Create a blank workflow from scratch',
-                        image_url: BlankWorkflowHog,
-                        scope: 'team',
-                        tags: [],
-                    }}
-                    onClick={createEmptyWorkflow}
-                    index={0}
-                    data-attr="create-workflow-blank"
-                />
-            )}
-            {workflowTemplatesLoading ? (
-                <Spinner className="text-6xl" />
-            ) : (
-                filteredTemplates.map((template: HogFlowTemplate, index: number) => (
-                    <TemplateItem
+        <div className="flex flex-col gap-3">
+            <div className="WorkflowTemplateChooser">
+                {props.showEmptyWorkflow && (
+                    <WorkflowTemplateCard
+                        name="Blank workflow"
+                        description="Start from scratch and add your own trigger and steps."
+                        preview={<WorkflowTemplateBlankPreview />}
+                        onClick={createEmptyWorkflow}
+                        data-attr="create-workflow-blank"
+                    />
+                )}
+                {filteredTemplates.map((template: HogFlowTemplate) => (
+                    <WorkflowTemplateCard
                         key={template.id}
-                        template={template}
+                        name={template.name || 'Unnamed template'}
+                        description={template.description}
+                        preview={<WorkflowTemplateSteps actions={template.actions} />}
+                        footer={<TemplateFooter template={template} />}
                         onClick={() => createWorkflowFromTemplate(template)}
                         onEdit={
                             canEditTemplate(template)
-                                ? (e) => {
-                                      e.stopPropagation()
+                                ? () => {
                                       router.actions.push(urls.workflowNew(), {
                                           editTemplateId: template.id,
                                       })
@@ -84,8 +73,7 @@ export function WorkflowTemplateChooser(props: WorkflowTemplateChooserProps): JS
                         }
                         onDelete={
                             canDeleteTemplate(template)
-                                ? (e) => {
-                                      e.stopPropagation()
+                                ? () => {
                                       LemonDialog.open({
                                           title: 'Delete template?',
                                           description: (
@@ -114,123 +102,38 @@ export function WorkflowTemplateChooser(props: WorkflowTemplateChooserProps): JS
                                   }
                                 : undefined
                         }
-                        index={props.showEmptyWorkflow ? index + 1 : index}
                         data-attr="create-workflow-from-template"
                     />
-                ))
+                ))}
+            </div>
+            {workflowTemplatesLoading ? (
+                <div className="flex justify-center py-6">
+                    <Spinner className="text-3xl" />
+                </div>
+            ) : (
+                filteredTemplates.length === 0 && (
+                    <p className="mb-0 py-6 text-center text-secondary">
+                        No templates match your filters. Clear the search or choose another category.
+                    </p>
+                )
             )}
         </div>
     )
 }
 
-function TemplateItem({
-    template,
-    onClick,
-    onEdit,
-    onDelete,
-    index,
-    'data-attr': dataAttr,
-}: {
-    template: Pick<HogFlowTemplate, 'name' | 'description' | 'image_url' | 'scope' | 'tags'>
-    onClick: () => void
-    onEdit?: (e: React.MouseEvent) => void
-    onDelete?: (e: React.MouseEvent) => void
-    index: number
-    'data-attr': string
-}): JSX.Element {
-    const [isHovering, setIsHovering] = useState(false)
-    const [isMenuOpen, setIsMenuOpen] = useState(false)
+function TemplateFooter({ template }: { template: HogFlowTemplate }): JSX.Element | null {
+    const triggerLabel = getTemplateTriggerLabel(template)
+    const scopeLabel = getTemplateScopeLabel(template.scope)
 
-    const scopeTag =
-        template.scope === 'global'
-            ? 'official'
-            : template.scope === 'organization'
-              ? 'organization'
-              : template.scope === 'team'
-                ? 'team'
-                : null
+    if (!triggerLabel && !scopeLabel) {
+        return null
+    }
 
     return (
-        <div
-            className="cursor-pointer border rounded TemplateItem flex flex-col transition-all relative overflow-hidden"
-            onClick={onClick}
-            onMouseEnter={() => setIsHovering(true)}
-            onMouseLeave={() => setIsHovering(false)}
-            data-attr={dataAttr}
-        >
-            {(onEdit || onDelete) && (
-                <div className="absolute top-2 right-2 z-10" onClick={(e) => e.stopPropagation()}>
-                    <More
-                        size="small"
-                        className="bg-white/20 dark:bg-white/10 backdrop-blur-sm hover:bg-white/40 dark:hover:bg-white/20 transition-colors"
-                        dropdown={{
-                            visible: isMenuOpen,
-                            onVisibilityChange: setIsMenuOpen,
-                            closeOnClickInside: true,
-                        }}
-                        overlay={
-                            <LemonMenuOverlay
-                                items={[
-                                    ...(onEdit
-                                        ? [
-                                              {
-                                                  label: 'Edit',
-                                                  icon: <IconPencil />,
-                                                  onClick: (e: any) => {
-                                                      setIsMenuOpen(false)
-                                                      onEdit(e)
-                                                  },
-                                              },
-                                          ]
-                                        : []),
-                                    ...(onDelete
-                                        ? [
-                                              {
-                                                  label: 'Delete',
-                                                  status: 'danger' as const,
-                                                  icon: <IconTrash />,
-                                                  onClick: (e: any) => {
-                                                      setIsMenuOpen(false)
-                                                      onDelete(e)
-                                                  },
-                                              },
-                                          ]
-                                        : []),
-                                ]}
-                            />
-                        }
-                    />
-                </div>
-            )}
-            <div
-                className={clsx('transition-all w-full overflow-hidden', isHovering ? 'h-4 min-h-4' : 'h-30 min-h-30')}
-            >
-                <FallbackCoverImage
-                    src={template?.image_url || undefined}
-                    alt="cover photo"
-                    index={index}
-                    imageClassName="h-30"
-                />
-            </div>
-
-            <h5 className="px-2 mb-1">{template?.name || 'Unnamed template'}</h5>
-            <div className="flex gap-x-1 gap-y-0.5 px-2 mb-1 flex-wrap">
-                {scopeTag && (
-                    <LemonTag key="scope" type="option" className="shrink-0">
-                        {scopeTag}
-                    </LemonTag>
-                )}
-                {template.tags.map((tag) => (
-                    <LemonTag key={tag} type="default" className="shrink-0">
-                        {tag}
-                    </LemonTag>
-                ))}
-            </div>
-            <div className={clsx('px-2 py-1 grow', isHovering ? 'overflow-y-auto' : 'overflow-hidden')}>
-                <p className={clsx('text-secondary text-xs', isHovering ? '' : 'line-clamp-2')}>
-                    {template?.description ?? ' '}
-                </p>
-            </div>
+        <div className="flex items-center gap-1 text-xs text-tertiary">
+            {triggerLabel && <span className="truncate">{triggerLabel}</span>}
+            {triggerLabel && scopeLabel && <span>·</span>}
+            {scopeLabel && <span className="shrink-0">{scopeLabel}</span>}
         </div>
     )
 }
