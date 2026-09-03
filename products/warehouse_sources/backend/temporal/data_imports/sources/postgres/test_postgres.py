@@ -3504,7 +3504,7 @@ class TestChunkedRereadAfterRecoveryConflict:
         should_use_incremental_field: bool,
         rows_before_conflict: int,
         primary_keys: list[str] | None = None,
-        nullable_value: Any = False,
+        nullable_value: bool | str = False,
         has_id_column: bool = False,
         has_duplicate_pks: bool = False,
     ) -> list[int]:
@@ -3515,7 +3515,12 @@ class TestChunkedRereadAfterRecoveryConflict:
         fake_table = mock.Mock()
         fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
         fake_table.type = "table"
-        fake_table.columns = [PostgreSQLColumn(name="id", data_type="integer", nullable=nullable_value)]
+        # `nullable` is annotated `bool`, but `_get_table` really does pass the
+        # information_schema "YES"/"NO" string for a table. That mismatch is the bug under test,
+        # so the fake has to reproduce it rather than respect the annotation.
+        fake_table.columns = [
+            PostgreSQLColumn(name="id", data_type="integer", nullable=nullable_value)  # type: ignore[arg-type]
+        ]
         fake_table.__contains__ = mock.Mock(return_value=has_id_column)
 
         scan = self._Scan(list(self._ROWS))
@@ -3555,25 +3560,33 @@ class TestChunkedRereadAfterRecoveryConflict:
             return [row["id"] for table in cast(Iterable[Any], response.items()) for row in table.to_pylist()]
 
     @pytest.mark.parametrize(
-        "should_use_incremental_field,rows_before_conflict,nullable_value",
-        [(False, 0, False), (False, 0, "NO"), (True, 2, False)],
+        "should_use_incremental_field,rows_before_conflict,nullable_value,primary_keys,has_id_column",
+        [
+            (False, 0, False, ["id"], False),
+            (False, 0, "NO", ["id"], False),
+            (False, 0, "NO", None, True),
+            (True, 2, False, ["id"], False),
+        ],
         ids=[
-            "full_refresh_has_no_order_of_its_own",
-            "full_refresh_with_information_schema_nullable_string",
+            "declared_key_with_boolean_nullable",
+            "declared_key_with_information_schema_nullable_string",
+            "assumed_id_that_is_unique_and_not_null",
             "incremental_read_is_ordered_by_its_cursor",
         ],
     )
     def test_chunked_reread_yields_every_row_exactly_once(
-        self, should_use_incremental_field, rows_before_conflict, nullable_value
+        self, should_use_incremental_field, rows_before_conflict, nullable_value, primary_keys, has_id_column
     ):
         # `_get_table` reports nullability as a bool for a materialised view but as the
         # information_schema "YES"/"NO" string for a table, and "NO" is truthy. Reading it naively
-        # made every real table look nullable, which disabled seeking for the whole fleet.
+        # made every real table look nullable, which disabled seeking for the whole fleet. The
+        # assumed-`id` case is here so a gate that rejects every fallback key cannot pass either.
         ids = self._read_ids(
             should_use_incremental_field=should_use_incremental_field,
             rows_before_conflict=rows_before_conflict,
-            primary_keys=["id"],
+            primary_keys=primary_keys,
             nullable_value=nullable_value,
+            has_id_column=has_id_column,
         )
 
         assert sorted(ids) == [row[0] for row in self._ROWS]
