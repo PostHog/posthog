@@ -15,19 +15,39 @@ A `ProjectSecretAPIKey` is a project-scoped, user-less service credential (`post
 
 Keys are managed at `POST /api/environments/:id/project_secret_api_keys` (label + scopes; plaintext value returned once; `roll` action to rotate; max 50 per project; wildcard `*` scope not allowed).
 
+## Live consumers
+
+Read the closest one before you wire a new action:
+
+| Surface | Scope | Actions |
+| --- | --- | --- |
+| `products/endpoints/backend/presentation/views/api.py` | `endpoint:read` | `run` |
+| `products/experiments/backend/presentation/views.py` | `experiment:read` | `list`, `retrieve` |
+| `products/feature_flags/backend/api/feature_flag.py` | `feature_flag:read` | `remote_config` |
+| `products/tasks/backend/presentation/views/loops.py` | `loop:write` | `trigger`, `runs` |
+| `products/customer_analytics/backend/presentation/views/external.py` | `account:read` | external account list (a function view, so it checks the scope itself) |
+
+The experiments viewset is the reference for a read-only export: it opts standard CRUD reads in, and keeps writes, lifecycle actions, and results on session, personal key, or OAuth auth.
+
 ## Wiring a viewset action — the checklist
 
-The machinery is shipped but nothing is wired to it yet — the first planned consumer is the endpoints (the product) `run` action. Four things, all required:
+Four things, all required:
 
 ### 1. Whitelist the scope/action pair
 
 PSAK-assignable scopes are a global allowlist in `posthog/scopes.py`:
 
 ```python
-PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
+PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
+    ("endpoint", "read"),
+    ("feature_flag", "read"),
+    ("account", "read"),
+    ("loop", "write"),
+    ("experiment", "read"),
+]
 ```
 
-If your product isn't listed, key creation rejects the scope before auth is ever attempted. Add your `(scope_object, action)` tuple here first.
+If your product isn't listed, key creation rejects the scope before auth is ever attempted. Add your `(scope_object, action)` tuple here first, with a comment that says which surface needs it and why a service credential is the right fit. `llm_gateway:read` is deliberately absent: the serializer grants it behind a flag instead.
 
 ### 2. Add the authenticator and opt in actions
 
@@ -38,7 +58,7 @@ class MyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     psak_allowed_actions = ["run"]
 ```
 
-`psak_allowed_actions` is **default-deny**: `APIScopePermission` rejects any PSAK request whose action isn't listed ("This action does not support project secret API key access"). List only the programmatic actions — never CRUD that should stay human-driven.
+`psak_allowed_actions` is **default-deny**: `APIScopePermission` rejects any PSAK request whose action isn't listed ("This action does not support project secret API key access"). List only the actions a service credential needs. Read-only CRUD is fine (experiments lists `list` and `retrieve`), but keep writes and lifecycle actions off the list unless the product needs them, as `loop:write` does.
 
 `APIScopePermission` also enforces team binding automatically: a PSAK only works against `view.team == key.team`, so PSAK auth only makes sense on project-scoped (`/api/environments/:id/...`) routes.
 
@@ -57,7 +77,8 @@ Subclass them to set product-specific `scope`/`rate`; remember each throttle kee
 
 - `user.id` is `None` — never use it as a foreign key. Use `user.current_team_id`.
 - `has_perm()` always returns `False` — Django permission checks silently deny.
-- Skip per-object access-control checks for it (PSAK scopes are project-wide by design):
+- Shared object-level RBAC already lets service credentials through: `AccessControlPermission` returns early, and `TeamAndOrgViewSetMixin` skips the access-level queryset filter on `list`. PSAK scopes are project-wide by design, so you get that for free.
+- Branch only around access-control checks your own product runs (see `loops.py`):
 
   ```python
   if is_authenticated_via_project_secret_api_key(request):
@@ -88,7 +109,7 @@ curl -s https://us.posthog.com/api/environments/<project_id>/<your_action_path>/
 
 ## Testing
 
-Mirror the PSAK sections of `posthog/api/test/test_authentication.py`, `posthog/test/test_permissions.py`, and `posthog/test/test_rate_limit.py`. Cover at minimum:
+Mirror the PSAK sections of `posthog/api/test/test_authentication.py`, `posthog/test/test_permissions.py`, and `posthog/test/test_rate_limit.py`. `products/experiments/backend/test/test_experiment_psak_auth.py` is a compact per-product example. Cover at minimum:
 
 - allowed action with correct scope → 200
 - action not in `psak_allowed_actions` → 403
