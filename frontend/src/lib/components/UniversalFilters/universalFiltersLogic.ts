@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 
 import {
     createDefaultPropertyFilter,
+    isCohortPropertyFilter,
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
@@ -13,6 +14,7 @@ import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/Ac
 import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EntityTypes } from '~/types'
 import {
@@ -58,11 +60,19 @@ function recordRecentFromPropertyFilter(propertyFilter: AnyPropertyFilter): void
     if (!groupType) {
         return
     }
+    // A cohort filter has the constant key `id` and holds the cohort id in `value`, so the id is
+    // what identifies the recent entry. The name comes from the filter, or from the loaded cohort
+    // list when the filter carries none.
+    const isCohort = isCohortPropertyFilter(propertyFilter)
+    const recentValue = isCohort ? propertyFilter.value : key
+    const cohortName = isCohort
+        ? propertyFilter.cohort_name || cohortsModel.findMounted()?.values.cohortsById?.[propertyFilter.value]?.name
+        : undefined
     recentTaxonomicFiltersLogic.actions.recordRecentFilter({
         groupType,
         groupName: groupType,
-        value: key,
-        item: { name: key },
+        value: recentValue,
+        item: { name: cohortName || String(recentValue) },
         teamId: teamLogic.values.currentTeamId ?? undefined,
         propertyFilter,
     })

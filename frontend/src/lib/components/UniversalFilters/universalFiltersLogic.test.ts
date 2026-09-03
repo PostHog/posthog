@@ -9,6 +9,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
+import { recentTaxonomicFiltersLogic } from '../TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { QuickFilterItem, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { universalFiltersLogic } from './universalFiltersLogic'
 
@@ -150,6 +151,27 @@ describe('universalFiltersLogic', () => {
         }).toMatchValues({
             filterGroup: { ...defaultFilter, values: [propertyFilter] },
         })
+    })
+
+    it('records an edited cohort chip under its id, so the Recent tab can offer it', async () => {
+        localStorage.clear()
+        const recents = recentTaxonomicFiltersLogic.build()
+        recents.mount()
+        const cohortFilter: AnyPropertyFilter = {
+            key: 'id',
+            value: 42,
+            cohort_name: 'Power users',
+            type: PropertyFilterType.Cohort,
+            operator: PropertyOperator.In,
+        }
+
+        logic.actions.replaceGroupValue(0, cohortFilter)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(recents.values.recentFilters).toHaveLength(1)
+        expect(recents.values.recentFilters[0].value).toBe(42)
+        expect(recents.values.recentFilterItems).toHaveLength(1)
+        expect(recents.values.recentFilterItems[0]).toMatchObject({ name: 'Power users' })
     })
 
     it('removeGroupValue', async () => {
