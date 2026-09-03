@@ -25,19 +25,23 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
+import { Mocks } from '~/mocks/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
-import { HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
+    AnyPropertyFilter,
     DashboardMode,
     DashboardPlacement,
     DashboardTile,
     DashboardType,
     InsightColor,
     InsightShortId,
+    PropertyFilterType,
+    PropertyOperator,
     QueryBasedInsightModel,
 } from '~/types'
 
@@ -1193,7 +1197,9 @@ describe('dashboardLogic', () => {
         })
 
         describe('url filter overrides', () => {
-            const PROPERTY_OVERRIDE = [{ key: '$browser', value: 'Chrome', type: 'event' }]
+            const PROPERTY_OVERRIDE: AnyPropertyFilter[] = [
+                { key: '$browser', value: 'Chrome', type: PropertyFilterType.Event, operator: PropertyOperator.Exact },
+            ]
 
             const openWithUrlFilters = async (urlFilters: Record<string, any>): Promise<void> => {
                 logic.unmount()
@@ -1229,6 +1235,67 @@ describe('dashboardLogic', () => {
                 }).toFinishAllListeners()
 
                 expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).toBeUndefined()
+            })
+
+            describe('clearing a saved filter', () => {
+                const SAVED_DATE_RANGE = { date_from: '-30d', date_to: null }
+
+                const savedFiltersMock = (savedFilters: DashboardFilter): Mocks => ({
+                    get: {
+                        '/api/environments/:team_id/dashboards/5/': {
+                            ...dashboards[5],
+                            filters: savedFilters,
+                            persisted_filters: savedFilters,
+                        },
+                    },
+                })
+
+                const reopenDashboard = async (): Promise<void> => {
+                    logic.unmount()
+                    router.actions.push('/dashboard/5')
+                    logic = dashboardLogic({ id: 5 })
+                    logic.mount()
+                    await expectLogic(logic).toFinishAllListeners()
+                }
+
+                // Previews route filter state through the URL, and the refresh wipes the intermittent
+                // filters on its way. A cleared filter that the URL can't hold therefore comes straight
+                // back off the dashboard's saved filters.
+                const clearCases: [string, DashboardFilter, () => void, keyof DashboardFilter, unknown][] = [
+                    ['date range', SAVED_DATE_RANGE, () => logic.actions.setDates(null, null), 'date_from', null],
+                    [
+                        'property filter',
+                        { properties: PROPERTY_OVERRIDE },
+                        () => logic.actions.setProperties([]),
+                        'properties',
+                        [],
+                    ],
+                ]
+
+                it.each(clearCases)(
+                    'clearing a saved %s survives the preview refresh',
+                    async (_name, savedFilters, clearFilter, key, expected) => {
+                        useMocks(savedFiltersMock(savedFilters))
+                        await reopenDashboard()
+                        expect(logic.values.effectiveEditBarFilters[key]).toEqual(savedFilters[key])
+
+                        await expectLogic(logic, clearFilter).toFinishAllListeners()
+
+                        expect(logic.values.effectiveEditBarFilters[key]).toEqual(expected)
+                        expect(logic.values.effectiveRefreshFilters[key]).toEqual(expected)
+                    }
+                )
+
+                it('announces a cleared saved filter as an override', async () => {
+                    useMocks(savedFiltersMock(SAVED_DATE_RANGE))
+                    await reopenDashboard()
+
+                    await expectLogic(logic, () => {
+                        logic.actions.setDates(null, null)
+                    }).toFinishAllListeners()
+
+                    expect(logic.values.hasUrlFilters).toBe(true)
+                })
             })
         })
 

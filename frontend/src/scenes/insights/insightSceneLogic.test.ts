@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
-import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { DashboardFilter, InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import { ActivityScope, InsightShortId, InsightType, ItemMode } from '~/types'
@@ -539,5 +539,19 @@ describe('insightSceneLogic', () => {
         await expectLogic(logic).delay(150)
 
         expect(insightApiCall.mock.calls.length).toEqual(callCountAfterInitialLoad)
+    })
+
+    // A tile link carries the dashboard's filters so the insight opens on what the tile shows. An
+    // override that switches the dashboard's date range off constrains nothing, so it has to be told
+    // apart from a link that never mentioned dates.
+    it.each([
+        ['a cleared date range', { date_from: null, date_to: null }, { date_from: null, date_to: null }],
+        ['an override that constrains nothing', {}, null],
+    ])('keeps %s from a dashboard tile link', async (_name, filtersOverride, expected) => {
+        router.actions.push(urls.insightView(Insight42, 6, undefined, filtersOverride as DashboardFilter))
+        logic = insightSceneLogic()
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({ filtersOverride: expected })
     })
 })
