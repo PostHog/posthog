@@ -52,12 +52,14 @@ interface SubscriptionSubmenuProps {
   closeOnChange?: boolean;
   /** Workspace mode of the task being composed; cloud forces PostHog credits. */
   workspaceMode?: WorkspaceModeForAccess;
+  onSelection?: () => void;
 }
 
 export function SubscriptionSubmenu({
   adapter,
   closeOnChange = false,
   workspaceMode,
+  onSelection,
 }: SubscriptionSubmenuProps): React.JSX.Element | null {
   const subscription = useAdapterSubscription(adapter);
   if (!subscription.flagEnabled) {
@@ -88,15 +90,20 @@ export function SubscriptionSubmenu({
       <DropdownMenuSubContent>
         <DropdownMenuRadioGroup
           value={value}
-          onValueChange={(next) =>
-            applyModelAccess(
-              adapter,
+          onValueChange={(next) => {
+            const nextValue =
               next === "own-subscription"
                 ? "own-subscription"
-                : "posthog-gateway",
-              subscription.loggedIn,
-            )
-          }
+                : "posthog-gateway";
+            if (
+              nextValue === value ||
+              (cloudTask && nextValue === "own-subscription")
+            ) {
+              return;
+            }
+            onSelection?.();
+            applyModelAccess(adapter, nextValue, subscription.loggedIn);
+          }}
         >
           <DropdownMenuRadioItem
             value="posthog-gateway"

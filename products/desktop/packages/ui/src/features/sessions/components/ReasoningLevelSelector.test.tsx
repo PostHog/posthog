@@ -3,6 +3,7 @@ import {
   DEFAULT_OPTION_META_KEY,
   OPTION_DOCS_URL_META_KEY,
 } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { Theme } from "@radix-ui/themes";
 import { configure, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -15,7 +16,9 @@ import { ReasoningLevelSelector } from "./ReasoningLevelSelector";
 configure({ asyncUtilTimeout: 5000 });
 
 const openUrlInBrowser = vi.hoisted(() => vi.fn());
+const track = vi.hoisted(() => vi.fn());
 vi.mock("@posthog/ui/utils/browser", () => ({ openUrlInBrowser }));
+vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => true,
 }));
@@ -448,6 +451,7 @@ describe("ReasoningLevelSelector", () => {
   });
 
   it("hides the slider when the combo is off the preset ladder", async () => {
+    track.mockClear();
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(
       <Theme>
@@ -455,6 +459,7 @@ describe("ReasoningLevelSelector", () => {
           thoughtOption={thoughtOption({ currentValue: "low" })}
           modelOption={claudeModelOption()}
           adapter="claude"
+          analyticsSurface="session"
         />
       </Theme>,
     );
@@ -469,6 +474,26 @@ describe("ReasoningLevelSelector", () => {
     expect(
       screen.queryByRole("button", { name: "Back" }),
     ).not.toBeInTheDocument();
+    expect(track).toHaveBeenCalledTimes(2);
+    expect(track).toHaveBeenNthCalledWith(
+      1,
+      ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION,
+      {
+        surface: "session",
+        runtime: "acp",
+        action: "opened",
+        initial_view: "advanced",
+      },
+    );
+    expect(track).toHaveBeenNthCalledWith(
+      2,
+      ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION,
+      {
+        surface: "session",
+        runtime: "acp",
+        action: "advanced_opened",
+      },
+    );
   });
 
   it("keeps the Back row when a model change moves off the preset ladder", async () => {
@@ -568,6 +593,7 @@ describe("ReasoningLevelSelector", () => {
   });
 
   it("changes the model from its advanced submenu", async () => {
+    track.mockClear();
     const onModelChange = vi.fn();
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(
@@ -576,6 +602,7 @@ describe("ReasoningLevelSelector", () => {
           thoughtOption={thoughtOption()}
           modelOption={claudeModelOption("claude-sonnet-5")}
           adapter="claude"
+          analyticsSurface="session"
           onModelChange={onModelChange}
         />
       </Theme>,
@@ -595,6 +622,15 @@ describe("ReasoningLevelSelector", () => {
     expect(
       screen.getByRole("menuitem", { name: /^Model/ }),
     ).toBeInTheDocument();
+    expect(track).toHaveBeenLastCalledWith(
+      ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION,
+      {
+        surface: "session",
+        runtime: "acp",
+        action: "selection",
+        control: "advanced_model",
+      },
+    );
   });
 
   it("switches the harness when picking a model the current harness cannot run", async () => {
@@ -638,6 +674,7 @@ describe("ReasoningLevelSelector", () => {
   });
 
   it("moves the model and effort together on a ladder notch that changes both", async () => {
+    track.mockClear();
     const onChange = vi.fn();
     const onModelChange = vi.fn();
     const user = userEvent.setup({ pointerEventsCheck: 0 });
@@ -647,6 +684,7 @@ describe("ReasoningLevelSelector", () => {
           thoughtOption={thoughtOption({ currentValue: "xhigh" })}
           modelOption={claudeModelOption("claude-opus-5")}
           adapter="claude"
+          analyticsSurface="session"
           onChange={onChange}
           onModelChange={onModelChange}
         />
@@ -665,6 +703,17 @@ describe("ReasoningLevelSelector", () => {
     );
     expect(onModelChange).toHaveBeenCalledWith("claude-fable-5");
     expect(onChange).toHaveBeenCalledWith("max");
+    expect(track).toHaveBeenCalledTimes(2);
+    expect(track).toHaveBeenLastCalledWith(
+      ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION,
+      {
+        surface: "session",
+        runtime: "acp",
+        action: "selection",
+        control: "slider",
+        changed: true,
+      },
+    );
   });
 
   it("resets to the middle ladder notch, moving model and effort together", async () => {

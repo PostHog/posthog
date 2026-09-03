@@ -918,6 +918,7 @@ export function SessionView({
                                 adapter={adapter}
                                 contextWindowOption={contextWindowOption}
                                 fastModeOption={fastModeOption}
+                                analyticsSurface="session"
                                 onChange={handleThoughtChange}
                                 onConfigOptionChange={handleConfigOptionChange}
                                 disabled={!isRunning}

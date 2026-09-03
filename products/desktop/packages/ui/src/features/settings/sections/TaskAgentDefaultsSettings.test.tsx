@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 configure({ asyncUtilTimeout: 5000 });
 
 const saveMock = vi.hoisted(() => vi.fn());
+const track = vi.hoisted(() => vi.fn());
 const previewState = vi.hoisted(() => ({
   lastAdapter: null as string | null,
   setConfigOption: vi.fn(),
@@ -28,6 +29,7 @@ const defaultsState = vi.hoisted(() => ({
   },
 }));
 
+vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
 vi.mock("@posthog/ui/features/auth/store", () => ({
   useAuthStateValue: (
     selector: (state: {
