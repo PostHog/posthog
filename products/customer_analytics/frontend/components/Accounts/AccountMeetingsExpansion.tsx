@@ -157,7 +157,13 @@ const STATUS_TAG_TYPE = {
     cancelled: 'danger',
 } as const
 
-export function AccountMeetingsExpansion({ accountId }: { accountId: string }): JSX.Element {
+export function AccountMeetingsExpansion({
+    accountId,
+    embedded = true,
+}: {
+    accountId: string
+    embedded?: boolean
+}): JSX.Element {
     const logic = accountMeetingsLogic({ accountId })
     const { canEditMeetingMatching, meetingsResult, meetingsResultLoading, searchTerm, page, matchingEditorOpen } =
         useValues(logic)
@@ -241,7 +247,7 @@ export function AccountMeetingsExpansion({ accountId }: { accountId: string }): 
         content = (
             <LemonTable<MeetingApi>
                 size="small"
-                embedded
+                embedded={embedded}
                 dataSource={meetings ?? []}
                 columns={columns}
                 rowKey="id"

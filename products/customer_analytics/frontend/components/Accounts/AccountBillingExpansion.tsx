@@ -35,10 +35,12 @@ export function AccountBillingExpansion({
     accountId,
     externalId,
     kind,
+    embedded = true,
 }: {
     accountId: string
     externalId: string
     kind: AccountBillingKind
+    embedded?: boolean
 }): JSX.Element {
     const logic = accountBillingLogic({ accountId, externalId, kind })
     const { savedInsights, savedInsightsLoading, dateRange, variableOverridesByShortId, queryKeyFor } = useValues(logic)
@@ -89,7 +91,7 @@ export function AccountBillingExpansion({
                                     query={insight.query}
                                     variablesOverride={variablesOverride}
                                     readOnly
-                                    embedded
+                                    embedded={embedded}
                                     // Attach the insight's data logic to accountBillingLogic (mounted at the expanded-row
                                     // root) so the loaded results survive tab switches instead of refetching on return.
                                     attachTo={logic}

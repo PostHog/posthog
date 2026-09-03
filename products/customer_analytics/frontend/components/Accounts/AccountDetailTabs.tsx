@@ -23,6 +23,7 @@ interface AccountDetailTabsProps {
     activeTab: AccountExpansionTab
     onChange: (tab: AccountExpansionTab) => void
     rightSlot?: ReactNode
+    embedded?: boolean
 }
 
 export function AccountDetailTabs({
@@ -31,6 +32,7 @@ export function AccountDetailTabs({
     activeTab,
     onChange,
     rightSlot,
+    embedded = true,
 }: AccountDetailTabsProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const visibleActiveTab = getVisibleAccountExpansionTab(activeTab, featureFlags)
@@ -45,48 +47,62 @@ export function AccountDetailTabs({
                 {
                     key: 'notes',
                     label: 'Notes',
-                    content: <AccountNotesExpansion accountId={accountId} />,
+                    content: <AccountNotesExpansion accountId={accountId} embedded={embedded} />,
                 },
                 {
                     key: 'users',
                     label: 'Users',
-                    content: <AccountRelatedUsersExpansion externalId={externalId} />,
+                    content: <AccountRelatedUsersExpansion externalId={externalId} embedded={embedded} />,
                 },
                 {
                     key: 'relationships',
                     label: 'Relationships',
-                    content: <AccountRelationshipsExpansion accountId={accountId} />,
+                    content: <AccountRelationshipsExpansion accountId={accountId} embedded={embedded} />,
                 },
                 !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS] && {
                     key: 'feature_requests' as const,
                     label: 'Feature requests',
-                    content: <AccountFeatureRequestsExpansion accountId={accountId} />,
+                    content: <AccountFeatureRequestsExpansion accountId={accountId} embedded={embedded} />,
                 },
                 {
                     key: 'usage',
                     label: 'Usage',
-                    content: <AccountBillingExpansion accountId={accountId} externalId={externalId} kind="usage" />,
+                    content: (
+                        <AccountBillingExpansion
+                            accountId={accountId}
+                            externalId={externalId}
+                            kind="usage"
+                            embedded={embedded}
+                        />
+                    ),
                 },
                 {
                     key: 'spend',
                     label: 'Spend',
-                    content: <AccountBillingExpansion accountId={accountId} externalId={externalId} kind="spend" />,
+                    content: (
+                        <AccountBillingExpansion
+                            accountId={accountId}
+                            externalId={externalId}
+                            kind="spend"
+                            embedded={embedded}
+                        />
+                    ),
                 },
                 {
                     key: 'opportunities',
                     label: 'Opportunities',
-                    content: <AccountOpportunitiesExpansion accountId={accountId} />,
+                    content: <AccountOpportunitiesExpansion accountId={accountId} embedded={embedded} />,
                 },
                 {
                     key: 'conversations',
                     label: 'Conversations',
-                    content: <AccountConversationsExpansion accountId={accountId} />,
+                    content: <AccountConversationsExpansion accountId={accountId} embedded={embedded} />,
                 },
                 // Flag-gated here (not just inside the component) so the tab label hides too.
                 !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && {
                     key: 'meetings' as const,
                     label: 'Meetings',
-                    content: <AccountMeetingsExpansion accountId={accountId} />,
+                    content: <AccountMeetingsExpansion accountId={accountId} embedded={embedded} />,
                 },
                 !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && {
                     key: 'event_stream' as const,

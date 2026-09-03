@@ -21,7 +21,13 @@ import type { FeatureRequestApi } from '../../generated/api.schemas'
 import { getFeatureRequestDetailUrl } from '../FeatureRequests/featureRequestNavigation'
 import { ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE, accountFeatureRequestsLogic } from './accountFeatureRequestsLogic'
 
-export function AccountFeatureRequestsExpansion({ accountId }: { accountId: string }): JSX.Element {
+export function AccountFeatureRequestsExpansion({
+    accountId,
+    embedded = true,
+}: {
+    accountId: string
+    embedded?: boolean
+}): JSX.Element {
     const logic = accountFeatureRequestsLogic({ accountId })
     const {
         accountRequests,
@@ -124,7 +130,7 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
             )}
             <LemonTable
                 size="small"
-                embedded
+                embedded={embedded}
                 dataSource={accountRequests.results}
                 columns={columns}
                 rowKey="id"

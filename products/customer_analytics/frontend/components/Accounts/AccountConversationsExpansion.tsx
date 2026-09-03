@@ -440,7 +440,13 @@ function conversationPreview(conversation: AccountConversation): string {
         .trim()
 }
 
-export function AccountConversationsExpansion({ accountId }: { accountId: string }): JSX.Element {
+export function AccountConversationsExpansion({
+    accountId,
+    embedded = true,
+}: {
+    accountId: string
+    embedded?: boolean
+}): JSX.Element {
     const logic = accountConversationsLogic({ accountId })
     const emailLogic = accountEmailThreadsLogic({ accountId })
     const {
@@ -622,7 +628,7 @@ export function AccountConversationsExpansion({ accountId }: { accountId: string
             <LemonTable<AccountConversation>
                 data-attr="account-conversations-table"
                 size="small"
-                embedded
+                embedded={embedded}
                 dataSource={filteredConversations}
                 columns={columns}
                 rowKey="id"

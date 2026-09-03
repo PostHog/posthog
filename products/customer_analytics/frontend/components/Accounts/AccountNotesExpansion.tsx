@@ -25,7 +25,13 @@ function getPreview(notebook: AccountNotebookApi): string {
     return collapsed.length > PREVIEW_MAX_CHARS ? `${collapsed.slice(0, PREVIEW_MAX_CHARS).trimEnd()}…` : collapsed
 }
 
-export function AccountNotesExpansion({ accountId }: { accountId: string }): JSX.Element {
+export function AccountNotesExpansion({
+    accountId,
+    embedded = true,
+}: {
+    accountId: string
+    embedded?: boolean
+}): JSX.Element {
     const logic = accountNotebooksLogic({ accountId })
     const { notebooks, notebooksResponseLoading, createdNoteLoading, searchTerm, sorting, pagination } =
         useValues(logic)
@@ -116,7 +122,7 @@ export function AccountNotesExpansion({ accountId }: { accountId: string }): JSX
             </div>
             <LemonTable<AccountNotebookApi>
                 size="small"
-                embedded
+                embedded={embedded}
                 dataSource={notebooks ?? []}
                 rowKey="short_id"
                 loading={notebooksResponseLoading}

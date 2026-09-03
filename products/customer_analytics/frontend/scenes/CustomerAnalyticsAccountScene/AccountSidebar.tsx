@@ -18,7 +18,7 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
 
     return (
         <aside
-            className="w-full shrink-0 rounded border bg-surface-primary flex flex-col @min-[56rem]/account-detail:w-56"
+            className="w-full shrink-0 border-x bg-surface-primary flex flex-col @min-[56rem]/account-detail:w-56"
             data-attr="account-sidebar"
         >
             <div className="flex flex-col gap-1 p-4" data-attr="account-rail-tags">

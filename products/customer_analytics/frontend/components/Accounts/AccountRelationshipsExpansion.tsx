@@ -20,7 +20,13 @@ import { accountRelationshipsLogic } from './accountRelationshipsLogic'
 
 const PAGE_SIZE = 10
 
-export function AccountRelationshipsExpansion({ accountId }: { accountId: string }): JSX.Element {
+export function AccountRelationshipsExpansion({
+    accountId,
+    embedded = true,
+}: {
+    accountId: string
+    embedded?: boolean
+}): JSX.Element {
     const {
         relationships,
         relationshipsLoading,
@@ -169,7 +175,7 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
             </div>
             <LemonTable<AccountRelationshipApi>
                 size="small"
-                embedded
+                embedded={embedded}
                 dataSource={displayedRelationships}
                 rowKey="id"
                 loading={relationshipsLoading}

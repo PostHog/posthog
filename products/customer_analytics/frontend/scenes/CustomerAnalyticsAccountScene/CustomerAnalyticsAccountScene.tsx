@@ -104,7 +104,7 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
             />
             <AccountCaption externalId={account.external_id ?? null} />
             <SceneDivider />
-            <div className="@container/account-detail flex flex-1 min-h-0 overflow-y-auto">
+            <div className="@container/account-detail flex flex-1 min-h-0 overflow-y-auto -mt-4">
                 <div className="flex min-h-full w-full flex-col gap-4 @min-[56rem]/account-detail:flex-row">
                     <AccountSidebar account={account} />
                     <main className="flex-1 min-w-0" data-attr="account-detail-tabs">
@@ -113,6 +113,7 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
                             externalId={account.external_id ?? ''}
                             activeTab={activeTab}
                             onChange={setActiveTab}
+                            embedded={false}
                         />
                     </main>
                 </div>

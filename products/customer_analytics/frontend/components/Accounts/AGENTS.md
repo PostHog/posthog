@@ -144,6 +144,7 @@ The detail scene loads the account through `accountsRetrieve` and renders the ac
 `AccountSidebar` holds editable tags and a Properties section.
 Tag edits save through `accountsPartialUpdate`, update optimistically, and restore the account after a failed write.
 It reuses `AccountDetailTabs` and `AccountNotesExpansion` with the expanded row, but mounts only the active tab so inactive detail tabs do not load data.
+Tables use borders in the detail scene and remain embedded in expanded rows.
 Configure tabs and Add view sit in the scene header. They open work-in-progress dialogs.
 The Properties section stays visible when empty, and its gear opens the same work-in-progress dialog.
 
