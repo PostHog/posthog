@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
+import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from '../workflowLogic'
 import { computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 
@@ -95,6 +96,42 @@ describe('hogFlowEditorLogic', () => {
         initKeaTests()
         logic = hogFlowEditorLogic()
         logic.mount()
+    })
+
+    it('resolves the selected action while React Flow nodes are still laying out', () => {
+        const action = logic.values.workflow.actions[0]
+        logic.actions.setNodesRaw([])
+        logic.actions.setSelectedNodeId(action.id)
+
+        expect(logic.values.selectedNode).toMatchObject({ id: action.id, data: action })
+    })
+
+    it('duplicates a linear step below itself', () => {
+        const delay: HogFlowAction = {
+            id: 'delay',
+            name: 'Delay',
+            description: '',
+            type: 'delay',
+            created_at: 0,
+            updated_at: 0,
+            config: { delay_duration: '1d' },
+        }
+        workflowLogic().actions.setWorkflowInfo({
+            actions: [NEW_WORKFLOW.actions[0], delay, NEW_WORKFLOW.actions[1]],
+            edges: [edge(TRIGGER_NODE_ID, delay.id, 'continue'), edge(delay.id, EXIT_NODE_ID, 'continue')],
+        })
+
+        logic.actions.duplicateNodeBelow(delay.id)
+
+        const duplicatedAction = logic.values.workflow.actions.find(
+            (action) => action.id !== delay.id && action.type === delay.type
+        )
+        expect(duplicatedAction).toMatchObject({ name: delay.name, config: delay.config })
+        expect(logic.values.workflow.edges).toEqual([
+            edge(TRIGGER_NODE_ID, delay.id, 'continue'),
+            edge(delay.id, duplicatedAction!.id, 'continue'),
+            edge(duplicatedAction!.id, EXIT_NODE_ID, 'continue'),
+        ])
     })
 
     describe('conditional branch naming', () => {

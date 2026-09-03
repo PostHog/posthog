@@ -1,20 +1,29 @@
 import { useValues, useActions } from 'kea'
 
-import { IconClock, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconClock, IconDecisionTree, IconInfo, IconList } from '@posthog/icons'
+import { LemonButton, LemonSegmentedButton, LemonSwitch, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LastSavedIndicator } from 'lib/components/LastSavedIndicator'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { urls } from 'scenes/urls'
 
+import type { HogFlowEditorLayout } from './hogflows/hogFlowEditorLogic'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
-/**
- * State narration for a saved workflow: what you're editing (live config vs staged draft), save
- * state, and the auto-save toggle. Deliberately no write actions here - save/publish/discard live
- * in the scene header with every other scene's primary actions, and in the scene menu bar.
- */
-export function WorkflowStatusBar(props: WorkflowLogicProps): JSX.Element | null {
+type WorkflowStatusBarProps = WorkflowLogicProps & {
+    editorLayout: HogFlowEditorLayout
+    canUseSimpleLayout: boolean
+    showEditorLayoutToggle: boolean
+    onEditorLayoutChange: (layout: HogFlowEditorLayout) => void
+}
+
+export function WorkflowStatusBar({
+    editorLayout,
+    canUseSimpleLayout,
+    showEditorLayoutToggle,
+    onEditorLayoutChange,
+    ...props
+}: WorkflowStatusBarProps): JSX.Element | null {
     const logic = workflowLogic(props)
     const {
         originalWorkflow,
@@ -28,24 +37,51 @@ export function WorkflowStatusBar(props: WorkflowLogicProps): JSX.Element | null
     const { setAutoSaveEnabled } = useActions(logic)
     const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
 
-    if (!props.id || props.id === 'new' || props.editTemplateId || !originalWorkflow) {
+    if (!originalWorkflow) {
         return null
     }
 
+    const showWorkflowStatus = !props.editTemplateId
+    const historyWorkflowId = props.id && props.id !== 'new' ? props.id : null
     const isActive = originalWorkflow.status === 'active'
     const isEditingDraftOfLive = isActive && (hasStagedDraft || hasUnsavedChanges)
 
     return (
         <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b bg-surface-secondary rounded-t-md flex-wrap">
             <div className="flex items-center gap-3 min-w-0">
-                {isEditingDraftOfLive ? (
-                    <LemonTag type="warning">Editing draft</LemonTag>
-                ) : isActive ? (
-                    <LemonTag type="success">Live</LemonTag>
-                ) : (
-                    <LemonTag>Draft</LemonTag>
+                {showEditorLayoutToggle && (
+                    <LemonSegmentedButton
+                        value={editorLayout}
+                        onChange={onEditorLayoutChange}
+                        size="small"
+                        options={[
+                            {
+                                value: 'simple',
+                                icon: <IconList />,
+                                tooltip: 'Simple view',
+                                disabledReason: canUseSimpleLayout
+                                    ? undefined
+                                    : 'Simple view is only available for linear workflows',
+                                'data-attr': 'workflow-switch-to-simple-view',
+                            },
+                            {
+                                value: 'advanced',
+                                icon: <IconDecisionTree />,
+                                tooltip: 'Advanced view',
+                                'data-attr': 'workflow-switch-to-advanced-view',
+                            },
+                        ]}
+                    />
                 )}
-                {isActive && (
+                {showWorkflowStatus &&
+                    (isEditingDraftOfLive ? (
+                        <LemonTag type="warning">Editing draft</LemonTag>
+                    ) : isActive ? (
+                        <LemonTag type="success">Live</LemonTag>
+                    ) : (
+                        <LemonTag>Draft</LemonTag>
+                    ))}
+                {showWorkflowStatus && isActive && (
                     <span className="text-xs text-secondary truncate">
                         {isEditingDraftOfLive
                             ? 'The live version keeps running until you publish.'
@@ -55,42 +91,44 @@ export function WorkflowStatusBar(props: WorkflowLogicProps): JSX.Element | null
             </div>
             {/* Interactive controls sit right-anchored with variable-width text leftmost, so the
                 toggle and History never shift as the narration or the timestamp changes. */}
-            <div className="flex items-center gap-3 shrink-0">
-                {autoSaveEnabled && showSaving ? (
-                    <span className="text-xs text-tertiary flex items-center gap-1">
-                        <Spinner textColored /> Saving…
+            {showWorkflowStatus && historyWorkflowId && (
+                <div className="flex items-center gap-3 shrink-0">
+                    {autoSaveEnabled && showSaving ? (
+                        <span className="text-xs text-tertiary flex items-center gap-1">
+                            <Spinner textColored /> Saving…
+                        </span>
+                    ) : lastSavedAt ? (
+                        <LastSavedIndicator timestamp={lastSavedAt} />
+                    ) : null}
+                    <span className="flex items-center gap-1">
+                        <LemonSwitch
+                            checked={autoSaveEnabled}
+                            onChange={setAutoSaveEnabled}
+                            label="Auto-save"
+                            size="small"
+                        />
+                        <Tooltip
+                            title={
+                                isActive
+                                    ? 'Auto-save stores your changes as a draft. Nothing goes live until you publish.'
+                                    : 'Draft workflows auto-save as you edit.'
+                            }
+                            placement="bottom"
+                        >
+                            <IconInfo className="text-tertiary size-4" />
+                        </Tooltip>
                     </span>
-                ) : lastSavedAt ? (
-                    <LastSavedIndicator timestamp={lastSavedAt} />
-                ) : null}
-                <span className="flex items-center gap-1">
-                    <LemonSwitch
-                        checked={autoSaveEnabled}
-                        onChange={setAutoSaveEnabled}
-                        label="Auto-save"
+                    <LemonButton
+                        type="tertiary"
                         size="small"
-                    />
-                    <Tooltip
-                        title={
-                            isActive
-                                ? 'Auto-save stores your changes as a draft. Nothing goes live until you publish.'
-                                : 'Draft workflows auto-save as you edit.'
-                        }
-                        placement="bottom"
+                        icon={<IconClock />}
+                        to={urls.workflow(historyWorkflowId, 'history')}
+                        tooltip="See and restore previous versions"
                     >
-                        <IconInfo className="text-tertiary size-4" />
-                    </Tooltip>
-                </span>
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    icon={<IconClock />}
-                    to={urls.workflow(props.id, 'history')}
-                    tooltip="See and restore previous versions"
-                >
-                    History
-                </LemonButton>
-            </div>
+                        History
+                    </LemonButton>
+                </div>
+            )}
         </div>
     )
 }

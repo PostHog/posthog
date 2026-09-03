@@ -2,19 +2,34 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { HogFlowEditor } from './hogflows/HogFlowEditor'
+import { hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
+import { getLinearWorkflowActionIds } from './hogflows/linearWorkflow'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowStatusBar } from './WorkflowStatusBar'
 
 export function Workflow(props: WorkflowLogicProps): JSX.Element {
-    const { originalWorkflow, workflowLoading, externallyEdited, isSyncingExternalEdit } = useValues(
+    const { originalWorkflow, workflow, workflowLoading, externallyEdited, isSyncingExternalEdit } = useValues(
         workflowLogic(props)
     )
     const { loadWorkflow, keepMyWorkflowVersion } = useActions(workflowLogic(props))
+    const { editorLayout } = useValues(hogFlowEditorLogic(props))
+    const { setEditorLayout } = useActions(hogFlowEditorLogic(props))
+    const linearViewEnabled = useFeatureFlag('WORKFLOWS_LINEAR_VIEW')
+    const canUseSimpleLayout = linearViewEnabled && !!getLinearWorkflowActionIds(workflow)
+    const effectiveEditorLayout = editorLayout === 'simple' && canUseSimpleLayout ? 'simple' : 'advanced'
 
     return (
-        <div className="flex flex-col grow relative border rounded-md">
-            <WorkflowStatusBar {...props} />
+        <div className="relative flex h-[calc(100vh-13rem)] max-h-full min-h-[25rem] grow flex-col overflow-hidden rounded-md border">
+            <WorkflowStatusBar
+                {...props}
+                editorLayout={effectiveEditorLayout}
+                canUseSimpleLayout={canUseSimpleLayout}
+                showEditorLayoutToggle={linearViewEnabled}
+                onEditorLayoutChange={setEditorLayout}
+            />
             {/* Brief working/disabled overlay while we reconcile to an edit made elsewhere (clean state). */}
             {isSyncingExternalEdit && <SpinnerOverlay />}
             {externallyEdited && (
@@ -36,7 +51,11 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
                     </div>
                 </LemonBanner>
             )}
-            {!originalWorkflow && workflowLoading ? <SpinnerOverlay /> : <HogFlowEditor />}
+            {!originalWorkflow && workflowLoading ? (
+                <SpinnerOverlay />
+            ) : (
+                <HogFlowEditor isSimpleLayout={effectiveEditorLayout === 'simple'} />
+            )}
         </div>
     )
 }
