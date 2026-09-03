@@ -439,7 +439,19 @@ def test_sandbox_gets_minted_short_lived_credential_and_closed_egress(
     recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
 
     worker_env = {"ANTHROPIC_API_KEY": "sk-ant-worker-secret", "AI_GATEWAY_API_KEY": "phs_worker_shared_key"}
-    with patch.dict(os.environ, worker_env):
+    # The row is deleted once the sandbox is destroyed, so capture it at mint time.
+    minted_rows: list[OAuthAccessToken] = []
+    real_mint = activities.create_oauth_access_token_for_user
+
+    def recording_mint(*args, **kwargs):
+        minted_token = real_mint(*args, **kwargs)
+        minted_rows.append(OAuthAccessToken.objects.get(token=minted_token))
+        return minted_token
+
+    with (
+        patch.dict(os.environ, worker_env),
+        patch.object(activities, "create_oauth_access_token_for_user", recording_mint),
+    ):
         stamphog_chain.post_webhook(_opened_event(110, "devex-dev", head_sha), delivery_id=str(uuid.uuid4()))
 
     config = stamphog_chain.sandbox_class.created_configs[0]
@@ -447,7 +459,8 @@ def test_sandbox_gets_minted_short_lived_credential_and_closed_egress(
     assert "ANTHROPIC_API_KEY" not in env
     assert env["AI_GATEWAY_API_KEY"] != "phs_worker_shared_key"
 
-    minted = OAuthAccessToken.objects.get(token=env["AI_GATEWAY_API_KEY"])
+    (minted,) = minted_rows
+    assert minted.token == env["AI_GATEWAY_API_KEY"]
     assert minted.user_id == user.id
     # internal_run:read is the server-mint provenance marker the gateway's stamphog route demands
     # (requires_server_credential); llm_gateway:read is the only real capability. Anything broader
@@ -455,6 +468,8 @@ def test_sandbox_gets_minted_short_lived_credential_and_closed_egress(
     assert set(minted.scope.split()) == {"llm_gateway:read", "internal_run:read"}
     assert minted.scoped_teams == [team.id]
     assert minted.expires is not None and minted.expires > timezone.now()
+    # Revoked with the sandbox: the row is gone once the run ends.
+    assert not OAuthAccessToken.objects.filter(token=env["AI_GATEWAY_API_KEY"]).exists()
 
     assert "github.com" in config.outbound_domain_allowlist
     assert "llm-gateway.test" in config.outbound_domain_allowlist
@@ -722,7 +737,7 @@ def test_a_half_configured_go_gateway_keeps_the_oauth_path(team, stamphog_chain:
     config = stamphog_chain.sandbox_class.created_configs[0]
     env = config.environment_variables
     assert env["AI_GATEWAY_URL"] == "https://llm-gateway.test/stamphog/v1"
-    assert OAuthAccessToken.objects.filter(token=env["AI_GATEWAY_API_KEY"]).exists()
+    assert env["AI_GATEWAY_API_KEY"].startswith("pha_")
     mint.assert_not_called()
     assert "llm-gateway.test" in config.outbound_domain_allowlist
 
@@ -2306,7 +2321,13 @@ def test_mint_retries_a_network_error_and_records_the_outcome(team, stamphog_cha
     # the bounded timeout, and the counter records the outcome the operator will watch.
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 122, "sha122a")
-    mint = MagicMock(side_effect=[requests.ConnectionError("reset"), _mint_response(201, {"token": "phe_run"})])
+    mint = MagicMock(
+        side_effect=[
+            requests.ConnectionError("reset"),
+            _mint_response(201, {"token": "phe_run"}),
+            _mint_response(200, {"revoked": True}),
+        ]
+    )
     ok_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get()
 
     with (
@@ -2318,7 +2339,11 @@ def test_mint_retries_a_network_error_and_records_the_outcome(team, stamphog_cha
 
     env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
     assert env["AI_GATEWAY_API_KEY"] == "phe_run"
-    assert [call.args[0] for call in mint.call_args_list[:2]] == ["https://ai-gateway.test/v1/tokens"] * 2
+    assert [call.args[0] for call in mint.call_args_list] == [
+        "https://ai-gateway.test/v1/tokens",
+        "https://ai-gateway.test/v1/tokens",
+        "https://ai-gateway.test/v1/tokens/revoke",
+    ]
     assert all(call.kwargs["timeout"] == 3 for call in mint.call_args_list)
     sleep.assert_called_once()
     assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get() == ok_before + 1
@@ -2329,3 +2354,89 @@ def test_product_tag_matches_the_engine_blob() -> None:
     # the two are hand-typed in different packages, so bind them here where both are visible.
     engine_gateway = Path(activities.__file__).resolve().parents[2] / "packages" / "pr-approval-agent" / "gateway.py"
     assert f'AI_PRODUCT = "{activities.STAMPHOG_AI_PRODUCT}"' in engine_gateway.read_text()
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_scoped_token_is_revoked_when_the_sandbox_phase_fails(team, stamphog_chain: StamphogChain) -> None:
+    # The revoke exists for the runs that end badly: a sandbox that cannot be provisioned still had
+    # a live token minted for it, and the token dies with the attempt.
+    _repo_config(team.id)
+    event = _register_review(stamphog_chain, 123, "sha123a")
+    broken_sandbox = fakes.make_fake_sandbox_class(fakes.approved_engine_output())
+    broken_sandbox.create_error = RuntimeError("modal is down")
+    mint = MagicMock(side_effect=[_mint_response(201, {"token": "phe_run"}), _mint_response(200, {"revoked": True})])
+
+    with (
+        override_settings(**_GO_GATEWAY_SETTINGS),
+        patch.object(activities.requests, "post", mint),
+        patch(
+            "products.stamphog.backend.temporal.activities.get_sandbox_class_for_backend",
+            lambda backend: broken_sandbox,
+        ),
+    ):
+        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
+
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert run.status == ReviewRunStatus.FAILED
+    assert (run.error or "").startswith("SandboxPhaseError")
+    _, revoke_call = mint.call_args_list
+    assert revoke_call.args == ("https://ai-gateway.test/v1/tokens/revoke",)
+    assert revoke_call.kwargs["json"] == {"token": "phe_run"}
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_an_ineffective_revoke_is_logged(team, stamphog_chain: StamphogChain) -> None:
+    # The gateway answers 200 with revoked=false when nothing matched; that is the one signal that
+    # revocation is broken, so it must reach the warning like a transport failure does.
+    _repo_config(team.id)
+    event = _register_review(stamphog_chain, 124, "sha124a")
+    mint = MagicMock(side_effect=[_mint_response(201, {"token": "phe_run"}), _mint_response(200, {"revoked": False})])
+
+    with (
+        override_settings(**_GO_GATEWAY_SETTINGS),
+        patch.object(activities.requests, "post", mint),
+        patch.object(activities.activity.logger, "warning") as warning,
+    ):
+        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
+
+    assert any(
+        "Could not revoke the reviewer token (no such token)" in str(call.args[0]) for call in warning.call_args_list
+    )
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_legacy_oauth_token_is_deleted_after_the_run(team, user, stamphog_chain: StamphogChain) -> None:
+    # On the legacy path the credential is a row this worker created with a six-hour TTL; it goes
+    # when the sandbox does, the same as the Go token.
+    _repo_config(team.id)
+    event = _register_review(stamphog_chain, 125, "sha125a")
+
+    with override_settings(AI_GATEWAY_URL="https://llm-gateway.test/stamphog/v1", AI_GATEWAY_API_KEY=""):
+        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
+
+    env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
+    assert env["AI_GATEWAY_API_KEY"].startswith("pha_")
+    assert not OAuthAccessToken.objects.filter(token=env["AI_GATEWAY_API_KEY"]).exists()
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_key_with_the_legacy_url_fails_before_the_mint(team, stamphog_chain: StamphogChain) -> None:
+    # The mirror misconfiguration: an ai-gateway key next to the legacy route. The phs_ must not be
+    # posted to the Python host; the run fails with a config message instead of a mint outage.
+    _repo_config(team.id)
+    event = _register_review(stamphog_chain, 126, "sha126a")
+    mint = MagicMock()
+
+    with (
+        override_settings(
+            AI_GATEWAY_URL="https://llm-gateway.test/stamphog/v1", AI_GATEWAY_API_KEY="phs_stamphog_mint"
+        ),
+        patch.object(activities.requests, "post", mint),
+    ):
+        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
+
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert run.status == ReviewRunStatus.FAILED
+    assert "legacy stamphog route" in (run.error or "")
+    mint.assert_not_called()
+    assert not stamphog_chain.sandbox_class.created_configs

@@ -39,7 +39,7 @@ from prometheus_client import Counter
 from temporalio import activity
 
 from posthog.llm.gateway_client import AIGatewayConfig, resolve_ai_gateway_config
-from posthog.models import User
+from posthog.models import OAuthAccessToken, User
 from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import create_oauth_access_token_for_user
@@ -249,23 +249,30 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
 
 
 def _release_reviewer_token(gateway: AIGatewayConfig | None, token: str) -> None:
-    """Best-effort revoke of the per-run ``phe_`` once its sandbox is gone.
+    """Best-effort revoke of the per-run credential once its sandbox is gone.
 
     The token's TTL outlives the review by design; revoking it at the run's end closes that window
     for a token that leaked through a channel the exact-string scrub does not cover. A revoke
     failure only logs (the token then expires with its TTL) and never changes the run's outcome.
-    Legacy OAuth tokens have no revoke route and are left to expire.
+    A ``phe_`` is revoked at the gateway; a legacy OAuth token is a row this worker created, so it
+    is deleted here.
     """
-    if gateway is None:
-        return
     try:
-        response = requests.post(
-            f"{_gateway_root(gateway)}/v1/tokens/revoke",
-            json={"token": token},
-            headers={"Authorization": f"Bearer {gateway.api_key}"},
-            timeout=_MINT_TIMEOUT_SECONDS,
-        )
-        outcome = "ok" if 200 <= response.status_code < 300 else f"HTTP {response.status_code}"
+        if gateway is None:
+            deleted, _ = OAuthAccessToken.objects.filter(token=token).delete()
+            outcome = "ok" if deleted else "no such token"
+        else:
+            response = requests.post(
+                f"{_gateway_root(gateway)}/v1/tokens/revoke",
+                json={"token": token},
+                headers={"Authorization": f"Bearer {gateway.api_key}"},
+                timeout=_MINT_TIMEOUT_SECONDS,
+            )
+            if not 200 <= response.status_code < 300:
+                outcome = f"HTTP {response.status_code}"
+            else:
+                # The gateway answers 200 with revoked=false when no token matched.
+                outcome = "ok" if response.json().get("revoked", True) else "no such token"
     except Exception as e:  # noqa: BLE001 — a revoke failure must never mask the review outcome
         outcome = type(e).__name__
     if outcome != "ok":
@@ -301,6 +308,11 @@ def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConf
     # warning on every review in the legacy regions.
     gateway = resolve_ai_gateway_config() if settings.AI_GATEWAY_API_KEY else None
     if gateway is not None:
+        if _is_legacy_stamphog_route(gateway.url):
+            raise RuntimeError(
+                "AI_GATEWAY_API_KEY is set but AI_GATEWAY_URL is the legacy stamphog route; "
+                "the ai-gateway key belongs with the ai-gateway URL"
+            )
         gateway_url = gateway.url
     else:
         gateway_url = settings.AI_GATEWAY_URL or ""
@@ -356,7 +368,7 @@ def _sandbox_egress_allowlist(gateway_url: str) -> list[str]:
         host = urlparse(url).hostname
         if host:
             domains.append(host)
-    domains.extend(settings.STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS)
+    domains.extend(domain.strip() for domain in settings.STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS if domain.strip())
     return list(dict.fromkeys(domains))
 
 
