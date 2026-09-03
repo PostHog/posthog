@@ -29,7 +29,7 @@ import {
   subscriptionModelAccess,
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
-import { recoverPendingPrompt } from "@posthog/ui/features/task-detail/pendingPromptActions";
+import { settleFailedPromptRecord } from "@posthog/ui/features/task-detail/pendingPromptActions";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -374,12 +374,11 @@ export function useTaskCreation({
         let createdTaskId: string | undefined;
 
         const settlePromptRecord = () => {
-          if (!pendingTaskKey) return;
-          if (createdTaskId) {
-            recoverPendingPrompt(createdTaskId);
-          } else {
-            pendingTaskPromptStoreApi.clear(pendingTaskKey);
-          }
+          settleFailedPromptRecord({
+            recordKey: pendingTaskKey,
+            createdTaskId,
+            originTabId,
+          });
         };
 
         try {
