@@ -408,13 +408,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
 
                 // When an interval is selected, show cohort dates on x-axis
                 if (selectedInterval !== null && selectedInterval !== undefined) {
-                    const formatCohortLabel = (cohort: ProcessedRetentionPayload): string => {
-                        if (cohort.date) {
-                            return period === 'Hour' ? cohort.date.format('MMM D, h A') : cohort.date.format('MMM D')
-                        }
-                        return cohort.label
-                    }
-                    return filteredResults.map(formatCohortLabel)
+                    return [...new Set(filteredResults.map((cohort) => cohort.date?.toISOString() ?? cohort.label))]
                 }
 
                 const unit = dateOptionPlurals[period || 'Day']

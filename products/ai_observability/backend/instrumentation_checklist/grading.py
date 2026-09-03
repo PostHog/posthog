@@ -36,12 +36,14 @@ class ChecklistStats:
     events_with_session: int
     events_declining_session: int
     generations_with_tool_calls: int
-    generations_with_tools_declared: int
     sdk_generations: int
     sdk_generations_identified: int
     spans: int
     events_with_parent: int
     total_events: int
+    # Whether any generation carried tool definitions. `None` when nothing asked: a project that
+    # already records tool calls never needs the answer, and the read behind it is expensive.
+    tools_declared: bool | None = None
 
     def __post_init__(self) -> None:
         counted = self.generations + self.spans
@@ -108,7 +110,7 @@ def _sessions(stats: ChecklistStats) -> _CheckInputs:
 def _tool_calls(stats: ChecklistStats) -> _CheckInputs:
     # Tool definitions arriving without any call points at an SDK or parser problem, while no definitions
     # at all usually just means the app does not use tools, so the two warnings ask for different things.
-    if stats.generations_with_tools_declared > 0:
+    if stats.tools_declared:
         warning_detail = (
             "No tool calls recorded, but you are sending tool definitions. If your agent does call tools, check "
             "that your SDK version reports them."
@@ -131,7 +133,6 @@ def _tool_calls(stats: ChecklistStats) -> _CheckInputs:
         stats={
             "generations": stats.generations,
             "generations_with_tool_calls": stats.generations_with_tool_calls,
-            "generations_with_tools_declared": stats.generations_with_tools_declared,
         },
     )
 

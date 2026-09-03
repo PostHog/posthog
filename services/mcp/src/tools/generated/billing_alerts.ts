@@ -2,19 +2,21 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    BillingAlertsCreateBody,
-    BillingAlertsPartialUpdateBody,
-    BillingAlertsPartialUpdateParams,
-} from '@/generated/billing_alerts/api'
+import * as orvalSchemas from '@/generated/billing_alerts/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const BillingAlertCreateSchema = BillingAlertsCreateBody
+const BillingAlertCreateSchema = () => {
+    const BillingAlertsCreateBody = orvalSchemas.BillingAlertsCreateBody()
+    return BillingAlertsCreateBody
+}
 
-const billingAlertCreate = (): ToolBase<typeof BillingAlertCreateSchema, Schemas.BillingAlertConfiguration> => ({
+const billingAlertCreate = (): ToolBase<
+    ReturnType<typeof BillingAlertCreateSchema>,
+    Schemas.BillingAlertConfiguration
+> => ({
     name: 'billing-alert-create',
-    schema: BillingAlertCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof BillingAlertCreateSchema>) => {
+    schema: BillingAlertCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BillingAlertCreateSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -65,14 +67,19 @@ const billingAlertCreate = (): ToolBase<typeof BillingAlertCreateSchema, Schemas
     },
 })
 
-const BillingAlertUpdateSchema = BillingAlertsPartialUpdateParams.omit({ organization_id: true }).extend(
-    BillingAlertsPartialUpdateBody.shape
-)
+const BillingAlertUpdateSchema = () => {
+    const BillingAlertsPartialUpdateBody = orvalSchemas.BillingAlertsPartialUpdateBody()
+    const BillingAlertsPartialUpdateParams = orvalSchemas.BillingAlertsPartialUpdateParams()
+    return BillingAlertsPartialUpdateParams.omit({ organization_id: true }).extend(BillingAlertsPartialUpdateBody.shape)
+}
 
-const billingAlertUpdate = (): ToolBase<typeof BillingAlertUpdateSchema, Schemas.BillingAlertConfiguration> => ({
+const billingAlertUpdate = (): ToolBase<
+    ReturnType<typeof BillingAlertUpdateSchema>,
+    Schemas.BillingAlertConfiguration
+> => ({
     name: 'billing-alert-update',
-    schema: BillingAlertUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof BillingAlertUpdateSchema>) => {
+    schema: BillingAlertUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BillingAlertUpdateSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {

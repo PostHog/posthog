@@ -8,6 +8,14 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
+import { performQuery } from '~/queries/query'
+import {
+    AccessControlFilterWarning,
+    DataWarehouseSyncWarning,
+    HogQLQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+
 import type {
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaViewTable,
@@ -63,6 +71,16 @@ export interface RelationshipSubject {
     name: string
     type: SubjectTypeEnumApi
     fields: string[]
+}
+
+export interface CustomSqlPreview {
+    sql: string
+    columns: string[]
+    rows: unknown[][]
+    rowCount: number
+    hasMore: boolean
+    /** Sources this query read that are stale, or resources access control filtered out, so the verdict is not final. */
+    warnings: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
 }
 
 export interface DataQualityCheckEditorLogicProps {
@@ -233,6 +251,15 @@ export interface dataQualityCheckEditorLogicValues {
     checkTypes: DataQualityCheckTypeApi[]
     checkTypesError: boolean
     checkTypesLoading: boolean
+    customSqlEditorError: string | null
+    customSqlPreview: CustomSqlPreview | null
+    customSqlPreviewError: string | null
+    customSqlPreviewLoading: boolean
+    customSqlPreviewStale: boolean
+    customSqlPreviewVerdict: 'fail' | 'pass' | null
+    customSqlQueryKey: string
+    customSqlSourceQuery: HogQLQuery
+    customSqlValidationLoading: boolean
     editingCheck: DataQualityCheckApi | null
     isCheckFormSubmitting: boolean
     isCheckFormValid: boolean
@@ -297,6 +324,21 @@ export interface dataQualityCheckEditorLogicActions {
     resetCheckForm: (values?: CheckFormValues) => {
         values?: CheckFormValues
     }
+    runCustomSqlPreview: (_: any) => any
+    runCustomSqlPreviewFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    runCustomSqlPreviewSuccess: (
+        customSqlPreview: CustomSqlPreview,
+        payload?: any
+    ) => {
+        customSqlPreview: CustomSqlPreview
+        payload?: any
+    }
     setCheckFormManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
@@ -309,6 +351,12 @@ export interface dataQualityCheckEditorLogicActions {
     }
     setCheckFormValues: (values: DeepPartial<CheckFormValues>) => {
         values: DeepPartial<CheckFormValues>
+    }
+    setCustomSqlEditorError: (error: string | null) => {
+        error: string | null
+    }
+    setCustomSqlValidationLoading: (loading: boolean) => {
+        loading: boolean
     }
     setServerError: (serverError: string | null) => {
         serverError: string | null
@@ -353,6 +401,9 @@ export interface dataQualityCheckEditorLogicMeta {
             subject: DataQualitySubjectRef | null,
             relationshipSubjects: RelationshipSubject[]
         ) => string[]
+        customSqlSourceQuery: (checkForm: CheckFormValues) => HogQLQuery
+        customSqlPreviewStale: (customSqlPreview: CustomSqlPreview | null, checkForm: CheckFormValues) => boolean
+        customSqlPreviewVerdict: (customSqlPreview: CustomSqlPreview | null) => 'fail' | 'pass' | null
         requiresColumn: (
             checkForm: CheckFormValues,
             checkTypeByName: {
@@ -404,6 +455,8 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         requestClose: true,
         closeEditor: true,
         setServerError: (serverError: string | null) => ({ serverError }),
+        setCustomSqlEditorError: (error: string | null) => ({ error }),
+        setCustomSqlValidationLoading: (loading: boolean) => ({ loading }),
         loadWarehouseCatalog: true,
     }),
     loaders(({ values }) => ({
@@ -414,8 +467,42 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                     values.subject ? await checksApi.checkTypes(values.subject) : values.checkTypes,
             },
         ],
+        customSqlPreview: [
+            null as CustomSqlPreview | null,
+            {
+                runCustomSqlPreview: async (_, breakpoint): Promise<CustomSqlPreview> => {
+                    const sql = values.checkForm.customSql.trim()
+                    // Force a fresh calculation: the scheduled check run always reads current data, so the
+                    // preview must not serve a cached result that could report a different verdict.
+                    let response: NonNullable<HogQLQuery['response']>
+                    try {
+                        response = await performQuery<HogQLQuery>(
+                            { kind: NodeKind.HogQLQuery, query: sql },
+                            undefined,
+                            'force_blocking'
+                        )
+                    } catch (error) {
+                        // Cmd+Enter can start a second preview while one is in flight. Drop a superseded
+                        // request so its late failure cannot replace the newer result with a stale error.
+                        breakpoint()
+                        throw error
+                    }
+                    // Same guard on the success path: a superseded result must not overwrite the newer one.
+                    breakpoint()
+                    return {
+                        sql,
+                        columns: response.columns ?? [],
+                        rows: response.results.slice(0, 10) as unknown[][],
+                        rowCount: response.results.length,
+                        hasMore: !!response.hasMore,
+                        warnings: response.warnings ?? [],
+                    }
+                },
+            },
+        ],
     })),
-    reducers({
+    reducers(({ props }) => ({
+        customSqlQueryKey: [`data-quality-check/${props.surface}`, {}],
         isOpen: [
             false,
             {
@@ -480,7 +567,43 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                 setSubject: () => false,
             },
         ],
-    }),
+        customSqlPreview: [
+            null as CustomSqlPreview | null,
+            {
+                runCustomSqlPreviewSuccess: (_, { customSqlPreview }) => customSqlPreview,
+                openEditor: () => null,
+            },
+        ],
+        customSqlPreviewError: [
+            null as string | null,
+            {
+                runCustomSqlPreview: () => null,
+                runCustomSqlPreviewSuccess: () => null,
+                runCustomSqlPreviewFailure: (_, { error, errorObject }) => errorObject?.detail ?? error,
+                openEditor: () => null,
+                setCheckFormValue: (state, { name }) => (name === 'customSql' ? null : state),
+                setCheckFormValues: (state, { values }) => ('customSql' in values ? null : state),
+            },
+        ],
+        customSqlEditorError: [
+            null as string | null,
+            {
+                setCustomSqlEditorError: (_, { error }) => error,
+                openEditor: () => null,
+            },
+        ],
+        customSqlValidationLoading: [
+            false,
+            {
+                setCustomSqlValidationLoading: (_, { loading }) => loading,
+                openEditor: () => false,
+                setCheckFormValue: (state, { name }) =>
+                    name === 'customSql' ? true : name === 'checkType' ? false : state,
+                setCheckFormValues: (state, { values }) =>
+                    'checkType' in values && values.checkType !== CheckTypeEnumApi.CustomSql ? false : state,
+            },
+        ],
+    })),
     selectors({
         checkTypeByName: [
             (s) => [s.checkTypes],
@@ -520,8 +643,13 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         checkForm: {
             defaults: EMPTY_CHECK_FORM,
             errors: [
-                (s: any) => [s.checkForm, s.checkTypeByName],
-                (form: CheckFormValues, checkTypeByName: Record<string, DataQualityCheckTypeApi>) => ({
+                (s: any) => [s.checkForm, s.checkTypeByName, s.customSqlEditorError, s.customSqlValidationLoading],
+                (
+                    form: CheckFormValues,
+                    checkTypeByName: Record<string, DataQualityCheckTypeApi>,
+                    customSqlEditorError: string | null,
+                    customSqlValidationLoading: boolean
+                ) => ({
                     name:
                         form.name && !CHECK_NAME_PATTERN.test(form.name)
                             ? 'Use letters, numbers and underscores, starting with a letter.'
@@ -558,8 +686,12 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                             ? 'Set an age of at least one minute.'
                             : undefined,
                     customSql:
-                        form.checkType === CheckTypeEnumApi.CustomSql && !form.customSql.trim()
-                            ? 'Write the query that selects the failing rows.'
+                        form.checkType === CheckTypeEnumApi.CustomSql
+                            ? !form.customSql.trim()
+                                ? 'Write the query that selects the failing rows.'
+                                : customSqlValidationLoading
+                                  ? 'Checking query...'
+                                  : (customSqlEditorError ?? undefined)
                             : undefined,
                 }),
             ],
@@ -607,6 +739,20 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         },
     })),
     selectors({
+        customSqlSourceQuery: [
+            (s) => [s.checkForm],
+            (checkForm: CheckFormValues): HogQLQuery => ({ kind: NodeKind.HogQLQuery, query: checkForm.customSql }),
+        ],
+        customSqlPreviewStale: [
+            (s) => [s.customSqlPreview, s.checkForm],
+            (customSqlPreview: CustomSqlPreview | null, checkForm: CheckFormValues) =>
+                !!customSqlPreview && customSqlPreview.sql !== checkForm.customSql.trim(),
+        ],
+        customSqlPreviewVerdict: [
+            (s) => [s.customSqlPreview],
+            (customSqlPreview: CustomSqlPreview | null) =>
+                customSqlPreview ? (customSqlPreview.rowCount === 0 ? 'pass' : 'fail') : null,
+        ],
         requiresColumn: [
             (s) => [s.checkForm, s.checkTypeByName],
             (checkForm: CheckFormValues, checkTypeByName: Record<string, DataQualityCheckTypeApi>) =>

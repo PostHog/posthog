@@ -18,12 +18,13 @@ from products.tasks.backend.facade.workflow_tasks import (
     WorkflowTaskOriginKeyConflict,
     WorkflowTaskOwnerIneligible,
     WorkflowTaskRateCapped,
+    WorkflowTaskRateLimits,
     WorkflowTaskSlackContext,
     WorkflowTaskTeamRateCapped,
     WorkflowTaskUsageLimited,
     create_workflow_task,
 )
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 from products.workflows.backend.service_jwt import TASKS_CREATE_PURPOSE
 
 logger = structlog.get_logger(__name__)
@@ -102,7 +103,7 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
     connectors = serializers.ListField(
         child=serializers.CharField(max_length=64),
         required=False,
-        help_text="MCP server installation IDs the run may mount. Must be active team-shared installations or personal ones of the workflow owner.",
+        help_text="MCP gateway server IDs the run may mount. Each must be a server shared with everyone in the project.",
     )
     posthog_mcp_scopes = serializers.ChoiceField(
         choices=["read_only", "full"],
@@ -176,6 +177,16 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
         if owner_id is None:
             return _rejected("Workflow has no owner who can run tasks.", status.HTTP_422_UNPROCESSABLE_ENTITY)
 
+        config = (
+            TeamWorkflowsConfig.objects.filter(team_id=team_id)
+            .only("workflow_task_rate_limit_per_day", "workflow_task_team_rate_limit_per_day")
+            .first()
+        )
+        rate_limits = WorkflowTaskRateLimits(
+            per_workflow=config.workflow_task_rate_limit_per_day if config is not None else None,
+            per_team=config.workflow_task_team_rate_limit_per_day if config is not None else None,
+        )
+
         try:
             result = create_workflow_task(
                 team=Team.objects.get(id=team_id),
@@ -186,7 +197,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 repository=data.get("repository") or None,
                 model=data.get("model") or None,
                 reasoning_effort=data.get("reasoning_effort") or None,
-                mcp_installation_ids=data.get("connectors"),
+                connector_ids=data.get("connectors"),
                 posthog_mcp_scopes=data["posthog_mcp_scopes"],
                 max_parallel_tasks=data["max_parallel_tasks"],
                 origin_key=data.get("idempotency_key"),
@@ -194,10 +205,11 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 slack_context=(
                     WorkflowTaskSlackContext(**data["slack_context"]) if data.get("slack_context") else None
                 ),
+                rate_limits=rate_limits,
             )
         except WorkflowTaskConnectorsInvalid as error:
             raise serializers.ValidationError(
-                {"connectors": f"MCP installation(s) not found or inactive: {error.invalid_ids}"}
+                {"connectors": f"MCP server(s) not shared with the project or disabled: {error.invalid_ids}"}
             )
         except WorkflowTaskOwnerIneligible:
             return _rejected("Workflow has no owner who can run tasks.", status.HTTP_422_UNPROCESSABLE_ENTITY)
@@ -221,11 +233,14 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 hog_flow_id=str(hog_flow_id),
                 cap=error.cap,
             )
-            return _rejected(
-                f"This workflow reached its daily limit of {error.cap} tasks. "
-                "The event was skipped. Task creation resumes automatically within 24 hours.",
-                status.HTTP_409_CONFLICT,
+            detail = (
+                "Task creation is paused for this workflow. "
+                "The event was skipped. Contact PostHog support to resume task creation."
+                if error.cap == 0
+                else f"This workflow reached its daily limit of {error.cap} tasks. "
+                "The event was skipped. Task creation resumes automatically within 24 hours."
             )
+            return _rejected(detail, status.HTTP_409_CONFLICT)
         except WorkflowTaskTeamRateCapped as error:
             logger.info(
                 "workflow_task_create_team_rate_capped",
@@ -233,11 +248,14 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 hog_flow_id=str(hog_flow_id),
                 cap=error.cap,
             )
-            return _rejected(
-                f"This project reached its daily limit of {error.cap} tasks created by workflows. "
-                "The event was skipped. Task creation resumes automatically within 24 hours.",
-                status.HTTP_409_CONFLICT,
+            detail = (
+                "Task creation from workflows is paused for this project. "
+                "The event was skipped. Contact PostHog support to resume task creation."
+                if error.cap == 0
+                else f"This project reached its daily limit of {error.cap} tasks created by workflows. "
+                "The event was skipped. Task creation resumes automatically within 24 hours."
             )
+            return _rejected(detail, status.HTTP_409_CONFLICT)
         except WorkflowTaskUsageLimited:
             logger.info(
                 "workflow_task_create_usage_limited",

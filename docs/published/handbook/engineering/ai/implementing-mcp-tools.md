@@ -267,6 +267,8 @@ Product teams own their definitions and control which operations are exposed as 
    #### Custom input schemas
 
    By default, tool input schemas are auto-derived from OpenAPI via Orval.
+   The generated exports in `src/generated/<product>/api.ts` are builder functions, so call them (`FeatureFlagsCreateBody()`) wherever you import one.
+   A schema then exists only while a call uses it, and the server does not keep every schema in memory.
    When the auto-derived schema isn't ideal for an LLM tool interface,
    you can override it at two levels:
 
