@@ -7,7 +7,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { mapWithConcurrency } from "./concurrency";
 import { execGh, execGhWithRetry, type GhExecResult } from "./gh";
-import { buildPostHogTrailers } from "./trailers";
+import { buildPostHogTrailers, stripClaudeAttribution } from "./trailers";
 import { parseGithubUrl } from "./utils";
 
 /**
@@ -971,7 +971,10 @@ export async function createSignedCommit(
 
   await assertNoBaseLeak(ctx, branch, tip, writeBase);
 
-  const body = [input.body, buildPostHogTrailers(ctx.taskId).join("\n")]
+  const body = [
+    stripClaudeAttribution(input.body),
+    buildPostHogTrailers(ctx.taskId).join("\n"),
+  ]
     .filter(Boolean)
     .join("\n\n");
 
@@ -980,7 +983,7 @@ export async function createSignedCommit(
     repo,
     branch,
     tip,
-    input.message,
+    stripClaudeAttribution(input.message),
     body,
     changes,
   );
@@ -1108,8 +1111,8 @@ export async function createSignedRewrite(
         repo,
         scratch,
         expectedHeadOid,
-        headline,
-        body,
+        stripClaudeAttribution(headline),
+        stripClaudeAttribution(body),
         changes,
       );
       commits.push(...published.commits);
