@@ -42,6 +42,13 @@ export interface ArchiveOrchestrationDeps {
   disconnectFromTask(taskId: string): Promise<void>;
   archive(taskId: string): Promise<void>;
   clearViewedState(taskId: string): void;
+  /**
+   * Marks the task as mid-archive and clears it again when the archive
+   * settles. Called per task, so a bulk archive releases each row as its own
+   * teardown finishes rather than holding them all for the slowest one.
+   */
+  markArchiving(taskId: string): void;
+  unmarkArchiving(taskId: string): void;
   logError(message: string, error: unknown): void;
   cache: ArchiveCacheWriter;
 }
@@ -58,6 +65,19 @@ export interface ArchiveTaskOptions {
 }
 
 export async function archiveTask(
+  taskId: string,
+  deps: ArchiveOrchestrationDeps,
+  options?: ArchiveTaskOptions,
+): Promise<void> {
+  deps.markArchiving(taskId);
+  try {
+    await runArchive(taskId, deps, options);
+  } finally {
+    deps.unmarkArchiving(taskId);
+  }
+}
+
+async function runArchive(
   taskId: string,
   deps: ArchiveOrchestrationDeps,
   options?: ArchiveTaskOptions,

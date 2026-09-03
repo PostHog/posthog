@@ -69,18 +69,13 @@ export function useTaskArchive(
 
   const runArchive = useCallback(async () => {
     if (!taskId) return;
-    const store = useArchivingTasksStore.getState();
-    if (store.isArchiving(taskId)) return;
-
-    store.startArchiving(taskId);
+    if (useArchivingTasksStore.getState().isArchiving(taskId)) return;
     try {
       await archiveTask({ taskId });
     } catch (error) {
       log.error("Failed to archive task", error);
       toast.error("Failed to archive task");
       throw error;
-    } finally {
-      useArchivingTasksStore.getState().stopArchiving(taskId);
     }
   }, [archiveTask, taskId]);
 

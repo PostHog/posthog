@@ -18,16 +18,19 @@ import {
   type HostTrpcClient,
 } from "@posthog/host-router/client";
 import { useHostTRPC } from "@posthog/host-router/react";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { useReviewViewedStore } from "@posthog/ui/features/code-review/reviewViewedStore";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { useFocusStore } from "@posthog/ui/features/focus/focusStore";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { pinnedTasksApi } from "@posthog/ui/features/sidebar/taskMetaApi";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { destroyTaskTerminals } from "@posthog/ui/features/terminal/destroyTaskTerminals";
 import { toast } from "@posthog/ui/primitives/toast";
 import { getAppViewSnapshot } from "@posthog/ui/router/useAppView";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
+import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
@@ -178,9 +181,38 @@ function makeOrchestrationDeps(
     },
     clearViewedState: (taskId) =>
       useReviewViewedStore.getState().clearTasks([taskId]),
+    markArchiving: (taskId) =>
+      useArchivingTasksStore.getState().startArchiving(taskId),
+    unmarkArchiving: (taskId) =>
+      useArchivingTasksStore.getState().stopArchiving(taskId),
     logError: (message, error) => log.error(message, error),
     cache: makeCacheWriter(queryClient, keys),
   };
+}
+
+/**
+ * Times the archive and reports it. Nobody could see how slow archiving is:
+ * a worktree task captures a checkpoint, cancels its sessions, kills its
+ * processes, and drops the worktree, while a cloud task skips all of it.
+ */
+async function trackArchive<T>(
+  taskIds: string[],
+  run: () => Promise<T>,
+): Promise<T> {
+  const startedAt = performance.now();
+  let success = false;
+  try {
+    const result = await run();
+    success = true;
+    return result;
+  } finally {
+    track(ANALYTICS_EVENTS.TASK_ARCHIVED, {
+      task_count: taskIds.length,
+      task_id: taskIds.length === 1 ? taskIds[0] : undefined,
+      duration_ms: Math.round(performance.now() - startedAt),
+      success,
+    });
+  }
 }
 
 async function archiveTaskImperative(
@@ -193,10 +225,12 @@ async function archiveTaskImperative(
     navigateUnscoped?: boolean;
   },
 ): Promise<void> {
-  await archiveTask(
-    taskId,
-    makeOrchestrationDeps(queryClient, keys, options),
-    options,
+  await trackArchive([taskId], () =>
+    archiveTask(
+      taskId,
+      makeOrchestrationDeps(queryClient, keys, options),
+      options,
+    ),
   );
 }
 
@@ -211,9 +245,11 @@ export async function archiveTasksImperative(
   if (shouldNavigateAwayForBulkArchive(taskIds, activeTaskId)) {
     openTaskInput();
   }
-  return archiveTasks(
-    taskIds,
-    makeOrchestrationDeps(queryClient, keys, { skipNavigate: true }),
+  return trackArchive(taskIds, () =>
+    archiveTasks(
+      taskIds,
+      makeOrchestrationDeps(queryClient, keys, { skipNavigate: true }),
+    ),
   );
 }
 

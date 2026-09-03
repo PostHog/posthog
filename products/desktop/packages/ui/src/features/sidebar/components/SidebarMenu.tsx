@@ -388,19 +388,17 @@ function SidebarMenuComponent() {
     }
   };
 
-  // Runs the archive while marking the row as in-flight, so its sidebar entry
-  // shows a spinner and ignores clicks/pins/right-clicks until it resolves.
+  // `archiveTask` marks the row as in-flight itself, so its sidebar entry shows
+  // a spinner and ignores clicks/pins/right-clicks until it resolves.
   // Guards against repeated clicks: a second call while archiving is a no-op.
   const runArchive = useCallback(
     async (taskId: string) => {
-      const store = useArchivingTasksStore.getState();
-      if (store.isArchiving(taskId)) {
+      if (useArchivingTasksStore.getState().isArchiving(taskId)) {
         return {
           success: false,
           error: new Error("Task is already archiving"),
         };
       }
-      store.startArchiving(taskId);
       try {
         await archiveTask({ taskId });
         return { success: true as const };
@@ -408,8 +406,6 @@ function SidebarMenuComponent() {
         log.error("Failed to archive task", error);
         toast.error("Failed to archive task");
         return { success: false as const, error };
-      } finally {
-        useArchivingTasksStore.getState().stopArchiving(taskId);
       }
     },
     [archiveTask],

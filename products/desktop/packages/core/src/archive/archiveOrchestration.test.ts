@@ -31,6 +31,8 @@ class Harness {
     disconnectFromTask: vi.fn().mockResolvedValue(undefined),
     archive: vi.fn().mockResolvedValue(undefined),
     clearViewedState: vi.fn(),
+    markArchiving: vi.fn(),
+    unmarkArchiving: vi.fn(),
     logError: vi.fn(),
     cache: {
       cancelPathFilter: vi.fn().mockResolvedValue(undefined),
@@ -275,5 +277,42 @@ describe("shouldNavigateAwayForBulkArchive", () => {
 
   it("is false when there is no active task", () => {
     expect(shouldNavigateAwayForBulkArchive(["a"], null)).toBe(false);
+  });
+});
+
+// Every list that shows a session reads the mark, so it has to be released per
+// task: a cloud archive that finished must not sit dimmed behind a worktree
+// teardown in the same batch.
+describe("archiveTask marking", () => {
+  it("releases each task as its own archive settles, not when the batch does", async () => {
+    const harness = makeDeps();
+    let releaseSlow: (() => void) | undefined;
+    harness.deps.archive = vi.fn((taskId: string) =>
+      taskId === "slow"
+        ? new Promise<void>((resolve) => {
+            releaseSlow = resolve;
+          })
+        : Promise.resolve(),
+    );
+
+    const batch = archiveTasks(["fast", "slow"], harness.deps);
+    await vi.waitFor(() =>
+      expect(harness.deps.unmarkArchiving).toHaveBeenCalledWith("fast"),
+    );
+    expect(harness.deps.unmarkArchiving).not.toHaveBeenCalledWith("slow");
+
+    releaseSlow?.();
+    await batch;
+    expect(harness.deps.unmarkArchiving).toHaveBeenCalledWith("slow");
+  });
+
+  it("clears the mark when the archive fails", async () => {
+    const harness = makeDeps();
+    harness.deps.archive = vi.fn().mockRejectedValue(new Error("host is gone"));
+
+    await expect(archiveTask(TASK_ID, harness.deps)).rejects.toThrow();
+
+    expect(harness.deps.markArchiving).toHaveBeenCalledWith(TASK_ID);
+    expect(harness.deps.unmarkArchiving).toHaveBeenCalledWith(TASK_ID);
   });
 });
