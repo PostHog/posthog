@@ -495,6 +495,7 @@ export interface scoutFleetLogicMeta {
             dataProcessingApprovalDisabledReason: string | null
         ) => string | null
         rollups: (scoutRuns: SignalScoutRunSummary[]) => Map<string, ScoutRollup>
+        isStaff: (user: null | import('~/types').UserType) => boolean
         fleetSummary: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>
