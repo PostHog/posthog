@@ -4186,31 +4186,28 @@ ${unsupportedDeliverable}`;
 - If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead.`;
   }
 
-  /**
-   * What to do when a cloud run has no way to reach the user's code.
-   *
-   * Repository access on a cloud run comes from the user's own GitHub connection in
-   * PostHog, so a run can legitimately start without one — nothing is checked out and
-   * there are no credentials to push with. The Slack mention path used to refuse those
-   * mentions outright, which walled off every question that only looked like it needed
-   * code; it now starts the run and leaves the judgement here, where the request itself
-   * is visible. The settings link is built from this run's own host and project so it
-   * lands the user in the right region rather than a hardcoded one.
-   *
-   * Appended to every cloud branch on purpose: a checkout is not proof of access. A
-   * public repository clones with no token at all, so a run can hold the code and still
-   * have no way to push it.
-   */
-  private buildSourceControlAccessInstructions(): string {
+  private buildGithubAccessInstructions(hasGithubToken: boolean): string {
+    if (hasGithubToken) {
+      return `
+## GitHub access
+You have GitHub access in this session.`;
+    }
+
     const settingsUrl = `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/settings/user-personal-integrations`;
     return `
-## When repository access is unavailable
-A cloud run can start without repository content or GitHub credentials.
-- If the request does not need repository content, answer it and do not mention GitHub.
-- Codebase analysis, code review, and code changes require repository content.
-- If repository content is unavailable, do not replace the requested code work with generic guidance or PostHog data analysis.
-- State the access limit. Link the user to ${settingsUrl} to connect GitHub. Ask the user to send the request again.
-- If repository content is available but publishing credentials are not, complete read-only work. Request GitHub access before you change code.
+## GitHub access
+You do not have GitHub access in this session.
+- You can read repository content that is already in the workspace.
+- You can clone an exact public repository. Do not call \`list_repos\` without GitHub access.
+- Codebase analysis and code review require readable repository content.
+- Code changes also require publishing access.
+- If the required access is unavailable, do not replace the requested code work with generic guidance or PostHog data analysis.
+- Tell the user to connect GitHub at ${settingsUrl}.
+- The connection applies to a new task, not this task.
+- Write the access explanation first.
+- Then call \`show_actions\` with one \`compose\` action.
+- Use the label \`Try again in a new task\` and prefill the original repository request.
+- Include the exact \`owner/repo\` in the action when you know it.
 - Do not guess file contents. Do not start a change that you cannot deliver.`;
   }
 
@@ -4352,7 +4349,7 @@ Optimize for the fewest shell round trips.
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildSourceControlAccessInstructions()}`;
+    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}`;
 
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
