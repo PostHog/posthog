@@ -74,9 +74,10 @@ def alert_filters_match(
         "issue_description": inputs.issue_description,
         "first_seen": inputs.first_seen,
         "severity": inputs.severity,
-        "status": inputs.status,
     }
     optional_properties = {
+        # Spiking events carry no status at all, so absence must stay absence.
+        "status": inputs.status,
         # Older in-flight payloads predate lifecycle_timestamp; the exception time
         # is the right value for created/reopened and the previous one for spiking.
         "exception_timestamp": inputs.lifecycle_timestamp or inputs.event_timestamp,
