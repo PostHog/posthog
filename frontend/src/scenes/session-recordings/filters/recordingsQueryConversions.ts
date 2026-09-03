@@ -18,7 +18,6 @@ import {
     FilterLogicalOperator,
     PropertyFilterValue,
     PropertyOperator,
-    PropertyFilterType,
     RecordingDurationFilter,
     RecordingUniversalFilters,
     UniversalFiltersGroup,
@@ -28,9 +27,6 @@ import {
 import { filtersFromUniversalFilterGroups } from '../utils'
 
 export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
-
-// The query maps unscored recordings to 0.36, so strict `>` avoids recommending sessions the scorer has not evaluated.
-export const RECOMMENDED_RECORDINGS_SURFACING_SCORE_THRESHOLD = 0.36
 
 export const DURATION_KEYS = new Set(['duration', 'active_seconds', 'inactive_seconds'])
 
@@ -109,15 +105,6 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         having_predicates.push(...universalFilters.duration)
     }
 
-    if (universalFilters.recommended_only) {
-        having_predicates.push({
-            type: PropertyFilterType.Recording,
-            key: 'surfacing_score',
-            operator: PropertyOperator.GreaterThan,
-            value: RECOMMENDED_RECORDINGS_SURFACING_SCORE_THRESHOLD,
-        })
-    }
-
     filters.forEach((f) => {
         if (isEventFilter(f)) {
             events.push(normalizeFilterWithNestedProperties(f))
@@ -169,6 +156,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         having_predicates,
         comment_text,
         filter_test_accounts: universalFilters.filter_test_accounts,
+        recommended_only: universalFilters.recommended_only,
         operand: deriveOperand(universalFilters.filter_group),
         limit: universalFilters.limit,
         session_ids: universalFilters.session_ids,

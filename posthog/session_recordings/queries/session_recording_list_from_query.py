@@ -732,6 +732,16 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         if self._query.having_predicates:
             exprs.append(property_to_expr(self._query.having_predicates, team=self._team, scope="replay"))
 
+        if self._query.recommended_only:
+            # Strict `>` excludes unscored recordings because the query maps them to this fallback value.
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Field(chain=["surfacing_score"]),
+                    right=ast.Constant(value=UNSCORED_SURFACING_SCORE),
+                )
+            )
+
         # User filter-group recording filters (e.g. visited_page) follow the match-any/all operand.
         if self._operand_having_predicates:
             exprs.append(

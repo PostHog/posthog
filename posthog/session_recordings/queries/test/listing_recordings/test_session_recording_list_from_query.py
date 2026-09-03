@@ -141,16 +141,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
         self._assert_query_matches_session_ids(
-            {
-                "having_predicates": [
-                    {
-                        "key": "surfacing_score",
-                        "operator": "gt",
-                        "type": "recording",
-                        "value": 0.36,
-                    }
-                ]
-            },
+            {"recommended_only": True},
             [recommended_session_id],
         )
 

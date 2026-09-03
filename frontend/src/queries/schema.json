@@ -49560,10 +49560,6 @@
                         {
                             "const": "mouse_activity_count",
                             "type": "string"
-                        },
-                        {
-                            "const": "surfacing_score",
-                            "type": "string"
                         }
                     ]
                 },
@@ -49678,6 +49674,9 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "recommended_only": {
+                    "type": "boolean"
                 },
                 "response": {
                     "$ref": "#/definitions/RecordingsQueryResponse"

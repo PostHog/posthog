@@ -18,7 +18,6 @@ import {
 } from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
-import { RECOMMENDED_RECORDINGS_SURFACING_SCORE_THRESHOLD } from '../filters/recordingsQueryConversions'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecordingDataCoordinatorLogic'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
@@ -1440,12 +1439,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             expect(result.order).toBe('start_time')
             expect(result.order_direction).toBe('DESC')
-            expect(result.having_predicates).toContainEqual({
-                type: 'recording',
-                key: 'surfacing_score',
-                operator: 'gt',
-                value: RECOMMENDED_RECORDINGS_SURFACING_SCORE_THRESHOLD,
-            })
+            expect(result.recommended_only).toBe(true)
         })
 
         it('passes the visited_page filter as a recording property', () => {

@@ -1551,7 +1551,6 @@ export interface RecordingPropertyFilter extends BasePropertyFilter {
         | 'click_count'
         | 'keypress_count'
         | 'mouse_activity_count'
-        | 'surfacing_score'
     operator: PropertyOperator
 }
 

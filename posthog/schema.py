@@ -27850,6 +27850,7 @@ class RecordingsQuery(BaseModel):
     )
     person_uuid: str | None = None
     properties: list[AnyPropertyFilterDiscriminated] | None = None
+    recommended_only: bool | None = None
     response: RecordingsQueryResponse | None = None
     session_ids: list[str] | None = None
     session_recording_id: str | None = Field(
