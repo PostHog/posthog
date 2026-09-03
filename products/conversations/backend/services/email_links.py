@@ -33,16 +33,11 @@ _URL_TRAILING_PUNCTUATION = ".,;:!?"
 # Cap the anchors we scan so a large marketing email can't turn one message into
 # an expensive parse.
 _MAX_ANCHORS = 100
-# Match an existing Markdown link/image or angle autolink first so we skip over it,
-# then a bare URL. The bare pattern keeps parentheses so a URL like
-# `.../Markdown_(language)` stays whole; any unbalanced trailing parenthesis (from a
-# `(url)` wrapper) is peeled back off in `_wrap_bare_urls`.
-_LINKIFY_RE = re.compile(
-    r"(?P<mdlink>!?\[[^\]]*\]\([^)]*\))"
-    r"|(?P<autolink><[^<>\s]+>)"
-    r"|(?P<bare>https?://[^\s<>\[\]]+)",
-    re.IGNORECASE,
-)
+# A bare URL, scanned in one linear pass so a hostile body can't force quadratic
+# work. The class keeps parentheses so a URL like `.../Markdown_(language)` stays
+# whole; any unbalanced trailing parenthesis (from a `(url)` wrapper) is peeled back
+# off in `_wrap_bare_urls`.
+_BARE_URL_RE = re.compile(r"https?://[^\s<>\[\]]+", re.IGNORECASE)
 
 
 def _md_safe_href(href: str) -> str:
@@ -67,41 +62,56 @@ def _wrap_bare_urls(text: str) -> str:
 
     The inbox renders message text with GFM autolink literals, which trim trailing
     punctuation from a bare URL. An explicit `<url>` autolink is taken verbatim, so
-    the full token survives. Existing Markdown links and autolinks are left as-is.
+    the full token survives. A URL already inside an angle autolink or a Markdown
+    link (as its destination or its text) is left as-is.
 
     Sentence punctuation and an unbalanced trailing parenthesis are peeled off the
     end and left outside the link, so a URL ending a sentence or wrapped in `(...)`
     stays clean while a balanced `(...)` inside the URL is kept. Token characters
     (`~`, `-`, `_`) are kept, since dropping one would break the links this protects.
+
+    The whole pass is linear: URLs are found with a single non-backtracking scan and
+    protection is an O(1) look-behind, so a hostile body cannot force quadratic work.
     """
 
-    def replace(match: re.Match[str]) -> str:
-        bare = match.group("bare")
-        if not bare:
-            return match.group(0)
+    def is_protected(start: int) -> bool:
+        # `<url…` is an angle autolink; `[url…` is link text; `](url…` is a link
+        # destination. Any of these means the URL is already linked — leave it be.
+        if start > 0 and text[start - 1] in "<[":
+            return True
+        return start >= 2 and text[start - 2 : start] == "]("
+
+    result: list[str] = []
+    last = 0
+    for match in _BARE_URL_RE.finditer(text):
+        start, end = match.span()
+        if is_protected(start):
+            continue
+        url = match.group(0)
         # Count parentheses once, then walk back from the end in a single pass so a
-        # sender cannot force quadratic work with a long run of trailing ")".
-        open_count = bare.count("(")
-        close_count = bare.count(")")
-        end = len(bare)
-        while end > 0:
-            last = bare[end - 1]
-            if last in _URL_TRAILING_PUNCTUATION:
+        # long run of trailing ")" or punctuation stays O(len(url)).
+        open_count = url.count("(")
+        close_count = url.count(")")
+        stop = len(url)
+        while stop > 0:
+            char = url[stop - 1]
+            if char in _URL_TRAILING_PUNCTUATION:
                 pass
-            elif last == ")" and close_count > open_count:
+            elif char == ")" and close_count > open_count:
                 close_count -= 1
             else:
                 break
-            end -= 1
-        trailing = bare[end:]
-        bare = bare[:end]
-        scheme = _HTTP_SCHEME_RE.match(bare)
+            stop -= 1
+        core = url[:stop]
+        scheme = _HTTP_SCHEME_RE.match(core)
         # Nothing left after the scheme (e.g. "https://.") — leave the text alone.
-        if not scheme or len(bare) == scheme.end():
-            return match.group(0)
-        return f"<{bare}>{trailing}"
-
-    return _LINKIFY_RE.sub(replace, text)
+        if not scheme or len(core) == scheme.end():
+            continue
+        result.append(text[last:start])
+        result.append(f"<{core}>{url[stop:]}")
+        last = end
+    result.append(text[last:])
+    return "".join(result)
 
 
 def _recover_from_html(text: str, html: str) -> str:

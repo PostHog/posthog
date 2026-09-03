@@ -92,6 +92,12 @@ class TestRecoverLinksFromHtml:
         result = recover_links_from_html("https://example.com/x" + ")" * 1000, "")
         assert result == "<https://example.com/x>" + ")" * 1000
 
+    def test_handles_many_unmatched_brackets_without_backtracking(self) -> None:
+        # A body of unmatched "[" must not trigger quadratic link scanning; the text
+        # has no URL, so it is returned untouched.
+        text = "[" * 50000
+        assert recover_links_from_html(text, "") == text
+
     def test_does_not_double_wrap_recovered_link(self) -> None:
         text = "Please confirm.\nAttiva l'inoltro"
         html = '<a href="https://clicks.example/f/a/token~">Attiva l\'inoltro</a>'
