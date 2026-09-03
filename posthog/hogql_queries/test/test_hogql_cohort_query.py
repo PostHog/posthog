@@ -27,8 +27,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
             with self.assertRaises(ValueError):
                 HogQLCohortQuery(cohort=cohort).get_query()
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_multiple_person_properties_optimization(self, mock_feature_enabled: MagicMock) -> None:
+    def test_multiple_person_properties_optimization(self) -> None:
         """
         Test that multiple person property filters in an AND group are combined into a single query.
 
@@ -81,51 +80,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
             query_str,
         )
 
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_optimization_disabled_when_feature_flag_off(self, mock_feature_enabled: MagicMock) -> None:
-        """
-        Test that the optimization is disabled when the feature flag is off.
-
-        When the feature flag is disabled, multiple person properties should be processed
-        separately and combined with INTERSECT DISTINCT instead of a single query.
-        """
-        cohort_filters = {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "negation": False,
-                            "value": "is_set",
-                            "operator": "is_set",
-                        },
-                        {
-                            "key": "name",
-                            "type": "person",
-                            "value": "John",
-                            "negation": False,
-                            "operator": "icontains",
-                        },
-                    ],
-                }
-            ],
-        }
-
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Feature Flag Off Cohort", filters={"properties": cohort_filters}
-        )
-
-        hogql_query = HogQLCohortQuery(cohort=cohort)
-        query_str = hogql_query.query_str("clickhouse")
-
-        # With the feature flag off, should use INTERSECT DISTINCT
-        self.assertIn("INTERSECT DISTINCT", query_str)
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_optimization_skipped_for_mixed_property_types(self, mock_feature_enabled: MagicMock) -> None:
+    def test_optimization_skipped_for_mixed_property_types(self) -> None:
         """
         Test that the optimization is skipped when mixing person and behavioral properties.
 
@@ -169,8 +124,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         # Should use INTERSECT DISTINCT because properties are mixed
         self.assertIn("INTERSECT DISTINCT", query_str)
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_optimization_skipped_for_properties_with_negation(self, mock_feature_enabled: MagicMock) -> None:
+    def test_optimization_skipped_for_properties_with_negation(self) -> None:
         """
         Test that the optimization is skipped when any property has negation.
 

@@ -641,26 +641,6 @@ class HogQLCohortQuery:
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
-    def _should_combine_person_properties_and(self) -> bool:
-        return feature_enabled_or_false(
-            "hogql-cohort-combine-person-properties",
-            str(self.team.uuid),
-            groups={
-                "organization": str(self.team.organization_id),
-                "project": str(self.team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(self.team.organization_id),
-                },
-                "project": {
-                    "id": str(self.team.id),
-                },
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-
     def _should_combine_person_properties_or(self) -> bool:
         return feature_enabled_or_false(
             "hogql-cohort-combine-person-properties-or",
@@ -683,7 +663,6 @@ class HogQLCohortQuery:
 
     def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
         Condition = namedtuple("Condition", ["query", "negation"])
-        should_combine_person_properties_and = self._should_combine_person_properties_and()
         should_combine_person_properties_or = self._should_combine_person_properties_or()
 
         def unwrap_property(prop: Union[PropertyGroup, Property]) -> Optional[Property]:
@@ -743,7 +722,7 @@ class HogQLCohortQuery:
                 return Condition(self._get_condition_for_property(prop), prop.negation or False)
 
             if can_combine_person_properties(prop.values):
-                if should_combine_person_properties_and and prop.type == PropertyOperatorType.AND:
+                if prop.type == PropertyOperatorType.AND:
                     return Condition(combine_person_properties(prop.values, PropertyOperatorType.AND), False)
                 if should_combine_person_properties_or and prop.type == PropertyOperatorType.OR:
                     return Condition(combine_person_properties(prop.values, PropertyOperatorType.OR), False)
