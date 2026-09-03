@@ -211,6 +211,7 @@ def get_local_task_run_token_costs(
             AND equals(toString(properties.team_id), {team_id})
             AND in(toString(properties.task_run_id), {task_run_ids})
         GROUP BY task_run_id
+        LIMIT {row_limit}
         """
     )
     with tags_context(product=product, feature=Feature.QUERY):
@@ -221,6 +222,9 @@ def get_local_task_run_token_costs(
                 "origin_product": ast.Constant(value=origin_product),
                 "team_id": ast.Constant(value=str(team_id)),
                 "task_run_ids": ast.Constant(value=[str(task_run_id) for task_run_id in task_run_ids]),
+                # The group-by yields at most one row per requested run, but a limit-less select
+                # is capped at 100 rows, and a caller may ask about more runs than that.
+                "row_limit": ast.Constant(value=len(task_run_ids)),
             },
             team=_internal_llm_analytics_team(),
             query_type="TaskRunUsageTokenCost",

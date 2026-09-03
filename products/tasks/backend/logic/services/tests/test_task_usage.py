@@ -150,6 +150,36 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
         # can tell it from a run that really spent nothing.
         assert costs == {priced_run: Decimal("3.5"), second_run: Decimal("4")}
 
+    def test_run_token_costs_price_a_full_batch_rather_than_the_default_row_limit(self) -> None:
+        # `execute_hogql_query` caps a limit-less select at 100 rows, but the endpoint takes 200 run
+        # ids per call. Without an explicit limit the runs past the hundredth read as unattributed.
+        run_ids = [UUID(int=index + 1) for index in range(101)]
+        for run_id in run_ids:
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id=str(self.user.distinct_id),
+                timestamp=self.task.created_at + timedelta(seconds=1),
+                properties={
+                    "team_id": self.team.id,
+                    "task_run_id": str(run_id),
+                    "task_origin_product": "signals_scout",
+                    "$ai_total_cost_usd": 1,
+                },
+            )
+        flush_persons_and_events()
+
+        with self.settings(LLM_ANALYTICS_INTERNAL_TEAM_ID=self.team.id):
+            costs = task_usage.get_local_task_run_token_costs(
+                team_id=self.team.id,
+                origin_product="signals_scout",
+                task_run_ids=run_ids,
+                generated_after=self.task.created_at,
+                product=Product.SIGNALS,
+            )
+
+        assert len(costs) == len(run_ids)
+
     def test_run_token_costs_omit_a_run_whose_generations_carry_no_cost(self) -> None:
         # `$ai_total_cost_usd` is only written where a cost could be calculated, so a run made
         # entirely of unpriced generations sums to null. Reporting that as 0 would tell staff the
