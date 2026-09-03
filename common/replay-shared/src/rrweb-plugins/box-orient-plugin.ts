@@ -12,12 +12,18 @@ function restoreBoxOrient(css: string): string {
     return css.replace(MOZ_BOX_ORIENT_PATTERN, `${WEBKIT_BOX_ORIENT}$1`)
 }
 
+function restoreStyleText(textNode: Node): void {
+    const content = textNode.textContent
+    if (content?.includes(MOZ_BOX_ORIENT)) {
+        textNode.textContent = restoreBoxOrient(content)
+    }
+}
+
 function restoreStyleElement(styleElement: HTMLStyleElement): void {
     const childNodes = styleElement.childNodes
     for (let i = 0; i < childNodes.length; i++) {
-        const content = childNodes[i].textContent
-        if (childNodes[i].nodeType === Node.TEXT_NODE && content?.includes(MOZ_BOX_ORIENT)) {
-            childNodes[i].textContent = restoreBoxOrient(content)
+        if (childNodes[i].nodeType === Node.TEXT_NODE) {
+            restoreStyleText(childNodes[i])
         }
     }
 }
@@ -52,7 +58,20 @@ function restoreStyleMutation(element: HTMLElement, style: unknown): void {
 
 export const BoxOrientPlugin: ReplayPlugin = {
     onBuild: (node) => {
-        if (!node || node.nodeType !== Node.ELEMENT_NODE) {
+        if (!node) {
+            return
+        }
+
+        // A stylesheet added after the snapshot arrives as an empty `STYLE` element and then as a
+        // separate text node, so the element has no CSS to rewrite when it is built.
+        if (node.nodeType === Node.TEXT_NODE) {
+            if (node.parentNode?.nodeName === 'STYLE') {
+                restoreStyleText(node as Text)
+            }
+            return
+        }
+
+        if (node.nodeType !== Node.ELEMENT_NODE) {
             return
         }
 

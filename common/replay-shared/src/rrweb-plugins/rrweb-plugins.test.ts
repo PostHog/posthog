@@ -310,6 +310,22 @@ describe('BoxOrientPlugin', () => {
         )
     })
 
+    // rrweb builds a stylesheet added after the snapshot as an empty element, then sends its CSS
+    // as a separate text node.
+    it.each([
+        ['style', '.clamped { -moz-box-orient: vertical; }', '.clamped { -webkit-box-orient: vertical; }'],
+        ['p', 'the -moz-box-orient rule', 'the -moz-box-orient rule'],
+    ])('handles a text node built after its %s parent', (tagName, text, expected) => {
+        const parent = document.createElement(tagName)
+
+        BoxOrientPlugin.onBuild?.(parent, buildContext)
+        const textNode = document.createTextNode(text)
+        parent.appendChild(textNode)
+        BoxOrientPlugin.onBuild?.(textNode, buildContext)
+
+        expect(parent.textContent).toEqual(expected)
+    })
+
     it('restores the webkit name in a style attribute', () => {
         const el = document.createElement('p')
         el.setAttribute('style', 'display:-webkit-box;-moz-box-orient:vertical;-webkit-line-clamp:2')
