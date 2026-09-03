@@ -5,8 +5,7 @@ import { IconPlus } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import type { MetricContext } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
-
-import { metricSourceModalLogic } from './metricSourceModalLogic'
+import { metricSourceModalLogic } from 'products/experiments/frontend/modals/MetricSourceModal/metricSourceModalLogic'
 
 export const AddMetricButton = ({ metricContext }: { metricContext: MetricContext }): JSX.Element => {
     const { openMetricSourceModal } = useActions(metricSourceModalLogic)
