@@ -9,6 +9,7 @@ from posthog.models.team import Team
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.model_selection import scout_model_pin_catalog
 
 
 class TestScannerScoutCreate(_VisionAPITestCase):
@@ -59,6 +60,22 @@ class TestScannerScoutCreate(_VisionAPITestCase):
         assert config.output_destinations == {
             "slack": {"integration_id": integration.id, "channel": "CSCOUTS|#scout-findings", "thread_reports": False}
         }
+
+    def test_a_scout_can_be_created_with_a_model_pin(self) -> None:
+        # The model gate reads the team from the serializer context, so a create without it rejected
+        # every pin as unavailable even where the flag was on.
+        model = scout_model_pin_catalog()[0]
+        with patch("products.signals.backend.scout_harness.serializers.scout_model_config_enabled", return_value=True):
+            response = self.client.post(
+                self._scouts_url(str(self.scanner.id)),
+                data=self._payload(config={"model": model}),
+                format="json",
+            )
+
+        assert response.status_code == 201, response.json()
+        with team_scope(self.team.id):
+            config = SignalScoutConfig.objects.get(skill_name="signals-scout-daily-digest")
+        assert config.model == model
 
     def test_a_slack_destination_on_another_project_is_rejected_as_bad_input(self) -> None:
         # A destination the project does not own is the caller's mistake, so it must come back as a

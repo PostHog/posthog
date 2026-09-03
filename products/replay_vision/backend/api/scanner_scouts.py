@@ -86,17 +86,16 @@ class ScannerScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def create(self, request: Any, **kwargs: Any) -> Response:
         scanner = self._scanner_for_writing()
-        # The nested config validates a Slack destination against the project's integrations and
-        # the caller's key scopes, so the body serializer needs the same context the facade gets.
-        # Without it, any create carrying a destination raises rather than returning a 400.
-        serializer_context = {"project_id": self.team.project_id, "request": request}
+        # Scouts live on the canonical team, so the skill-authoring bar is checked against that team
+        # rather than the URL's: `create_scout_for_source` runs it on whichever team it is given.
+        canonical_team = self.team.parent_team or self.team
+        # The nested config checks a Slack destination against the project's integrations and the
+        # model pin against the team's flag, so the body serializer needs the context the facade gets.
+        serializer_context = {"project_id": self.team.project_id, "team": canonical_team, "request": request}
         payload = ScannerScoutCreateSerializer(data=request.data, context=serializer_context)
         payload.is_valid(raise_exception=True)
         validated = payload.validated_data
 
-        # Scouts live on the canonical team, so the skill-authoring bar is checked against that team
-        # rather than the URL's: `create_scout_for_source` runs it on whichever team it is given.
-        canonical_team = self.team.parent_team or self.team
         result = signals_facade.create_scout_for_source(
             team=canonical_team,
             user=request.user,
