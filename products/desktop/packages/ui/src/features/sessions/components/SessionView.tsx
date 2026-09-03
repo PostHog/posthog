@@ -933,6 +933,7 @@ export function SessionView({
                             <ContextUsageIndicator
                               usage={contextUsage}
                               taskId={taskId}
+                              originProduct={task?.origin_product}
                               focused={isActiveSession !== false}
                             />
                           }

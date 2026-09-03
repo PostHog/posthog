@@ -110,6 +110,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.consumer.kafka_consumer_topic
     );
 
+    // Build HTTP server with lifecycle readiness/liveness. This must happen before the
+    // cache is built and the worker loops are spawned: setup_metrics_routes_with_overrides
+    // installs the global metrics recorder, and those components resolve counter handles
+    // once at startup. A handle resolved before the recorder exists is a no-op forever.
+    let app = Router::new()
+        .route("/", get(index))
+        .route(
+            "/_readiness",
+            get({
+                let r = readiness.clone();
+                move || {
+                    let r = r.clone();
+                    async move { r.check().await }
+                }
+            }),
+        )
+        .route(
+            "/_liveness",
+            get({
+                let l = liveness.clone();
+                move || {
+                    let l = l.clone();
+                    async move { l.check().into_response() }
+                }
+            }),
+        );
+    let app = apply_routes(app, context.clone());
+    let app = setup_metrics_routes_with_overrides(app, &bucket_overrides());
+
     let (tx, rx) = measuring_channel(config.update_batch_size * config.channel_slots_per_worker);
 
     let cache = Cache::new(
@@ -158,32 +187,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         rx,
         consumer_handle,
     ));
-
-    // Build HTTP server with lifecycle readiness/liveness
-    let app = Router::new()
-        .route("/", get(index))
-        .route(
-            "/_readiness",
-            get({
-                let r = readiness.clone();
-                move || {
-                    let r = r.clone();
-                    async move { r.check().await }
-                }
-            }),
-        )
-        .route(
-            "/_liveness",
-            get({
-                let l = liveness.clone();
-                move || {
-                    let l = l.clone();
-                    async move { l.check().into_response() }
-                }
-            }),
-        );
-    let app = apply_routes(app, context);
-    let app = setup_metrics_routes_with_overrides(app, &bucket_overrides());
 
     let bind = format!("{}:{}", config.host, config.port);
     info!(address = %bind, "HTTP server starting");

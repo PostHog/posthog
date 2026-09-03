@@ -123,7 +123,16 @@ describe("validateChannelName", () => {
   it.each(["personal", "me", "  personal  "])(
     "reserves %j for the private space",
     (name) => {
-      expect(validateChannelName(name)).toContain("reserved");
+      expect(validateChannelName(name)).toContain("private space");
+    },
+  );
+
+  // The API rejects this name too, so accepting it here submits a form that
+  // comes back 400 with nothing pointing at the field that caused it.
+  it.each(["general", "  general  "])(
+    "reserves %j for the shared space",
+    (name) => {
+      expect(validateChannelName(name)).toContain("shared space");
     },
   );
 });

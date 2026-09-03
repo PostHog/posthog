@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react'
 
 import { SceneName } from './SceneTitleSection'
 
@@ -36,5 +36,33 @@ describe('SceneName', () => {
 
         rerender(<SceneName name="Generated name" canEdit onChange={jest.fn()} />)
         expect(screen.getByText('Generated name')).toBeInTheDocument()
+    })
+
+    // Guards click and drag text selection: the edit row is wider and taller than the field
+    // inside it, so a press that misses the glyphs by a few pixels lands on the row. Left
+    // unclaimed, some browsers read that press as their own gesture rather than a selection.
+    test('a press on the edit row beside the field focuses the field and is consumed', () => {
+        render(<SceneName name="Paying users" canEdit forceEdit onChange={jest.fn()} />)
+
+        const row = screen.getByTestId('scene-name-edit-row')
+        const textarea = screen.getByRole('textbox')
+        expect(textarea).not.toHaveFocus()
+
+        const press = createEvent.mouseDown(row)
+        fireEvent(row, press)
+
+        expect(textarea).toHaveFocus()
+        expect(press.defaultPrevented).toBe(true)
+    })
+
+    // The counterpart: a press on the field itself must reach the browser untouched,
+    // or it would never start a selection.
+    test('a press on the field itself is left alone', () => {
+        render(<SceneName name="Paying users" canEdit forceEdit onChange={jest.fn()} />)
+
+        const press = createEvent.mouseDown(screen.getByRole('textbox'))
+        fireEvent(screen.getByRole('textbox'), press)
+
+        expect(press.defaultPrevented).toBe(false)
     })
 })

@@ -5330,11 +5330,19 @@ describe("AgentServer HTTP Mode", () => {
           "`posthog:metric-list`",
           "`posthog:metric-describe`",
           "`posthog:data-catalog-metric-run`",
+          "You do not have GitHub access in this session.",
+          "Codebase analysis and code review require readable repository content.",
+          "do not replace the requested code work with generic guidance or PostHog data analysis",
+          "The connection applies to a new task, not this task.",
+          "call `show_actions` with one `compose` action",
+          "Try again in a new task",
+          "/settings/user-personal-integrations",
         ],
         shouldNotContain: [
           "gh repo clone",
           "query-run",
           "event-definitions-list",
+          "send the request again",
         ],
       },
       {
@@ -5411,6 +5419,7 @@ describe("AgentServer HTTP Mode", () => {
       vi.stubEnv("GITHUB_TOKEN", "ghu_actor");
       const s = createServer();
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
+      expect(prompt).toContain("You have GitHub access in this session.");
       expect(prompt).toContain('gh issue create --assignee "@me"');
       expect(prompt).toContain("gh api user --jq .login");
       // An installation token resolves to the app, so acting on it would assign a bot.
