@@ -2958,14 +2958,14 @@ class SignalReportViewSet(
             if report_status not in _PR_CI_STATUS_TERMINAL_REPORT_STATUSES
         ]
         if not report_ids:
-            return Response({"statuses": []})
+            return self._pr_ci_statuses_response([])
 
         try:
             pr_by_report = fetch_implementation_pr_state_for_reports(report_ids)
         except Exception:
             # Decorative metadata: a lookup failure must leave the list unpainted, not broken.
             logger.exception("signals.reports.pr_ci_statuses.implementation_pr_lookup_failed")
-            return Response({"statuses": []})
+            return self._pr_ci_statuses_response([])
 
         # Merged pull requests are skipped for the same reason: the pill already reads "merged", and
         # the CI of a landed pull request is history rather than something a reader can act on.
@@ -2978,15 +2978,20 @@ class SignalReportViewSet(
                 references[report_id] = parsed
 
         statuses = self._pr_ci_statuses_for_references(references.values())
-        return Response(
-            {
-                "statuses": [
-                    {"report_id": report_id, "ci_status": statuses[reference]}
-                    for report_id, reference in references.items()
-                    if reference in statuses
-                ]
-            }
+        return self._pr_ci_statuses_response(
+            [
+                {"report_id": report_id, "ci_status": statuses[reference]}
+                for report_id, reference in references.items()
+                if reference in statuses
+            ]
         )
+
+    @staticmethod
+    # `list` names the viewset's own action inside the class body, so the annotation uses `Sequence`.
+    def _pr_ci_statuses_response(statuses: Sequence[dict[str, str]]) -> Response:
+        """Render the batch CI-status payload through its declared response serializer, so the wire
+        shape cannot drift from the OpenAPI schema the frontend types and MCP tools are built from."""
+        return Response(PullRequestCiStatusesResponseSerializer({"statuses": statuses}).data)
 
     def _pr_ci_statuses_for_references(self, references: Iterable[PullRequestRef]) -> dict[PullRequestRef, str]:
         """CI rollup per pull request, from the shared cache where it is warm and one batched GitHub

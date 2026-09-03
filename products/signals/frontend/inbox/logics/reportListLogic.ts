@@ -152,12 +152,12 @@ export interface reportListLogicValues {
     hasMore: boolean
     isLoaded: boolean
     listApiParams: any
-    openPrReportIds: string[]
     loadedContext: {
         hasActiveFilters: boolean
         scope: InboxScope
     } | null
     loadedQueryKey: string | null
+    openPrReportIds: string[]
     pageLoadFailed: boolean
     primarySectionKey: InboxReportSectionKey
     reports: SignalReport[]
@@ -296,7 +296,6 @@ export interface reportListLogicActions {
 export interface reportListLogicMeta {
     key: 'dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
     __keaTypeGenInternalSelectorTypes: {
-        openPrReportIds: (reports: SignalReport[]) => string[]
         primarySectionKey: (featureFlags: FeatureFlagsSet) => InboxReportSectionKey
         listApiParams: (
             searchQuery: string,
@@ -312,6 +311,7 @@ export interface reportListLogicMeta {
         reports: (reportsResponse: ReportListResponse | null) => SignalReport[]
         hasMore: (reportsResponse: ReportListResponse | null) => boolean
         isLoaded: (reportsResponse: ReportListResponse | null) => boolean
+        openPrReportIds: (reports: SignalReport[]) => string[]
         totalCount: (reportsResponse: ReportListResponse | null) => number | null
         loadedQueryKey: (reportsResponse: ReportListResponse | null) => string | null
         loadedContext: (reportsResponse: ReportListResponse | null) => {
