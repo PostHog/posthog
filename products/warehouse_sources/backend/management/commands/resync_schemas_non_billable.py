@@ -1,41 +1,15 @@
 import time
 
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 import structlog
-from asgiref.sync import async_to_sync
-from temporalio.client import Client
-from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.data_warehouse.backend.facade.api import pause_external_data_schedule, unpause_external_data_schedule
+from products.warehouse_sources.backend.ad_hoc_sync import SchedulePauseError, WorkflowStartError, trigger_ad_hoc_sync
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
-
-
-@async_to_sync
-async def _start_external_data_workflow(client: Client, workflow_id: str, inputs: ExternalDataWorkflowInputs) -> None:
-    await client.start_workflow(
-        "external-data-job",
-        inputs,
-        id=workflow_id,
-        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-    )
-
-
-@async_to_sync
-async def _is_schedule_paused(client: Client, schedule_id: str) -> bool:
-    handle = client.get_schedule_handle(schedule_id)
-    try:
-        desc = await handle.describe()
-    except Exception:
-        return False
-    return bool(desc.schedule.state.paused)
 
 
 def _read_ids(raw: str | None, path: str | None) -> list[str]:
@@ -161,68 +135,28 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"\nDone. Triggered: {succeeded}, Failed: {failed}"))
 
-    def _trigger(self, client: Client, schema: ExternalDataSchema, *, reset: bool) -> bool:
-        # Mirrors `ExternalDataSchemaAdmin.trigger_sync_view`: pause the schedule so the scheduled
-        # workflow cannot race this ad-hoc one, stage the reset, then start the workflow directly.
-        # The schedule's stored input is always billable, which is why this bypasses it.
-        was_paused = _is_schedule_paused(client, str(schema.id))
-        admin_paused_now = False
-        if not was_paused:
-            try:
-                pause_external_data_schedule(str(schema.id))
-                admin_paused_now = True
-            except Exception:
-                logger.exception("Failed to pause schedule, skipping", schema_id=str(schema.id))
-                return False
-
-        update_fields: list[str] = []
-        if reset:
-            schema.sync_type_config["reset_pipeline"] = True
-            update_fields.append("sync_type_config")
-            # A streaming CDC schema no-ops a normal reset, so flip it back to snapshot for a full
-            # re-snapshot. On completion `set_initial_sync_complete` returns it to streaming.
-            if schema.is_cdc and schema.cdc_mode == "streaming":
-                schema.sync_type_config["cdc_mode"] = "snapshot"
-                schema.sync_type_config.pop("cdc_last_log_position", None)
-                schema.sync_type_config.pop("cdc_deferred_runs", None)
-                schema.initial_sync_complete = False
-                update_fields.append("initial_sync_complete")
-        if admin_paused_now:
-            schema.sync_type_config["admin_unpause_schedule_after_run"] = True
-            if "sync_type_config" not in update_fields:
-                update_fields.append("sync_type_config")
-        if update_fields:
-            schema.save(update_fields=update_fields)
-
-        inputs = ExternalDataWorkflowInputs(
-            team_id=schema.team_id,
-            external_data_source_id=schema.source.id,
-            external_data_schema_id=schema.id,
-            billable=False,
-            reset_pipeline=None,
-        )
-        workflow_id = f"{schema.id}-bulk-resync-{int(time.time())}"
+    def _trigger(self, client, schema: ExternalDataSchema, *, reset: bool) -> bool:
         try:
-            _start_external_data_workflow(client, workflow_id, inputs)
-        except Exception:
-            # Without this rollback a failed start leaves the schedule paused forever, because the
-            # unpause marker is only read by a workflow that never began.
-            if admin_paused_now:
-                try:
-                    unpause_external_data_schedule(str(schema.id))
-                    schema.sync_type_config.pop("admin_unpause_schedule_after_run", None)
-                    schema.save(update_fields=["sync_type_config"])
-                except Exception:
-                    logger.exception("Failed to roll back pause", schema_id=str(schema.id))
+            trigger = trigger_ad_hoc_sync(
+                client,
+                schema,
+                billable=False,
+                reset_pipeline=reset,
+                workflow_id_prefix="bulk-resync",
+            )
+        except SchedulePauseError:
+            logger.exception("Failed to pause schedule, skipping", schema_id=str(schema.id))
+            return False
+        except WorkflowStartError:
             logger.exception("Failed to trigger sync", schema_id=str(schema.id), team_id=schema.team_id)
             return False
 
-        self.stdout.write(f"  triggered {schema.id} workflow_id={workflow_id}")
+        self.stdout.write(f"  triggered {schema.id} workflow_id={trigger.workflow_id}")
         logger.info(
             "Triggered non-billable sync",
             schema_id=str(schema.id),
             team_id=schema.team_id,
-            workflow_id=workflow_id,
+            workflow_id=trigger.workflow_id,
             reset=reset,
         )
         return True

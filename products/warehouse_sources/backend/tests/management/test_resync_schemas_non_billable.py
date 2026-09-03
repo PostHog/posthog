@@ -12,6 +12,8 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 pytestmark = [pytest.mark.django_db]
 
 COMMAND = "products.warehouse_sources.backend.management.commands.resync_schemas_non_billable"
+# The pause/stage/start sequence now lives in one place, so that is where it gets stubbed.
+SHARED = "products.warehouse_sources.backend.ad_hoc_sync"
 
 
 @pytest.fixture
@@ -32,8 +34,8 @@ def _create_schema(team, name="test_table"):
 
 
 @patch(f"{COMMAND}.sync_connect")
-@patch(f"{COMMAND}._is_schedule_paused", return_value=True)
-@patch(f"{COMMAND}._start_external_data_workflow")
+@patch(f"{SHARED}.is_schedule_paused", return_value=True)
+@patch(f"{SHARED}.start_external_data_workflow")
 class TestResyncSchemasNonBillable:
     def test_dry_run_triggers_nothing(self, mock_start, _mock_paused, _mock_connect, team):
         schema = _create_schema(team)
