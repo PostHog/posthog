@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-02 20:02:25 UTC
+// Generated at: 2026-09-03 10:05:30 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -74,7 +74,6 @@ export type CanonicalProvider =
     | 'fireworks-us'
     | 'friendli'
     | 'gmicloud-bf16'
-    | 'gmicloud-fp4'
     | 'gmicloud-fp8'
     | 'google-ai-studio'
     | 'google-ai-studio-flex'
