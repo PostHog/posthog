@@ -5,7 +5,7 @@ from django.http.response import JsonResponse
 
 import structlog
 from rest_framework import status
-from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.response import Response
 
 from posthog.clickhouse.query_tagging import get_query_tags
@@ -62,6 +62,13 @@ class PaidFeatureException(APIException):
     def __init__(self, feature: Optional[str] = None) -> None:
         feature_name = feature.capitalize().replace("_", " ") if feature else "This feature"
         super().__init__(detail=f"{feature_name} requires a paid PostHog plan. Please upgrade to access this feature.")
+
+
+class CurrentTeamNotFound(NotFound):
+    # Legacy routes with no project in the path fall back to the user's current team.
+    # A user without one has no project to serve.
+    default_detail = "Project not found."
+    default_code = "current_team_not_found"
 
 
 class Conflict(APIException):
