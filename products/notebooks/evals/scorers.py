@@ -21,6 +21,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from posthog.dataclasses import frozen
+
 from products.notebooks.backend.markdown_conversion import MARKDOWN_NOTEBOOK_NODE_TYPE
 from products.notebooks.backend.models import Notebook, NotebookNodeRun
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
@@ -169,6 +171,14 @@ class CellRunsCompleted(AsyncOnlyScorerMixin, Scorer):
         ]
 
 
+@frozen
+class _CohortMatch:
+    """Which planted accounts one notebook named, and which it missed."""
+
+    surfaced: list[str]
+    missing: list[str]
+
+
 class ChurnCohortSurfaced(AsyncOnlyScorerMixin, Scorer):
     """Fractional: how many planted churn accounts did the notebook name?
 
@@ -208,17 +218,21 @@ class ChurnCohortSurfaced(AsyncOnlyScorerMixin, Scorer):
 
         best = max(
             (self._grade(f"{body}\n{final_message}".lower(), accounts) for body in candidates),
-            key=lambda graded: len(graded[0]),
+            key=lambda graded: len(graded.surfaced),
         )
-        surfaced, missing = best
         return Score(
             name=self._name(),
-            score=len(surfaced) / len(accounts),
-            metadata={"surfaced": surfaced, "missing": missing, "total": len(accounts), "notebooks": len(bodies)},
+            score=len(best.surfaced) / len(accounts),
+            metadata={
+                "surfaced": best.surfaced,
+                "missing": best.missing,
+                "total": len(accounts),
+                "notebooks": len(bodies),
+            },
         )
 
     @staticmethod
-    def _grade(haystack: str, accounts: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
+    def _grade(haystack: str, accounts: list[dict[str, Any]]) -> _CohortMatch:
         surfaced: list[str] = []
         missing: list[str] = []
         for account in accounts:
@@ -232,7 +246,7 @@ class ChurnCohortSurfaced(AsyncOnlyScorerMixin, Scorer):
                 surfaced.append(label)
             else:
                 missing.append(label)
-        return surfaced, missing
+        return _CohortMatch(surfaced=surfaced, missing=missing)
 
     @staticmethod
     def _read_markdown_bodies(team_id: int) -> list[str]:
