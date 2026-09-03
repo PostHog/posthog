@@ -47,6 +47,7 @@ __all__ = [
     "ServiceCredentialConnect",
     "ServiceCredentialUnavailable",
     "TrinoCompiledQuery",
+    "TrinoExpansionMode",
 ]
 
 
@@ -308,6 +309,11 @@ class TrinoCompiledQuery:
     sql: str
     values: dict[str, Any]
     hogql: str | None = None
+
+
+class TrinoExpansionMode(StrEnum):
+    PURE = "pure"
+    DJANGO = "django"
 
 
 @dataclass

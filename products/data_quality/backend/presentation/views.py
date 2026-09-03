@@ -9,7 +9,7 @@ a suite-run handle to poll.
 
 import json
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import ClassVar, cast
 from uuid import UUID
 
@@ -123,6 +123,15 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
         # different answers about the same check.
         visible = api.visible_checks(self.team_id, checks, self._denial_context())
         return {check.id for check in checks} - {check.id for check in visible}
+
+    def _unnamable_check_ids(self, runs: Sequence[DataQualityCheckRun]) -> set[UUID]:
+        # A run is judged by the identities it recorded, but the name on its check is present tense.
+        # Withhold the name of a check that is out of reach today, even where the run it left behind
+        # stays readable on its own terms.
+        if not self._can_be_object_denied():
+            return set()
+        checks = {run.quality_check.id: run.quality_check for run in runs if run.quality_check}
+        return self._hidden_check_ids(list(checks.values()))
 
     def _readable_runs(self, runs: QuerySet[DataQualityCheckRun]) -> QuerySet[DataQualityCheckRun]:
         # Excluded in SQL rather than per page, so a run that read a subject out of reach is gone
@@ -466,10 +475,15 @@ class _BaseSuiteRunViewSet(
     @action(methods=["GET"], detail=True, url_path="check_runs", pagination_class=None)
     def check_runs(self, request: Request, **kwargs) -> Response:
         suite_run = self.get_object()
-        runs = self._readable_runs(
-            DataQualityCheckRun.objects.for_team(self.team_id).filter(suite_run=suite_run)
-        ).select_related("quality_check")
-        return Response(DataQualityCheckRunSerializer(list(runs.order_by("-created_at")), many=True).data)
+        runs = list(
+            self._readable_runs(DataQualityCheckRun.objects.for_team(self.team_id).filter(suite_run=suite_run))
+            .select_related("quality_check")
+            .order_by("-created_at")
+        )
+        serializer = DataQualityCheckRunSerializer(
+            runs, many=True, context={"unnamable_check_ids": self._unnamable_check_ids(runs)}
+        )
+        return Response(serializer.data)
 
 
 def _parent_id_parameter(name: str, description: str) -> Callable[[type], type]:
