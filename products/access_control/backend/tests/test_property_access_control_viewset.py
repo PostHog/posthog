@@ -229,9 +229,13 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_member_with_implicit_project_admin_can_read_but_not_write(self):
-        self.organization.available_product_features.append(
-            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
-        )
+        self.organization.available_product_features = [
+            {
+                "name": AvailableFeature.PROPERTY_ACCESS_CONTROL,
+                "key": AvailableFeature.PROPERTY_ACCESS_CONTROL,
+            },
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL},
+        ]
         self.organization.save()
         member = User.objects.create_and_join(
             organization=self.organization,
