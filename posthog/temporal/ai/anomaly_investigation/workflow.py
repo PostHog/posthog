@@ -30,12 +30,12 @@ from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_cont
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 from posthog.temporal.ai.anomaly_investigation.runner import run_investigation
 from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
-from posthog.temporal.alerts.investigation import EpisodeInvestigations, episode_investigations
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import absolute_uri
 
 from products.alerts.backend.destinations import list_active_alert_destinations
+from products.alerts.backend.investigation_episode import EpisodeInvestigations, episode_investigations
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.exports.backend.facade import api as exports
 from products.notebooks.backend.facade import api as notebooks
