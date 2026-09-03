@@ -109,8 +109,8 @@ class DLQReplayWorkflow(PostHogWorkflow):
                     end_timestamp_ms=end_timestamp_ms,
                     batch_size=inputs.batch_size,
                 ),
-                start_to_close_timeout=dt.timedelta(hours=4),
-                heartbeat_timeout=dt.timedelta(minutes=2),
+                start_to_close_timeout=dt.timedelta(hours=8),
+                heartbeat_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(minutes=5),
