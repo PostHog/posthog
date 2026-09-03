@@ -478,11 +478,12 @@ export type HogFlowInvocationContext = {
         // the cdp_hogflow_wait_poll_only_advance metric — the signal that proves whether the poll
         // ever catches a wake the subscription streams missed, gating its eventual removal.
         pollReparked?: boolean
-        // Set by the hog-function handler after a step dispatched an external run (an AI task, a
-        // scout). The job parks until the matcher delivers a `resumeResult` for `key` or `deadlineAt`
-        // passes. `dispatch` is the step's own result ({ id, run_id } / { scout, workflow_id }) and is
-        // merged into the step result on resume so `output_variable` sees both.
-        awaitingResume?: { key: string; deadlineAt: string; dispatch: Record<string, unknown> }
+        // Set by the hog-function handler when a step's template returned an `await` request after
+        // dispatching an external run. The job parks until the matcher delivers a `resumeResult` for
+        // `key` or `deadlineAt` passes. `dispatch` is the step's own result without the `await` key
+        // and is merged into the step result on resume so `output_variable` sees both. `label` is
+        // what the run log calls the run.
+        awaitingResume?: { key: string; deadlineAt: string; dispatch: Record<string, unknown>; label?: string }
         // Written by the subscription matcher from a `$workflow_step_resume` internal event; the
         // handler consumes and clears it on the next dequeue.
         resumeResult?: { key: string; status: WorkflowStepResumeStatus; result?: Record<string, unknown> }

@@ -651,7 +651,7 @@ describe('HogFunctionHandler', () => {
     })
 
     describe('awaited templates', () => {
-        const TASK_TEMPLATE_ID = 'template-posthog-create-task'
+        let TASK_TEMPLATE_ID: string
         let awaitingHandler: HogFunctionHandler
         let dispatchKey: string
 
@@ -683,10 +683,12 @@ describe('HogFunctionHandler', () => {
         }
 
         beforeEach(async () => {
+            // Unique per team: the fixture upserts by id and keeps the first code it saw.
+            TASK_TEMPLATE_ID = `template-awaited-step-${team.id}`
             await insertHogFunctionTemplate(hub.postgres, {
                 id: TASK_TEMPLATE_ID,
                 name: 'Create task',
-                code: `if (inputs.skip) { return { 'skipped': true, 'reason': 'over the cap' } } return { 'id': 't1', 'run_id': 'r1' }`,
+                code: `if (inputs.skip) { return { 'skipped': true, 'reason': 'over the cap' } } return { 'id': 't1', 'run_id': 'r1', 'await': { 'max_wait': '190m', 'label': 'task' } }`,
                 inputs_schema: [{ key: 'skip', type: 'boolean', required: false }],
             })
             awaitingHandler = new HogFunctionHandler(
@@ -695,7 +697,7 @@ describe('HogFunctionHandler', () => {
                 mockEmailValidationService,
                 'fetch',
                 undefined,
-                { awaitTaskCompletion: true }
+                { awaitedStepsEnabled: true }
             )
             buildTaskFlow()
         })
@@ -712,6 +714,7 @@ describe('HogFunctionHandler', () => {
                 key: dispatchKey,
                 deadlineAt: handlerResult.scheduledAt!.toISO(),
                 dispatch: { id: 't1', run_id: 'r1' },
+                label: 'task',
             })
             expect(invocationResult.metrics.map((m) => m.metric_name)).toContain('billable_invocation')
             expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
@@ -720,9 +723,9 @@ describe('HogFunctionHandler', () => {
         })
 
         it.each([
-            ['the dispatch was skipped', { skip: { value: true } }, true],
+            ['the template asks for no wait', { skip: { value: true } }, true],
             ['waiting is turned off', {}, false],
-        ])('advances without waiting when %s', async (_, inputs, awaitTaskCompletion) => {
+        ])('advances without waiting when %s', async (_, inputs, awaitedStepsEnabled) => {
             buildTaskFlow(inputs)
             const handler = new HogFunctionHandler(
                 mockHogFlowFunctionsService,
@@ -730,13 +733,44 @@ describe('HogFunctionHandler', () => {
                 mockEmailValidationService,
                 'fetch',
                 undefined,
-                { awaitTaskCompletion }
+                { awaitedStepsEnabled }
             )
 
             const { handlerResult, invocationResult } = await execute(handler)
 
             expect(handlerResult.nextAction?.id).toBe('exit')
             expect(invocationResult.invocation.state.currentAction?.awaitingResume).toBeUndefined()
+        })
+
+        it.each([
+            ['clamps a wait past the ceiling', { max_wait: '99d', label: 'export' }, 24 * 60, 'Waiting for the export'],
+            ['ignores a wait it cannot parse', { max_wait: 'soon' }, null, null],
+        ])('%s', async (_, awaitRequest, expectedMinutes, expectedLog) => {
+            jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({
+                finished: true,
+                execResult: { id: 'x1', await: awaitRequest },
+                invocation: invocation as any,
+                logs: [],
+                metrics: [],
+                capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
+                messageAssets: [],
+                conversionWatchers: [],
+            })
+            const before = DateTime.now()
+
+            const { handlerResult, invocationResult } = await execute()
+
+            if (expectedMinutes === null) {
+                expect(handlerResult.nextAction?.id).toBe('exit')
+                expect(invocationResult.invocation.state.currentAction?.awaitingResume).toBeUndefined()
+            } else {
+                expect(Math.round(handlerResult.scheduledAt!.diff(before).as('minutes'))).toBe(expectedMinutes)
+                expect(handlerResult.result).toEqual({ id: 'x1' })
+                expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
+                    expect.stringContaining(expectedLog!)
+                )
+            }
         })
 
         describe('on resume', () => {
@@ -749,6 +783,7 @@ describe('HogFunctionHandler', () => {
                     key: dispatchKey,
                     deadlineAt,
                     dispatch: { id: 't1', run_id: 'r1' },
+                    label: 'task',
                 }
             })
 

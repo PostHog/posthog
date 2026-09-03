@@ -28,7 +28,7 @@ describe('posthog run scout template', () => {
 
         expect(parseJSON(params.body!)).toEqual({
             skill_name: 'signals-scout-error-tracking',
-            idempotency_key: `${response.invocation.id}:action_1`,
+            idempotency_key: `${response.invocation.id}:action_1:0`,
         })
 
         const token = (params.headers?.['Authorization'] ?? '').replace('Bearer ', '')
@@ -64,7 +64,11 @@ describe('posthog run scout template', () => {
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toBe(true)
-        expect(response.execResult).toEqual({ scout: 'signals-scout-error-tracking', workflow_id: 'wf-1' })
+        expect(response.execResult).toEqual({
+            scout: 'signals-scout-error-tracking',
+            workflow_id: 'wf-1',
+            await: { max_wait: '35m', label: 'scout run' },
+        })
     })
 
     it('skips instead of failing on a 409 response', async () => {

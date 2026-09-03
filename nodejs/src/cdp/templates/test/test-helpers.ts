@@ -316,6 +316,7 @@ export class TemplateTester {
         }
         if (_options?.actionId) {
             invocation.state.actionId = _options.actionId
+            invocation.state.actionStepCount = 0
         }
         const transformationFunctions = getTransformationFunctions(this.geoIp!)
         const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}

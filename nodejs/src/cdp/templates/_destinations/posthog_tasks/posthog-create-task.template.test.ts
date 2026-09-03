@@ -80,7 +80,7 @@ describe('posthog create task template', () => {
             posthog_mcp_scopes: 'full',
             max_parallel_tasks: 3,
             event: defaultEventBody,
-            idempotency_key: `${invocation.id}:action_1`,
+            idempotency_key: `${invocation.id}:action_1:0`,
         })
 
         const token = (params.headers?.['Authorization'] ?? '').replace('Bearer ', '')
@@ -103,7 +103,7 @@ describe('posthog create task template', () => {
             posthog_mcp_scopes: 'read_only',
             max_parallel_tasks: 5,
             event: defaultEventBody,
-            idempotency_key: `${invocation.id}:action_1`,
+            idempotency_key: `${invocation.id}:action_1:0`,
         })
     })
 
@@ -176,7 +176,21 @@ describe('posthog create task template', () => {
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toBe(true)
-        expect(response.execResult).toEqual({ id: 'task-1', run_id: 'run-1' })
+        expect(response.execResult).toEqual({
+            id: 'task-1',
+            run_id: 'run-1',
+            await: { max_wait: '190m', label: 'task' },
+        })
+    })
+
+    it('asks for no wait when no run started', async () => {
+        let response = await tester.invoke(fullInputs, undefined, workflowOptions)
+        response = await tester.invokeFetchResponse(response.invocation, {
+            status: 201,
+            body: { id: 'task-1', run_id: null },
+        })
+
+        expect(response.execResult).toEqual({ id: 'task-1', run_id: null })
     })
 
     it('skips instead of failing when the parallel task limit is hit', async () => {

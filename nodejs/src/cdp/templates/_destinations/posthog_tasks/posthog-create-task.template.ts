@@ -72,7 +72,12 @@ if (response.status >= 400) {
   throw Error(f'Failed to create task ({response.status}): {apiErrorMessage(response)}')
 }
 
-return response.body
+let task := response.body
+if (not empty(task.run_id)) {
+  // Park the workflow step until the run finishes: the tasks runtime cap plus slack for its wake.
+  task.await := { 'max_wait': '190m', 'label': 'task' }
+}
+return task
 `,
     inputs_schema: [
         {

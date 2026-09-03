@@ -152,7 +152,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_WATCHER_STATE_LOCK_TTL'
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS'
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
-        | 'CDP_HOGFLOW_AWAIT_TASK_COMPLETION'
+        | 'CDP_HOGFLOW_AWAITED_STEPS_ENABLED'
         | 'SES_ACCESS_KEY_ID'
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
@@ -528,7 +528,7 @@ export function createCdpCoreServices(
         deps.integrationManager,
         hogFlowDuplicateObserver,
         cdpUsageReporter,
-        { awaitTaskCompletion: config.CDP_HOGFLOW_AWAIT_TASK_COMPLETION }
+        { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }
     )
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)

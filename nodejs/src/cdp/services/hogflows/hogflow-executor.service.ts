@@ -120,7 +120,7 @@ export class HogFlowExecutorService {
         integrationManager: SlackAppLookup,
         duplicateObserver?: HogFlowDuplicateObserverService,
         usageReporter?: CdpUsageReporterService,
-        options: { awaitTaskCompletion?: boolean } = {}
+        options: { awaitedStepsEnabled?: boolean } = {}
     ) {
         this.hogFlowFunctionsService = hogFlowFunctionsService
         this.duplicateObserver = duplicateObserver ?? null
