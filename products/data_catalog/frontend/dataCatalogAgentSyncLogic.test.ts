@@ -1,4 +1,7 @@
+import * as fs from 'fs'
 import { router } from 'kea-router'
+import * as path from 'path'
+import { parse as parseYaml } from 'yaml'
 
 import { urls } from 'scenes/urls'
 
@@ -16,8 +19,9 @@ import {
     READ_TOOLS,
     RELATIONSHIP_TOOLS,
 } from './dataCatalogAgentSyncLogic'
-import { DATA_CATALOG_MCP_TOOLS } from './generated/agentContext'
 import { relationshipsLogic } from './relationshipsLogic'
+
+const TOOLS_YAML_PATH = path.resolve(__dirname, '../mcp/tools.yaml')
 
 // The reload targets are stubs here: this file covers which reloads the sync logic asks for, not
 // what the catalog logics do with them.
@@ -145,12 +149,20 @@ describe('dataCatalogAgentSyncLogic', () => {
         expect(relationshipsLogic.actions.loadJoins).toHaveBeenCalled()
     })
 
-    it('classifies every generated tool that can mutate or read a metric result', () => {
+    it('classifies every enabled tool that can mutate or read a metric result', () => {
         const routedTools = [...METRIC_TOOLS, ...RELATIONSHIP_TOOLS, ...CERTIFICATION_TOOLS, ...READ_TOOLS]
-        const generatedTools = DATA_CATALOG_MCP_TOOLS.map((tool) => tool.name).filter(
-            (toolName) => !toolName.endsWith('-prepare')
-        )
+        // tools.yaml is the source the MCP build reads, so a newly enabled tool fails here until
+        // the sync logic routes it. A confirmed action only reaches the page through -execute.
+        const toolsFile = parseYaml(fs.readFileSync(TOOLS_YAML_PATH, 'utf8')) as {
+            tools?: Record<string, { enabled?: boolean; confirmed_action?: unknown }>
+        }
+        const enabledTools = Object.entries(toolsFile.tools ?? {}).flatMap(([name, config]) => {
+            if (config?.enabled !== true) {
+                return []
+            }
+            return config.confirmed_action ? [`${name}-execute`] : [name]
+        })
 
-        expect(new Set(routedTools)).toEqual(new Set(generatedTools))
+        expect(new Set(routedTools)).toEqual(new Set(enabledTools))
     })
 })
