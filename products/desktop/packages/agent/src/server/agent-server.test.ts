@@ -232,6 +232,7 @@ interface TestableServer {
   detectedPrUrl: string | null;
   slackArtifactDelivery: "none" | "message" | "canvas_file" | null;
   slackChartDelivery: boolean;
+  slackReplyContext: boolean;
   buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
@@ -5766,6 +5767,17 @@ describe("AgentServer HTTP Mode", () => {
     });
 
     describe("identity instructions", () => {
+      it("injects Slack identity for workflow Slack replies", () => {
+        delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
+        const s = createServer() as unknown as TestableServer;
+        s.slackReplyContext = true;
+
+        const prompt = s.buildCloudSystemPrompt();
+
+        expect(prompt).toContain("# Identity");
+        expect(prompt).toContain("You are replying in a Slack thread");
+      });
+
       it.each([
         {
           label: "no repository, no PR",
