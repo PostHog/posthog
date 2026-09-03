@@ -11,10 +11,22 @@ export type PrCiStatusMap = Record<string, PullRequestCiStatusEnumApi>
 
 /** How often the tracked pull requests are re-read while the inbox is open. */
 export const PR_CI_STATUS_POLL_INTERVAL_MS = 60_000
+/**
+ * How long a state GitHub has stopped answering for is still shown. Two polls of slack ride out a
+ * rate limit, and past that the glyph goes: a pill that keeps claiming a CI state nothing confirms
+ * is worse than a pill with no glyph.
+ */
+export const PR_CI_STATUS_MAX_AGE_MS = 2 * PR_CI_STATUS_POLL_INTERVAL_MS
 /** Reports one request may ask about, above which the endpoint rejects the list. */
 export const PR_CI_STATUS_MAX_REPORTS = 100
 /** Sections load independently, so their bursts coalesce into one request. */
 const PR_CI_STATUS_DEBOUNCE_MS = 50
+
+/** A resolved CI state and when GitHub last confirmed it, so a held state can age out. */
+interface ConfirmedCiStatus {
+    ciStatus: PullRequestCiStatusEnumApi
+    confirmedAt: number
+}
 
 /**
  * Whether two announcements cover the same rows. Both lists are deduplicated, so length and
@@ -99,31 +111,39 @@ export const prCiStatusLogic = kea<prCiStatusLogicType>([
         trackReports: (source: string, reportIds: string[]) => ({ source, reportIds }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ cache }) => ({
         ciStatusByReportId: [
             {} as PrCiStatusMap,
             {
                 loadCiStatuses: async ({ reportIds }: { reportIds: string[] }, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId || reportIds.length === 0) {
+                        cache.confirmedCiStatuses = {}
                         return {}
                     }
                     const response = await signalsReportsPrCiStatuses(String(teamId), {
                         report_ids: reportIds.join(','),
                     })
                     breakpoint()
-                    // Merge forward, then keep only the reports still on screen: a pull request
-                    // GitHub could not answer for this time holds the state it last had instead of
-                    // losing its glyph for a poll, and a report that scrolled out is forgotten.
-                    const merged: PrCiStatusMap = { ...values.ciStatusByReportId }
+                    const now = Date.now()
+                    const confirmed: Record<string, ConfirmedCiStatus> = { ...cache.confirmedCiStatuses }
                     for (const entry of response.statuses) {
-                        merged[entry.report_id] = entry.ci_status
+                        confirmed[entry.report_id] = { ciStatus: entry.ci_status, confirmedAt: now }
                     }
-                    return Object.fromEntries(
-                        reportIds
-                            .filter((reportId) => reportId in merged)
-                            .map((reportId) => [reportId, merged[reportId]])
+                    // Merge forward, then keep only the reports still on screen whose state is young
+                    // enough: a pull request GitHub could not answer for this time holds the state it
+                    // last had instead of losing its glyph for a poll, and a report that scrolled out
+                    // is forgotten. A rate limit or revoked access leaves the same report out of every
+                    // answer, so the state also expires, rather than claim a CI state for as long as
+                    // the reader keeps the inbox open.
+                    const kept = reportIds.filter(
+                        (reportId) =>
+                            reportId in confirmed && now - confirmed[reportId].confirmedAt <= PR_CI_STATUS_MAX_AGE_MS
                     )
+                    cache.confirmedCiStatuses = Object.fromEntries(
+                        kept.map((reportId) => [reportId, confirmed[reportId]])
+                    )
+                    return Object.fromEntries(kept.map((reportId) => [reportId, confirmed[reportId].ciStatus]))
                 },
             },
         ],

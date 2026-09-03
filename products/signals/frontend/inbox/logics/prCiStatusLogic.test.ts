@@ -4,7 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { prCiStatusLogic } from './prCiStatusLogic'
+import { PR_CI_STATUS_MAX_AGE_MS, prCiStatusLogic } from './prCiStatusLogic'
 
 const CI_STATUSES_URL = '/api/projects/:team_id/signals/reports/pr_ci_statuses/'
 
@@ -61,6 +61,26 @@ describe('prCiStatusLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.ciStatusByReportId).toEqual({ 'report-1': 'failing' })
+    })
+
+    it('stops showing a state nothing has confirmed for two polls', async () => {
+        logic.actions.trackReports('needs-decision', ['report-1'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        // A rate limit that lasts, or access GitHub has revoked, leaves the report out of every
+        // answer. Holding the glyph indefinitely would let the pill claim a pull request is failing
+        // or passing long after its CI moved on.
+        const confirmedAt = Date.now()
+        answers = {}
+        const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(confirmedAt + PR_CI_STATUS_MAX_AGE_MS + 1)
+        try {
+            logic.actions.loadCiStatuses({ reportIds: ['report-1'] })
+            await expectLogic(logic).toFinishAllListeners()
+        } finally {
+            nowSpy.mockRestore()
+        }
+
+        expect(logic.values.ciStatusByReportId).toEqual({})
     })
 
     it('forgets a report that has left the tracked set', async () => {
