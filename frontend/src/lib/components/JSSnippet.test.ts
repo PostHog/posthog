@@ -59,4 +59,37 @@ describe('JavaScript snippet', () => {
         expect(insertedScripts).toHaveLength(2)
         expect(posthog._i).toHaveLength(3)
     })
+
+    it('initializes when Array.prototype.toString is read-only', () => {
+        const insertedScripts: ScriptElement[] = []
+        const snippetWindow: { posthog?: SnippetStub } = {}
+        const snippetDocument = {
+            createElement: (): ScriptElement => ({}),
+            getElementsByTagName: () => [
+                {
+                    parentNode: {
+                        insertBefore: (script: ScriptElement): void => {
+                            insertedScripts.push(script)
+                        },
+                    },
+                },
+            ],
+        }
+
+        runInNewContext(
+            `'use strict';Object.defineProperty(Array.prototype,'toString',{writable:false});${snippetFunctions(['capture'])}`,
+            { document: snippetDocument, window: snippetWindow }
+        )
+
+        const posthog = snippetWindow.posthog
+        expect(posthog).not.toBeUndefined()
+        if (!posthog) {
+            return
+        }
+
+        posthog.init('phc_test', { api_host: 'https://us.i.posthog.com' })
+
+        expect(insertedScripts).toHaveLength(1)
+        expect(posthog._i).toEqual([['phc_test', { api_host: 'https://us.i.posthog.com' }, 'posthog']])
+    })
 })
