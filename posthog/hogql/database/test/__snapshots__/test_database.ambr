@@ -2939,6 +2939,225 @@
           "row_count": null,
           "type": "system"
       },
+      "system.aeo_citation_checks": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "run_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "run_id",
+                  "id": null,
+                  "name": "run_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "prompt_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "prompt_id",
+                  "id": null,
+                  "name": "prompt_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "prompt_text": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "prompt_text",
+                  "id": null,
+                  "name": "prompt_text",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "prompt_source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "prompt_source",
+                  "id": null,
+                  "name": "prompt_source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "prompt_hash": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "prompt_hash",
+                  "id": null,
+                  "name": "prompt_hash",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "engine": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "engine",
+                  "id": null,
+                  "name": "engine",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "model": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "model",
+                  "id": null,
+                  "name": "model",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "check_failed": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "check_failed",
+                  "id": null,
+                  "name": "check_failed",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "error": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "error",
+                  "id": null,
+                  "name": "error",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "cited": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "cited",
+                  "id": null,
+                  "name": "cited",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "num_citations": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "num_citations",
+                  "id": null,
+                  "name": "num_citations",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "target_best_position": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "target_best_position",
+                  "id": null,
+                  "name": "target_best_position",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "cited_urls": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "cited_urls",
+                  "id": null,
+                  "name": "cited_urls",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "retrieved_urls": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "retrieved_urls",
+                  "id": null,
+                  "name": "retrieved_urls",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "search_queries": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "search_queries",
+                  "id": null,
+                  "name": "search_queries",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "target_urls": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "target_urls",
+                  "id": null,
+                  "name": "target_urls",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "top_cited_domains": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "top_cited_domains",
+                  "id": null,
+                  "name": "top_cited_domains",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "cost_usd": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "cost_usd",
+                  "id": null,
+                  "name": "cost_usd",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "gateway_trace_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "gateway_trace_id",
+                  "id": null,
+                  "name": "gateway_trace_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.aeo_citation_checks",
+          "name": "system.aeo_citation_checks",
+          "row_count": null,
+          "type": "system"
+      },
       "system.account_relationship_definitions": {
           "certification": null,
           "fields": {
@@ -14386,6 +14605,225 @@
           },
           "id": "system.accounts",
           "name": "system.accounts",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.aeo_citation_checks": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "run_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "run_id",
+                  "id": null,
+                  "name": "run_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "prompt_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "prompt_id",
+                  "id": null,
+                  "name": "prompt_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "prompt_text": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "prompt_text",
+                  "id": null,
+                  "name": "prompt_text",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "prompt_source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "prompt_source",
+                  "id": null,
+                  "name": "prompt_source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "prompt_hash": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "prompt_hash",
+                  "id": null,
+                  "name": "prompt_hash",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "engine": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "engine",
+                  "id": null,
+                  "name": "engine",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "model": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "model",
+                  "id": null,
+                  "name": "model",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "check_failed": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "check_failed",
+                  "id": null,
+                  "name": "check_failed",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "error": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "error",
+                  "id": null,
+                  "name": "error",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "cited": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "cited",
+                  "id": null,
+                  "name": "cited",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "num_citations": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "num_citations",
+                  "id": null,
+                  "name": "num_citations",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "target_best_position": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "target_best_position",
+                  "id": null,
+                  "name": "target_best_position",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "cited_urls": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "cited_urls",
+                  "id": null,
+                  "name": "cited_urls",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "retrieved_urls": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "retrieved_urls",
+                  "id": null,
+                  "name": "retrieved_urls",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "search_queries": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "search_queries",
+                  "id": null,
+                  "name": "search_queries",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "target_urls": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "target_urls",
+                  "id": null,
+                  "name": "target_urls",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "top_cited_domains": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "top_cited_domains",
+                  "id": null,
+                  "name": "top_cited_domains",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "cost_usd": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "cost_usd",
+                  "id": null,
+                  "name": "cost_usd",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "gateway_trace_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "gateway_trace_id",
+                  "id": null,
+                  "name": "gateway_trace_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.aeo_citation_checks",
+          "name": "system.aeo_citation_checks",
           "row_count": null,
           "type": "system"
       },

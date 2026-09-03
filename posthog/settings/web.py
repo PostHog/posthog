@@ -48,6 +48,7 @@ PRODUCTS_APPS = [
     "products.stamphog.backend.apps.StamphogConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
+    "products.aeo.backend.apps.AEOConfig",
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
     "products.ai_observability.backend.apps.AIObservabilityConfig",
@@ -1227,6 +1228,14 @@ try:
     )
 except ValueError:
     MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM = {}
+
+# AEO citation-tracking POC (products/aeo). The scheduled runner only covers
+# teams in this allowlist AND with the `aeo-citation-tracking` flag enabled.
+AEO_CITATION_TEAM_IDS = get_list(get_from_env("AEO_CITATION_TEAM_IDS", ""))
+AEO_TARGET_DOMAINS = get_list(get_from_env("AEO_TARGET_DOMAINS", "posthog.com"))
+AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
+AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
+EXA_API_KEY = get_from_env("EXA_API_KEY", "")
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes

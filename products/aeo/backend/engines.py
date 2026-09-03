@@ -1,0 +1,443 @@
+"""Answer-engine clients for the AEO citation-tracking POC.
+
+Each engine runs one prompt against one answer surface and returns the
+citations parsed from the live API response. Parsing must happen here, on the
+caller side: the AI gateway's captured $ai_generation events drop web-search
+result blocks before emission (only the issued search queries survive into
+$ai_output_choices), so the cited URLs exist nowhere except the live response.
+
+Gateway-routed engines stamp X-PostHog-Trace-Id and X-PostHog-Properties so
+each check's $ai_generation event (cost, latency, web-search fees) can be
+joined back to the prompt via `aeo_prompt_id` / `aeo_run_id`.
+"""
+
+from __future__ import annotations
+
+from dataclasses import field
+from typing import Any, Protocol
+from urllib.parse import urlparse
+
+from django.conf import settings
+
+import requests
+
+from posthog.dataclasses import frozen
+from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_config
+from posthog.security.llm_prompt_sanitization import GENERIC_VALUE_MAX_LEN, sanitize_user_text
+
+GATEWAY_TIMEOUT_SECONDS = 420  # web-search turns routinely take 10-60s, and multi-search answers several minutes
+EXA_TIMEOUT_SECONDS = 60
+EXA_ANSWER_URL = "https://api.exa.ai/answer"
+
+# Anthropic's server-side web search tool. The gateway passes server tool
+# blocks through unchanged on the native /messages path.
+ANTHROPIC_WEB_SEARCH_TOOL_TYPE = "web_search_20260209"
+MAX_WEB_SEARCHES_PER_PROMPT = 3
+MAX_ANSWER_TOKENS = 2048
+# Reasoning models spend output budget on reasoning before emitting the annotated
+# answer; too small a cap yields incomplete, citation-less responses that would
+# otherwise read as "not cited".
+OPENAI_MAX_OUTPUT_TOKENS = 12000
+
+# Property-size guards so a single check event stays small.
+MAX_URLS_PER_CHECK = 40
+MAX_QUERIES_PER_CHECK = 10
+MAX_ERROR_LENGTH = 500
+# Longest prompt seeding will keep and a check event will record. Above the
+# signup free-text limit, so no real user-reported prompt is dropped, and far
+# below anything that would inflate an engine call. Seeding imports this, so the
+# recorded prompt_text is always the whole prompt that ran.
+MAX_PROMPT_LENGTH = 2000
+
+
+@frozen
+class CitationCheck:
+    """The outcome of running one prompt against one answer engine."""
+
+    engine: str
+    model: str
+    # URLs the answer actually cites, in first-mention order.
+    cited_urls: list[str] = field(default_factory=list)
+    # URLs the engine retrieved/saw but didn't necessarily cite (Anthropic only).
+    retrieved_urls: list[str] = field(default_factory=list)
+    # Search queries the model issued.
+    search_queries: list[str] = field(default_factory=list)
+    # Engine-reported cost (Exa). Gateway engines report cost on their
+    # $ai_generation event instead — join via trace_id.
+    cost_usd: float | None = None
+    trace_id: str | None = None
+    error: str | None = None
+
+
+@frozen
+class ParsedAnswer:
+    """What one engine's raw response yields once parsed.
+
+    Each engine fills only the fields its API exposes: the Responses API has no
+    retrieved-result list, and only Exa reports a per-call cost.
+    """
+
+    answer_text: str = ""
+    cited_urls: list[str] = field(default_factory=list)
+    retrieved_urls: list[str] = field(default_factory=list)
+    search_queries: list[str] = field(default_factory=list)
+    cost_usd: float | None = None
+
+
+class CitationEngine(Protocol):
+    name: str
+    model: str
+
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck: ...
+
+
+def _session() -> requests.Session:
+    # trust_env=False keeps in-cluster gateway calls off any egress proxy, and
+    # the session reuses connections across a run's many sequential calls.
+    session = requests.Session()
+    session.trust_env = False
+    return session
+
+
+def gateway_post_json(
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    timeout: int = GATEWAY_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """POST and decode JSON; raises requests.RequestException on any failure."""
+    response = session.post(url, headers=headers, json=payload, timeout=timeout)
+    response.raise_for_status()
+    return response.json()
+
+
+def _dedupe_urls(urls: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for url in urls:
+        if url and url not in seen:
+            seen.add(url)
+            result.append(url)
+    return result
+
+
+def parse_anthropic_citations(body: dict[str, Any]) -> ParsedAnswer:
+    """Parse a non-streaming Anthropic Messages response with web search.
+
+    Cited = citation entries attached to text blocks (what the answer relies
+    on); retrieved = web_search_tool_result entries (what the model saw).
+    """
+    answer_parts: list[str] = []
+    cited: list[str] = []
+    retrieved: list[str] = []
+    queries: list[str] = []
+
+    for block in body.get("content") or []:
+        block_type = block.get("type")
+        if block_type == "text":
+            answer_parts.append(block.get("text") or "")
+            for citation in block.get("citations") or []:
+                url = citation.get("url")
+                if url:
+                    cited.append(str(url))
+        elif block_type == "server_tool_use" and block.get("name") == "web_search":
+            query = (block.get("input") or {}).get("query")
+            if query:
+                queries.append(str(query))
+        elif block_type == "web_search_tool_result":
+            content = block.get("content")
+            # An errored search's content is an object, not a list — skip it.
+            if isinstance(content, list):
+                for result in content:
+                    if isinstance(result, dict) and result.get("url"):
+                        retrieved.append(str(result["url"]))
+
+    return ParsedAnswer(
+        answer_text="".join(answer_parts),
+        cited_urls=_dedupe_urls(cited),
+        retrieved_urls=_dedupe_urls(retrieved),
+        search_queries=queries,
+    )
+
+
+def parse_openai_responses_citations(body: dict[str, Any]) -> ParsedAnswer:
+    """Parse a non-streaming OpenAI Responses API response with web search.
+
+    The Responses API does not expose the retrieved result list, only
+    url_citation annotations.
+    """
+    answer_parts: list[str] = []
+    cited: list[str] = []
+    queries: list[str] = []
+
+    for item in body.get("output") or []:
+        item_type = item.get("type")
+        if item_type == "web_search_call":
+            action = item.get("action")
+            query = action.get("query") if isinstance(action, dict) else None
+            if query:
+                queries.append(str(query))
+        elif item_type == "message":
+            for content in item.get("content") or []:
+                if content.get("type") != "output_text":
+                    continue
+                answer_parts.append(content.get("text") or "")
+                for annotation in content.get("annotations") or []:
+                    if annotation.get("type") == "url_citation" and annotation.get("url"):
+                        cited.append(str(annotation["url"]))
+
+    return ParsedAnswer(answer_text="".join(answer_parts), cited_urls=_dedupe_urls(cited), search_queries=queries)
+
+
+def openai_response_error(body: dict[str, Any]) -> str | None:
+    """A Responses body that reports a non-completed status and produced no message
+    item did not answer (budget exhausted, failed, or cancelled). That is a failed
+    check, not a zero-citation answer, so the scout can tell "the engine broke" from
+    "the citations disappeared"."""
+    status = body.get("status")
+    if status in (None, "completed"):
+        return None
+    if any(item.get("type") == "message" for item in body.get("output") or []):
+        return None
+    # 'incomplete' carries incomplete_details.reason; 'failed' carries error.message.
+    details = body.get("incomplete_details") or body.get("error")
+    reason = (details.get("reason") or details.get("message")) if isinstance(details, dict) else None
+    return f"{status}_response: {reason or 'unknown'}"
+
+
+def anthropic_truncated_error(body: dict[str, Any], cited_urls: list[str]) -> str | None:
+    """A Messages body cut off at max_tokens before any citation did not finish
+    answering. Treat it as a failed check rather than a zero-citation answer, the
+    same way openai_response_error handles a budget-exhausted Responses body."""
+    if body.get("stop_reason") == "max_tokens" and not cited_urls:
+        return "max_tokens_response: truncated before citing"
+    return None
+
+
+def parse_exa_citations(body: dict[str, Any]) -> ParsedAnswer:
+    """Parse an Exa /answer response."""
+    cited = [str(c["url"]) for c in body.get("citations") or [] if isinstance(c, dict) and c.get("url")]
+    cost = body.get("costDollars")
+    answer = body.get("answer")
+    return ParsedAnswer(
+        answer_text=answer if isinstance(answer, str) else "",
+        cited_urls=_dedupe_urls(cited),
+        cost_usd=cost.get("total") if isinstance(cost, dict) else None,
+    )
+
+
+def is_target_url(url: str, target_domains: list[str]) -> bool:
+    """True when the URL's host is one of the target domains or a subdomain of it."""
+    try:
+        host = (urlparse(url).netloc or "").lower().split(":")[0]
+    except ValueError:
+        return False
+    return any(host == domain or host.endswith(f".{domain}") for domain in (d.lower() for d in target_domains))
+
+
+def target_position(cited_urls: list[str], target_domains: list[str]) -> int | None:
+    """1-based position of the first target-domain URL in the citation list."""
+    for index, url in enumerate(cited_urls, start=1):
+        if is_target_url(url, target_domains):
+            return index
+    return None
+
+
+def top_domains(urls: list[str]) -> list[str]:
+    domains: list[str] = []
+    for url in urls:
+        try:
+            host = (urlparse(url).netloc or "").lower().split(":")[0]
+        except ValueError:
+            continue
+        if host and host not in domains:
+            domains.append(host)
+    return domains
+
+
+def _safe_values(values: list[str], *, limit: int = MAX_URLS_PER_CHECK) -> list[str]:
+    """Strip invisible characters and LLM framing markers from engine-derived strings.
+
+    URLs, search queries and provider error bodies are third-party text, and the
+    alerting scout reads them, so they reach an LLM. Sanitize before recording,
+    the same way AI subscriptions sanitize user-controlled event names.
+    """
+    cleaned = (sanitize_user_text(value, GENERIC_VALUE_MAX_LEN) for value in values[:limit])
+    return [value for value in cleaned if value]
+
+
+def build_check_fields(
+    *,
+    check: CitationCheck,
+    run_id: str,
+    prompt_id: str,
+    prompt_text: str,
+    prompt_source: str,
+    prompt_hash: str,
+    target_domains: list[str],
+) -> dict[str, Any]:
+    """Column values for one AEOCitationCheck row. Pure, so it's testable.
+
+    Failed checks are recorded too — the alerting scout must be able to tell
+    "the engine broke" apart from "the citations disappeared".
+    """
+    target_urls = [url for url in check.cited_urls if is_target_url(url, target_domains)]
+    return {
+        "run_id": run_id,
+        "prompt_id": prompt_id,
+        "prompt_text": sanitize_user_text(prompt_text, MAX_PROMPT_LENGTH),
+        "prompt_source": prompt_source,
+        "prompt_hash": prompt_hash,
+        "engine": check.engine,
+        "model": check.model,
+        "check_failed": check.error is not None,
+        "error": sanitize_user_text(check.error, MAX_ERROR_LENGTH) if check.error is not None else None,
+        "cited": bool(target_urls),
+        "num_citations": len(check.cited_urls),
+        "cited_urls": _safe_values(check.cited_urls),
+        "retrieved_urls": _safe_values(check.retrieved_urls),
+        "search_queries": _safe_values(check.search_queries, limit=MAX_QUERIES_PER_CHECK),
+        "target_urls": _safe_values(target_urls),
+        "target_best_position": target_position(check.cited_urls, target_domains),
+        "top_cited_domains": _safe_values(top_domains(check.cited_urls)),
+        "cost_usd": check.cost_usd,
+        "gateway_trace_id": check.trace_id,
+    }
+
+
+def _request_error(e: requests.RequestException) -> str:
+    detail = ""
+    if e.response is not None:
+        detail = f" status={e.response.status_code} body={e.response.text[:200]}"
+    return f"{type(e).__name__}:{detail or ' ' + str(e)[:200]}"
+
+
+class ClaudeWebSearchEngine:
+    """Claude with Anthropic's native web_search server tool, via the AI gateway."""
+
+    name = "claude-web-search"
+
+    def __init__(self, model: str | None = None) -> None:
+        self.model = model or settings.AEO_ANTHROPIC_MODEL
+        gateway = resolve_ai_gateway_config()
+        if gateway is None:
+            raise ValueError("AI gateway is not configured (AI_GATEWAY_URL / AI_GATEWAY_API_KEY)")
+        self._gateway = gateway
+        self._session = _session()
+
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        payload = {
+            "model": self.model,
+            "max_tokens": MAX_ANSWER_TOKENS,
+            "messages": [{"role": "user", "content": prompt}],
+            "tools": [
+                {
+                    "type": ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
+                    "name": "web_search",
+                    "max_uses": MAX_WEB_SEARCHES_PER_PROMPT,
+                }
+            ],
+        }
+        headers = {
+            "Authorization": f"Bearer {self._gateway.api_key}",
+            "anthropic-version": "2023-06-01",
+            **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
+        }
+        try:
+            body = gateway_post_json(self._session, self._gateway.url.rstrip("/") + "/messages", headers, payload)
+        except requests.RequestException as e:
+            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
+        parsed = parse_anthropic_citations(body)
+        if (truncated := anthropic_truncated_error(body, parsed.cited_urls)) is not None:
+            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=truncated)
+        return CitationCheck(
+            engine=self.name,
+            model=self.model,
+            trace_id=trace_id,
+            cited_urls=parsed.cited_urls,
+            retrieved_urls=parsed.retrieved_urls,
+            search_queries=parsed.search_queries,
+        )
+
+
+class OpenAIWebSearchEngine:
+    """An OpenAI model with its web search tool, via the AI gateway's /responses path."""
+
+    name = "openai-web-search"
+
+    def __init__(self, model: str | None = None) -> None:
+        self.model = model or settings.AEO_OPENAI_MODEL
+        gateway = resolve_ai_gateway_config()
+        if gateway is None:
+            raise ValueError("AI gateway is not configured (AI_GATEWAY_URL / AI_GATEWAY_API_KEY)")
+        self._gateway = gateway
+        self._session = _session()
+
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        payload = {
+            "model": self.model,
+            "input": prompt,
+            "tools": [{"type": "web_search"}],
+            "max_output_tokens": OPENAI_MAX_OUTPUT_TOKENS,
+        }
+        headers = {
+            "Authorization": f"Bearer {self._gateway.api_key}",
+            **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
+        }
+        try:
+            body = gateway_post_json(self._session, self._gateway.url.rstrip("/") + "/responses", headers, payload)
+        except requests.RequestException as e:
+            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
+        if (error := openai_response_error(body)) is not None:
+            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=error)
+        parsed = parse_openai_responses_citations(body)
+        return CitationCheck(
+            engine=self.name,
+            model=self.model,
+            trace_id=trace_id,
+            cited_urls=parsed.cited_urls,
+            search_queries=parsed.search_queries,
+        )
+
+
+class ExaAnswerEngine:
+    """Exa /answer — a cheap search-API proxy for answer-engine citation behavior.
+
+    Its citations are Exa's own, not ChatGPT's or Claude's; useful as a
+    retrievability check and as a comparison baseline against the real models.
+    Called directly at POC volume (tens of calls/day); move behind a
+    posthog/egress incarnation if this graduates to real rollout.
+    """
+
+    name = "exa-answer"
+    model = "exa-answer"
+
+    def __init__(self) -> None:
+        self._session = requests.Session()
+
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        headers = {"x-api-key": settings.EXA_API_KEY}
+        try:
+            body = gateway_post_json(
+                self._session,
+                EXA_ANSWER_URL,
+                headers,
+                {"query": prompt, "text": False},
+                timeout=EXA_TIMEOUT_SECONDS,
+            )
+        except requests.RequestException as e:
+            return CitationCheck(engine=self.name, model=self.model, error=_request_error(e))
+        parsed = parse_exa_citations(body)
+        return CitationCheck(engine=self.name, model=self.model, cited_urls=parsed.cited_urls, cost_usd=parsed.cost_usd)
+
+
+def available_engines() -> list[CitationEngine]:
+    """Engines the current configuration supports."""
+    engines: list[CitationEngine] = []
+    if resolve_ai_gateway_config() is not None:
+        engines.append(ClaudeWebSearchEngine())
+        engines.append(OpenAIWebSearchEngine())
+    if settings.EXA_API_KEY:
+        engines.append(ExaAnswerEngine())
+    return engines
