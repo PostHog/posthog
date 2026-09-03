@@ -141,7 +141,7 @@ Sort safety: removing the sorted column drops the sort (`clearSortIfColumnRemove
 `CUSTOMER_ANALYTICS_ACCOUNT_SCENE` changes account links from inline row expansion to `CustomerAnalyticsAccountScene` at `/customer_analytics/accounts/:accountId`.
 The detail scene loads the account through `accountsRetrieve` and renders the account logo in `SceneTitleSection`.
 `AccountCaption` shows the copyable external ID below the title, following the Group scene caption pattern.
-`AccountSidebar` holds editable tags and a Properties section.
+`AccountSidebar` holds editable tags and a Properties section. It sits flush with the scene's left edge and uses only a right border.
 Tag edits save through `accountsPartialUpdate`, update optimistically, and restore the account after a failed write.
 It reuses `AccountDetailTabs` and `AccountNotesExpansion` with the expanded row, but mounts only the active tab so inactive detail tabs do not load data.
 Tables use borders in the detail scene and remain embedded in expanded rows.
