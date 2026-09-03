@@ -133,8 +133,10 @@ describe('buildConversionWatcher', () => {
 
         // An unparseable window (e.g. a non-ASCII digit reaching storage past validation) falls back to
         // the default window and increments the counter.
-        const fallback = buildConversionWatcher(invocationFor({ ...propertyGoal, window: '٧d' }))
+        // Read the clock before building, not after: expires_at is stamped inside the call, so a
+        // millisecond spent there makes the measured window fall a hair short of the expected one.
         const start = Date.now()
+        const fallback = buildConversionWatcher(invocationFor({ ...propertyGoal, window: '٧d' }))
         const minutes = (fallback!.expires_at.getTime() - start) / 60_000
         expect(minutes).toBeGreaterThanOrEqual(DEFAULT_CONVERSION_WINDOW_MINUTES)
         expect(minutes).toBeLessThan(DEFAULT_CONVERSION_WINDOW_MINUTES + 1)
