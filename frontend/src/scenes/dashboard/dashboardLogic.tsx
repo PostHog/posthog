@@ -133,6 +133,7 @@ import {
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
+import { getDashboardFilterChanges, type DashboardFilterChange } from './dashboardFilterChanges'
 import { isDashboardFilterEmpty } from './dashboardFilterEmpty'
 import {
     BREAKPOINT_COLUMN_COUNTS,
@@ -278,12 +279,14 @@ export interface dashboardLogicValues {
     canRestrictDashboard: boolean
     canSaveProjectDashboardTemplate: boolean
     cancellingPreview: boolean
+    changedFilterCount: number
     columns: number | null
     containerWidth: number | null
     currentLayoutSize: 'sm' | 'xs'
     dashboard: DashboardType<QueryBasedInsightModel> | null
     dashboardCustomizeMenuOpen: boolean
     dashboardFailedToLoad: boolean
+    dashboardFiltersSaving: boolean
     dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
     dashboardLoadData: {
         action: DashboardLoadAction | undefined
@@ -311,6 +314,8 @@ export interface dashboardLogicValues {
     }[]
     error404: boolean
     externalFilters: DashboardFilter
+    filterChanges: DashboardFilterChange[]
+    filtersDirty: boolean
     filtersOverrideForLoad: DashboardFilter
     hasIntermittentFilters: boolean
     hasInvalidDashboardId: boolean
@@ -480,6 +485,9 @@ export interface dashboardLogicActions {
         }
     }
     dashboardNotFound: () => {
+        value: true
+    }
+    discardDashboardFilters: () => {
         value: true
     }
     duplicateTile: (tile: DashboardTile<QueryBasedInsightModel>) => {
@@ -664,6 +672,13 @@ export interface dashboardLogicActions {
     resetUrlVariables: () => {
         value: true
     }
+    restoreDashboardFilters: (
+        filters: DashboardFilter,
+        expectedFilters?: DashboardFilter
+    ) => {
+        expectedFilters: DashboardFilter | undefined
+        filters: DashboardFilter
+    }
     restoreTemporaryColorState: (
         colors: BreakdownColorConfig[],
         themeId: {
@@ -686,6 +701,15 @@ export interface dashboardLogicActions {
             variables?: unknown
         } | null
     }
+    saveDashboardFilters: () => {
+        value: true
+    }
+    saveDashboardFiltersFailure: (error: string) => {
+        error: string
+    }
+    saveDashboardFiltersSuccess: (dashboard: DashboardType<QueryBasedInsightModel> | null) => {
+        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+    }
     saveDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
     }
@@ -706,6 +730,9 @@ export interface dashboardLogicActions {
     ) => {
         dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
         payload?: boolean
+    }
+    saveLayout: () => {
+        value: true
     }
     scheduleRefreshDashboardWidgets: (tileId: number) => {
         tileId: number
@@ -1023,6 +1050,15 @@ export interface dashboardLogicMeta {
             urlFilters: DashboardFilter,
             intermittentFilters: DashboardFilter
         ) => DashboardFilter
+        filtersDirty: (
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
+            effectiveEditBarFilters: DashboardFilter
+        ) => boolean
+        filterChanges: (
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
+            effectiveEditBarFilters: DashboardFilter
+        ) => DashboardFilterChange[]
+        changedFilterCount: (filterChanges: DashboardFilterChange[]) => number
         anyInsightExceedsRetention: (
             insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[],
             effectiveEditBarFilters: DashboardFilter,
@@ -1324,8 +1360,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setFilterTestAccounts: (filterTestAccounts: boolean | null) => ({ filterTestAccounts }),
         setExternalFilters: (filters: DashboardFilter) => ({ filters }),
         saveEditModeChanges: () => true,
+        saveDashboardFilters: true,
+        saveDashboardFiltersSuccess: (dashboard: DashboardType<QueryBasedInsightModel> | null) => ({ dashboard }),
+        saveDashboardFiltersFailure: (error: string) => ({ error }),
+        discardDashboardFilters: true,
+        saveLayout: true,
         resetUrlFilters: () => true,
         resetIntermittentFilters: () => true,
+        restoreDashboardFilters: (filters: DashboardFilter, expectedFilters?: DashboardFilter) => ({
+            filters,
+            expectedFilters,
+        }),
         restoreUrlStateAtEditModeEntry: (snapshot: { filters?: unknown; variables?: unknown } | null) => ({
             snapshot,
         }),
@@ -1525,12 +1570,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             return null
                         }
 
-                        const persistedFilters = currentDashboard.persisted_filters || {}
                         const persistedVariables = currentDashboard.persisted_variables || {}
                         const persistedBreakdownColors = currentDashboard.breakdown_colors || []
                         const persistedThemeId = currentDashboard.data_color_theme_id ?? null
 
-                        const filtersChanged = !equal(persistedFilters, values.effectiveEditBarFilters || {})
                         const variablesChanged = !equal(
                             persistedVariables,
                             values.effectiveDashboardVariableOverrides || {}
@@ -1555,28 +1598,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             return !equal(originalLayouts || {}, updatedLayouts || {})
                         })
 
-                        if (
-                            !filtersChanged &&
-                            !variablesChanged &&
-                            !breakdownColorsChanged &&
-                            !themeChanged &&
-                            !layoutsChanged
-                        ) {
-                            actions.resetUrlFilters()
-                            actions.resetUrlVariables()
+                        if (!variablesChanged && !breakdownColorsChanged && !themeChanged && !layoutsChanged) {
                             return currentDashboard
                         }
 
                         breakpoint()
 
-                        // Dashboard filters or variables changed—each tile must reload so charts match the
-                        // settings you just saved (same flow as Apply filters).
-                        const shouldRefreshTilesAfterSave = filtersChanged || variablesChanged
+                        // Saved variables affect every tile, so refresh them after the save completes.
+                        const shouldRefreshTilesAfterSave = variablesChanged
 
                         const updatedDashboard: DashboardType<InsightModel> = await api.update(
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
-                                filters: values.effectiveEditBarFilters,
                                 variables: values.effectiveDashboardVariableOverrides,
                                 breakdown_colors: breakdownColorsToSave,
                                 data_color_theme_id: values.dataColorThemeId,
@@ -1597,7 +1630,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 values.dataColorThemeId
                             )
                         }
-                        actions.resetUrlFilters()
                         actions.resetUrlVariables()
                         if (shouldRefreshTilesAfterSave) {
                             cache.shouldRefreshTilesAfterSave = true
@@ -1822,6 +1854,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboard: () => true,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
+            },
+        ],
+        dashboardFiltersSaving: [
+            false,
+            {
+                saveDashboardFilters: () => true,
+                saveDashboardFiltersSuccess: () => false,
+                saveDashboardFiltersFailure: () => false,
             },
         ],
         dashboardStreaming: [
@@ -2050,6 +2090,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
                     return state && dashboard && state.id === dashboard.id ? dashboard : state
                 },
+                saveDashboardFiltersSuccess: (state, { dashboard }) =>
+                    state && dashboard ? { ...state, persisted_filters: dashboard.persisted_filters } : state,
                 [insightsModel.actionTypes.renameInsightSuccess]: (
                     state,
                     { item }
@@ -2578,6 +2620,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
                 return effectiveEditBarFilters
             },
+        ],
+        filtersDirty: [
+            (s) => [s.dashboard, s.effectiveEditBarFilters],
+            (dashboard: DashboardType<QueryBasedInsightModel> | null, effectiveEditBarFilters: DashboardFilter) =>
+                !equal(dashboard?.persisted_filters || {}, effectiveEditBarFilters || {}),
+        ],
+        filterChanges: [
+            (s) => [s.dashboard, s.effectiveEditBarFilters],
+            (
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                filters: DashboardFilter
+            ): DashboardFilterChange[] => getDashboardFilterChanges(dashboard?.persisted_filters || {}, filters),
+        ],
+        changedFilterCount: [
+            (s) => [s.filterChanges],
+            (filterChanges: DashboardFilterChange[]): number => filterChanges.length,
         ],
         // Does any tile on this dashboard reach past the team's events retention window? Runs the same date
         // precedence and the same rule the tiles do, so the banner and a tile's icon can't disagree.
@@ -4277,23 +4335,95 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.addWidgetTileFinished()
             }
         },
-        saveEditModeChanges: () => {
-            if (
-                values.dashboard?.persisted_filters?.date_from !== values.effectiveEditBarFilters.date_from ||
-                values.dashboard?.persisted_filters?.date_to !== values.effectiveEditBarFilters.date_to
-            ) {
-                eventUsageLogic.actions.reportDashboardDateRangeChanged(
-                    values.dashboard,
-                    values.effectiveEditBarFilters.date_from,
-                    values.effectiveEditBarFilters.date_to
-                )
+        saveDashboardFilters: async () => {
+            if (!values.dashboard || !values.filtersDirty) {
+                actions.saveDashboardFiltersSuccess(null)
+                return
             }
-            if (
-                JSON.stringify(values.dashboard?.persisted_filters?.properties) !==
-                JSON.stringify(values.effectiveEditBarFilters.properties)
-            ) {
-                eventUsageLogic.actions.reportDashboardPropertiesChanged(values.dashboard)
+
+            try {
+                const previousFilters = values.dashboard.persisted_filters || {}
+                const filtersToSave = values.effectiveEditBarFilters
+                const dashboard = await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
+                    filters: filtersToSave,
+                })
+                if (
+                    previousFilters.date_from !== filtersToSave.date_from ||
+                    previousFilters.date_to !== filtersToSave.date_to
+                ) {
+                    eventUsageLogic.actions.reportDashboardDateRangeChanged(
+                        values.dashboard,
+                        filtersToSave.date_from,
+                        filtersToSave.date_to
+                    )
+                }
+                if (JSON.stringify(previousFilters.properties) !== JSON.stringify(filtersToSave.properties)) {
+                    eventUsageLogic.actions.reportDashboardPropertiesChanged(values.dashboard)
+                }
+                actions.saveDashboardFiltersSuccess(getQueryBasedDashboard(dashboard))
+                const filtersChangedWhileSaving = !equal(values.effectiveEditBarFilters, filtersToSave)
+                if (!filtersChangedWhileSaving) {
+                    actions.resetIntermittentFilters()
+                    actions.resetUrlFilters()
+                }
+                if (!values.canAutoPreview) {
+                    actions.refreshDashboardItems({
+                        action: RefreshDashboardItemsAction.Preview,
+                        forceRefresh: false,
+                    })
+                }
+                if (!values.layoutEditMode && !filtersChangedWhileSaving) {
+                    actions.setDashboardMode(null, DashboardEventSource.DashboardFilters)
+                }
+                lemonToast.success('Dashboard filters saved', {
+                    button: {
+                        label: 'Undo',
+                        dataAttr: 'undo-save-dashboard-filters',
+                        action: () => actions.restoreDashboardFilters(previousFilters, filtersToSave),
+                    },
+                })
+            } catch (e) {
+                actions.saveDashboardFiltersFailure(String(e))
+                lemonToast.error('Could not save dashboard filters: ' + String(e))
             }
+        },
+        restoreDashboardFilters: async ({ filters, expectedFilters }) => {
+            try {
+                if (expectedFilters && !equal(values.dashboard?.persisted_filters || {}, expectedFilters)) {
+                    lemonToast.info('Filters changed after this save. Undo is unavailable.')
+                    return
+                }
+                const filtersBeforeRestore = values.effectiveEditBarFilters
+                const hadUnsavedFilterEdits = !equal(filtersBeforeRestore, values.dashboard?.persisted_filters || {})
+                const dashboard = await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
+                    filters,
+                })
+                actions.saveDashboardFiltersSuccess(getQueryBasedDashboard(dashboard))
+                const filtersChangedWhileRestoring = !equal(values.effectiveEditBarFilters, filtersBeforeRestore)
+                if (!hadUnsavedFilterEdits && !filtersChangedWhileRestoring) {
+                    actions.resetIntermittentFilters()
+                    actions.resetUrlFilters()
+                }
+                actions.refreshDashboardItems({
+                    action: RefreshDashboardItemsAction.Preview,
+                    forceRefresh: false,
+                })
+                lemonToast.success('Dashboard filters restored')
+            } catch (e) {
+                lemonToast.error('Could not restore dashboard filters: ' + String(e))
+            }
+        },
+        discardDashboardFilters: () => {
+            actions.resetIntermittentFilters()
+            actions.resetUrlFilters()
+            actions.refreshDashboardItems({
+                action: RefreshDashboardItemsAction.Preview,
+                forceRefresh: false,
+            })
+        },
+        saveLayout: () => {
+            actions.saveEditModeChanges()
+            actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
         },
         saveEditModeChangesSuccess: ({ dashboard }) => {
             if (dashboard) {

@@ -151,7 +151,7 @@ export function DashboardEditSaveCancelButtons({
     applyFiltersButton?: JSX.Element | null
 }): JSX.Element {
     const { dashboardLoading, canEditDashboard } = useValues(dashboardLogic)
-    const { setDashboardMode, cancelEditMode } = useActions(dashboardLogic)
+    const { cancelEditMode, saveLayout } = useActions(dashboardLogic)
 
     const cancelButton = (
         <LemonButton
@@ -159,7 +159,7 @@ export function DashboardEditSaveCancelButtons({
             type="secondary"
             onClick={() => cancelEditMode()}
             size="small"
-            tooltip="Discard changes and exit edit mode"
+            tooltip="Discard layout changes and exit layout editing"
         >
             Cancel
         </LemonButton>
@@ -169,9 +169,9 @@ export function DashboardEditSaveCancelButtons({
         <LemonButton
             data-attr="dashboard-edit-mode-save"
             type="primary"
-            onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)}
+            onClick={saveLayout}
             size="small"
-            tooltip="Save dashboard"
+            tooltip="Save dashboard layout"
             tooltipPlacement="bottom"
             disabledReason={
                 dashboardLoading
@@ -181,7 +181,7 @@ export function DashboardEditSaveCancelButtons({
                       : 'Not privileged to edit this dashboard'
             }
         >
-            Save
+            Save layout
         </LemonButton>
     )
 
@@ -210,7 +210,7 @@ export function DashboardEditSaveCancelButtons({
             <Shortcut
                 name="SaveDashboard"
                 keybind={[keyBinds.edit, keyBinds.save]}
-                intent="Save dashboard"
+                intent="Save dashboard layout"
                 interaction="click"
                 scope={Scene.Dashboard}
                 disabled={!canEditDashboard}
@@ -223,14 +223,49 @@ export function DashboardEditSaveCancelButtons({
 
 export function EditModeActions(): JSX.Element {
     const { layoutEditMode, tiles, dashboardCustomizeMenuOpen } = useValues(dashboardLogic)
-    const { setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
+    const { setDashboardMode, setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
     const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
 
     return (
         <>
             <DashboardSubscribeButton />
             {layoutEditMode && <DashboardEditSaveCancelButtons />}
-            {dashboardCustomizationEnabled && tiles.length > 0 && (
+            {!layoutEditMode && tiles.length > 0 && (
+                <Shortcut
+                    name="EnterEditMode"
+                    scope={Scene.Dashboard}
+                    keybind={[keyBinds.edit]}
+                    intent="Enter edit mode"
+                    interaction="click"
+                >
+                    <LemonButton
+                        type="secondary"
+                        data-attr="dashboard-edit-mode-button"
+                        onClick={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)}
+                        size="small"
+                        icon={<IconGridMasonry fontSize="16" />}
+                        tooltip="Customize dashboard"
+                        tooltipPlacement="top"
+                        sideAction={
+                            dashboardCustomizationEnabled
+                                ? {
+                                      'data-attr': 'dashboard-edit-layout-customize-dropdown',
+                                      dropdown: {
+                                          closeOnClickInside: false,
+                                          placement: 'bottom-end',
+                                          overlay: (
+                                              <LemonMenuOverlay items={[{ label: () => <DashboardCustomizeMenu /> }]} />
+                                          ),
+                                      },
+                                  }
+                                : undefined
+                        }
+                    >
+                        Customize
+                    </LemonButton>
+                </Shortcut>
+            )}
+            {layoutEditMode && dashboardCustomizationEnabled && tiles.length > 0 && (
                 <LemonMenu
                     items={[{ label: () => <DashboardCustomizeMenu /> }]}
                     closeOnClickInside={false}

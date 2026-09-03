@@ -9,9 +9,6 @@ describe('isDashboardFilterEmpty', () => {
         ['undefined', undefined],
         ['empty object', {}],
         ['only explicitDate false', { explicitDate: false }],
-        ['null date fields + explicitDate false', { date_from: null, date_to: null, explicitDate: false }],
-        ['empty properties array', { properties: [] }],
-        ['filterTestAccounts null', { filterTestAccounts: null }],
         ['ignoreDashboardFilters false', { ignoreDashboardFilters: false }],
     ]
 
@@ -22,6 +19,7 @@ describe('isDashboardFilterEmpty', () => {
     const nonEmptyCases: Array<[string, DashboardFilter | TileFilters]> = [
         ['date_from set', { date_from: '-7d' }],
         ['date_to set', { date_to: '2024-01-01' }],
+        ['date fields explicitly cleared', { date_from: null, date_to: null, explicitDate: false }],
         [
             'non-empty properties',
             {
@@ -35,10 +33,14 @@ describe('isDashboardFilterEmpty', () => {
                 ],
             },
         ],
+        ['properties explicitly cleared', { properties: [] }],
         ['breakdown_filter set', { breakdown_filter: { breakdown: 'browser' } }],
+        ['breakdown_filter explicitly cleared', { breakdown_filter: null }],
         ['interval set', { interval: 'week' }],
+        ['interval explicitly cleared', { interval: null }],
         ['filterTestAccounts forced on', { filterTestAccounts: true }],
         ['filterTestAccounts forced off', { filterTestAccounts: false }],
+        ['filterTestAccounts explicitly cleared', { filterTestAccounts: null }],
         ['ignoreDashboardFilters set', { ignoreDashboardFilters: true }],
     ]
 

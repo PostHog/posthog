@@ -71,15 +71,16 @@ State these decisions before implementation.
 
 Use this checklist as a design gate. Read the linked reference when an item applies.
 
-| Area                   | Check                                                                                       |
-| ---------------------- | ------------------------------------------------------------------------------------------- |
-| Access                 | [RBAC, sharing, and embeds](references/access-sharing-and-embeds.md)                        |
-| Filter state           | [Filters, variables, and tile overrides](references/filters-variables-and-overrides.md)     |
-| Data and scale         | [Querying, caching, and scale](references/querying-caching-and-scale.md)                    |
-| Layout and templates   | [Layout, responsive behavior, and templates](references/layout-responsive-and-templates.md) |
-| Backend and operations | [Backend contracts and operations](references/backend-contracts-and-operations.md)          |
-| Feature lifecycle      | [Feature lifecycle and rollout](references/feature-lifecycle-and-rollout.md)                |
-| New state or relation  | [Data models and collaboration](references/data-models-and-collaboration.md)                |
+| Area                   | Check                                                                                           |
+| ---------------------- | ----------------------------------------------------------------------------------------------- |
+| Access                 | [RBAC, sharing, and embeds](references/access-sharing-and-embeds.md)                            |
+| Filter state           | [Filters, variables, and tile overrides](references/filters-variables-and-overrides.md)         |
+| Filter editing UX      | [Explicit filter editing and temporary views](references/filter-editing-and-temporary-views.md) |
+| Data and scale         | [Querying, caching, and scale](references/querying-caching-and-scale.md)                        |
+| Layout and templates   | [Layout, responsive behavior, and templates](references/layout-responsive-and-templates.md)     |
+| Backend and operations | [Backend contracts and operations](references/backend-contracts-and-operations.md)              |
+| Feature lifecycle      | [Feature lifecycle and rollout](references/feature-lifecycle-and-rollout.md)                    |
+| New state or relation  | [Data models and collaboration](references/data-models-and-collaboration.md)                    |
 
 ## 4. Implement across layers
 
