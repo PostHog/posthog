@@ -209,8 +209,8 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
             if 200 <= response.status_code < 300:
                 try:
                     payload = response.json()
-                    token = payload.get("token")
-                except (ValueError, AttributeError):
+                    token = payload["token"]
+                except (ValueError, TypeError, KeyError):
                     payload, token = {}, None
                 if token:
                     if allowed_models and not payload.get("allowed_models"):
@@ -618,78 +618,80 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     # Per-run credential, not in the worker env — scrub it explicitly wherever sandbox output
     # is persisted or raised (_llm_env_secrets only covers worker-env values).
     gateway_token = environment["AI_GATEWAY_API_KEY"]
-    config = SandboxConfig(
-        name=f"stamphog-review-{run.id}",
-        template=SandboxTemplate.SLIM_BASE,
-        metadata={"review_run_id": str(run.id)},
-        environment_variables=environment,
-        outbound_domain_allowlist=_sandbox_egress_allowlist(environment["AI_GATEWAY_URL"]),
-    )
-    # The steps above cost nothing and keep their own exception type. From here the run makes a
-    # sandbox and can run the reviewer, so failures raise SandboxPhaseError, which the retry policy
-    # excludes. Both statements stay outside the try below, so the refusal keeps its own type and a
-    # failed write stays retryable.
-    #
-    # Temporal applies the start-to-close timeout and retries a lost worker. Neither path raises a
-    # type this code can mark, so the claim is what stops a second sandbox. Read it from the writer,
-    # because a stalled attempt holds a copy from before its replacement wrote. Read and then write
-    # is not atomic: two attempts in the same instant both pass. A column and a conditional update
-    # would close that.
-    latest_output = (
-        ReviewRun.objects.for_team(input.team_id)
-        .using(router.db_for_write(ReviewRun))
-        .filter(id=run.id)
-        .values_list("output", flat=True)
-        .first()
-    ) or {}
-    if latest_output.get("sandbox_started_at"):
-        _release_reviewer_token(gateway, gateway_token)
-        raise SandboxPhaseError("an earlier attempt already provisioned a sandbox for this run")
-    run.output = {**latest_output, "sandbox_started_at": timezone.now().isoformat()}
-    run.save(update_fields=["output", "updated_at"])
-
+    # Every path from here releases the token, including a failed claim read or save.
     try:
-        sandbox = sandbox_class.create(config)
-        try:
-            _clone_pr(sandbox, repo, base_sha, run.head_sha, run.pull_request.pr_number, token)
-            _inject_policy_files(sandbox, policy_files)
-            _ship_engine(sandbox)
-            _write_context(sandbox, invocation)
-
-            command = f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {_harden_reviewer_command(invocation.command)}"
-            result = sandbox.execute(command, timeout_seconds=25 * 60)
-        finally:
-            # A destroy failure must not mask a completed review — the verdict below still has to be
-            # persisted and posted. An orphaned sandbox self-terminates when SandboxConfig.ttl_seconds expires.
-            try:
-                sandbox.destroy()
-            except Exception:
-                activity.logger.exception(f"Failed to destroy sandbox for run {run.id}")
-
-        # Scrub stdout before persisting: it can echo the LLM keys the sandbox holds, and it is
-        # both stored on run.output and re-read verbatim to render the verdict posted to GitHub.
-        run.output = {
-            **(run.output or {}),
-            "reviewer_raw": _scrub_credentials(result.stdout, token, gateway_token),
-            "reviewer_exit_code": result.exit_code,
-        }
+        config = SandboxConfig(
+            name=f"stamphog-review-{run.id}",
+            template=SandboxTemplate.SLIM_BASE,
+            metadata={"review_run_id": str(run.id)},
+            environment_variables=environment,
+            outbound_domain_allowlist=_sandbox_egress_allowlist(environment["AI_GATEWAY_URL"]),
+        )
+        # The steps above cost nothing and keep their own exception type. From here the run makes a
+        # sandbox and can run the reviewer, so failures raise SandboxPhaseError, which the retry policy
+        # excludes. Both statements stay outside the try below, so the refusal keeps its own type and a
+        # failed write stays retryable.
+        #
+        # Temporal applies the start-to-close timeout and retries a lost worker. Neither path raises a
+        # type this code can mark, so the claim is what stops a second sandbox. Read it from the writer,
+        # because a stalled attempt holds a copy from before its replacement wrote. Read and then write
+        # is not atomic: two attempts in the same instant both pass. A column and a conditional update
+        # would close that.
+        latest_output = (
+            ReviewRun.objects.for_team(input.team_id)
+            .using(router.db_for_write(ReviewRun))
+            .filter(id=run.id)
+            .values_list("output", flat=True)
+            .first()
+        ) or {}
+        if latest_output.get("sandbox_started_at"):
+            raise SandboxPhaseError("an earlier attempt already provisioned a sandbox for this run")
+        run.output = {**latest_output, "sandbox_started_at": timezone.now().isoformat()}
         run.save(update_fields=["output", "updated_at"])
 
-        if result.exit_code != 0:
-            # The reviewer reads an untrusted PR head, so its stderr can contain repository content.
-            # This message reaches run.error, so keep the stderr in the worker log only.
-            activity.logger.error(
-                f"Reviewer exited with code {result.exit_code} for run {run.id}: "
-                f"{_scrub_credentials(result.stderr, token, gateway_token)[:500]}"
-            )
-            raise RuntimeError(f"reviewer exited with code {result.exit_code}")
-    except Exception as exc:
-        # Give the type only. Every step in this phase touches the sandbox, and anyone with
-        # stamphog:read can read run.error without access to the repository. The setup phase above
-        # keeps its text, because it fails on our own infrastructure and must stay diagnosable.
-        raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
+        try:
+            sandbox = sandbox_class.create(config)
+            try:
+                _clone_pr(sandbox, repo, base_sha, run.head_sha, run.pull_request.pr_number, token)
+                _inject_policy_files(sandbox, policy_files)
+                _ship_engine(sandbox)
+                _write_context(sandbox, invocation)
+
+                command = (
+                    f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {_harden_reviewer_command(invocation.command)}"
+                )
+                result = sandbox.execute(command, timeout_seconds=25 * 60)
+            finally:
+                # A destroy failure must not mask a completed review — the verdict below still has to be
+                # persisted and posted. An orphaned sandbox self-terminates when SandboxConfig.ttl_seconds expires.
+                try:
+                    sandbox.destroy()
+                except Exception:
+                    activity.logger.exception(f"Failed to destroy sandbox for run {run.id}")
+
+            # Scrub stdout before persisting: it can echo the LLM keys the sandbox holds, and it is
+            # both stored on run.output and re-read verbatim to render the verdict posted to GitHub.
+            run.output = {
+                **(run.output or {}),
+                "reviewer_raw": _scrub_credentials(result.stdout, token, gateway_token),
+                "reviewer_exit_code": result.exit_code,
+            }
+            run.save(update_fields=["output", "updated_at"])
+
+            if result.exit_code != 0:
+                # The reviewer reads an untrusted PR head, so its stderr can contain repository content.
+                # This message reaches run.error, so keep the stderr in the worker log only.
+                activity.logger.error(
+                    f"Reviewer exited with code {result.exit_code} for run {run.id}: "
+                    f"{_scrub_credentials(result.stderr, token, gateway_token)[:500]}"
+                )
+                raise RuntimeError(f"reviewer exited with code {result.exit_code}")
+        except Exception as exc:
+            # Give the type only. Every step in this phase touches the sandbox, and anyone with
+            # stamphog:read can read run.error without access to the repository. The setup phase above
+            # keeps its text, because it fails on our own infrastructure and must stay diagnosable.
+            raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
     finally:
-        # The sandbox is gone on every path out of the block above; its token goes with it.
         _release_reviewer_token(gateway, gateway_token)
 
     activity.logger.info(f"Reviewer completed for run {run.id}")

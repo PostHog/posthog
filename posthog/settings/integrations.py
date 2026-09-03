@@ -80,7 +80,8 @@ STAMPHOG_GITHUB_APP_SLUG = get_from_env("STAMPHOG_GITHUB_APP_SLUG", "")
 # when a legitimate dependency host is missing — never a way to open the sandbox wide.
 STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS = get_list(get_from_env("STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS", ""))
 # Models the reviewer's per-run gateway token may call, comma-separated; empty leaves the token
-# unpinned. Pin every model the Agent SDK uses in a review, including its small utility model.
+# unpinned. Set per region in charts (temporal-worker-stamphog); pin every model the Agent SDK
+# uses in a review, including its small utility model.
 STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS = get_list(get_from_env("STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS", ""))
 # The in-product "Publish to community" flow runs as its own dedicated GitHub App, installed on the
 # PostHog/community-skills repo alone. It does not fall back to the core GITHUB_APP_* App above,
