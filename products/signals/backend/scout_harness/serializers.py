@@ -49,7 +49,11 @@ from products.signals.backend.scout_harness.tools.emit import (
     MAX_TAGS_PER_FINDING,
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
-from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
+from products.signals.backend.scout_harness.tools.report import (
+    MAX_REPORT_SUMMARY_LENGTH,
+    MAX_REPORT_TITLE_LENGTH,
+    MAX_SUGGESTED_REVIEWERS,
+)
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_FINDINGS_WINDOW_HOURS,
     DEFAULT_RUNS_PER_SCOUT,
@@ -1210,9 +1214,10 @@ class EmitReportRequestSerializer(serializers.Serializer):
         child=serializers.CharField(max_length=MAX_SUGGESTED_PROMPT_LENGTH),
         max_length=MAX_SUGGESTED_PROMPTS,
         help_text=(
-            "Optional follow-up questions to offer above the report's `Ask AI` box. The reader clicks "
-            "one to fill the box with it, then sends or edits it. Write the questions your own research "
-            "left open, phrased as the reader would ask them."
+            "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or "
+            "next-step actions to request (e.g. carrying out the report's recommendation). The reader "
+            "clicks one to fill the box with it, then sends or edits it. Write the prompts your own "
+            "research left open, phrased as the reader would send them."
         ),
     )
 
@@ -1263,6 +1268,7 @@ class EditReportRequestSerializer(serializers.Serializer):
     summary = serializers.CharField(
         required=False,
         allow_null=True,
+        max_length=MAX_REPORT_SUMMARY_LENGTH,
         help_text=(
             "Optional new summary. Markdown is supported (headings, lists, code, links; images are not "
             "rendered); lead with one plain declarative sentence — it becomes the inbox card headline. "
@@ -1274,6 +1280,7 @@ class EditReportRequestSerializer(serializers.Serializer):
     append_note = serializers.CharField(
         required=False,
         allow_null=True,
+        max_length=MAX_NOTE_CONTENT_LENGTH,
         help_text="Optional free-form note to append to the report's work log (attributed to this scout).",
     )
     suggested_reviewers = serializers.ListField(
@@ -1305,11 +1312,11 @@ class EditReportRequestSerializer(serializers.Serializer):
         child=serializers.CharField(max_length=MAX_SUGGESTED_PROMPT_LENGTH),
         max_length=MAX_SUGGESTED_PROMPTS,
         help_text=(
-            "The full set of follow-up questions the report should offer above its `Ask AI` box. "
-            "Replaces the report's questions rather than adding to them, so send every one you want "
-            "kept. Omit the field (or send null) to leave them untouched, and send an empty list to "
-            "take them down, which is what you want once a rewrite has left them answering the old "
-            "report."
+            "The full set of follow-up prompts (questions or next-step actions) the report should "
+            "offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, "
+            "so send every one you want kept. Omit the field (or send null) to leave them untouched, "
+            "and send an empty list to take them down, which is what you want once a rewrite has "
+            "left them pointing at the old report."
         ),
     )
 
@@ -1333,7 +1340,7 @@ class EditReportResponseSerializer(serializers.Serializer):
     suggested_prompts_set = serializers.IntegerField(
         allow_null=True,
         help_text=(
-            "How many questions the report now suggests, or null if the edit left them as they were "
+            "How many prompts the report now suggests, or null if the edit left them as they were "
             "(the field omitted, or a re-send of what was already stored). 0 means the edit took the "
             "report's suggested prompts down."
         ),

@@ -36,6 +36,10 @@ import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggre
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
+import {
+    TaskAgentMyPreferenceSettings,
+    TaskAgentProjectDefaultSettings,
+} from 'scenes/settings/environment/TaskAgentDefaultsSettings'
 import { OrganizationMCPAccess } from 'scenes/settings/organization/OrganizationMCPAccess'
 import { urls } from 'scenes/urls'
 
@@ -135,13 +139,7 @@ import {
 } from './environment/SessionRecordingSettings'
 import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
-import {
-    TeamAuthorizedURLs,
-    TeamBusinessModel,
-    TeamDisplayName,
-    TeamTimezone,
-    TeamVariables,
-} from './environment/TeamSettings'
+import { TeamAuthorizedURLs, TeamBusinessModel, TeamTimezone, TeamVariables } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
@@ -167,6 +165,7 @@ import { OrganizationVariables } from './organization/OrgVariables'
 import { EnforceVerifiedDomains } from './organization/VerifiedDomains/EnforceVerifiedDomains'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
+import { ProjectDetails } from './project/ProjectDetails'
 import { ProjectMove } from './project/ProjectMove'
 import { ProjectSecretAPIKeys } from './project/ProjectSecretAPIKeys'
 import { SettingSection } from './types'
@@ -284,10 +283,10 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'display-name',
-                title: 'Display name',
-                description: 'A human-friendly name for this environment.',
-                component: <TeamDisplayName />,
-                keywords: ['name', 'rename', 'label'],
+                title: 'Project details',
+                description: 'Name this project and label it so you can group and find it across your organization.',
+                component: <ProjectDetails />,
+                keywords: ['name', 'rename', 'label', 'tag', 'tags'],
             },
             {
                 id: 'date-and-time',
@@ -347,6 +346,30 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'See the latest PostHog AI features and control whether the changelog appears in the main UI.',
                 component: <MaxChangelogSettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-task-agents',
+        title: 'Task agents',
+        group: 'AI',
+        settings: [
+            {
+                id: 'task-agent-project-default',
+                title: 'Project default model',
+                description:
+                    'The model agent runs launch with when nobody picks one. Everyone on this project inherits it, for runs started from the task composer, Slack, and PostHog Desktop.',
+                component: <TaskAgentProjectDefaultSettings />,
+                keywords: ['ai', 'model', 'claude', 'codex', 'agent', 'tasks', 'default'],
+            },
+            {
+                id: 'task-agent-my-preference',
+                title: 'My default model',
+                description:
+                    'The model your own runs launch with, overriding the project default. Applies everywhere in PostHog: the task composer, Slack, and PostHog Desktop.',
+                component: <TaskAgentMyPreferenceSettings />,
+                keywords: ['ai', 'model', 'claude', 'codex', 'agent', 'tasks', 'preference'],
             },
         ],
     },

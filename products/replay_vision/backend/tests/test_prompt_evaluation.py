@@ -605,7 +605,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
     def test_in_flight_reservation_prices_from_the_frozen_model(self) -> None:
         # Receipts bill the model frozen at workflow start. Pricing the reservation from the scanner's
         # current model instead lets an edit mid-run silently re-price committed spend.
-        expensive, cheap = ScannerModel.GEMINI_3_7_FLASH, ScannerModel.GEMINI_3_5_FLASH_LITE
+        expensive, cheap = ScannerModel.GEMINI_3_8_FLASH, ScannerModel.GEMINI_3_5_FLASH_LITE
         scanner = self._create_scanner(name="frozen-model", model=expensive)
         ReplayScannerPromptSuggestion.objects.create(
             scanner=scanner,
@@ -624,7 +624,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
 
     def test_per_scanner_reservation_prices_from_the_frozen_model(self) -> None:
         # The per-scanner split must price like the org total: from the model frozen at workflow start.
-        expensive, cheap = ScannerModel.GEMINI_3_7_FLASH, ScannerModel.GEMINI_3_5_FLASH_LITE
+        expensive, cheap = ScannerModel.GEMINI_3_8_FLASH, ScannerModel.GEMINI_3_5_FLASH_LITE
         scanner = self._create_scanner(name="frozen-model-per-scanner", model=expensive)
         ReplayScannerPromptSuggestion.objects.create(
             scanner=scanner,

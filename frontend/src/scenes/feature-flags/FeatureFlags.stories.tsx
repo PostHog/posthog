@@ -9,6 +9,8 @@ import { mswDecorator } from '~/mocks/browser'
 import featureFlags from './__mocks__/feature_flags.json'
 import { featureFlagLogic } from './featureFlagLogic'
 
+const STALE_FLAG_ID = 1498
+
 const meta: Meta = {
     component: App,
     tags: ['ff'],
@@ -34,17 +36,51 @@ const meta: Meta = {
                         detail: 'Not found.',
                     },
                 ],
-                '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => [
-                    200,
-                    featureFlags.results.find((r) => r.id === Number(params['flagId'])),
-                ],
-                '/api/projects/:team_id/feature_flags/:flagId/status': () => [
-                    200,
-                    {
-                        status: 'active',
-                        reason: 'Feature flag is active',
-                    },
-                ],
+                '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => {
+                    const flag = featureFlags.results.find((r) => r.id === Number(params['flagId']))
+                    if (flag?.id !== STALE_FLAG_ID) {
+                        return [200, flag]
+                    }
+                    // A flag that stopped being called but still gates 40% of users. That is the
+                    // case the stale banner exists for, because "stale" reads most easily as "safe
+                    // to delete" when the flag is still live for real users.
+                    return [
+                        200,
+                        {
+                            ...flag,
+                            last_called_at: '2022-12-14T00:00:00Z',
+                            filters: { ...flag.filters, groups: [{ properties: [], rollout_percentage: 40 }] },
+                        },
+                    ]
+                },
+                '/api/projects/:team_id/feature_flags/:flagId/status': ({ params }) =>
+                    Number(params['flagId']) === STALE_FLAG_ID
+                        ? [
+                              200,
+                              {
+                                  status: 'stale',
+                                  reason: 'Flag has not been called in 45 days',
+                                  rollout: {
+                                      effectively_full_rollout: false,
+                                      has_targeting_conditions: false,
+                                      max_rollout_percentage: 40,
+                                      is_multivariate: false,
+                                  },
+                              },
+                          ]
+                        : [
+                              200,
+                              {
+                                  status: 'active',
+                                  reason: 'Feature flag is active',
+                                  rollout: {
+                                      effectively_full_rollout: false,
+                                      has_targeting_conditions: false,
+                                      max_rollout_percentage: 50,
+                                      is_multivariate: false,
+                                  },
+                              },
+                          ],
                 '/api/environments/:team_id/default_evaluation_contexts/': {
                     default_evaluation_contexts: [],
                     available_contexts: [],
@@ -92,6 +128,12 @@ export const EditRemoteConfigFeatureFlag: Story = {
 export const EditEncryptedRemoteConfigFeatureFlag: Story = {
     parameters: {
         pageUrl: urls.featureFlag(1739),
+    },
+}
+
+export const StaleFeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(STALE_FLAG_ID),
     },
 }
 
