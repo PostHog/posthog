@@ -19,6 +19,7 @@ from posthog.temporal.ai.anomaly_investigation.workflow import (
     investigate_anomaly_activity,
 )
 
+from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.models.alert import (
     AlertCheck,
     AlertConfiguration,
@@ -251,7 +252,10 @@ class TestVerdictChangeFollowup(NonAtomicBaseTest):
             ("verdict_held", "true_positive", "notify", False),
         ]
     )
-    @patch("posthog.temporal.ai.anomaly_investigation.workflow.dispatch_alert_notification", return_value=[])
+    @patch(
+        "posthog.temporal.ai.anomaly_investigation.workflow.dispatch_alert_notification",
+        return_value=[AlertDelivery(channel="hog_function", target="Slack #alerts", at="2026-04-30T06:00:00+00:00")],
+    )
     def test_follow_up_after_a_true_positive(
         self,
         _name: str,
@@ -299,3 +303,17 @@ class TestVerdictChangeFollowup(NonAtomicBaseTest):
         campaign_key = mock_send_email.call_args.kwargs["campaign_key"]
         assert campaign_key != f"alert-firing-notification-{self.alert_check.id}"
         assert str(self.alert_check.id) in campaign_key
+
+    @patch("posthog.temporal.ai.anomaly_investigation.workflow.dispatch_alert_notification", return_value=[])
+    def test_follow_up_stays_unmarked_when_no_destination_accepts(self, _mock_dispatch) -> None:
+        _deliver_investigation_outcome(
+            alert=self.alert,
+            alert_check=self.alert_check,
+            verdict="false_positive",
+            previous_verdict="true_positive",
+            summary="The spike is a bot crawl.",
+            notebook_short_id=None,
+        )
+
+        self.alert_check.refresh_from_db()
+        assert self.alert_check.targets_notified == {}

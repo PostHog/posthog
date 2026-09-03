@@ -599,7 +599,8 @@ def _dispatch_verdict_change_followup(
     who asked not to hear about unsure verdicts did not ask to hear about them here.
 
     Caller holds the row lock. The marker on `targets_notified` is the idempotency guard, so
-    an activity retry past a successful send cannot notify twice.
+    an activity retry past a successful send cannot notify twice. It is written only once a
+    destination accepts the send, so a failed enqueue leaves the follow-up retryable.
     """
     if not previous_verdict or verdict == previous_verdict:
         return
@@ -622,13 +623,26 @@ def _dispatch_verdict_change_followup(
     # A key of its own: the check id already carries a delivery record per recipient from
     # the notification sent at fire time, and the email sender drops a second send under the
     # same campaign. Stable across retries, so at-most-once per recipient still holds.
-    dispatch_alert_notification(
+    deliveries = dispatch_alert_notification(
         alert,
         check,
         breaches,
         extra_properties=extra_properties,
         idempotency_key=f"{check.id}:investigation-verdict-change",
     )
+    if not deliveries:
+        # A failed enqueue and an alert with no destinations look the same from here, so
+        # leave the marker unset. A later attempt can then send again, and an alert with no
+        # destination has nothing to re-send. Marking it would lose the follow-up for good:
+        # no sweep picks up a check whose notification already went out.
+        logger.warning(
+            "anomaly_investigation.verdict_change_followup_not_delivered",
+            alert_id=str(alert.id),
+            alert_check_id=str(check.id),
+            verdict=verdict,
+            previous_verdict=previous_verdict,
+        )
+        return
     check.targets_notified = {**receipts, _VERDICT_CHANGE_FOLLOWUP_KEY: True}
     check.save(update_fields=["targets_notified"])
     logger.info(
