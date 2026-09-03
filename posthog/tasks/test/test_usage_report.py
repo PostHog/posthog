@@ -3328,6 +3328,28 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "logs_retention_mb_days_in_period": 0,
                 },
             ),
+            # Per-tier metrics run in parallel with byte-days: 2 GB at 30 days + 1 GB at 14 days.
+            # Tier MB report per tier; byte-days = 2_000*30 + 1_000*14 = 74_000 MB-days.
+            (
+                "per_tier_and_byte_days_in_parallel",
+                {
+                    "bytes_ingested": 3_000_000_000,
+                    "bytes_ingested_retention_30d": 2_000_000_000,
+                    "bytes_ingested_retention_14d": 1_000_000_000,
+                    "retention_byte_days": 74_000_000_000,
+                    "records_ingested": 1500,
+                },
+                {
+                    "logs_bytes_in_period": 3_000_000_000,
+                    "logs_records_in_period": 1500,
+                    "logs_mb_in_period": 3000,
+                    "logs_and_traces_mb_in_period": 3000,
+                    "logs_retention_14d_mb_in_period": 1000,
+                    "logs_retention_30d_mb_in_period": 2000,
+                    "logs_retention_90d_mb_in_period": 0,
+                    "logs_retention_mb_days_in_period": 74_000,
+                },
+            ),
         ]
     )
     @patch("posthog.tasks.usage_report.get_ph_client")

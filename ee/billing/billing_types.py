@@ -33,6 +33,7 @@ UsageType = Literal[
     "workflow_emails_sent_in_period",
     "workflow_billable_invocations_in_period",
     "logs_mb_in_period",
+    "logs_retention_30d_mb_in_period",
     "logs_retention_mb_days_in_period",
     "replay_vision_credits_used_in_period",
     "data_pipelines",
@@ -77,6 +78,7 @@ USAGE_TYPE_OPTIONS: tuple[UsageTypeOption, ...] = (
     {"label": "Workflow emails", "value": "workflow_emails_sent_in_period"},
     {"label": "Workflow destinations", "value": "workflow_billable_invocations_in_period"},
     {"label": "Logs ingested (MB)", "value": "logs_mb_in_period"},
+    {"label": "Logs 30-day retention (MB)", "value": "logs_retention_30d_mb_in_period"},
     {"label": "Logs retention (MB-days)", "value": "logs_retention_mb_days_in_period"},
 )
 

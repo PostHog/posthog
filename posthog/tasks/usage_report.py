@@ -355,6 +355,13 @@ class UsageReportCounters:
     logs_bytes_in_period: int
     logs_records_in_period: int
     logs_mb_in_period: int
+    # MB ingested while each retention tier was active. A team that changes retention mid-period has
+    # bytes under more than one tier. Each tier is floored to whole MB independently (bytes // 1_000_000),
+    # so the tiers sum to at most logs_mb_in_period and usually slightly less. Emitted in parallel with
+    # logs_retention_mb_days_in_period while billing moves off fixed tiers.
+    logs_retention_14d_mb_in_period: int
+    logs_retention_30d_mb_in_period: int
+    logs_retention_90d_mb_in_period: int
     # Byte-days of retention, floored to whole MB-days (retention_byte_days // 1_000_000). Ingested bytes
     # weighted by how many days they are retained, so it scales to any retention day count. Report-only,
     # like logs_mb_in_period. Average retention days = logs_retention_mb_days_in_period / logs_mb_in_period.
@@ -2509,6 +2516,47 @@ def get_teams_with_logs_bytes_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_logs_retention_bytes_in_period(
+    begin: datetime,
+    end: datetime,
+) -> dict[str, list[tuple[int, int]]]:
+    """
+    Returns log bytes ingested while each retention tier (14d/30d/90d) was active, grouped by team.
+
+    The logs-ingestion consumer emits a per-tier `bytes_ingested_retention_{14,30,90}d` metric into
+    `app_metrics2` alongside the total `bytes_ingested`. Result is keyed by the short tier suffix
+    used on `UsageReportCounters` (`14d`, `30d`, `90d`); each value is a list of `(team_id, count)`
+    tuples ready for `convert_team_usage_rows_to_dict`. Emitted in parallel with `retention_byte_days`
+    (see `get_teams_with_logs_retention_byte_days_in_period`) while billing moves off fixed tiers.
+    """
+    with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
+        rows = sync_execute(
+            """
+            SELECT team_id, metric_name, SUM(count) as count
+            FROM app_metrics2
+            WHERE app_source='logs'
+              AND metric_name IN (
+                  'bytes_ingested_retention_14d', 'bytes_ingested_retention_30d', 'bytes_ingested_retention_90d'
+              )
+              AND timestamp >= %(begin)s AND timestamp < %(end)s
+            GROUP BY team_id, metric_name
+        """,
+            {"begin": begin, "end": end},
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
+        )
+
+    by_tier: dict[str, list[tuple[int, int]]] = {"14d": [], "30d": [], "90d": []}
+    for team_id, metric_name, count in rows:
+        suffix = metric_name.removeprefix("bytes_ingested_retention_")
+        if suffix in by_tier:
+            by_tier[suffix].append((team_id, count))
+    return by_tier
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_logs_retention_byte_days_in_period(
     begin: datetime,
     end: datetime,
@@ -2822,6 +2870,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     sdk_logs_by_suffix = get_teams_with_sdk_logs_records_in_period(
         period_start, period_end, team_ids_with_logs=team_ids_with_logs
     )
+    logs_retention_by_tier = get_teams_with_logs_retention_bytes_in_period(period_start, period_end)
     logs_retention_byte_days_rows = get_teams_with_logs_retention_byte_days_in_period(period_start, period_end)
     apm_tracing_usage = get_teams_with_apm_tracing_usage_in_period(period_start, period_end)
     exception_metrics_by_library, exception_metrics = get_teams_with_exceptions_captured_in_period(
@@ -3093,6 +3142,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_logs_bytes_in_period": get_teams_with_logs_bytes_in_period(period_start, period_end),
+        "teams_with_logs_retention_14d_bytes_in_period": logs_retention_by_tier["14d"],
+        "teams_with_logs_retention_30d_bytes_in_period": logs_retention_by_tier["30d"],
+        "teams_with_logs_retention_90d_bytes_in_period": logs_retention_by_tier["90d"],
         "teams_with_logs_retention_byte_days_in_period": logs_retention_byte_days_rows,
         "teams_with_logs_records_in_period": logs_records_rows,
         "teams_with_web_logs_records_in_period": sdk_logs_by_suffix["web"],
@@ -3327,6 +3379,15 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         logs_bytes_in_period=logs_bytes_in_period,
         logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
         logs_mb_in_period=int(logs_bytes_in_period // 1_000_000),
+        logs_retention_14d_mb_in_period=int(
+            all_data["teams_with_logs_retention_14d_bytes_in_period"].get(team.id, 0) // 1_000_000
+        ),
+        logs_retention_30d_mb_in_period=int(
+            all_data["teams_with_logs_retention_30d_bytes_in_period"].get(team.id, 0) // 1_000_000
+        ),
+        logs_retention_90d_mb_in_period=int(
+            all_data["teams_with_logs_retention_90d_bytes_in_period"].get(team.id, 0) // 1_000_000
+        ),
         logs_retention_mb_days_in_period=int(
             all_data["teams_with_logs_retention_byte_days_in_period"].get(team.id, 0) // 1_000_000
         ),

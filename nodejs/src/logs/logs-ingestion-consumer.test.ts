@@ -1446,7 +1446,8 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            expect(messages).toHaveLength(8)
+            // 7 base metrics + the per-tier retention metric + retention_byte_days, emitted in parallel.
+            expect(messages).toHaveLength(9)
 
             const metricNames = messages.map((m) => parseMetricValue(m.value)?.metric_name)
             expect(metricNames).toContain('bytes_received')
@@ -1456,6 +1457,7 @@ describe('LogsIngestionConsumer', () => {
             expect(metricNames).toContain('records_ingested')
             expect(metricNames).toContain('bytes_dropped')
             expect(metricNames).toContain('records_dropped')
+            expect(metricNames).toContain('bytes_ingested_retention_30d')
             expect(metricNames).toContain('retention_byte_days')
 
             const retentionByteDays = messages
@@ -1464,9 +1466,14 @@ describe('LogsIngestionConsumer', () => {
             expect(retentionByteDays?.count).toBe(800 * 30)
         })
 
-        it.each([{ retentionDays: 14 }, { retentionDays: 30 }, { retentionDays: 90 }, { retentionDays: 45 }])(
-            'should emit retention_byte_days as bytes_ingested * $retentionDays for any day count',
-            async ({ retentionDays }) => {
+        it.each([
+            { retentionDays: 14, tierMetric: 'bytes_ingested_retention_14d' },
+            { retentionDays: 30, tierMetric: 'bytes_ingested_retention_30d' },
+            { retentionDays: 90, tierMetric: 'bytes_ingested_retention_90d' },
+            { retentionDays: 45, tierMetric: null },
+        ])(
+            'should emit retention_byte_days as bytes_ingested * $retentionDays alongside the per-tier metric',
+            async ({ retentionDays, tierMetric }) => {
                 const usageStats = new Map([
                     [
                         team.id,
@@ -1487,13 +1494,18 @@ describe('LogsIngestionConsumer', () => {
                 await consumer['emitUsageMetrics'](usageStats)
 
                 const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
-                const retentionMetric = messages
-                    .map((m) => parseMetricValue(m.value))
-                    .find((m) => m?.metric_name === 'retention_byte_days')
+                const parsed = messages.map((m) => parseMetricValue(m.value))
 
-                expect(retentionMetric?.count).toBe(500 * retentionDays)
-                const metricNames = messages.map((m) => parseMetricValue(m.value)?.metric_name)
-                expect(metricNames.some((name) => name?.startsWith('bytes_ingested_retention_'))).toBe(false)
+                expect(parsed.find((m) => m?.metric_name === 'retention_byte_days')?.count).toBe(500 * retentionDays)
+
+                const tierMetrics = parsed.filter((m) => m?.metric_name?.startsWith('bytes_ingested_retention_'))
+                if (tierMetric) {
+                    expect(tierMetrics).toHaveLength(1)
+                    expect(tierMetrics[0]?.metric_name).toBe(tierMetric)
+                    expect(tierMetrics[0]?.count).toBe(500)
+                } else {
+                    expect(tierMetrics).toHaveLength(0)
+                }
             }
         )
 
@@ -1519,11 +1531,12 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            // 4 non-zero base metrics (no dropped) + 1 retention_byte_days row
-            expect(messages).toHaveLength(5)
+            // 4 non-zero base metrics (no dropped) + per-tier retention + retention_byte_days rows
+            expect(messages).toHaveLength(6)
             const metricNames = messages.map((m) => parseMetricValue(m.value)?.metric_name)
             expect(metricNames).not.toContain('bytes_dropped')
             expect(metricNames).not.toContain('records_dropped')
+            expect(metricNames).toContain('bytes_ingested_retention_14d')
             expect(metricNames).toContain('retention_byte_days')
         })
 
@@ -1573,13 +1586,13 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            // 4 base metrics + 1 retention_byte_days per team (no dropped) = 10 total
-            expect(messages).toHaveLength(10)
+            // 4 base metrics + per-tier retention + retention_byte_days per team (no dropped) = 12 total
+            expect(messages).toHaveLength(12)
 
             const team1Messages = messages.filter((m) => parseMetricValue(m.value)?.team_id === team.id)
             const team2Messages = messages.filter((m) => parseMetricValue(m.value)?.team_id === team2.id)
-            expect(team1Messages).toHaveLength(5)
-            expect(team2Messages).toHaveLength(5)
+            expect(team1Messages).toHaveLength(6)
+            expect(team2Messages).toHaveLength(6)
         })
     })
 

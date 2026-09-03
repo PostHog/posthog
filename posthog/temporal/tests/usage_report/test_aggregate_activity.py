@@ -106,6 +106,12 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
             "flutter": [],
             "ruby": [(team_a_id, 7)],
         }
+    if query_name == "logs_retention_bytes":
+        return {
+            "14d": [(team_a_id, 1_000)],
+            "30d": [(team_b_id, 2_000)],
+            "90d": [],
+        }
     if query_name == "apm_tracing_usage":
         # Distinct bytes/spans values so a bytes<->spans mapping swap fails the
         # assertions instead of passing silently. 2_500_000 bytes floors to 2 MB.

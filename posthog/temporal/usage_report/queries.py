@@ -74,6 +74,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_logs_bytes_in_period,
     get_teams_with_logs_records_in_period,
     get_teams_with_logs_retention_byte_days_in_period,
+    get_teams_with_logs_retention_bytes_in_period,
     get_teams_with_mobile_billable_recording_count_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
@@ -552,6 +553,16 @@ QUERIES: list[QuerySpec] = [
             "android": "teams_with_android_logs_records_in_period",
             "flutter": "teams_with_flutter_logs_records_in_period",
             "ruby": "teams_with_ruby_logs_records_in_period",
+        },
+    ),
+    QuerySpec(
+        name="logs_retention_bytes",
+        fn=get_teams_with_logs_retention_bytes_in_period,
+        output="multi",
+        multi_keys_mapping={
+            "14d": "teams_with_logs_retention_14d_bytes_in_period",
+            "30d": "teams_with_logs_retention_30d_bytes_in_period",
+            "90d": "teams_with_logs_retention_90d_bytes_in_period",
         },
     ),
     QuerySpec(
