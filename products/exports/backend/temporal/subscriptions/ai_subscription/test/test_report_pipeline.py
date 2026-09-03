@@ -6,7 +6,6 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
-from rest_framework.exceptions import APIException
 
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
 
@@ -28,6 +27,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipe
     _all_queries_failed_notice,
     _arequest_hogql_fix,
     _plan_to_freeze,
+    _query_repair_hint_and_plan_invalidation,
     _run_steps,
     generate_ai_report,
 )
@@ -47,7 +47,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 )
 from products.exports.backend.temporal.subscriptions.types import safe_error_message
 
-from ee.hogai.context.insight.query_executor import FormattedQueryResult
+from ee.hogai.context.insight.query_executor import FormattedQueryResult, _query_status_error
 from ee.hogai.tool_errors import MaxToolRetryableError
 
 _RP = "products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline"
@@ -424,7 +424,7 @@ async def test_run_steps_preserves_plan_for_transient_capacity_error(
 async def test_run_steps_classifies_async_user_error_code_as_plan_invalidating(
     mock_executor_cls: MagicMock, mock_fix: AsyncMock
 ) -> None:
-    status_error = APIException("Query failed", code=QueryErrorCategory.USER_ERROR.value)
+    status_error = _query_status_error({"error": True}, error_category=QueryErrorCategory.USER_ERROR)
     error = MaxToolRetryableError("Query failed")
     error.__context__ = status_error
     mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
@@ -438,6 +438,28 @@ async def test_run_steps_classifies_async_user_error_code_as_plan_invalidating(
         "The query was rejected because its structure is invalid. Rewrite it using valid HogQL."
     )
     assert execution.plan_invalidating_failed_count == 1
+
+
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_invalidates_unknown_failure_without_repair(
+    mock_executor_cls: MagicMock, mock_fix: AsyncMock
+) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=ValueError("unexpected"))
+
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    assert execution.plan_invalidating_failed_count == 1
+    mock_fix.assert_not_awaited()
+
+
+def test_query_repair_decision_names_its_fields() -> None:
+    decision = _query_repair_hint_and_plan_invalidation(ValueError("unexpected"))
+
+    assert decision.repair_hint is None
+    assert decision.invalidates_plan is True
 
 
 @patch(_SLO_CAPTURE)

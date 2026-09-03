@@ -9,12 +9,11 @@ from enum import StrEnum
 from typing import Any, Optional, Union
 
 import structlog
-from rest_framework.exceptions import APIException
 
 from posthog.schema import AssistantHogQLQuery
 
+from posthog.dataclasses import frozen
 from posthog.errors import InternalCHQueryError, QueryErrorCategory, classify_query_error
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.ph_client import ph_background_capture
@@ -67,7 +66,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     undisclosed_query_error_type,
 )
 
-from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
+from ee.hogai.context.insight.query_executor import AssistantQueryExecutor, QueryStatusError
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool_errors import MaxToolRetryableError
 
@@ -120,20 +119,27 @@ _ASYNC_USER_QUERY_REPAIR_HINT = "The query was rejected because its structure is
 _GENERIC_QUERY_REPAIR_HINT = "The query failed with an adjusted-input error. Rewrite it using valid HogQL."
 
 
-def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> tuple[Optional[str], bool]:
+@frozen
+class QueryRepairDecision:
+    repair_hint: Optional[str]
+    invalidates_plan: bool
+
+
+def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairDecision:
     """Return a safe repair hint and whether this failure invalidates the plan."""
     safe_message = safe_error_message(exc)
     categories: set[QueryErrorCategory] = set()
-    api_error_codes: set[str] = set()
     has_clickhouse_user_error = False
     has_retryable_error = False
+    has_unknown_query_status_error = False
     for current in iter_exception_chain(exc):
         if isinstance(current, MaxToolRetryableError):
             has_retryable_error = True
-        if isinstance(current, APIException):
-            codes = current.get_codes()
-            if isinstance(codes, str):
-                api_error_codes.add(codes)
+        if isinstance(current, QueryStatusError):
+            if current.error_category is None:
+                has_unknown_query_status_error = True
+            else:
+                categories.add(current.error_category)
         if isinstance(current, Exception):
             category = classify_query_error(current)
             if category is not QueryErrorCategory.ERROR:
@@ -143,21 +149,22 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> tuple[Option
 
     # Capacity pressure is temporary and does not make the query itself invalid. Check it before
     # the generic retryable wrapper, which otherwise describes every adjusted-input failure alike.
-    if QueryErrorCategory.RATE_LIMITED in categories or QueryErrorCategory.RATE_LIMITED.value in api_error_codes:
-        return None, False
-    if (
-        QueryErrorCategory.QUERY_PERFORMANCE_ERROR in categories
-        or QueryErrorCategory.QUERY_PERFORMANCE_ERROR.value in api_error_codes
-        or ClickHouseQueryMemoryLimitExceeded.default_code in api_error_codes
-    ):
-        return None, True
+    if QueryErrorCategory.RATE_LIMITED in categories:
+        return QueryRepairDecision(repair_hint=None, invalidates_plan=False)
+    if QueryErrorCategory.QUERY_PERFORMANCE_ERROR in categories:
+        return QueryRepairDecision(repair_hint=None, invalidates_plan=True)
     if safe_message is not None:
-        return safe_message, True
-    if QueryErrorCategory.USER_ERROR in categories or QueryErrorCategory.USER_ERROR.value in api_error_codes:
-        return (_CLICKHOUSE_QUERY_REPAIR_HINT if has_clickhouse_user_error else _ASYNC_USER_QUERY_REPAIR_HINT), True
+        return QueryRepairDecision(repair_hint=safe_message, invalidates_plan=True)
+    if QueryErrorCategory.USER_ERROR in categories:
+        return QueryRepairDecision(
+            repair_hint=_CLICKHOUSE_QUERY_REPAIR_HINT if has_clickhouse_user_error else _ASYNC_USER_QUERY_REPAIR_HINT,
+            invalidates_plan=True,
+        )
+    if has_unknown_query_status_error:
+        return QueryRepairDecision(repair_hint=None, invalidates_plan=True)
     if has_retryable_error:
-        return _GENERIC_QUERY_REPAIR_HINT, True
-    return None, False
+        return QueryRepairDecision(repair_hint=_GENERIC_QUERY_REPAIR_HINT, invalidates_plan=True)
+    return QueryRepairDecision(repair_hint=None, invalidates_plan=True)
 
 
 def _validate_step_chart(
@@ -612,9 +619,9 @@ async def _run_steps(
                 )
             except Exception as exc:
                 last_exc = exc
-                rewrite_error_message, plan_invalidating_failure = _query_repair_hint_and_plan_invalidation(exc)
-                had_plan_invalidating_failure = had_plan_invalidating_failure or plan_invalidating_failure
-                if attempt >= _MAX_QUERY_FIX_RETRIES or rewrite_error_message is None:
+                repair_decision = _query_repair_hint_and_plan_invalidation(exc)
+                had_plan_invalidating_failure = had_plan_invalidating_failure or repair_decision.invalidates_plan
+                if attempt >= _MAX_QUERY_FIX_RETRIES or repair_decision.repair_hint is None:
                     break
                 logger.info(
                     "ai_report.query_fix_attempt",
@@ -626,7 +633,7 @@ async def _run_steps(
                 )
                 fixed = await _arequest_hogql_fix(
                     original_hogql=current_hogql,
-                    error_message=rewrite_error_message,
+                    error_message=repair_decision.repair_hint,
                     step_description=safe_description,
                     # The planner's project schema (event/property names) — a schema-blind fixer just
                     # re-guesses the wrong name, so give it the same grounding the planner had.

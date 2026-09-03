@@ -291,6 +291,23 @@ class TestExecuteProcessQuery(TestCase):
 
         self.assertEqual(mock_capture_exception.called, should_capture)
 
+    def test_user_safe_error_without_code_preserves_existing_error_code(self):
+        self.manager.store_query_status(
+            QueryStatus(
+                id=self.query_id,
+                team_id=self.team.id,
+                complete=False,
+                error=False,
+                error_code="existing_error_code",
+            )
+        )
+
+        with patch("posthog.api.services.query.process_query_dict", side_effect=ExposedHogQLError("bad query")):
+            execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
+
+        result = self.manager.get_query_status()
+        self.assertEqual(result.error_code, "existing_error_code")
+
     @parameterized.expand(
         [
             ("live", {}, True, True),

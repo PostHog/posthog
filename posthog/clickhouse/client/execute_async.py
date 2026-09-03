@@ -346,7 +346,8 @@ def execute_process_query(
         if is_user_safe_error or is_staff_user:
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
-            query_status.error_code = _query_status_error_code(err)
+            if (error_code := _query_status_error_code(err)) is not None:
+                query_status.error_code = error_code
         error_category = _query_status_error_category(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
         if not is_user_safe_error:
