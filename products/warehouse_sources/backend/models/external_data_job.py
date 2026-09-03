@@ -69,6 +69,14 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["pipeline", "status", "finished_at"],
                 name="idx_extdatajob_pipe_stat_fin",
             ),
+            # Serves the billing-period sum (_rows_synced_in_billing_period), which runs on
+            # every sync: equality on team/status with a finished_at range. No index above
+            # gives that range a seek, so without this one the planner reads every job of
+            # every team in the organization.
+            models.Index(
+                fields=["team", "status", "finished_at"],
+                name="idx_extdatajob_team_stat_fin",
+            ),
         ]
 
     def folder_path(self) -> str:
