@@ -4116,8 +4116,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         captured: dict = {}
 
-        def spy(team, user, user_access_control=None):
-            result = _compute_system_table_access_decision(team, user, user_access_control)
+        def spy(team, user, user_access_control=None, allowed_system_tables=None):
+            result = _compute_system_table_access_decision(team, user, user_access_control, allowed_system_tables)
             captured["result"] = result
             return result
 
@@ -4138,8 +4138,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_create_for_with_real_user_uses_user_rbac(self):
         captured: dict = {}
 
-        def spy(team, user, user_access_control=None):
-            result = _compute_system_table_access_decision(team, user, user_access_control)
+        def spy(team, user, user_access_control=None, allowed_system_tables=None):
+            result = _compute_system_table_access_decision(team, user, user_access_control, allowed_system_tables)
             captured["result"] = result
             return result
 
@@ -4152,6 +4152,53 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         user_access_control, _denied = captured["result"]
         # A real user gets per-user access control computed rather than the anonymous all-deny path.
         assert user_access_control is not None
+
+    def test_userless_system_table_allowlist_is_exact(self) -> None:
+        database = Database.create_for(
+            team=self.team,
+            allowed_system_tables=frozenset({"accounts"}),
+        )
+
+        assert "system.accounts" in database.get_system_table_names()
+        assert "system.feature_flags" not in database.get_system_table_names()
+        with pytest.raises(TableAccessDeniedError):
+            database.get_table("system.feature_flags")
+
+    @parameterized.expand(
+        [
+            ("qualified", "system.accounts"),
+            ("unscoped", "_account_tagged_items"),
+            ("unknown", "not_a_system_table"),
+        ]
+    )
+    def test_system_table_allowlist_rejects_invalid_names(self, _name: str, table_name: str) -> None:
+        with pytest.raises(ValueError, match="exact bare names of scoped system tables"):
+            Database.create_for(
+                team=self.team,
+                allowed_system_tables=frozenset({table_name}),
+            )
+
+    def test_system_table_allowlist_rejects_real_users(self) -> None:
+        with pytest.raises(ValueError, match="restricted to userless database creation"):
+            Database.create_for(
+                team=self.team,
+                user=self.user,
+                allowed_system_tables=frozenset({"accounts"}),
+            )
+
+    def test_system_table_allowlist_does_not_override_cloud_entitlements(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        with self.is_cloud(True):
+            database = Database.create_for(
+                team=self.team,
+                allowed_system_tables=frozenset({"activity_logs"}),
+            )
+
+        assert "system.activity_logs" not in database.get_system_table_names()
+        with pytest.raises(TableAccessDeniedError):
+            database.get_table("system.activity_logs")
 
     @parameterized.expand(
         [

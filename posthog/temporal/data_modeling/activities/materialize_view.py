@@ -61,6 +61,7 @@ from products.data_modeling.backend.facade.api import (
 )
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
+from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_quality.backend.facade import api as data_quality_facade
 from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_SKIP, QualityAuditMode
 from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
@@ -553,7 +554,10 @@ async def hogql_table(
     # Userless materialization context; bypass warehouse HogQL access control so the model query
     # can resolve its source tables/views.
     context.database = await database_sync_to_async_pool(Database.create_for)(
-        team=team, modifiers=context.modifiers, bypass_warehouse_access_control=True
+        team=team,
+        modifiers=context.modifiers,
+        bypass_warehouse_access_control=True,
+        allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
     )
 
     factory = bounded_resolver_factory_for_view(view_name)

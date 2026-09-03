@@ -7,7 +7,7 @@ import threading
 import dataclasses
 import pickletools
 from collections import defaultdict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from functools import cache
 from types import MappingProxyType
@@ -545,6 +545,7 @@ def _compute_system_table_access_decision(
     team: Team,
     user: Optional[User | SyntheticUser | SharedLinkUser],
     user_access_control: Optional[UserAccessControl] = None,
+    allowed_system_tables: Collection[str] | None = None,
 ) -> tuple[Optional[UserAccessControl], set[str]]:
     """Decide which scoped system tables to hide, doing the access-control I/O here so the build phase
     can apply the result without querying. Returns the warmed UserAccessControl (preloaded, so later
@@ -561,6 +562,16 @@ def _compute_system_table_access_decision(
     )
 
     scoped_tables = _scoped_system_tables()
+    allowed_system_table_names = frozenset(allowed_system_tables or ())
+    if allowed_system_table_names and (user is not None or user_access_control is not None):
+        raise ValueError("allowed_system_tables is restricted to userless database creation")
+    invalid_allowed_tables = allowed_system_table_names.difference(scoped_tables)
+    if invalid_allowed_tables:
+        invalid_names = ", ".join(sorted(invalid_allowed_tables))
+        raise ValueError(
+            f"allowed_system_tables must contain exact bare names of scoped system tables: {invalid_names}"
+        )
+
     # Applies to every principal below, admins included - an entitlement the organization does not
     # have cannot be granted by a role.
     unentitled = _unentitled_system_tables(team)
@@ -568,9 +579,12 @@ def _compute_system_table_access_decision(
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for shared link / team token).
     if user is None or isinstance(user, SyntheticUser | SharedLinkUser):
         readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
-        return None, unentitled | {
+        denied_by_access_control = {
             name for name, table in scoped_tables.items() if table.access_scope not in readable_scopes
         }
+        if user is None:
+            denied_by_access_control.difference_update(allowed_system_table_names)
+        return None, unentitled | denied_by_access_control
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
@@ -1376,6 +1390,7 @@ class Database(BaseModel):
         bypass_warehouse_access_control: bool = False,
         build_postgres_foreign_keys: bool = True,
         trigger: str = "direct",
+        allowed_system_tables: Collection[str] | None = None,
     ) -> Database:
         if timings is None:
             timings = HogQLTimings()
@@ -1391,6 +1406,7 @@ class Database(BaseModel):
                 timings=timings,
                 connection_id=connection_id,
                 bypass_warehouse_access_control=bypass_warehouse_access_control,
+                allowed_system_tables=allowed_system_tables,
             )
         with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="build_from_sources").time():
             return Database._build_from_sources(
@@ -1448,6 +1464,7 @@ class Database(BaseModel):
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
         bypass_warehouse_access_control: bool = False,
+        allowed_system_tables: Collection[str] | None = None,
     ) -> HogQLDatabaseSources:
         """Run every Postgres query / feature-flag check / external request needed to build the
         database, returning a bundle that Database._build_from_sources turns into tables with no I/O."""
@@ -1571,7 +1588,7 @@ class Database(BaseModel):
             # Pass the caller's user_access_control through: when already preloaded it's reused, so the
             # bulk access-control fetch happens once per run instead of once per database build.
             user_access_control, denied_system_table_names = _compute_system_table_access_decision(
-                team, user, user_access_control
+                team, user, user_access_control, allowed_system_tables
             )
 
         is_hogql_warehouse_access_control_enabled = feature_enabled_or_false(

@@ -9,6 +9,7 @@ from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
+from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.node_suspension import clear_suspension_if_query_changed
 from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag
 from products.data_modeling.backend.models.dag import DAG, REVENUE_ANALYTICS_DAG_NAME
@@ -213,7 +214,11 @@ def sync_saved_query_to_dag(
     # Internal DAG sync (no user); bypass warehouse HogQL access control so dependency resolution
     # sees every referenced table/view.
     if database is None:
-        database = Database.create_for(team=team, bypass_warehouse_access_control=True)
+        database = Database.create_for(
+            team=team,
+            bypass_warehouse_access_control=True,
+            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+        )
     # clear previous incoming edges, dependencies may have changed
     Edge.objects.filter(team=team, target=target).delete()
 

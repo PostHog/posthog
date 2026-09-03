@@ -5,7 +5,7 @@ from unittest import mock
 from parameterized import parameterized
 
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
 from products.data_modeling.backend.logic.saved_query_dag_sync import (
     HasDependentsError,
@@ -32,6 +32,29 @@ class TestGetDagId(BaseTest):
 
 @pytest.mark.django_db
 class TestSyncSavedQueryToDag(BaseTest):
+    def test_saved_query_resolution_allows_only_data_modeling_system_dependencies(self) -> None:
+        saved_query = DataWarehouseSavedQuery(
+            name="account_summary",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": """
+                    SELECT
+                        id,
+                        feature_requests.count,
+                        email_threads.count
+                    FROM system.accounts
+                """,
+            },
+        )
+
+        assert saved_query.get_s3_tables() == []
+
+        ordinary_userless_database = Database.create_for(team=self.team)
+        for table_name in ("accounts", "feature_requests", "_account_email_threads"):
+            with self.subTest(table_name=table_name), self.assertRaises(TableAccessDeniedError):
+                ordinary_userless_database.get_table(f"system.{table_name}")
+
     def test_sync_creates_dag_model(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",

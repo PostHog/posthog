@@ -32,6 +32,7 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
+from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
@@ -449,8 +450,13 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
-            # Internal saved-query resolution (no user); bypass warehouse HogQL access control.
-            database=database or Database.create_for(self.team.pk, bypass_warehouse_access_control=True),
+            # Internal saved-query resolution can bypass only the scoped system tables needed by Data Modeling.
+            database=database
+            or Database.create_for(
+                self.team.pk,
+                bypass_warehouse_access_control=True,
+                allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+            ),
         )
 
         query = self.query or {}

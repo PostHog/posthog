@@ -1734,6 +1734,34 @@ class TestHogqlTableModifiers:
 
         assert captured_sql is not None and expected_sql in captured_sql
 
+    async def test_compiles_account_dependencies_without_a_user(self, ateam: Team) -> None:
+        schema_fields: list[pa.Field[Any]] = [
+            pa.field("id", pa.string()),
+            pa.field("feature_request_count", pa.int64()),
+            pa.field("email_thread_count", pa.int64()),
+        ]
+        client = _EmptyArrowClient(pa.schema(schema_fields))
+        client.describe_body = b"id\tUUID\nfeature_request_count\tUInt64\nemail_thread_count\tUInt64\n"
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        query = """
+            SELECT
+                id,
+                feature_requests.count AS feature_request_count,
+                email_threads.count AS email_thread_count
+            FROM system.accounts
+        """
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+        ):
+            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+
+        assert len(batches) == 1
+        assert client.arrow_query is not None
+
 
 class TestHogqlTableEmptyResults:
     async def test_zero_row_query_uses_the_initial_stream_schema(self, ateam):

@@ -24,6 +24,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
+from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -493,6 +494,7 @@ def get_parents_from_model_query(
             modifiers=context.modifiers,
             team=context.team,
             bypass_warehouse_access_control=True,
+            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
         )
 
     resolver = BoundedResolver(context=context, dialect="hogql", initial_view_name=model_name)
@@ -790,7 +792,11 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
     def get_hogql_database(self, team: Team) -> Database:
         """Get the HogQL database for given team."""
         # Internal model-path resolution (no user); bypass warehouse HogQL access control.
-        return Database.create_for(team=team, bypass_warehouse_access_control=True)
+        return Database.create_for(
+            team=team,
+            bypass_warehouse_access_control=True,
+            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+        )
 
     def get_or_create_root_path_for_data_warehouse_table(
         self, data_warehouse_table: DataWarehouseTable

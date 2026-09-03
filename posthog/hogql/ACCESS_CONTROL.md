@@ -150,12 +150,14 @@ Without a user, warehouse access control denies every warehouse table and view, 
    Cache warming runs as the insight's creator, on the assumption that their access is the one most viewers of that insight share.
    Warming without access control would more often end in a cache miss.
 
-3. **Trusted internal job with no user at all:** pass `bypass_warehouse_access_control=True` explicitly. Used by materialization workflows (`posthog/temporal/data_modeling/`), insight cache warming, and ducklake compilation (`posthog/ducklake/client.py`). **Be very skeptical before adding a new bypass** — only do it when the job genuinely has no acting user and the output isn't served to a specific user with narrower access.
+3. **Trusted internal job with no user at all:** pass `bypass_warehouse_access_control=True` explicitly. Used by materialization workflows (`posthog/temporal/data_modeling/`), insight cache warming, and ducklake compilation (`posthog/ducklake/client.py`). **Be very skeptical before adding a new bypass** - only do it when the job genuinely has no acting user and the output is not served to a specific user with narrower access.
 
 ```python
-# Background materialization job — no user exists, bypass explicitly
+# Background materialization job: no user exists, so bypass explicitly.
 execute_hogql_query(query=..., team=team, bypass_warehouse_access_control=True)
 ```
+
+Data modeling also passes `allowed_system_tables` when its project-owned models read approved system tables. The allowlist accepts exact scoped table names and keeps every other system table denied. Billing entitlements still override it. Only userless database builds can use it.
 
 4. **Public dashboards / notebooks / shared insights:** the viewer is anonymous, so queries run as `SharedLinkUser` (`posthog/shared_link_user.py`, built in `SharingViewerPageViewSet`).
    `Database.create_for` doesn't restrict any warehouse tables or views for a shared-link viewer; the access gate is at publish time instead.
