@@ -20,6 +20,10 @@ import { Box, Flex, Text } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 import { useScoutFindings } from "../hooks/useScoutFindings";
 import { ScoutEmissionCard } from "./ScoutEmissionCard";
+import { VirtualCardList } from "./VirtualCardList";
+
+/** A collapsed signal card: header, one summary line, footer. */
+const SIGNAL_CARD_HEIGHT = 96;
 
 const SORT_OPTIONS: { value: ScoutFindingsSortKey; label: string }[] = [
   { value: "newest", label: "Newest" },
@@ -80,8 +84,12 @@ export function ScoutFindingsView() {
   const loadFailed = emissionsError || runsError;
 
   return (
-    <AgentsTabLayout tab="signals" counts={{ signals: summary.totalCount }}>
-      <Flex direction="column" gap="4">
+    <AgentsTabLayout
+      tab="signals"
+      fill
+      counts={{ signals: summary.totalCount }}
+    >
+      <div className="flex h-full min-h-0 flex-col gap-4">
         {summary.totalCount > 0 ? (
           <Flex
             align="center"
@@ -223,7 +231,7 @@ export function ScoutFindingsView() {
           isFiltering={isFiltering}
           onRetry={refetch}
         />
-      </Flex>
+      </div>
     </AgentsTabLayout>
   );
 }
@@ -290,17 +298,19 @@ function FindingsBody({
   }
 
   return (
-    <Flex direction="column" gap="2">
-      {filteredRows.map((row) => (
+    <VirtualCardList
+      items={filteredRows}
+      // emission.id, not source_id — a run can re-emit a finding_id, sharing source_id.
+      getKey={(row) => row.emission.id}
+      estimateSize={SIGNAL_CARD_HEIGHT}
+      renderItem={(row) => (
         <ScoutEmissionCard
-          // emission.id, not source_id — a run can re-emit a finding_id, sharing source_id.
-          key={row.emission.id}
           emission={row.emission}
           skillName={row.run.skill_name}
           scoutLabel={prettifyScoutSkillName(row.run.skill_name)}
           linkedReport={row.linkedReport}
         />
-      ))}
-    </Flex>
+      )}
+    />
   );
 }

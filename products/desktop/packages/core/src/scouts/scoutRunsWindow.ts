@@ -60,6 +60,8 @@ export async function fetchScoutRunsWindow(
   client: ScoutRunsClient,
   projectId: number,
   now: Date = new Date(),
+  /** Called with the runs collected so far after each page, newest page first. */
+  onPage?: (partial: ScoutRunsWindow) => void,
 ): Promise<ScoutRunsWindow> {
   const dateFrom = new Date(
     now.getTime() - SCOUT_RUNS_WINDOW_HOURS * 60 * 60 * 1000,
@@ -98,6 +100,7 @@ export async function fetchScoutRunsWindow(
       return { runs: [...runsById.values()], complete: false };
     }
     dateTo = oldestStartedAt;
+    onPage?.({ runs: [...runsById.values()], complete: false });
   }
 
   return { runs: [...runsById.values()], complete: false };

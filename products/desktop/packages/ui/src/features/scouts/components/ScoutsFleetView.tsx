@@ -29,7 +29,7 @@ import { useMeQuery } from "../../auth/useMeQuery";
 import { useScoutConfigMutations } from "../hooks/useScoutConfigMutations";
 import { useScoutConfigs } from "../hooks/useScoutConfigs";
 import { useScoutFleetSync } from "../hooks/useScoutFleetSync";
-import { useScoutRuns } from "../hooks/useScoutRuns";
+import { isRunsWindowLoadingMore, useScoutRuns } from "../hooks/useScoutRuns";
 import { useScoutSkillCreators } from "../hooks/useScoutSkillCreators";
 import { useTrackFleetViewed } from "../hooks/useTrackFleetViewed";
 import { ScoutAttentionStrip } from "./ScoutAttentionStrip";
@@ -52,7 +52,12 @@ export function ScoutsFleetView({ onNewAgent }: { onNewAgent: () => void }) {
   // Opening this page is what materializes the fleet, so a project the
   // coordinator never reached still gets its scouts.
   const { isSyncing, syncOutcome } = useScoutFleetSync();
-  const { data: runsWindow } = useScoutRuns();
+  const runsQuery = useScoutRuns();
+  const runsWindow = runsQuery.data;
+  // Run history arrives after the fleet, so the columns it feeds say "loading",
+  // never "none", until the window has answered.
+  const runsPending = runsWindow === undefined;
+  const runsLoadingMore = isRunsWindowLoadingMore(runsQuery);
   const { data: creators } = useScoutSkillCreators();
   const { data: currentUser } = useMeQuery();
   const { updateConfig } = useScoutConfigMutations();
@@ -130,13 +135,7 @@ export function ScoutsFleetView({ onNewAgent }: { onNewAgent: () => void }) {
   }, [configs, origin, hideDisabled, creatorKey, creators, search, attention]);
 
   if (isLoading || (isSyncing && !configs?.length)) {
-    return (
-      <div className="flex flex-col gap-3">
-        <Skeleton className="h-5 w-96" />
-        <Skeleton className="h-9 w-full" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
+    return <FleetSkeleton />;
   }
 
   if (isError) {
@@ -163,36 +162,45 @@ export function ScoutsFleetView({ onNewAgent }: { onNewAgent: () => void }) {
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex h-full min-h-0 flex-col gap-5">
       <p className="flex flex-wrap items-center gap-x-1.5 text-[12.5px] text-gray-10">
         <span>
           <Stat value={summary.enabledCount} /> of {summary.totalCount} enabled
         </span>
-        {summary.runningCount > 0 ? (
+        <Dot />
+        {runsPending ? (
+          <Skeleton className="h-3.5 w-52" />
+        ) : (
           <>
-            <Dot />
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-(--blue-9)" />
-              <Stat value={summary.runningCount} /> running now
-            </span>
-          </>
-        ) : null}
-        {summary.successRate !== null ? (
-          <>
-            <Dot />
+            {summary.runningCount > 0 ? (
+              <>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-(--blue-9)" />
+                  <Stat value={summary.runningCount} /> running now
+                </span>
+                <Dot />
+              </>
+            ) : null}
+            {summary.successRate !== null ? (
+              <>
+                <span>
+                  <Stat value={`${Math.round(summary.successRate * 100)}%`} />{" "}
+                  success
+                </span>
+                <Dot />
+              </>
+            ) : null}
             <span>
-              <Stat value={`${Math.round(summary.successRate * 100)}%`} />{" "}
-              success
+              <Stat value={summary.emittedCount} /> signal
+              {summary.emittedCount === 1 ? "" : "s"}
             </span>
+            <Dot />
+            <span>{SCOUT_RUNS_WINDOW_LABEL}</span>
+            {runsLoadingMore ? (
+              <span className="animate-pulse text-gray-9">· counting</span>
+            ) : null}
           </>
-        ) : null}
-        <Dot />
-        <span>
-          <Stat value={summary.emittedCount} /> signal
-          {summary.emittedCount === 1 ? "" : "s"}
-        </span>
-        <Dot />
-        <span>{SCOUT_RUNS_WINDOW_LABEL}</span>
+        )}
         <span className="flex-1" />
         {summary.systemPausedCount > 0 ? (
           <span className="text-(--amber-11)">
@@ -302,17 +310,20 @@ export function ScoutsFleetView({ onNewAgent }: { onNewAgent: () => void }) {
         </Button>
       </div>
 
-      <ScoutTable
-        configs={visibleConfigs}
-        rollups={rollups}
-        creators={creators}
-        onUpdateConfig={updateConfig}
-        emptyMessage={
-          search.trim()
-            ? "No agents match your search."
-            : "No agents match the current filters."
-        }
-      />
+      <div className="min-h-0 flex-1">
+        <ScoutTable
+          configs={visibleConfigs}
+          rollups={rollups}
+          runsPending={runsPending}
+          creators={creators}
+          onUpdateConfig={updateConfig}
+          emptyMessage={
+            search.trim()
+              ? "No agents match your search."
+              : "No agents match the current filters."
+          }
+        />
+      </div>
 
       <p className="flex flex-wrap items-center gap-x-1.5 text-[12px] text-gray-10">
         <span className="flex items-center gap-3">
@@ -329,6 +340,31 @@ export function ScoutsFleetView({ onNewAgent }: { onNewAgent: () => void }) {
         Built-in agents are PostHog&apos;s own. You can switch them on or off
         but not edit them.
       </p>
+    </div>
+  );
+}
+
+const SKELETON_ROWS = [0, 1, 2, 3, 4, 5];
+
+/** The shape of the loaded page, so the layout does not jump when it lands. */
+function FleetSkeleton() {
+  return (
+    <div className="flex flex-col gap-5">
+      <Skeleton className="h-4 w-96" />
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-8 w-56" />
+        <Skeleton className="h-8 w-52" />
+      </div>
+      <div className="flex flex-col gap-px overflow-hidden rounded-(--radius-md) border border-border bg-(--color-panel-solid) p-3">
+        {SKELETON_ROWS.map((row) => (
+          <div key={row} className="flex items-center gap-4 py-2.5">
+            <Skeleton className="h-4 w-64" />
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-4 flex-1" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

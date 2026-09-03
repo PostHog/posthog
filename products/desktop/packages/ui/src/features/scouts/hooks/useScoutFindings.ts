@@ -7,7 +7,7 @@ import type { ScoutRunsWindow } from "@posthog/core/scouts/scoutRunsWindow";
 import { useMemo } from "react";
 import { useScoutEmissionReports } from "./useScoutEmissionReports";
 import { useScoutRunEmissions } from "./useScoutRunEmissions";
-import { useScoutRuns } from "./useScoutRuns";
+import { isRunsWindowLoadingMore, useScoutRuns } from "./useScoutRuns";
 
 export interface ScoutFindingsData {
   rows: ScoutFindingRow[];
@@ -33,12 +33,16 @@ export interface ScoutFindingsData {
  * double-fetches the window.
  */
 export function useScoutFindings(): ScoutFindingsData {
+  const runsQuery = useScoutRuns();
   const {
     data: runsWindow,
     isLoading: runsLoading,
     isError: runsError,
     refetch: refetchRuns,
-  } = useScoutRuns();
+  } = runsQuery;
+  // The first page is on screen while the rest of the window loads; an empty
+  // page means "not found yet", not "nothing here".
+  const windowLoadingMore = isRunsWindowLoadingMore(runsQuery);
 
   const emittedRuns = useMemo(
     () => mostRecentEmittedRuns(runsWindow?.runs ?? []),
@@ -66,7 +70,9 @@ export function useScoutFindings(): ScoutFindingsData {
   // With no emitted runs there's nothing to fetch, so the runs load alone settles
   // it; otherwise wait for the emissions batch to have fetched at least once.
   const hasLoadedOnce =
-    !runsLoading && (runIds.length === 0 || emissionsQuery.isFetched);
+    !runsLoading &&
+    !(windowLoadingMore && runIds.length === 0) &&
+    (runIds.length === 0 || emissionsQuery.isFetched);
 
   return {
     rows,

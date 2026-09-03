@@ -24,6 +24,7 @@ export function AgentsView() {
   return (
     <AgentsTabLayout
       tab="agents"
+      fill
       counts={{ agents: configs?.length }}
       actions={
         <>

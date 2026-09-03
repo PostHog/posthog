@@ -34,6 +34,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  Skeleton,
   TableCell,
   TableRow,
 } from "@posthog/quill";
@@ -52,6 +53,18 @@ import { ScoutNameHoverCard } from "./ScoutNameHoverCard";
 import { ScoutRunBoxes } from "./ScoutRunBoxes";
 
 const ROW_BOXES = 24;
+const PLACEHOLDER_BOXES = Array.from({ length: 14 }, (_, index) => index);
+
+/** Holds the run column's ground while the run history is on its way. */
+function RunBoxesPlaceholder() {
+  return (
+    <span className="flex animate-pulse items-center gap-1" aria-hidden>
+      {PLACEHOLDER_BOXES.map((box) => (
+        <span key={box} className="block h-3 w-2 rounded-[2px] bg-(--gray-3)" />
+      ))}
+    </span>
+  );
+}
 
 const OUTCOME_TEXT: Partial<Record<ScoutRunOutcome, string>> = {
   running: "text-(--blue-11)",
@@ -84,15 +97,23 @@ function statusDotClass(
 export function ScoutTableRow({
   config,
   rollup,
+  runsPending,
   creator,
   now,
   onUpdate,
+  measureRef,
+  index,
 }: {
   config: ScoutConfig;
   rollup: ScoutRollup | undefined;
+  /** Run history has not answered yet, so the runs column waits rather than reads empty. */
+  runsPending: boolean;
   creator: LlmSkillCreatedBy | undefined;
   now: Date;
   onUpdate: (configId: string, updates: ScoutConfigUpdate) => void;
+  /** Reports the rendered row height back to the virtualizer. */
+  measureRef?: (node: HTMLTableRowElement | null) => void;
+  index?: number;
 }) {
   const navigate = useNavigate();
   const { runNow, isStarting } = useScoutRunNow(config, "fleet_list");
@@ -109,7 +130,11 @@ export function ScoutTableRow({
     !config.enabled && !deriveScoutLifecycle(config).isSystemPaused;
 
   return (
-    <TableRow className={dimmed ? "opacity-60" : undefined}>
+    <TableRow
+      ref={measureRef}
+      data-index={index}
+      className={dimmed ? "opacity-60" : undefined}
+    >
       <TableCell className="py-2">
         <div className="flex min-w-0 items-center gap-2">
           <span
@@ -157,6 +182,8 @@ export function ScoutTableRow({
       <TableCell>
         {rollup && rollup.runs.length > 0 ? (
           <ScoutRunBoxes runs={rollup.runs} max={ROW_BOXES} />
+        ) : runsPending ? (
+          <RunBoxesPlaceholder />
         ) : (
           <span className="text-[11px] text-gray-8">
             No runs in the {SCOUT_RUNS_WINDOW_LABEL}
@@ -182,6 +209,8 @@ export function ScoutTableRow({
               {latestDuration ? ` · ${latestDuration}` : ""}
             </span>
           </div>
+        ) : runsPending ? (
+          <Skeleton className="h-4 w-24" />
         ) : (
           <span className="text-[11px] text-gray-8">—</span>
         )}

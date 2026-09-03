@@ -33,6 +33,7 @@ export function ScoutActivityTab({
   runs,
   runsWindow,
   loading,
+  loadingMore,
   error,
 }: {
   skillName: string;
@@ -40,6 +41,8 @@ export function ScoutActivityTab({
   runs: ScoutRun[];
   runsWindow: ScoutRunsWindow | undefined;
   loading: boolean;
+  /** More pages of the run window are still on their way. */
+  loadingMore: boolean;
   error: boolean;
 }) {
   const [filter, setFilter] = useState<ScoutRunFilter>("all");
@@ -82,9 +85,11 @@ export function ScoutActivityTab({
           </span>
           <span className="flex-1" />
           <span className="text-[11.5px] text-gray-10">
-            {incomplete
-              ? `${capitalize(SCOUT_RUNS_WINDOW_LABEL)}. Some runs in this window did not load.`
-              : capitalize(SCOUT_RUNS_WINDOW_LABEL)}
+            {loadingMore
+              ? `${capitalize(SCOUT_RUNS_WINDOW_LABEL)} · loading more runs`
+              : incomplete
+                ? `${capitalize(SCOUT_RUNS_WINDOW_LABEL)}. Some runs in this window did not load.`
+                : capitalize(SCOUT_RUNS_WINDOW_LABEL)}
           </span>
         </div>
       )}

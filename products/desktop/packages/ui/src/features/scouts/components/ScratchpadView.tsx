@@ -16,6 +16,10 @@ import { Box, Flex, Text } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 import { useScoutScratchpad } from "../hooks/useScoutScratchpad";
 import { ScratchpadEntryCard } from "./ScratchpadEntryCard";
+import { VirtualCardList } from "./VirtualCardList";
+
+/** A collapsed note: header line plus a two-line preview. */
+const NOTE_CARD_HEIGHT = 84;
 
 /**
  * Browse + search surface for the scout fleet's scratchpad (`SignalScratchpad`).
@@ -46,8 +50,12 @@ export function ScratchpadView() {
   const lastUpdatedAt = entries?.[0]?.updated_at ?? null;
 
   return (
-    <AgentsTabLayout tab="memory" counts={{ memory: totalCount ?? undefined }}>
-      <Flex direction="column" gap="4">
+    <AgentsTabLayout
+      tab="memory"
+      fill
+      counts={{ memory: totalCount ?? undefined }}
+    >
+      <div className="flex h-full min-h-0 flex-col gap-4">
         {totalCount !== null && totalCount > 0 ? (
           <Flex align="center" gap="1" className="text-[12px] text-gray-10">
             <Text className="text-[12px] text-gray-10">
@@ -110,7 +118,7 @@ export function ScratchpadView() {
           grouping={grouping}
           isSearching={isSearching}
         />
-      </Flex>
+      </div>
     </AgentsTabLayout>
   );
 }
@@ -180,7 +188,7 @@ function ScratchpadBody({
 
   if (grouping === "topic") {
     return (
-      <Flex direction="column" gap="3">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         {groups.map((group) => (
           <ScratchpadTopicGroup
             key={group.namespace}
@@ -191,16 +199,17 @@ function ScratchpadBody({
             forceOpen={isSearching}
           />
         ))}
-      </Flex>
+      </div>
     );
   }
 
   return (
-    <Flex direction="column" gap="2">
-      {entries.map((entry) => (
-        <ScratchpadEntryCard key={entry.key} entry={entry} />
-      ))}
-    </Flex>
+    <VirtualCardList
+      items={entries}
+      getKey={(entry) => entry.key}
+      estimateSize={NOTE_CARD_HEIGHT}
+      renderItem={(entry) => <ScratchpadEntryCard entry={entry} />}
+    />
   );
 }
 

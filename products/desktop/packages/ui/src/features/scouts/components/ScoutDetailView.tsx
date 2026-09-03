@@ -14,7 +14,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef } from "react";
 import { useScoutConfigMutations } from "../hooks/useScoutConfigMutations";
 import { useScoutConfigs } from "../hooks/useScoutConfigs";
-import { useScoutRuns } from "../hooks/useScoutRuns";
+import { isRunsWindowLoadingMore, useScoutRuns } from "../hooks/useScoutRuns";
 import { ScoutActivityTab } from "./ScoutActivityTab";
 import { ScoutConfigForm } from "./ScoutConfigControls";
 import { ScoutDetailHeader } from "./ScoutDetailHeader";
@@ -55,11 +55,13 @@ export function ScoutDetailView({
     isLoading: configsLoading,
     isError: configsError,
   } = useScoutConfigs();
+  const runsQuery = useScoutRuns();
   const {
     data: runsWindow,
     isLoading: runsLoading,
     isError: runsError,
-  } = useScoutRuns();
+  } = runsQuery;
+  const runsLoadingMore = isRunsWindowLoadingMore(runsQuery);
   const { updateConfig } = useScoutConfigMutations();
 
   const config = configs?.find((entry) => entry.skill_name === skillName);
@@ -75,6 +77,10 @@ export function ScoutDetailView({
     [scoutRuns, skillName],
   );
   const windowLabel = SCOUT_RUNS_WINDOW_LABEL;
+  // Pages arrive newest first, so an agent with nothing yet may still be in a
+  // page that has not landed. That reads as loading, never as "no runs".
+  const runsUnknown =
+    runsLoading || (runsLoadingMore && scoutRuns.length === 0);
 
   const showTab = (next: ScoutDetailTab) => {
     track(ANALYTICS_EVENTS.SCOUT_ACTION, {
@@ -139,14 +145,15 @@ export function ScoutDetailView({
               rollup={rollup}
               runs={scoutRuns}
               runsWindow={runsWindow}
-              loading={runsLoading}
+              loading={runsUnknown}
+              loadingMore={runsLoadingMore}
               error={runsError}
             />
           ) : tab === "signals" ? (
             <ScoutSignalsSection
               runs={scoutRuns}
               windowLabel={windowLabel}
-              loading={runsLoading}
+              loading={runsUnknown}
               error={runsError}
               highlightFindingId={highlightFindingId}
               hideTitle

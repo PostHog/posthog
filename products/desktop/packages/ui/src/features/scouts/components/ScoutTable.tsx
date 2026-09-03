@@ -11,60 +11,110 @@ import {
   TableHeader,
   TableRow,
 } from "@posthog/quill";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useRef } from "react";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
 import { ScoutTableRow } from "./ScoutTableRow";
 
+/** Close enough for the scrollbar; each row measures itself once it renders. */
+const ESTIMATED_ROW_HEIGHT = 52;
+
+/**
+ * The fleet, one agent per row. A project can hold hundreds of agents, so only
+ * the rows in view are rendered: drawing them all costs about a second of
+ * frozen screen every time the page opens.
+ */
 export function ScoutTable({
   configs,
   rollups,
+  runsPending,
   creators,
   onUpdateConfig,
   emptyMessage,
 }: {
   configs: ScoutConfig[];
   rollups: Map<string, ScoutRollup>;
+  /** Run history has not answered yet, so the runs column waits rather than reads empty. */
+  runsPending: boolean;
   creators: ScoutCreatorIndex | null | undefined;
   onUpdateConfig: (configId: string, updates: ScoutConfigUpdate) => void;
   emptyMessage: string;
 }) {
   const now = new Date();
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: configs.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => ESTIMATED_ROW_HEIGHT,
+    overscan: 8,
+    getItemKey: (index) => configs[index]?.id ?? index,
+  });
+  const virtualRows = virtualizer.getVirtualItems();
+  const topSpacer = virtualRows[0]?.start ?? 0;
+  const bottomSpacer =
+    virtualizer.getTotalSize() -
+    (virtualRows[virtualRows.length - 1]?.end ?? 0);
+
   return (
-    <div className="overflow-hidden rounded-(--radius-md) border border-border bg-(--color-panel-solid) [&_table]:w-full [&_table]:table-fixed">
-      <Table>
-        <TableHeader>
+    <Table
+      viewportRef={viewportRef}
+      stickyHeader
+      fullWidth
+      tableClassName="table-fixed"
+      className="h-full rounded-(--radius-md) border border-border bg-(--color-panel-solid)"
+    >
+      <TableHeader>
+        <TableRow className="hover:bg-transparent">
+          <TableHead className="w-[30rem]">Agent</TableHead>
+          <TableHead className="w-36">Schedule</TableHead>
+          <TableHead>Recent runs</TableHead>
+          <TableHead className="w-44">Last run</TableHead>
+          <TableHead className="w-14" />
+          <TableHead className="w-10" />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {configs.length === 0 ? (
           <TableRow className="hover:bg-transparent">
-            <TableHead className="w-[30rem]">Agent</TableHead>
-            <TableHead className="w-36">Schedule</TableHead>
-            <TableHead>Recent runs</TableHead>
-            <TableHead className="w-44">Last run</TableHead>
-            <TableHead className="w-14" />
-            <TableHead className="w-10" />
+            <TableCell
+              colSpan={6}
+              className="py-10 text-center text-[12.5px] text-gray-10"
+            >
+              {emptyMessage}
+            </TableCell>
           </TableRow>
-        </TableHeader>
-        <TableBody>
-          {configs.length === 0 ? (
-            <TableRow className="hover:bg-transparent">
-              <TableCell
-                colSpan={6}
-                className="py-10 text-center text-[12.5px] text-gray-10"
-              >
-                {emptyMessage}
-              </TableCell>
-            </TableRow>
-          ) : (
-            configs.map((config) => (
-              <ScoutTableRow
-                key={config.id}
-                config={config}
-                rollup={rollups.get(config.skill_name)}
-                creator={creators?.get(config.skill_name)}
-                now={now}
-                onUpdate={onUpdateConfig}
-              />
-            ))
-          )}
-        </TableBody>
-      </Table>
-    </div>
+        ) : (
+          <>
+            {topSpacer > 0 ? (
+              <TableRow aria-hidden className="hover:bg-transparent">
+                <TableCell colSpan={6} style={{ height: topSpacer }} />
+              </TableRow>
+            ) : null}
+            {virtualRows.map((virtualRow) => {
+              const config = configs[virtualRow.index];
+              if (!config) return null;
+              return (
+                <ScoutTableRow
+                  key={config.id}
+                  measureRef={virtualizer.measureElement}
+                  index={virtualRow.index}
+                  config={config}
+                  rollup={rollups.get(config.skill_name)}
+                  runsPending={runsPending}
+                  creator={creators?.get(config.skill_name)}
+                  now={now}
+                  onUpdate={onUpdateConfig}
+                />
+              );
+            })}
+            {bottomSpacer > 0 ? (
+              <TableRow aria-hidden className="hover:bg-transparent">
+                <TableCell colSpan={6} style={{ height: bottomSpacer }} />
+              </TableRow>
+            ) : null}
+          </>
+        )}
+      </TableBody>
+    </Table>
   );
 }
