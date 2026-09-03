@@ -5,7 +5,10 @@ import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { OnboardingProductConfiguration } from 'scenes/onboarding/legacy/OnboardingProductConfiguration'
 import { type ProductConfigOption } from 'scenes/onboarding/legacy/onboardingProductConfigurationLogic'
 import { OnboardingInstallStep } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep'
-import { SessionReplaySDKInstructions } from 'scenes/onboarding/legacy/sdks/session-replay/SessionReplaySDKInstructions'
+import {
+    SessionReplaySDKDocsLinkOverrides,
+    SessionReplaySDKInstructions,
+} from 'scenes/onboarding/legacy/sdks/session-replay/SessionReplaySDKInstructions'
 import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
 import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -91,7 +94,12 @@ export const sessionReplayOnboarding: ProductOnboardingProvider = {
             role: ctx.role,
             setupTaskId: SetupTaskId.SetupSessionRecordings,
             dedupKey: INSTALL_DEDUP_KEYS.POSTHOG_JS,
-            render: () => <OnboardingInstallStep sdkInstructionMap={SessionReplaySDKInstructions} />,
+            render: () => (
+                <OnboardingInstallStep
+                    sdkInstructionMap={SessionReplaySDKInstructions}
+                    sdkDocsLinkOverrides={SessionReplaySDKDocsLinkOverrides}
+                />
+            ),
         }
 
         if (ctx.role === 'secondary') {
