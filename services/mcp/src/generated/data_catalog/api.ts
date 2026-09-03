@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 13 enabled ops
+ * PostHog API - MCP 14 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -243,6 +243,18 @@ export const DataCatalogMetricsPartialUpdateBody = () => zod.object({
         .nullish()
         .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod.string().optional().describe("AI author's reasoning, surfaced as review context."),
+})
+
+/**
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
+ */
+export const DataCatalogMetricsDestroyParams = () => zod.object({
+    name: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })
 
 /**
