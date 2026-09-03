@@ -300,7 +300,8 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                 null as CustomerTaskAccountFilter | null,
                 {
                     openCreateModal: () => null,
-                    openEditModal: (_: CustomerTaskAccountFilter | null, a: { task: CustomerTaskApi }) => a.task.account,
+                    openEditModal: (_: CustomerTaskAccountFilter | null, a: { task: CustomerTaskApi }) =>
+                        a.task.account,
                     setDraftAccount: (
                         _: CustomerTaskAccountFilter | null,
                         a: { account: CustomerTaskAccountFilter | null }
@@ -313,8 +314,10 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                 {
                     openCreateModal: () => null,
                     openEditModal: (_: CustomerTaskUserApi | null, a: { task: CustomerTaskApi }) => a.task.assigned_to,
-                    setDraftAssignedTo: (_: CustomerTaskUserApi | null, a: { assignedTo: CustomerTaskUserApi | null }) =>
-                        a.assignedTo,
+                    setDraftAssignedTo: (
+                        _: CustomerTaskUserApi | null,
+                        a: { assignedTo: CustomerTaskUserApi | null }
+                    ) => a.assignedTo,
                     closeModal: () => null,
                 },
             ],
@@ -383,7 +386,8 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
             if (values.mutationKeys.create || (values.modalTask && values.mutationKeys[values.modalTask.id])) {
                 return
             }
-            const accountId = props.context === 'account' ? (props.accountId ?? null) : (values.draftAccount?.id ?? null)
+            const accountId =
+                props.context === 'account' ? (props.accountId ?? null) : (values.draftAccount?.id ?? null)
             const description = values.draftDescription || null
             const assignedToId = values.draftAssignedTo?.id ?? null
             if (values.modalTask) {

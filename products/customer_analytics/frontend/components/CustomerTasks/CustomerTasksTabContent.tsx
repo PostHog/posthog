@@ -14,12 +14,5 @@ export function CustomerTasksTabContent({
 }: CustomerTasksTabContentProps): JSX.Element {
     const logic = customerTasksLogic({ context: 'account', accountId })
     useMountedLogic(logic)
-    return (
-        <CustomerTasksTable
-            logic={logic}
-            context="account"
-            canCreate={canCreate}
-            canViewAll={canViewAll}
-        />
-    )
+    return <CustomerTasksTable logic={logic} context="account" canCreate={canCreate} canViewAll={canViewAll} />
 }

@@ -179,7 +179,9 @@ export function CustomerTaskModal({ logic, context }: CustomerTaskModalProps): J
                                     size="small"
                                     disabledReason={disabledReason}
                                     icon={
-                                        assignee ? <ProfilePicture user={{ email: assignee.email }} size="sm" /> : undefined
+                                        assignee ? (
+                                            <ProfilePicture user={{ email: assignee.email }} size="sm" />
+                                        ) : undefined
                                     }
                                 >
                                     {assignee ? fullName(assignee) || assignee.email : 'Unassigned'}
