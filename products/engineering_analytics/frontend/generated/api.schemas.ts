@@ -219,6 +219,11 @@ export interface LeadTimeBucketApi {
      */
     min_seconds: number | null
     /**
+     * 5th percentile of the stage's duration, in seconds — the lower whisker when outliers are excluded. Null when nothing deployed.
+     * @nullable
+     */
+    p05_seconds: number | null
+    /**
      * 25th percentile of the stage's duration, in seconds. Null when nothing deployed.
      * @nullable
      */
@@ -239,6 +244,11 @@ export interface LeadTimeBucketApi {
      */
     p75_seconds: number | null
     /**
+     * 95th percentile of the stage's duration, in seconds — the upper whisker when outliers are excluded. Null when nothing deployed.
+     * @nullable
+     */
+    p95_seconds: number | null
+    /**
      * Slowest duration for this stage in this bucket, in seconds. Null when nothing deployed.
      * @nullable
      */
@@ -248,7 +258,7 @@ export interface LeadTimeBucketApi {
 export interface DoraOverviewApi {
     /** Successful deployments per bucket across the window, oldest first, zero-filled, bucketed by series_granularity. Empty when the deploy tables aren't synced. */
     deployment_frequency_series: DeploymentFrequencyBucketApi[]
-    /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
+    /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p5/p25/p50/mean/p75/p95/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
     merge_to_deploy_series: LeadTimeBucketApi[]
     /** Open-to-merge distribution over the SAME deployed PRs and buckets as merge_to_deploy_series, so the two stages compare bucket by bucket. Not the all-merged-PRs cycle time. Empty in the same cases as merge_to_deploy_series. */
     open_to_merge_series: LeadTimeBucketApi[]
@@ -256,7 +266,7 @@ export interface DoraOverviewApi {
     open_to_deploy_series: LeadTimeBucketApi[]
     /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
     deploy_data_available: boolean
-    /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
+    /** What the environment filter resolved to: the exact environment name(s) it matches (the caller's picks, comma-joined when several; by default the busiest production-marked environment, falling back to the busiest persistent one), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
     environment_scope: string
     /** Distinct persistent environments deployed to in the scan window, most-deployed first — the environment picker's options. Transient environments are omitted but stay reachable by exact name. */
     environments: string[]
@@ -338,7 +348,7 @@ export interface DoraOverviewApi {
      * @nullable
      */
     latest_deploy_status_at: string | null
-    /** Bucket width of every series, chosen to fit the window: 'hour', 'day', or 'week'. */
+    /** Bucket width of every series: the granularity param when given, else chosen to fit the window: 'hour', 'day', or 'week'. */
     series_granularity: string
 }
 
@@ -1731,13 +1741,17 @@ export type EngineeringAnalyticsDoraParams = {
      */
     date_to?: string
     /**
-     * Exact deploy environment to scope to (from the response's `environments` list). Omit to scope to production-marked deployments, falling back to every persistent (non-transient) environment when none are marked production.
+     * Deploy environment(s) to scope to, repeatable (from the response's `environments` list). Omit to scope to the busiest environment GitHub marks production, falling back to the busiest persistent (non-transient) environment when none are marked production.
      */
-    environment?: string
+    environment?: string[]
     /**
      * GitHub team slug (from the response's `github_teams` list) to narrow the PR-scoped merge-to-deploy figures to that team's authors. Deploy counts stay repo-wide. Needs the team-membership snapshot synced; without it the merge-to-deploy figures return empty rather than silently unfiltered.
      */
     github_team?: string
+    /**
+     * Bucket width for every series. Omit to pick one that fits the window: hour up to 48h, day up to 90 days, week beyond.
+     */
+    granularity?: EngineeringAnalyticsDoraGranularity
     /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
@@ -1747,6 +1761,15 @@ export type EngineeringAnalyticsDoraParams = {
      */
     source_id?: string
 }
+
+export type EngineeringAnalyticsDoraGranularity =
+    (typeof EngineeringAnalyticsDoraGranularity)[keyof typeof EngineeringAnalyticsDoraGranularity]
+
+export const EngineeringAnalyticsDoraGranularity = {
+    Day: 'day',
+    Hour: 'hour',
+    Week: 'week',
+} as const
 
 export type EngineeringAnalyticsFlakyTestsParams = {
     /**
