@@ -120,6 +120,8 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
                 state
                     ? {
                           ...state,
+                          // Meters project from the scanner rate, so the headline total and the rate move together.
+                          scanners_monthly_credits: Math.max(0, state.scanners_monthly_credits + delta),
                           projected_monthly_credits: Math.max(0, state.projected_monthly_credits + delta),
                       }
                     : state,

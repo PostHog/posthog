@@ -93,7 +93,7 @@ function ButtonTileCardInternal(
 
             <div
                 className={clsx(
-                    'ButtonTileCard__body flex w-full flex-1 p-4 items-center',
+                    'DashboardTileCard__body ButtonTileCard__body flex w-full flex-1 p-4 items-center',
                     !shouldHideMoreButton && 'pr-14',
                     button_tile.placement === 'right' ? 'md:justify-end' : 'justify-start',
                     onDragHandleMouseDown && 'cursor-grab'

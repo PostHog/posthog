@@ -575,8 +575,6 @@ SPECTACULAR_SETTINGS = {
             "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
             # Matches the messaging email channel setup provider list.
             "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
-            # vision_action and vision_alert both define AlertDirection.
-            "VisionAlertDirectionEnum": "products.replay_vision.backend.models.vision_action.AlertDirection",
             # Matches replay_vision's VisionAlertState.
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
             #
@@ -682,8 +680,15 @@ SPECTACULAR_SETTINGS = {
             "CanvasGridColumnsEnum": [(4, 4), (6, 6), (8, 8), (10, 10), (12, 12)],
             "CanvasLayoutSchemaVersionEnum": [(1, 1)],
             "ExperimentSessionBucketEnum": ["fired_any", "no_metric_activity", "funnel_dropoff"],
+            "ExperimentWatchCardKindEnum": ["behavior", "friction", "variant_only", "metric"],
             "ExperimentWatchCardStrengthEnum": ["only", "far_more", "more", "slightly_more"],
             "ExperimentWatchMultipleVariantHandlingEnum": ["exclude", "first_seen"],
+            "ExperimentWatchEmptyReasonEnum": [
+                "too_early",
+                "no_separation",
+                "no_recordings",
+                "no_session_linked_exposures",
+            ],
             "ReviewIssuePriorityEnum": ["must_fix", "should_fix", "consider"],
             "OtelMetricTypeEnum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
             "VerdictEnum": ["yes", "no", "inconclusive"],

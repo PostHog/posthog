@@ -74,4 +74,32 @@ describe("BaseAcpAgent", () => {
       }),
     );
   });
+
+  it.each(["moonshotai/kimi-k3", "deepseek-ai/deepseek-v4-flash-0731"])(
+    "does not restore omitted gateway model %s as a custom option",
+    async (savedModel) => {
+      vi.mocked(fetchGatewayModels).mockResolvedValue([
+        {
+          id: "claude-opus-4-8",
+          owned_by: "anthropic",
+          context_window: 1_000_000,
+          supports_streaming: true,
+          supports_vision: true,
+          allowed: true,
+        },
+      ]);
+
+      const agent = new TestAcpAgent({} as AgentSideConnection);
+      const result = await agent.getModelConfigOptions(
+        savedModel,
+        "https://gateway.us.posthog.com/posthog_code",
+        "token",
+      );
+
+      expect(result.currentModelId).toBe("claude-opus-4-8");
+      expect(result.options).not.toContainEqual(
+        expect.objectContaining({ value: savedModel }),
+      );
+    },
+  );
 });
