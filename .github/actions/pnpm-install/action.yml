@@ -37,9 +37,9 @@ inputs:
         default: ${{ github.token }}
     install:
         description: |
-            Set to 'false' to put pnpm and Node on PATH without installing anything.
-            The store cache is skipped too, so the job avoids a ~1.2 GB restore it
-            would never read. For a job that only needs pnpm to launch a binary.
+            Set to 'false' to put pnpm and Node on PATH and stop there: no store
+            cache restore, no install, no store save, and `install-command` goes
+            unused. For a job that only needs pnpm to launch a binary.
         required: false
         default: 'true'
 
