@@ -948,9 +948,10 @@ class SignalReportViewSet(
     # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
     # returning 404 — matching the existing contract.
     # `viewed` follows `retrieve` for the same reason: the Dismissed tab's detail view records its
-    # open like any other.
+    # open like any other. `pr_checks` and `pr_comments` are there because that same view renders the
+    # read-only PR panel whatever the report's status is.
     _SUPPRESSED_VISIBLE_ACTIONS = frozenset(
-        {"state", "bulk_state", "retrieve", "signals", "refund", "feedback", "viewed"}
+        {"state", "bulk_state", "retrieve", "signals", "refund", "feedback", "viewed", "pr_checks", "pr_comments"}
     )
 
     # Human-readable explanation per bulk outcome, surfaced in each result's `detail` field
