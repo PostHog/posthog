@@ -15,6 +15,7 @@ from django.db import (
     Error as DjangoDatabaseError,
     connections,
 )
+from django.db.migrations.exceptions import InconsistentMigrationHistory, NodeNotFoundError
 from django.http import JsonResponse
 from django.test import Client
 
@@ -436,6 +437,27 @@ def test_is_kafka_connected_returns_true_when_metadata_succeeds():
         get_producer_mock.return_value.producer.list_topics.return_value = mock.Mock()
         assert is_kafka_connected() is True
         get_producer_mock.return_value.producer.list_topics.assert_called_once_with(timeout=3)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "error",
+    [
+        NodeNotFoundError(
+            "Migration example.0002_second dependencies reference nonexistent parent node ('other', '0001_first')",
+            ("other", "0001_first"),
+        ),
+        InconsistentMigrationHistory("Migration example.0002_second is applied before its dependency other.0001_first"),
+    ],
+)
+def test_health_returns_503_and_names_the_node_for_a_broken_migration_graph(client: Client, error):
+    with patch("posthog.views.MigrationExecutor", side_effect=error):
+        response = client.get("/_health")
+
+    assert response.status_code == 503
+    body = response.content.decode()
+    assert "Migration graph is not valid" in body
+    assert "other" in body and "0001_first" in body
 
 
 @pytest.fixture(autouse=True)
