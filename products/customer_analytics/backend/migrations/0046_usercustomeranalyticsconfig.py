@@ -33,6 +33,7 @@ class Migration(migrations.Migration):
                     "pinned_custom_property_definition_ids",
                     django.contrib.postgres.fields.ArrayField(base_field=models.UUIDField(), default=list, size=None),
                 ),
+                ("properties", models.JSONField(default=dict)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
                     "team",
