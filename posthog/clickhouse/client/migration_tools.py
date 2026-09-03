@@ -6,7 +6,7 @@ from infi.clickhouse_orm import migrations
 
 from posthog import settings
 from posthog.clickhouse.client.connection import DATA_NODE_ROLES, SINGLE_SHARD_DATA_NODE_ROLES, NodeRole
-from posthog.clickhouse.cluster import ClickhouseCluster, Query, get_cluster
+from posthog.clickhouse.cluster import ClickhouseCluster, Query, SkipIfTableMissing, get_cluster
 from posthog.run_mode import run_mode
 from posthog.settings.data_stores import (
     CLICKHOUSE_CLUSTER,
@@ -38,6 +38,7 @@ def run_sql_with_exceptions(
     sharded: Optional[bool] = None,
     is_alter_on_replicated_table: Optional[bool] = None,
     require_hosts: bool = False,
+    skip_if_table_missing: Optional[str] = None,
 ):
     """
     Executes a SQL query on each node separately with specific options, handling distributed execution and node roles.
@@ -60,6 +61,9 @@ def run_sql_with_exceptions(
         This will run on just one host per shard or one host for the whole cluster if there is no sharding.
     require_hosts: bool, optional (default is False)
         Raises when none of the requested node roles exist in the migration topology.
+    skip_if_table_missing: str, optional
+        Name of a table the statement needs. Hosts without that table skip the statement instead of
+        failing. Use it for an ALTER on a table that a later migration creates.
 
     Returns:
     migrations.RunPython
@@ -90,7 +94,7 @@ def run_sql_with_exceptions(
     def run_migration():
         cluster = get_migrations_cluster()
 
-        query = Query(sql)
+        query = Query(sql) if skip_if_table_missing is None else SkipIfTableMissing(skip_if_table_missing, Query(sql))
 
         if sharded and is_alter_on_replicated_table:
             is_local_or_test = _collapses_to_all_nodes()

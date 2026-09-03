@@ -679,6 +679,29 @@ class Query:
 
 
 @dataclass
+class SkipIfTableMissing(Generic[T]):
+    """Runs the wrapped callable only on the hosts that have the table.
+
+    ClickHouse has no ALTER TABLE IF EXISTS, so the check runs on the same connection as the
+    statement. This keeps a migration that alters a table a later migration creates from stopping a
+    replay of the migration set.
+    """
+
+    table: str
+    fn: Callable[[Client], T]
+
+    def __call__(self, client: Client) -> T | None:
+        [[exists]] = client.execute(
+            "SELECT count() FROM system.tables WHERE database = currentDatabase() AND name = %(table)s",
+            {"table": self.table},
+        )
+        if not exists:
+            logger.info("Skipping %r: table %r is not on this host", self.fn, self.table)
+            return None
+        return self.fn(client)
+
+
+@dataclass
 class ExponentialBackoff:
     delay: float
     max_delay: Optional[float] = None

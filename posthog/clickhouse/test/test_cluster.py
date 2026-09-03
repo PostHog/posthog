@@ -22,6 +22,7 @@ from posthog.clickhouse.cluster import (
     MutationWaiter,
     Query,
     RetryPolicy,
+    SkipIfTableMissing,
     T,
     get_cluster,
     redact_sql_secrets,
@@ -888,3 +889,15 @@ def test_query_repr_keeps_short_query_intact():
     rendered = repr(Query("SELECT 1"))
     assert "truncated" not in rendered
     assert "SELECT 1" in rendered
+
+
+@pytest.mark.parametrize("row_count,expect_run", [(1, True), (0, False)])
+def test_skip_if_table_missing(row_count: int, expect_run: bool) -> None:
+    client = Mock()
+    client.execute.return_value = [[row_count]]
+    wrapped = Mock(return_value=sentinel.RESULT)
+
+    result = SkipIfTableMissing("sharded_thing", wrapped)(client)
+
+    assert result is (sentinel.RESULT if expect_run else None)
+    assert wrapped.call_count == (1 if expect_run else 0)
