@@ -210,7 +210,14 @@ def _build_initial_params(
         # deliberate one-off backfill, not a connect-time cost. `is not None` keeps the field's
         # zero contract uniform with the fan-out floor: zero floors at now, so the poll backfills
         # nothing, rather than reading as "no floor" and walking the whole history.
-        params["since"] = _format_incremental_value(_now_utc() - timedelta(days=config.initial_lookback_days))
+        # Floored to the UTC day so the URL is stable between polls. initial_lookback_days has day
+        # granularity, so the sub-day part carries no information, but it would put a fresh timestamp
+        # in every request and cost a repository that never sets a watermark its conditional-request
+        # cache entry on every sync.
+        floor = (_now_utc() - timedelta(days=config.initial_lookback_days)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        params["since"] = _format_incremental_value(floor)
 
     return params
 
@@ -904,6 +911,7 @@ def _fetch_page(
         source="warehouse",
         headers=headers,
         installation_id=installation_id,
+        cache_identity=f"installation:{installation_id}" if installation_id else None,
         priority=Priority.BATCH,
         timeout=60,
         session=make_tracked_session(retry=_NO_ADAPTER_RETRY),

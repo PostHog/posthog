@@ -54,6 +54,19 @@ _metrics = EgressMetrics(
 )
 
 
+_conditional_cache_counter = Counter(
+    "github_egress_conditional_cache",
+    "Conditional GitHub GETs by cache outcome.",
+    labelnames=["outcome", "source"],
+)
+
+
+def record_github_conditional_cache(outcome: str, *, source: str) -> None:
+    """``cold`` no entry, ``hit`` 304 replayed, ``miss`` entry present but GitHub sent a new body,
+    ``store`` written, ``skip`` not eligible. Stores without matching hits mean unstable URLs."""
+    _conditional_cache_counter.labels(outcome=outcome, source=source).inc()
+
+
 def _float_header(headers: Mapping[str, str] | None, name: str) -> float | None:
     if headers is None:
         return None

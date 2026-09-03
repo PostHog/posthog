@@ -136,6 +136,22 @@ Response handling — what to do on a 403/429 — stays with the caller: `raise_
 The model-coupled `GitHubIntegrationBase.api_request` layers the installation-token lifecycle (proactive refresh, 401 refresh-retry, rate-limit raising, per-instance `source` attribution) on top — hold an integration, call that; hold a bare token, call `github_request`.
 Raw `requests` calls against `api.github.com` are blocked by the `github-api-calls-go-through-egress` semgrep rule (`.semgrep/devex-rules/`), so new callers land on one of these two paths by construction.
 
+### Conditional GETs (GitHub)
+
+A GET that passes `cache_identity` is sent conditionally: the transport stores the response's ETag and body, replays `If-None-Match` on the next call, and hands the caller the stored body with a `200` when GitHub answers `304`.
+GitHub does not charge a matched conditional request against the installation's primary rate limit, so an unchanged page costs bandwidth and latency but no GitHub budget.
+
+Caching is opt-in because the credential, not the URL, decides what the response contains.
+`cache_identity` names whose view is being stored; `GitHubIntegrationBase.api_request` passes `_installation_cache_scope()`, and a caller holding a narrower token (a user access token, say) passes nothing and is never cached.
+The key is that identity plus the effective `Accept` and the full URL — the same `/compare/{basehead}` is read both as a diff and as JSON under one installation.
+Entries are held in Django's `default` cache, so bodies are compressed and reads can go to a replica.
+
+Nothing is stored for a non-GET, a streamed response, a request the caller already made conditional, a response with no `ETag` or with `no-store`, a `Vary` naming anything the key does not cover, or a body over `GITHUB_EGRESS_CONDITIONAL_CACHE_MAX_BODY_BYTES`.
+`GITHUB_EGRESS_CONDITIONAL_CACHE_TTL_SECONDS = 0` turns the whole thing off.
+Watch `github_egress_conditional_cache_total`: stores without matching hits mean the URL is not stable between calls.
+
+Note the limiter still counts a `304` that GitHub does not, so our budget runs slightly conservative against the real one.
+
 Firecrawl callers go through `firecrawl/client.py` rather than `firecrawl_request` directly: `scrape(url, source=...)` returns a typed `FirecrawlScrape` (markdown, summary, plus the page title, description, status code and credits used) and raises `FirecrawlScrapeFailed` when Firecrawl answers with anything but a successful scrape, including the 200 responses that carry `success: false`.
 Only `POST /v2/scrape` is wired up, and the client reads `FIRECRAWL_API_KEY` from settings so the transport stays token-agnostic like the others.
 

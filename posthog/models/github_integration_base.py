@@ -2264,6 +2264,7 @@ class GitHubIntegrationBase:
                     # Token last: a caller-supplied Authorization must not bypass the managed lifecycle.
                     headers={**(headers or {}), "Authorization": f"Bearer {token}"},
                     installation_id=self.github_installation_id,
+                    cache_identity=self._installation_cache_scope(),
                     priority=priority if priority is not None else self.priority,
                     endpoint=endpoint,
                     params=params,
