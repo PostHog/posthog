@@ -15,6 +15,7 @@ from parameterized import parameterized
 from posthog.schema import AlertCalculationInterval, AlertState
 
 from posthog.temporal.alerts.investigation import (
+    IN_FLIGHT_INVESTIGATION_HORIZON,
     MAX_INVESTIGATIONS_PER_EPISODE,
     claim_investigation_slot,
     decide_investigation,
@@ -263,6 +264,46 @@ class TestClaimInvestigationSlot(InvestigationTestCase):
     def test_cooldown_ignores_terminal_failure_statuses(self, _name: str, terminal_status: str) -> None:
         now = datetime(2026, 4, 30, 10, 0, tzinfo=UTC)
         self._make_check(at=now - timedelta(minutes=10), investigation_status=terminal_status)
+        new_check = self._make_check(at=now)
+
+        with freeze_time(now):
+            assert claim_investigation_slot(self.alert, new_check)
+
+    @parameterized.expand(
+        [
+            ("pending", InvestigationStatus.PENDING),
+            ("running", InvestigationStatus.RUNNING),
+        ]
+    )
+    def test_in_flight_investigation_blocks_past_the_cooldown(self, _name: str, in_flight_status: str) -> None:
+        self.alert.calculation_interval = AlertCalculationInterval.REAL_TIME
+        self.alert.save()
+        now = datetime(2026, 4, 30, 10, 0, tzinfo=UTC)
+        # Half an hour is an ordinary agent run and far past a real-time alert's five-minute
+        # cooldown, so a time-scoped guard would start a second agent on the same anomaly.
+        self._make_check(at=now - timedelta(minutes=30), investigation_status=in_flight_status)
+        new_check = self._make_check(at=now)
+
+        with freeze_time(now):
+            assert not claim_investigation_slot(self.alert, new_check)
+
+        new_check.refresh_from_db()
+        assert new_check.investigation_status == InvestigationStatus.SKIPPED
+
+    @parameterized.expand(
+        [
+            ("pending", InvestigationStatus.PENDING),
+            ("running", InvestigationStatus.RUNNING),
+        ]
+    )
+    def test_stalled_investigation_stops_blocking_past_the_horizon(self, _name: str, in_flight_status: str) -> None:
+        self.alert.calculation_interval = AlertCalculationInterval.REAL_TIME
+        self.alert.save()
+        now = datetime(2026, 4, 30, 10, 0, tzinfo=UTC)
+        self._make_check(
+            at=now - IN_FLIGHT_INVESTIGATION_HORIZON - timedelta(minutes=1),
+            investigation_status=in_flight_status,
+        )
         new_check = self._make_check(at=now)
 
         with freeze_time(now):
