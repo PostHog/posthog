@@ -69,8 +69,6 @@ class MaterializedViewFailureCheck(HealthCheck):
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
-        # The newest run is the failure source of truth. SavedQuery.status and latest_error are written
-        # only by the retired v1 workflow, so on a v2 team they hold whatever v1 last left there.
         # The duckgres shadow shares saved_query_id and finalizes after ClickHouse, so it must not
         # stand in for the serving run.
         latest_job = (
