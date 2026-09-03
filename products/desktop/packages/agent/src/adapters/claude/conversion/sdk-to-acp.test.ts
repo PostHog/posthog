@@ -109,7 +109,7 @@ function assistantMessage(
   apiId: string,
   content: Array<Record<string, unknown>>,
   parentToolUseId: string | null = null,
-  model?: string,
+  isApiErrorMessage?: boolean,
 ): SDKAssistantMessage {
   return {
     type: "assistant",
@@ -120,8 +120,8 @@ function assistantMessage(
       id: apiId,
       role: "assistant",
       content,
-      model,
     },
+    isApiErrorMessage,
   } as unknown as SDKAssistantMessage;
 }
 
@@ -164,14 +164,14 @@ describe("assembled assistant text fallback", () => {
   });
 
   it.each([
-    { model: "<synthetic>", expected: [] },
+    { isApiErrorMessage: true, expected: [] },
     {
-      model: "zai-org/glm-5.3-flash",
+      isApiErrorMessage: false,
       expected: ["API Error: Content block is not a thinking block"],
     },
   ])(
-    "filters content-block errors from $model assistant messages",
-    async ({ model, expected }) => {
+    "filters SDK API error messages when marked $isApiErrorMessage",
+    async ({ isApiErrorMessage, expected }) => {
       const { context, updates } = createHandlerContext();
       await handleUserAssistantMessage(
         assistantMessage(
@@ -183,7 +183,7 @@ describe("assembled assistant text fallback", () => {
             },
           ],
           null,
-          model,
+          isApiErrorMessage,
         ),
         context,
       );

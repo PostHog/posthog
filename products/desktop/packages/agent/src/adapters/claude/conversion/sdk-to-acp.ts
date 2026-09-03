@@ -61,6 +61,7 @@ interface AnthropicMessageWithContent {
     content: AnthropicMessageContent;
     model?: string;
   };
+  isApiErrorMessage?: boolean;
 }
 
 type ChunkHandlerContext = {
@@ -1180,22 +1181,7 @@ function shouldSkipUserAssistantMessage(
   return (
     isSdkLocalCommandMessage(message.message.content) ||
     isLoginRequiredMessage(message) ||
-    isSyntheticContentBlockErrorMessage(message)
-  );
-}
-
-function isSyntheticContentBlockErrorMessage(
-  message: AnthropicMessageWithContent,
-): boolean {
-  const content = message.message.content;
-  return (
-    message.type === "assistant" &&
-    message.message.model === "<synthetic>" &&
-    Array.isArray(content) &&
-    content.length === 1 &&
-    content[0].type === "text" &&
-    typeof content[0].text === "string" &&
-    classifyAgentError(content[0].text) === "content_block_rejection"
+    message.isApiErrorMessage === true
   );
 }
 
