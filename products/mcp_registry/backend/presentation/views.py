@@ -1,14 +1,28 @@
 import re
 from typing import Any
 
-from django.db.models import Case, Exists, Expression, F, FloatField, OuterRef, Q, QuerySet, Subquery, Value, When
+from django.db.models import (
+    Case,
+    Count,
+    Exists,
+    Expression,
+    F,
+    FloatField,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    Sum,
+    Value,
+    When,
+)
 from django.db.models.functions import Coalesce, Power
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -26,6 +40,8 @@ from products.mcp_registry.backend.facade.api import (
 from products.mcp_registry.backend.models import MCPMeasuredStats, MCPRankingScore, MCPRegistryServer, MCPRegistryTool
 from products.mcp_registry.backend.presentation.serializers import (
     MCPDiscoverResponseSerializer,
+    MCPMeasuredProjectSerializer,
+    MCPMeasuredStatsSerializer,
     MCPRankingVersionSerializer,
     MCPRegistryCompareRowSerializer,
     MCPRegistryServerDetailSerializer,
@@ -49,6 +65,26 @@ _AUTHORITY_EXPONENT = 0.4
 _STOPWORDS = frozenset(
     {"and", "any", "can", "for", "from", "get", "how", "into", "its", "make", "me", "my", "our", "the", "with", "you"}
 )
+
+
+def _visible_measured_stats(server: MCPRegistryServer, team_id: int | None, is_staff: bool) -> list[MCPMeasuredStats]:
+    """The measured rows this caller may see.
+
+    Registry rows are global, but each stats row aggregates one project's own
+    $mcp_tool_call events, so visibility is tiered. PostHog staff see every row, which is
+    how we tell whether ranking behaves across the whole fleet instead of one project. A
+    project sees its own rows. Anyone else sees none, because another customer's call
+    volumes, error rates, and per-tool breakdowns are not ours to hand out.
+
+    `measured_public` is deliberately not consulted. It is one boolean on a server that
+    several projects contribute rows to, so it cannot record which contributor agreed to
+    publish; a public surface needs a rule that can.
+    """
+    rows = list(server.measured_stats.all())
+    if is_staff:
+        return rows
+    # No row carries a null team_id, so a caller without a project matches nothing.
+    return [row for row in rows if row.team_id == team_id]
 
 
 def _measured_summary(stats: list[MCPMeasuredStats]) -> dict[str, Any] | None:
@@ -168,6 +204,9 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise ValidationError({"version": f"unknown ranking version; one of: {sorted(RANKING_VERSIONS)}"})
         return version
 
+    def _caller_is_staff(self) -> bool:
+        return bool(getattr(self.request.user, "is_staff", False))
+
     def _ranked_queryset(self, version: str, search: str, measured_only: bool) -> QuerySet:
         """Rank by fit x authority, the product this whole thing exists to compute.
 
@@ -262,6 +301,9 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             context={
                 "latest_scores": latest_scores,
                 "connect_instructions": build_connect_instructions(server),
+                "visible_measured_stats": MCPMeasuredStatsSerializer(
+                    _visible_measured_stats(server, self.team.id, self._caller_is_staff()), many=True
+                ).data,
             },
         )
         return Response(serializer.data)
@@ -293,6 +335,7 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except ValueError:
             raise ValidationError({"limit": "must be an integer"})
 
+        caller_is_staff = self._caller_is_staff()
         tokens = intent.lower().split()[:_MAX_SEARCH_TOKENS]
         servers = list(
             self._ranked_queryset(version=version, search=intent, measured_only=False).prefetch_related(
@@ -303,7 +346,7 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         candidates = []
         for index, server in enumerate(servers):
             score = MCPRankingScore.objects.filter(run=latest_completed_run(version), server=server).first()
-            stats = list(server.measured_stats.all())
+            stats = _visible_measured_stats(server, self.team.id, caller_is_staff)
             candidates.append(
                 {
                     "rank": index + 1,
@@ -328,6 +371,23 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(
             MCPDiscoverResponseSerializer({"intent": intent, "ranking_version": version, "candidates": candidates}).data
         )
+
+    @extend_schema(
+        responses={200: MCPMeasuredProjectSerializer(many=True)},
+        description="Which projects feed MCP Analytics signal into the index, and how much each "
+        "contributes. Staff only, because it reports across every project rather than the one in "
+        "the route: it answers whether the measured layer has enough coverage to rank on.",
+    )
+    @action(detail=False, methods=["GET"], pagination_class=None)
+    def measured_projects(self, request: Request, **kwargs) -> Response:
+        if not self._caller_is_staff():
+            raise PermissionDenied("Reporting across projects is limited to PostHog staff.")
+        rows = (
+            MCPMeasuredStats.objects.values("team_id")
+            .annotate(servers=Count("server", distinct=True), total_calls=Sum("calls"))
+            .order_by("-total_calls")
+        )
+        return Response(MCPMeasuredProjectSerializer(list(rows), many=True).data)
 
     @extend_schema(
         responses={200: MCPRankingVersionSerializer(many=True)},

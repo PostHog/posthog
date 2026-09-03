@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     MCPDiscoverResponseApi,
+    MCPMeasuredProjectApi,
     MCPRankingVersionApi,
     MCPRegistryServerDetailApi,
     McpRegistryServersCompareRetrieve200,
@@ -131,6 +132,23 @@ export const mcpRegistryServersDiscoverRetrieve = async (
     options?: RequestInit
 ): Promise<MCPDiscoverResponseApi> => {
     return apiMutator<MCPDiscoverResponseApi>(getMcpRegistryServersDiscoverRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMcpRegistryServersMeasuredProjectsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/mcp_registry/servers/measured_projects/`
+}
+
+/**
+ * Which projects feed MCP Analytics signal into the index, and how much each contributes. Staff only, because it reports across every project rather than the one in the route: it answers whether the measured layer has enough coverage to rank on.
+ */
+export const mcpRegistryServersMeasuredProjectsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MCPMeasuredProjectApi[]> => {
+    return apiMutator<MCPMeasuredProjectApi[]>(getMcpRegistryServersMeasuredProjectsListUrl(projectId), {
         ...options,
         method: 'GET',
     })

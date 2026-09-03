@@ -46787,6 +46787,18 @@ export namespace Schemas {
       readonly themes: readonly MCPIntentTheme[];
     }
 
+    /**
+     * One project's contribution to the measured layer, for the staff fleet view.
+     */
+    export interface MCPMeasuredProject {
+      /** Project supplying the MCP Analytics signal. */
+      team_id: number;
+      /** Distinct servers this project has measured. */
+      servers: number;
+      /** Tool calls this project contributes across those servers. */
+      calls: number;
+    }
+
     export type MCPMeasuredStatsToolStatsItem = { [key: string]: unknown };
 
     export type MCPMeasuredStatsLinkCandidatesItem = { [key: string]: unknown };
@@ -47026,8 +47038,8 @@ export namespace Schemas {
       last_probed_at: string | null;
       /** Known tools, fused from probes and analytics. */
       tools: MCPRegistryTool[];
-      /** Behavioral aggregates, one per measured MCP Analytics project. */
-      measured_stats: MCPMeasuredStats[];
+      /** Behavioral aggregates, one per measured MCP Analytics project. Limited to this project's own measurements unless the server is marked measured_public. */
+      readonly measured_stats: readonly MCPMeasuredStats[];
       /** Latest score under every ranking version with a completed run. */
       readonly scores: readonly MCPRankingScoreInfo[];
       /** Connection instructions: methods ordered most-automated first, steps typed by actor (agent executes; human steps are narrated to the user). */

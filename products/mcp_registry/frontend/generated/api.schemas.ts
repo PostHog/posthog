@@ -174,8 +174,8 @@ export interface MCPRegistryServerDetailApi {
     last_probed_at: string | null
     /** Known tools, fused from probes and analytics. */
     tools: MCPRegistryToolApi[]
-    /** Behavioral aggregates, one per measured MCP Analytics project. */
-    measured_stats: MCPMeasuredStatsApi[]
+    /** Behavioral aggregates, one per measured MCP Analytics project. Limited to this project's own measurements unless the server is marked measured_public. */
+    readonly measured_stats: readonly MCPMeasuredStatsApi[]
     /** Latest score under every ranking version with a completed run. */
     readonly scores: readonly MCPRankingScoreInfoApi[]
     /** Connection instructions: methods ordered most-automated first, steps typed by actor (agent executes; human steps are narrated to the user). */
@@ -243,6 +243,18 @@ export interface MCPDiscoverResponseApi {
     ranking_version: string
     /** Servers most likely to do the thing, best first. */
     candidates: MCPDiscoverCandidateApi[]
+}
+
+/**
+ * One project's contribution to the measured layer, for the staff fleet view.
+ */
+export interface MCPMeasuredProjectApi {
+    /** Project supplying the MCP Analytics signal. */
+    team_id: number
+    /** Distinct servers this project has measured. */
+    servers: number
+    /** Tool calls this project contributes across those servers. */
+    calls: number
 }
 
 /**

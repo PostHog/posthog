@@ -211,7 +211,9 @@ export const MCPRegistryServerDetailApi = zod.object({
                 computed_at: zod.iso.datetime({ offset: true }).describe('When this aggregate was computed.'),
             })
         )
-        .describe('Behavioral aggregates, one per measured MCP Analytics project.'),
+        .describe(
+            "Behavioral aggregates, one per measured MCP Analytics project. Limited to this project's own measurements unless the server is marked measured_public."
+        ),
     scores: zod
         .array(
             zod
@@ -324,6 +326,17 @@ export const MCPDiscoverResponseApi = zod
 
 export type MCPDiscoverResponseApi = zod.input<typeof MCPDiscoverResponseApi>
 export type MCPDiscoverResponseApiOutput = zod.output<typeof MCPDiscoverResponseApi>
+
+export const MCPMeasuredProjectApi = zod
+    .object({
+        team_id: zod.number().describe('Project supplying the MCP Analytics signal.'),
+        servers: zod.number().describe('Distinct servers this project has measured.'),
+        calls: zod.number().describe('Tool calls this project contributes across those servers.'),
+    })
+    .describe("One project's contribution to the measured layer, for the staff fleet view.")
+
+export type MCPMeasuredProjectApi = zod.input<typeof MCPMeasuredProjectApi>
+export type MCPMeasuredProjectApiOutput = zod.output<typeof MCPMeasuredProjectApi>
 
 export const MCPRankingVersionApi = zod
     .object({

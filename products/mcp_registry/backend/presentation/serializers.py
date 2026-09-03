@@ -135,8 +135,9 @@ class MCPRegistryServerDetailSerializer(MCPRegistryServerListSerializer):
     website_url = serializers.CharField(help_text="Vendor website URL, when published.")
     last_probed_at = serializers.DateTimeField(allow_null=True, help_text="When the shallow probe last ran.")
     tools = MCPRegistryToolSerializer(many=True, help_text="Known tools, fused from probes and analytics.")
-    measured_stats = MCPMeasuredStatsSerializer(
-        many=True, help_text="Behavioral aggregates, one per measured MCP Analytics project."
+    measured_stats = serializers.SerializerMethodField(
+        help_text="Behavioral aggregates, one per measured MCP Analytics project. Limited to this "
+        "project's own measurements unless the server is marked measured_public."
     )
     scores = serializers.SerializerMethodField(
         help_text="Latest score under every ranking version with a completed run."
@@ -160,6 +161,10 @@ class MCPRegistryServerDetailSerializer(MCPRegistryServerListSerializer):
             "scores",
             "connect",
         ]
+
+    @extend_schema_field(MCPMeasuredStatsSerializer(many=True))
+    def get_measured_stats(self, obj: MCPRegistryServer) -> list[dict]:
+        return self.context["visible_measured_stats"]
 
     @extend_schema_field(MCPRankingScoreInfoSerializer(many=True))
     def get_scores(self, obj: MCPRegistryServer) -> list[dict]:
@@ -218,6 +223,17 @@ class MCPDiscoverResponseSerializer(serializers.Serializer):
     intent = serializers.CharField(help_text="The intent the candidates were ranked against, echoed back.")
     ranking_version = serializers.CharField(help_text="Ranking version the candidates were ordered by.")
     candidates = MCPDiscoverCandidateSerializer(many=True, help_text="Servers most likely to do the thing, best first.")
+
+
+class MCPMeasuredProjectSerializer(serializers.Serializer):
+    """One project's contribution to the measured layer, for the staff fleet view."""
+
+    team_id = serializers.IntegerField(help_text="Project supplying the MCP Analytics signal.")
+    servers = serializers.IntegerField(help_text="Distinct servers this project has measured.")
+    # `calls` is the model field name, so the annotation had to be renamed to avoid clashing.
+    calls = serializers.IntegerField(
+        source="total_calls", help_text="Tool calls this project contributes across those servers."
+    )
 
 
 class MCPRegistryCompareRowSerializer(serializers.Serializer):

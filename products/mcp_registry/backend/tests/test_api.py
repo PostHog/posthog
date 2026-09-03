@@ -202,6 +202,63 @@ class TestMCPRegistryAPI(APIBaseTest):
 
         assert payload["candidates"][0]["id"] == str(official.id)
 
+    def _seed_another_projects_stats(self, server: MCPRegistryServer) -> None:
+        MCPMeasuredStats.objects.create(
+            server=server,
+            team_id=self.team.id + 1,
+            server_name="PostHog",
+            window_days=30,
+            calls=999_999,
+            errors=0,
+            error_rate_pct=0.0,
+            intent_coverage_pct=100.0,
+            link_method="override",
+            computed_at=timezone.now(),
+        )
+
+    def _measured_candidate(self, payload: dict[str, Any], server: MCPRegistryServer) -> dict[str, Any]:
+        return next(row for row in payload["candidates"] if row["id"] == str(server.id))
+
+    def test_another_projects_measured_stats_stay_hidden(self) -> None:
+        # Registry rows are global, so a server measured by several projects carries a stats
+        # row per project. A non-staff caller may only see the project it asked as.
+        servers = self._seed_index()
+        self._seed_another_projects_stats(servers["measured"])
+
+        detail = self.client.get(self._url(f"{servers['measured'].id}/")).json()
+        discovered = self.client.get(self._url("discover/"), {"intent": "product analytics"}).json()
+
+        assert [row["calls"] for row in detail["measured_stats"]] == [50_000]
+        assert self._measured_candidate(discovered, servers["measured"])["measured"]["calls"] == 50_000
+
+    def test_staff_see_every_projects_measured_stats(self) -> None:
+        # The fleet view is the point of the staff tier: ranking is only judgeable across
+        # every contributing project, not the one in the route.
+        servers = self._seed_index()
+        self._seed_another_projects_stats(servers["measured"])
+        self.user.is_staff = True
+        self.user.save()
+
+        detail = self.client.get(self._url(f"{servers['measured'].id}/")).json()
+        discovered = self.client.get(self._url("discover/"), {"intent": "product analytics"}).json()
+
+        assert sorted(row["calls"] for row in detail["measured_stats"]) == [50_000, 999_999]
+        assert self._measured_candidate(discovered, servers["measured"])["measured"]["calls"] == 1_049_999
+
+    def test_measured_projects_reports_the_fleet_to_staff_only(self) -> None:
+        # It aggregates across projects, so a non-staff caller must not reach it at all.
+        servers = self._seed_index()
+        self._seed_another_projects_stats(servers["measured"])
+
+        assert self.client.get(self._url("measured_projects/")).status_code == 403
+
+        self.user.is_staff = True
+        self.user.save()
+        rows = self.client.get(self._url("measured_projects/")).json()
+
+        assert [row["team_id"] for row in rows] == [self.team.id + 1, self.team.id]
+        assert [row["calls"] for row in rows] == [999_999, 50_000]
+
     def test_discover_requires_an_intent(self) -> None:
         assert self.client.get(self._url("discover/")).status_code == 400
 
