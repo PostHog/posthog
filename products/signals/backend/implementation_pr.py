@@ -296,30 +296,44 @@ def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number
     ]
 
 
-PrCloseReason = Literal["suppressed", "snoozed", "resolved"]
+PrCloseReason = Literal["suppressed", "snoozed", "resolved", "superseded"]
+
+# Left on the PR before it's closed, so anyone looking at the PR sees why it was closed and how to undo it.
+_PR_CLOSE_COMMENT_TEMPLATE = (
+    "🔕 Closing this PR because the linked PostHog report was {action}.\n\n"
+    "If that wasn't intended, restore the report in PostHog and reopen this PR."
+)
+_PR_CLOSE_COMMENTS: dict[PrCloseReason, str] = {
+    reason: _PR_CLOSE_COMMENT_TEMPLATE.format(action=reason)
+    for reason in cast(tuple[PrCloseReason, ...], ("suppressed", "snoozed"))
+}
+# A resolved report never reopens, so the undo advice above does not apply to it.
+_PR_CLOSE_COMMENTS["resolved"] = (
+    "🔕 Closing this PR because the linked PostHog report was resolved without it.\n\n"
+    "If that wasn't intended, reopen this PR."
+)
+# Superseding says something different from the other two: the report is still open, and the work
+# continues in another PR. The replacement's own description explains what changed, so this only has
+# to get the reader there.
+_SUPERSEDED_COMMENT = (
+    "🔕 Closing this PR because more research changed what the fix should be. "
+    "The report it came from is still open, and {replacement} replaces this PR.\n\n"
+    "That PR's description says what changed. If this one was still the right fix, reopen it and "
+    "close the replacement."
+)
+_SUPERSEDED_COMMENT_NO_URL = (
+    "🔕 Closing this PR because more research changed what the fix should be. "
+    "The report it came from is still open, and a new PR replaces this one.\n\n"
+    "If this PR was still the right fix, reopen it."
+)
 
 
-def _pr_close_comment(reason: PrCloseReason, *, report_link: str, actor_mention: str | None) -> str:
-    """What the PR says about its own close.
-
-    Left on the PR before it closes, so anyone reading the PR sees why it closed, who decided it,
-    and how to undo it. The close itself goes out under the team's GitHub App, so this comment is
-    the only place the person behind it can appear.
-    """
-    if reason == "resolved":
-        opening = (
-            f"🔕 Closing this PR because {actor_mention} resolved the {report_link} without it."
-            if actor_mention
-            else f"🔕 Closing this PR because the {report_link} was resolved without it."
-        )
-        # A resolved report never reopens, so the restore advice below does not apply to it.
-        return f"{opening}\n\nIf that wasn't intended, reopen this PR."
-    opening = (
-        f"🔕 Closing this PR because {actor_mention} {reason} the {report_link}."
-        if actor_mention
-        else f"🔕 Closing this PR because the {report_link} was {reason}."
-    )
-    return f"{opening}\n\nIf that wasn't intended, restore the report in PostHog and reopen this PR."
+def _pr_close_comment(reason: PrCloseReason, replacement_pr_url: str | None) -> str:
+    if reason != "superseded":
+        return _PR_CLOSE_COMMENTS[reason]
+    if replacement_pr_url:
+        return _SUPERSEDED_COMMENT.format(replacement=replacement_pr_url)
+    return _SUPERSEDED_COMMENT_NO_URL
 
 
 def _close_implementation_pr(
@@ -328,7 +342,7 @@ def _close_implementation_pr(
     *,
     reason: PrCloseReason = "suppressed",
     pr: ImplementationPr,
-    actor_user_id: int | None = None,
+    replacement_pr_url: str | None = None,
 ) -> bool:
     """Best-effort: comment on and close the GitHub PR attached to this report.
 
@@ -418,15 +432,9 @@ def _close_implementation_pr(
             )
             return False
 
-        # Explain first, close second. A failed comment should not stop the close.
+        # Explain first, close second — a failed comment shouldn't stop the close.
         comment_outcome = github.comment_on_pull_request(
-            parsed.repository,
-            parsed.number,
-            _pr_close_comment(
-                reason,
-                report_link=f"[linked PostHog report]({settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id})",
-                actor_mention=github_mention_for_user(actor_user_id),
-            ),
+            parsed.repository, parsed.number, _pr_close_comment(reason, replacement_pr_url)
         )
         if not comment_outcome.get("success"):
             logger.warning(
@@ -463,18 +471,80 @@ def _close_implementation_pr(
 
 
 def close_implementation_pr_for_report(
-    team_id: int, report_id: str, *, reason: PrCloseReason = "suppressed", actor_user_id: int | None = None
+    team_id: int,
+    report_id: str,
+    *,
+    reason: PrCloseReason = "suppressed",
+    pr_url: str | None = None,
+    replacement_pr_url: str | None = None,
 ) -> bool:
     try:
         if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
             return False
         closed = False
         for pr in fetch_implementation_prs_for_reports([str(report_id)], team_id=team_id).get(str(report_id), []):
-            closed = (
-                _close_implementation_pr(team_id, report_id, reason=reason, pr=pr, actor_user_id=actor_user_id)
-                or closed
-            )
+            if pr_url is not None and pr.url != pr_url:
+                continue
+            closed = _close_implementation_pr(
+                team_id, report_id, reason=reason, pr=pr, replacement_pr_url=replacement_pr_url
+            ) or closed
         return closed
     except Exception:
         logger.exception("close_implementation_pr_lookup_failed", report_id=str(report_id))
         return False
+
+
+def _implementation_task_ids_for_report(team_id: int, report_id: str) -> list[str]:
+    """The report's implementation task ids, oldest first."""
+    return [
+        run.task_id
+        for run in SignalReport.associated_task_runs(
+            report_id=report_id, team_id=team_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+    ]
+
+
+def report_has_newer_implementation_task(team_id: int, report_id: str, task_id: str) -> bool:
+    """Whether the report started another implementation after ``task_id``.
+
+    This is what separates a superseded pull request from an abandoned one. A closed-unmerged PR
+    normally archives its report, on the reading that somebody decided the work was not wanted. That
+    reading is wrong when the report has since started a replacement: the fix moved, and archiving
+    would drop a report that is actively being worked.
+    """
+    task_ids = _implementation_task_ids_for_report(team_id, report_id)
+    if str(task_id) not in task_ids:
+        return False
+    return task_ids.index(str(task_id)) < len(task_ids) - 1
+
+
+def close_superseded_implementation_prs(*, team_id: int, report_id: str, task_id: str, pr_url: str) -> int:
+    """Close the pull requests of implementation tasks this report started before ``task_id``.
+
+    Called when a replacement PR opens, rather than polled after the task is created: the report must
+    never be left with no open PR at all, so the old one closes only once its replacement exists.
+    Returns how many were closed. Never raises — a failed handover leaves both PRs open, which a
+    person can resolve, while a raised exception would fail the webhook GitHub is retrying.
+    """
+    task_ids = _implementation_task_ids_for_report(team_id, report_id)
+    if str(task_id) not in task_ids:
+        return 0
+    older_task_ids = task_ids[: task_ids.index(str(task_id))]
+    if not older_task_ids:
+        return 0
+
+    closed = 0
+    pr_url_by_task = tasks_facade.get_latest_pr_url_by_task(older_task_ids)
+    for older_task_id in older_task_ids:
+        older_pr_url = pr_url_by_task.get(older_task_id)
+        if not older_pr_url or older_pr_url == pr_url:
+            continue
+        if close_implementation_pr_for_report(
+            team_id,
+            report_id,
+            reason="superseded",
+            pr_url=older_pr_url,
+            replacement_pr_url=pr_url,
+        ):
+            closed += 1
+    return closed
