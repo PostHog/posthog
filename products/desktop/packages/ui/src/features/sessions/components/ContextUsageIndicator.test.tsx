@@ -1,11 +1,10 @@
-import { TASK_COST_VISIBLE_FLAG } from "@posthog/shared";
 import type { ContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ContextUsageIndicator } from "./ContextUsageIndicator";
 
-const flagState = vi.hoisted(() => ({ cost: false, costVisible: false }));
+const flagState = vi.hoisted(() => ({ costVisible: false }));
 const taskUsageState = vi.hoisted(() => ({
   data: undefined as
     | {
@@ -16,15 +15,13 @@ const taskUsageState = vi.hoisted(() => ({
     | undefined,
 }));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: (key: string) =>
-    key === TASK_COST_VISIBLE_FLAG ? flagState.costVisible : flagState.cost,
+  useFeatureFlag: () => flagState.costVisible,
 }));
 vi.mock("@posthog/ui/features/sessions/hooks/useTaskUsage", () => ({
   useTaskUsage: () => taskUsageState,
 }));
 
 function enableCost(costVisible = false) {
-  flagState.cost = true;
   flagState.costVisible = costVisible;
   taskUsageState.data = {
     token_cost_usd: 0.4,
@@ -34,7 +31,6 @@ function enableCost(costVisible = false) {
 }
 
 beforeEach(() => {
-  flagState.cost = false;
   flagState.costVisible = false;
   taskUsageState.data = undefined;
 });
