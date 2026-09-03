@@ -98,7 +98,8 @@ export function ReportVerdictBanner({
   const compact = variant === "header-actions";
   const triageActions = variant === "triage-actions";
   const buttonClass = BIG_BUTTON;
-  const { data: artefactsResp } = useInboxReportArtefacts(report.id);
+  const { data: artefactsResp, isLoading: artefactsLoading } =
+    useInboxReportArtefacts(report.id);
   const cloudRepository = extractRepoSelectionRepository(
     artefactsResp?.results,
   );
@@ -232,9 +233,10 @@ export function ReportVerdictBanner({
   }, [createPrReport, fireAction, prFeedback]);
 
   const handleComposeImplementation = useCallback(() => {
+    if (!cloudRepository) return;
     openTaskInput({
       initialPrompt: "Implement the recommended next step in this report.",
-      initialCloudRepository: cloudRepository ?? undefined,
+      initialCloudRepository: cloudRepository,
       reportAssociation: {
         reportId: report.id,
         title: report.title ?? "Untitled report",
@@ -414,6 +416,8 @@ export function ReportVerdictBanner({
           type="button"
           variant="primary"
           onClick={handleComposeImplementation}
+          loading={artefactsLoading}
+          disabled={artefactsLoading || !cloudRepository}
           className={buttonClass}
           data-attr="inbox-report-implement"
         >

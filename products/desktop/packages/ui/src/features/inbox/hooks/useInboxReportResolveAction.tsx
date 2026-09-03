@@ -35,6 +35,7 @@ export function useInboxReportResolveAction(
   const [open, setOpen] = useState(false);
   const [initialReason, setInitialReason] =
     useState<ResolveReasonOptionValue>();
+  const [initialNote, setInitialNote] = useState("");
   const queryClient = useQueryClient();
   const fireAction = useReportActionTracker(report, surface, triageId);
   const trackResult = useReportActionResultTracker(report, surface, triageId);
@@ -64,13 +65,17 @@ export function useInboxReportResolveAction(
           dismissal_note: result.note || null,
         };
         return {
-          cacheSnapshot: updateInboxReportCaches(queryClient, [
-            optimisticReport,
-          ]),
+          cacheSnapshot: updateInboxReportCaches(
+            queryClient,
+            [optimisticReport],
+            [report],
+          ),
         };
       },
       onSuccess: (updatedReport) => {
         updateInboxReportCaches(queryClient, [updatedReport]);
+        setInitialReason(undefined);
+        setInitialNote("");
         if (startedAtRef.current !== null) {
           trackResult("resolve", "succeeded", startedAtRef.current);
         }
@@ -79,6 +84,7 @@ export function useInboxReportResolveAction(
         if (context) {
           restoreInboxReportCaches(queryClient, context.cacheSnapshot);
         }
+        setOpen(true);
         if (startedAtRef.current !== null) {
           trackResult(
             "resolve",
@@ -106,6 +112,7 @@ export function useInboxReportResolveAction(
 
   const openDialog = useCallback((reason?: ResolveReasonOptionValue) => {
     setInitialReason(reason);
+    setInitialNote("");
     setOpen(true);
   }, []);
   const resolveWithReason = useCallback(
@@ -114,6 +121,8 @@ export function useInboxReportResolveAction(
       inFlightRef.current = true;
       startedAtRef.current = Date.now();
       fireAction("resolve", { dismissal_reason: reason });
+      setInitialReason(reason);
+      setInitialNote(note);
       setOpen(false);
       mutation.mutate({ reason, note });
     },
@@ -126,6 +135,7 @@ export function useInboxReportResolveAction(
       report={report}
       isSubmitting={mutation.isPending}
       initialReason={initialReason}
+      initialNote={initialNote}
       onConfirm={(result) => resolveWithReason(result.reason, result.note)}
     />
   ) : null;

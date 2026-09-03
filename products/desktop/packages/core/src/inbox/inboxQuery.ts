@@ -114,49 +114,156 @@ export function resolveInboxReportForRender(
   return report === undefined ? cachedReport : report;
 }
 
-export type InboxReportCacheSnapshot = Array<readonly [QueryKey, unknown]>;
+interface PositionedReport {
+  report: SignalReport;
+  index: number;
+}
 
-function queryAcceptsReportStatus(
-  queryKey: QueryKey,
-  status: SignalReport["status"],
-): boolean {
+interface PositionedInfiniteReport extends PositionedReport {
+  pageIndex: number;
+}
+
+export type InboxReportCacheSnapshot = Array<
+  | {
+      kind: "detail";
+      queryKey: QueryKey;
+      report: SignalReport;
+    }
+  | {
+      kind: "list";
+      queryKey: QueryKey;
+      reports: PositionedReport[];
+      countDelta: number;
+    }
+  | {
+      kind: "infinite-list";
+      queryKey: QueryKey;
+      reports: PositionedInfiniteReport[];
+      countDelta: number;
+    }
+>;
+
+function queryParams(queryKey: QueryKey): SignalReportsQueryParams {
   const params = queryKey[3];
-  if (!params || typeof params !== "object" || !("status" in params)) {
-    return true;
+  return params && typeof params === "object"
+    ? (params as SignalReportsQueryParams)
+    : {};
+}
+
+function commaSeparatedValueIncludes(
+  filter: string | undefined,
+  value: string | null | undefined,
+): boolean {
+  if (!filter) return true;
+  if (!value) return false;
+  return filter.split(",").some((item) => item.trim() === value);
+}
+
+function queryAcceptsReport(queryKey: QueryKey, report: SignalReport): boolean {
+  const params = queryParams(queryKey);
+  if (!commaSeparatedValueIncludes(params.status, report.status)) return false;
+  if (!commaSeparatedValueIncludes(params.priority, report.priority)) {
+    return false;
   }
-  const statusFilter = (params as SignalReportsQueryParams).status;
-  if (!statusFilter) return true;
-  return statusFilter.split(",").some((value) => value.trim() === status);
+  if (
+    !commaSeparatedValueIncludes(params.actionability, report.actionability)
+  ) {
+    return false;
+  }
+  if (
+    params.source_product &&
+    !report.source_products?.some((source) =>
+      commaSeparatedValueIncludes(params.source_product, source),
+    )
+  ) {
+    return false;
+  }
+  if (
+    params.has_implementation_pr !== undefined &&
+    params.has_implementation_pr !== Boolean(report.implementation_pr_url)
+  ) {
+    return false;
+  }
+  if (params.channel_id && params.channel_id !== report.channel_id) {
+    return false;
+  }
+  return true;
+}
+
+function reportCountDelta(
+  queryKey: QueryKey,
+  reportsById: Map<string, SignalReport>,
+  previousReportsById: Map<string, SignalReport>,
+): number {
+  let delta = 0;
+  for (const [reportId, updatedReport] of reportsById) {
+    const previousReport = previousReportsById.get(reportId);
+    if (!previousReport) continue;
+    delta += Number(queryAcceptsReport(queryKey, updatedReport));
+    delta -= Number(queryAcceptsReport(queryKey, previousReport));
+  }
+  return delta;
 }
 
 function updateReportPage(
   page: SignalReportsResponse,
   reportsById: Map<string, SignalReport>,
   queryKey: QueryKey,
-  removedCount: number,
+  countDelta: number,
 ): SignalReportsResponse {
   return {
     ...page,
     results: page.results.flatMap((report) => {
       const updated = reportsById.get(report.id);
       if (!updated) return [report];
-      return queryAcceptsReportStatus(queryKey, updated.status)
-        ? [updated]
-        : [];
+      return queryAcceptsReport(queryKey, updated) ? [updated] : [];
     }),
-    count: Math.max(0, page.count - removedCount),
+    count: Math.max(0, page.count + countDelta),
+  };
+}
+
+function positionedReports(
+  page: SignalReportsResponse,
+  reportsById: Map<string, SignalReport>,
+): PositionedReport[] {
+  return page.results.flatMap((report, index) =>
+    reportsById.has(report.id) ? [{ report, index }] : [],
+  );
+}
+
+function restoreReportPage(
+  page: SignalReportsResponse,
+  reports: PositionedReport[],
+  countDelta: number,
+): SignalReportsResponse {
+  const restoredIds = new Set(reports.map(({ report }) => report.id));
+  const results = page.results.filter((report) => !restoredIds.has(report.id));
+  for (const { report, index } of reports) {
+    results.splice(Math.min(index, results.length), 0, report);
+  }
+  return {
+    ...page,
+    results,
+    count: Math.max(0, page.count - countDelta),
   };
 }
 
 /**
  * Apply report updates to cached detail and list queries before the server refresh finishes.
- * The snapshot lets a mutation restore the exact previous cache after a failed request.
+ * The snapshot restores only the failed reports so concurrent updates stay in the cache.
  */
 export function updateInboxReportCaches(
   queryClient: QueryClient,
   reports: SignalReport[],
+  previousReports: SignalReport[] = reports.flatMap((report) => {
+    const previous = resolveInboxReportDetailCache(queryClient, report.id);
+    return previous ? [previous] : [];
+  }),
 ): InboxReportCacheSnapshot {
   const reportsById = new Map(reports.map((report) => [report.id, report]));
+  const previousReportsById = new Map(
+    previousReports.map((report) => [report.id, report]),
+  );
   const snapshot: InboxReportCacheSnapshot = [];
   const entries = queryClient.getQueriesData<unknown>({
     queryKey: inboxReportKeys.all,
@@ -173,6 +280,11 @@ export function updateInboxReportCaches(
       data
     ) {
       updatedData = reportsById.get(kind);
+      snapshot.push({
+        kind: "detail",
+        queryKey,
+        report: data as SignalReport,
+      });
     } else if (
       kind === "list" &&
       data &&
@@ -181,17 +293,20 @@ export function updateInboxReportCaches(
       Array.isArray((data as SignalReportsResponse).results)
     ) {
       const page = data as SignalReportsResponse;
-      const removedCount = page.results.filter((report) => {
-        const updated = reportsById.get(report.id);
-        return updated && !queryAcceptsReportStatus(queryKey, updated.status);
-      }).length;
-      if (page.results.some((report) => reportsById.has(report.id))) {
-        updatedData = updateReportPage(
-          page,
-          reportsById,
+      const reportsBeforeUpdate = positionedReports(page, reportsById);
+      const countDelta = reportCountDelta(
+        queryKey,
+        reportsById,
+        previousReportsById,
+      );
+      if (reportsBeforeUpdate.length > 0 || countDelta !== 0) {
+        updatedData = updateReportPage(page, reportsById, queryKey, countDelta);
+        snapshot.push({
+          kind: "list",
           queryKey,
-          removedCount,
-        );
+          reports: reportsBeforeUpdate,
+          countDelta,
+        });
       }
     } else if (
       kind === "infinite-list" &&
@@ -201,29 +316,35 @@ export function updateInboxReportCaches(
       Array.isArray((data as InfiniteData<unknown>).pages)
     ) {
       const infiniteData = data as InfiniteData<SignalReportsResponse>;
-      const cachedReportIds = new Set(
-        infiniteData.pages.flatMap((page) =>
-          page.results
-            .filter((report) => reportsById.has(report.id))
-            .map((report) => report.id),
-        ),
+      const reportsBeforeUpdate = infiniteData.pages.flatMap(
+        (page, pageIndex) =>
+          positionedReports(page, reportsById).map((report) => ({
+            ...report,
+            pageIndex,
+          })),
       );
-      if (cachedReportIds.size > 0) {
-        const removedCount = [...cachedReportIds].filter((reportId) => {
-          const updated = reportsById.get(reportId);
-          return updated && !queryAcceptsReportStatus(queryKey, updated.status);
-        }).length;
+      const countDelta = reportCountDelta(
+        queryKey,
+        reportsById,
+        previousReportsById,
+      );
+      if (reportsBeforeUpdate.length > 0 || countDelta !== 0) {
         updatedData = {
           ...infiniteData,
           pages: infiniteData.pages.map((page) =>
-            updateReportPage(page, reportsById, queryKey, removedCount),
+            updateReportPage(page, reportsById, queryKey, countDelta),
           ),
         };
+        snapshot.push({
+          kind: "infinite-list",
+          queryKey,
+          reports: reportsBeforeUpdate,
+          countDelta,
+        });
       }
     }
 
     if (updatedData !== data) {
-      snapshot.push([queryKey, data]);
       queryClient.setQueryData(queryKey, updatedData);
     }
   }
@@ -235,7 +356,38 @@ export function restoreInboxReportCaches(
   queryClient: QueryClient,
   snapshot: InboxReportCacheSnapshot,
 ): void {
-  for (const [queryKey, data] of snapshot) {
-    queryClient.setQueryData(queryKey, data);
+  for (const entry of snapshot) {
+    if (entry.kind === "detail") {
+      queryClient.setQueryData(entry.queryKey, entry.report);
+      continue;
+    }
+    if (entry.kind === "list") {
+      queryClient.setQueryData<SignalReportsResponse>(
+        entry.queryKey,
+        (current) =>
+          current
+            ? restoreReportPage(current, entry.reports, entry.countDelta)
+            : current,
+      );
+      continue;
+    }
+    queryClient.setQueryData<InfiniteData<SignalReportsResponse>>(
+      entry.queryKey,
+      (current) =>
+        current
+          ? {
+              ...current,
+              pages: current.pages.map((page, pageIndex) =>
+                restoreReportPage(
+                  page,
+                  entry.reports.filter(
+                    (report) => report.pageIndex === pageIndex,
+                  ),
+                  entry.countDelta,
+                ),
+              ),
+            }
+          : current,
+    );
   }
 }

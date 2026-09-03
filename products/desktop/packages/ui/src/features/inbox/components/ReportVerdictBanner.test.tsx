@@ -15,6 +15,7 @@ const {
   setQueryData,
   useDiscussReport,
   useReportTasks,
+  useInboxReportArtefacts,
   openResolveDialog,
 } = vi.hoisted(() => ({
   createPrReport: vi.fn(),
@@ -26,6 +27,7 @@ const {
   setQueryData: vi.fn(),
   useDiscussReport: vi.fn(),
   useReportTasks: vi.fn(),
+  useInboxReportArtefacts: vi.fn(),
   openResolveDialog: vi.fn(),
 }));
 
@@ -79,7 +81,7 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxReportResolveAction", () => ({
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
-  useInboxReportArtefacts: () => ({ data: { results: [] } }),
+  useInboxReportArtefacts,
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useReportActionTracker", () => ({
@@ -145,6 +147,21 @@ const runningImplementationTask = {
   startedAt: "2026-08-26T00:00:00.000Z",
 } satisfies ReportTaskData;
 
+const repoArtefacts = {
+  count: 1,
+  results: [
+    {
+      id: "repo-selection-1",
+      type: "repo_selection",
+      created_at: "2026-08-26T00:00:00.000Z",
+      content: {
+        repository: "PostHog/posthog",
+        reason: "The report concerns this repository.",
+      },
+    },
+  ],
+};
+
 describe("ReportVerdictBanner", () => {
   let onDiscussionCreated: ((task: Task) => void) | undefined;
 
@@ -154,6 +171,10 @@ describe("ReportVerdictBanner", () => {
       startedTaskIdByReport: {},
     });
     useReportTasks.mockReturnValue({ data: [], isLoading: false });
+    useInboxReportArtefacts.mockReturnValue({
+      data: repoArtefacts,
+      isLoading: false,
+    });
     createPrReport.mockReset();
     discussReport.mockReset();
     discussReport.mockResolvedValue(undefined);
@@ -245,7 +266,7 @@ describe("ReportVerdictBanner", () => {
 
       expect(openTaskInput).toHaveBeenCalledWith({
         initialPrompt: "Implement the recommended next step in this report.",
-        initialCloudRepository: undefined,
+        initialCloudRepository: "PostHog/posthog",
         reportAssociation: {
           reportId: report.id,
           title: report.title,
@@ -254,6 +275,42 @@ describe("ReportVerdictBanner", () => {
       expect(createPrReport).not.toHaveBeenCalled();
     },
   );
+
+  it("waits for the report repository before opening the task composer", async () => {
+    const user = userEvent.setup();
+    useInboxReportArtefacts.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+    });
+    const actionableReport = {
+      ...report,
+      actionability: "immediately_actionable" as const,
+    };
+    const { rerender } = render(
+      <ReportVerdictBanner report={actionableReport} />,
+    );
+
+    const implementLabel = screen.getByText("Implement");
+    expect(implementLabel.closest("button")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await user.click(implementLabel);
+    expect(openTaskInput).not.toHaveBeenCalled();
+
+    useInboxReportArtefacts.mockReturnValue({
+      data: repoArtefacts,
+      isLoading: false,
+    });
+    rerender(<ReportVerdictBanner report={actionableReport} />);
+
+    await user.click(screen.getByText("Implement"));
+    expect(openTaskInput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialCloudRepository: "PostHog/posthog",
+      }),
+    );
+  });
 
   it("uses the PR shortcut to open an existing PR", async () => {
     const user = userEvent.setup();

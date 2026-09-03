@@ -1,6 +1,13 @@
 import type { SignalReport } from "@posthog/shared/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import {
+  act,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -69,6 +76,18 @@ const wrapper = createWrapper(
     },
   }),
 );
+
+function ResolveActionHarness(): React.JSX.Element {
+  const { dialog, openDialog } = useInboxReportResolveAction(report);
+  return (
+    <>
+      <button type="button" onClick={() => openDialog()}>
+        Open resolve
+      </button>
+      {dialog}
+    </>
+  );
+}
 
 describe("useInboxReportResolveAction", () => {
   beforeEach(() => {
@@ -168,5 +187,37 @@ describe("useInboxReportResolveAction", () => {
       }),
     );
     expect(mocks.toastError).toHaveBeenCalledWith("Request failed");
+  });
+
+  it("reopens a failed resolve with the submitted reason and note", async () => {
+    const user = userEvent.setup();
+    mocks.updateState.mockRejectedValue(new Error("Request failed"));
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    render(<ResolveActionHarness />, {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await user.click(screen.getByText("Open resolve"));
+    await user.click(
+      screen.getByRole("radio", { name: "Fixed outside PostHog" }),
+    );
+    const note = screen.getByPlaceholderText(
+      "Optional: link to the fix or explain what changed",
+    );
+    await user.type(note, "Fixed in a separate change");
+    await user.click(screen.getByText("Resolve report"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("radio", { name: "Fixed outside PostHog" }),
+      ).toBeChecked(),
+    );
+    expect(
+      screen.getByPlaceholderText(
+        "Optional: link to the fix or explain what changed",
+      ),
+    ).toHaveValue("Fixed in a separate change");
   });
 });

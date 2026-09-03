@@ -375,22 +375,24 @@ export function useInboxBulkActions(
           exact: false,
         });
         const selectedIds = new Set(variables.reportIds);
-        const optimisticReports = reports
-          .filter((report) => selectedIds.has(report.id))
-          .map(
-            (report): SignalReport => ({
-              ...report,
-              status: "suppressed",
-              dismissal_reason:
-                variables.dismissal?.reason ?? report.dismissal_reason,
-              dismissal_note:
-                variables.dismissal?.note || report.dismissal_note || null,
-            }),
-          );
+        const selectedReports = reports.filter((report) =>
+          selectedIds.has(report.id),
+        );
+        const optimisticReports = selectedReports.map(
+          (report): SignalReport => ({
+            ...report,
+            status: "suppressed",
+            dismissal_reason:
+              variables.dismissal?.reason ?? report.dismissal_reason,
+            dismissal_note:
+              variables.dismissal?.note || report.dismissal_note || null,
+          }),
+        );
         return {
           cacheSnapshot: updateInboxReportCaches(
             queryClient,
             optimisticReports,
+            selectedReports,
           ),
           optimisticReports,
         };
@@ -442,22 +444,24 @@ export function useInboxBulkActions(
           exact: false,
         });
         const selectedIds = new Set(variables.reportIds);
-        const optimisticReports = reports
-          .filter((report) => selectedIds.has(report.id))
-          .map(
-            (report): SignalReport => ({
-              ...report,
-              status: "potential",
-              dismissal_reason:
-                variables.dismissal?.reason ?? report.dismissal_reason,
-              dismissal_note:
-                variables.dismissal?.note || report.dismissal_note || null,
-            }),
-          );
+        const selectedReports = reports.filter((report) =>
+          selectedIds.has(report.id),
+        );
+        const optimisticReports = selectedReports.map(
+          (report): SignalReport => ({
+            ...report,
+            status: "potential",
+            dismissal_reason:
+              variables.dismissal?.reason ?? report.dismissal_reason,
+            dismissal_note:
+              variables.dismissal?.note || report.dismissal_note || null,
+          }),
+        );
         return {
           cacheSnapshot: updateInboxReportCaches(
             queryClient,
             optimisticReports,
+            selectedReports,
           ),
           optimisticReports,
         };
