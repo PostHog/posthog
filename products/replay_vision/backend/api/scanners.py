@@ -202,6 +202,11 @@ def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
     # The estimate is advisory — never fail a scanner save over it, and keep the save's latency tail short.
     try:
         refresh_scanner_estimate(scanner, budget=SAVE_ESTIMATE_BUDGET)
+    except ValidationError:
+        # The targeted experiment cannot give an exposed population yet. The usual case is a draft
+        # experiment created together with the scanner. The hourly refresher retries after launch,
+        # so this is an expected state and not a failure.
+        logger.info("replay_vision.estimate_not_yet_resolvable", scanner_id=str(scanner.id))
     except Exception:
         logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
 
