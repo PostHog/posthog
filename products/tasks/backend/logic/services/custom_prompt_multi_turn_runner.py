@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import asyncio
 import logging
@@ -30,6 +31,20 @@ logger = logging.getLogger(__name__)
 # Nudge appended to a resent prompt when the agent emits an empty end_turn.
 # Kept short to avoid meaningfully changing the cached prefix.
 _EMPTY_TURN_RETRY_NUDGE = "\n\nPlease respond now with the JSON object matching the schema above."
+
+# Sent back to the still-warm session when a turn does not validate, so the agent can
+# correct its own output. Carries the error and the schema because the agent cannot see
+# either from its side.
+_VALIDATION_REPAIR_PROMPT = """Your previous response did not match the required JSON schema for `{label}`.
+
+Validation error:
+{error}
+
+Return only a JSON object matching this schema. Do not include markdown fences or commentary.
+
+<jsonschema>
+{schema}
+</jsonschema>"""
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
@@ -82,6 +97,9 @@ class MultiTurnSession:
 
         `max_poll_seconds` caps each turn's poll budget — see the field docstring.
 
+        A turn that does not validate against `model` gets one corrective turn on the
+        same session before the run fails, unless `fallback_from_text` is set.
+
         `fallback_from_text`, if given, salvages a turn whose text the agent *did*
         produce but which failed to parse/validate against `model` (empty, prose, or
         malformed JSON). Instead of failing the whole run, the callback builds a
@@ -109,7 +127,12 @@ class MultiTurnSession:
             mcp_gateway_server_ids=mcp_gateway_server_ids,
         )
         try:
-            parsed = cls._parse_and_validate(last_message, model, label="initial turn")
+            if fallback_from_text is None:
+                parsed = await session._parse_with_repair(last_message, model, label="initial turn")
+            else:
+                # A caller with a fallback accepts raw text as a result (the Signals scout
+                # closes out in free-text markdown), so a repair turn would only add cost.
+                parsed = cls._parse_and_validate(last_message, model, label="initial turn")
         except (Exception, asyncio.CancelledError) as e:
             # Salvage path: the agent produced text but it didn't parse/validate. Rather
             # than discarding the whole run, build the model from the raw text so the caller
@@ -254,9 +277,13 @@ class MultiTurnSession:
         *,
         label: str = "",
     ) -> _ModelT:
-        """Send a follow-up message and wait for the agent's next structured response."""
+        """Send a follow-up message and wait for the agent's next structured response.
+
+        A response that does not validate against `model` gets one corrective turn on the
+        same session before this raises.
+        """
         last_message = await self.send_followup_raw(message, label=label)
-        parsed = self._parse_and_validate(last_message, model, label=label or "followup")
+        parsed = await self._parse_with_repair(last_message, model, label=label or "followup")
         return parsed
 
     async def send_followup_raw(
@@ -334,6 +361,33 @@ class MultiTurnSession:
         """Extract JSON from agent text and validate against a Pydantic model."""
         json_data = extract_json_from_text(text=text, label=label)
         return model.model_validate(json_data)
+
+    async def _parse_with_repair(self, text: str, model: type[_ModelT], *, label: str) -> _ModelT:
+        """Parse a turn, and give the agent one corrective turn if it does not validate.
+
+        A schema violation is usually one wrong or missing field, so the session that
+        produced it can also fix it. Without this repair turn the caller loses a live
+        session, every turn of context in it, and any work the agent already pushed.
+        """
+        try:
+            return self._parse_and_validate(text, model, label=label)
+        except Exception as parse_error:
+            logger.warning(
+                "multi_turn: turn did not validate against %s run=%s label=%s - asking the agent to correct it (%s)",
+                model.__name__,
+                self.task_run.id,
+                label,
+                parse_error,
+            )
+            if self.output_fn:
+                self.output_fn(f"Agent response for {label} did not match the schema, asking it to correct...")
+            repair_prompt = _VALIDATION_REPAIR_PROMPT.format(
+                label=label,
+                error=str(parse_error),
+                schema=json.dumps(model.model_json_schema(), indent=2),
+            )
+            repaired_text = await self.send_followup_raw(repair_prompt, label=f"{label}_validation_repair")
+            return self._parse_and_validate(repaired_text, model, label=label)
 
     async def end(self, *, status: str = "completed", error: str | None = None) -> None:
         """Signal the workflow to shut down, recording `status` as the terminal TaskRun state.

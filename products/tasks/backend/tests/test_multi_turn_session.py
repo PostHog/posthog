@@ -9,7 +9,7 @@ from django.db import OperationalError
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
@@ -1512,7 +1512,17 @@ class TestMultiTurnSessionStartFallback:
     async def test_fails_and_ends_run_without_fallback(self):
         session = self._fake_session()
 
-        with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))):
+        with (
+            patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                new=AsyncMock(
+                    return_value=TurnPollResult(
+                        last_message="prose again", full_log=None, total_lines=4, printed_lines=2
+                    )
+                ),
+            ),
+        ):
             with pytest.raises(ValueError):
                 await MultiTurnSession.start(prompt="x", context=MagicMock(), model=_Resp)
 
@@ -1567,6 +1577,58 @@ class TestMultiTurnSessionStartFallback:
 
         fallback.assert_not_called()
         session.end.assert_awaited_once()  # type: ignore[attr-defined]
+
+
+class TestMultiTurnSessionValidationRepair:
+    """A turn whose JSON misses a required field must get one corrective turn on the same
+    session. Throwing the turn away instead loses a warm session, its context, and any work
+    the agent already pushed."""
+
+    def _make_session(self) -> MultiTurnSession:
+        return MultiTurnSession(
+            task=object(),  # type: ignore[arg-type]
+            task_run=FakeTaskRun(),  # type: ignore[arg-type]
+            _workflow_handle=AsyncMock(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_repair_turn_recovers_an_invalid_response(self):
+        session = self._make_session()
+        poll_mock = AsyncMock(
+            side_effect=[
+                TurnPollResult(last_message=json.dumps({}), full_log=None, total_lines=10, printed_lines=5),
+                TurnPollResult(
+                    last_message=json.dumps({"value": "corrected"}), full_log=None, total_lines=20, printed_lines=10
+                ),
+            ]
+        )
+        with patch(
+            "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
+            new=poll_mock,
+        ):
+            result = await session.send_followup("resolve thread", _Resp, label="PRRT_1")
+
+        assert result == _Resp(value="corrected")
+        assert session._workflow_handle.signal.await_count == 2  # type: ignore[union-attr]
+        repair_message = session._workflow_handle.signal.await_args_list[1].args[1]  # type: ignore[union-attr]
+        # The agent needs both the schema and what it got wrong to correct its own output.
+        assert "value" in repair_message
+        assert "PRRT_1" in repair_message
+
+    @pytest.mark.asyncio
+    async def test_raises_when_the_repair_turn_is_also_invalid(self):
+        session = self._make_session()
+        poll_mock = AsyncMock(
+            return_value=TurnPollResult(last_message=json.dumps({}), full_log=None, total_lines=10, printed_lines=5)
+        )
+        with patch(
+            "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
+            new=poll_mock,
+        ):
+            with pytest.raises(ValidationError):
+                await session.send_followup("resolve thread", _Resp, label="PRRT_1")
+
+        assert session._workflow_handle.signal.await_count == 2  # type: ignore[union-attr]
 
 
 class TestPollForTurnConnectionDrop:
