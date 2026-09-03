@@ -500,10 +500,7 @@ class TestCreateFeatureFlagTool(APIBaseTest):
         await database_sync_to_async(self.team.save)()
         await self._create_default_context("production")
 
-        with patch(
-            "posthoganalytics.feature_enabled",
-            side_effect=_enable_gates("flag-evaluation-tags", "default-evaluation-environments"),
-        ):
+        with patch("posthoganalytics.feature_enabled", side_effect=_enable_gates("flag-evaluation-tags")):
             tool = self._create_tool()
 
             schema = FeatureFlagCreationSchema(
@@ -551,10 +548,7 @@ class TestCreateFeatureFlagTool(APIBaseTest):
         await database_sync_to_async(self.team.save)()
         await self._create_default_context("production")
 
-        with patch(
-            "posthoganalytics.feature_enabled",
-            side_effect=_enable_gates("flag-evaluation-tags", "default-evaluation-environments"),
-        ):
+        with patch("posthoganalytics.feature_enabled", side_effect=_enable_gates("flag-evaluation-tags")):
             tool = self._create_tool()
 
             schema = FeatureFlagCreationSchema(

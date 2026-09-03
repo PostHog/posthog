@@ -792,7 +792,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Automatically apply default evaluation context tags to newly created feature flags. Users can still modify them during flag creation.',
                 docsUrl: 'https://posthog.com/docs/feature-flags/evaluation-contexts',
-                flag: 'DEFAULT_EVALUATION_ENVIRONMENTS',
                 component: <DefaultEvaluationContexts />,
                 keywords: ['evaluation', 'default', 'context', 'tag'],
             },

@@ -27,13 +27,11 @@ import { handleApprovalRequired } from 'lib/approvals/utils'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { describeCron } from 'lib/cron'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -101,7 +99,6 @@ import type {
 } from 'products/feature_flags/frontend/generated/api.schemas'
 
 import type { CopyFlagsResponseApi } from '../../../../products/feature_flags/frontend/generated/api.schemas'
-import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
 import type { Node } from '../../queries/schema/schema-general'
@@ -749,7 +746,6 @@ function cleanFilterGroups(groups?: FeatureFlagGroupType[]): FeatureFlagGroupTyp
 export interface featureFlagLogicValues {
     defaultEvaluationContexts: DefaultEvaluationContextsResponse | null // defaultEvaluationContextsLogic
     defaultReleaseConditions: DefaultReleaseConditionsResponse | null // defaultReleaseConditionsLogic
-    enabledFeatures: FeatureFlagsSet // enabledFeaturesLogic
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     currentOrganization: OrganizationType | null // organizationLogic
     currentOrganizationId: string // organizationLogic
@@ -2038,8 +2034,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['hasAvailableFeature', 'user'],
             organizationLogic,
             ['currentOrganization', 'currentOrganizationId'],
-            enabledFeaturesLogic,
-            ['featureFlags as enabledFeatures'],
             defaultEvaluationContextsLogic,
             ['defaultEvaluationContexts'],
             defaultReleaseConditionsLogic,
@@ -2885,12 +2879,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 if (props.id === 'new') {
                     const flagType = router.values.searchParams.type as FlagType | undefined
 
-                    // Only load and apply default evaluation contexts if BOTH conditions are met:
-                    // 1. The feature flag is enabled globally
-                    // 2. The team has enabled default evaluation contexts
-                    const isFeatureEnabled = values.enabledFeatures[FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS]
-                    const isTeamEnabled = values.currentTeam?.default_evaluation_contexts_enabled
-
                     let baseFlagConfig: typeof NEW_FLAG = {
                         ...NEW_FLAG,
                         ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
@@ -2943,7 +2931,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         }
                     }
 
-                    if (isFeatureEnabled && isTeamEnabled) {
+                    if (values.currentTeam?.default_evaluation_contexts_enabled) {
                         try {
                             actions.loadDefaultEvaluationContexts()
                         } catch (error) {
@@ -2959,7 +2947,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         }
                     }
 
-                    // If either condition is false, return flag without default tags
                     return baseFlagConfig
                 }
 
