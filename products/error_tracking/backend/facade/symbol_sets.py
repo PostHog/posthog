@@ -64,6 +64,17 @@ def get_symbol_set(team_id: int, symbol_set_id: str) -> contracts.ErrorTrackingS
     return _to_symbol_set(symbol_set) if symbol_set is not None else None
 
 
+def get_missing_references(team_id: int) -> contracts.ErrorTrackingSymbolSetMissingReferences:
+    counts = _logic.count_frames_missing_reference(team_id)
+    return contracts.ErrorTrackingSymbolSetMissingReferences(
+        lookback_hours=_logic.MISSING_REFERENCE_LOOKBACK_HOURS,
+        platforms=[
+            contracts.ErrorTrackingMissingReferenceFrames(platform=platform, frame_count=frame_count)
+            for platform, frame_count in counts.items()
+        ],
+    )
+
+
 def delete_symbol_set(team_id: int, symbol_set_id: str) -> bool:
     return _logic.delete_symbol_set(team_id, symbol_set_id)
 

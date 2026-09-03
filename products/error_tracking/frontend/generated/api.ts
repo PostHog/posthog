@@ -73,6 +73,7 @@ import type {
     ErrorTrackingSymbolSetBulkStartUploadApi,
     ErrorTrackingSymbolSetBulkStartUploadResponseApi,
     ErrorTrackingSymbolSetFinishUploadApi,
+    ErrorTrackingSymbolSetMissingReferencesApi,
     ErrorTrackingSymbolSetsListParams,
     GitProviderFileLinkResolveResponseApi,
     PaginatedErrorTrackingAssignmentRuleListApi,
@@ -1869,6 +1870,26 @@ export const errorTrackingSymbolSetsBulkStartUploadCreate = async (
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(errorTrackingSymbolSetBulkStartUploadApi),
+        }
+    )
+}
+
+export const getErrorTrackingSymbolSetsMissingReferencesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/missing_references/`
+}
+
+/**
+ * Report recent frames that carried no symbol set reference, so no upload could match them.
+ */
+export const errorTrackingSymbolSetsMissingReferencesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ErrorTrackingSymbolSetMissingReferencesApi> => {
+    return apiMutator<ErrorTrackingSymbolSetMissingReferencesApi>(
+        getErrorTrackingSymbolSetsMissingReferencesRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
         }
     )
 }

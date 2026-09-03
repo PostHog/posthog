@@ -2039,6 +2039,20 @@ export interface ErrorTrackingSymbolSetBulkStartUploadResponseApi {
     id_map: ErrorTrackingSymbolSetBulkStartUploadResponseApiIdMap
 }
 
+export interface ErrorTrackingMissingReferenceFramesApi {
+    /** Build step that should stamp the reference. `hermes` for React Native chunk IDs, `proguard` for Android mapping IDs. */
+    platform: string
+    /** Number of recent frames that arrived without a reference. */
+    frame_count: number
+}
+
+export interface ErrorTrackingSymbolSetMissingReferencesApi {
+    /** Size of the window the frames were counted over. */
+    lookback_hours: number
+    /** One entry per platform that sent unreferenced frames. Empty when every recent frame carried a reference. */
+    platforms: ErrorTrackingMissingReferenceFramesApi[]
+}
+
 export type ErrorTrackingAssignmentRulesListParams = {
     /**
      * Number of results to return per page.

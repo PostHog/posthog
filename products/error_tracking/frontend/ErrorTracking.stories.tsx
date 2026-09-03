@@ -651,6 +651,32 @@ export const ListPageWithIngestionWarning: Story = {
     ],
     render: () => <IngestionWarningStory />,
 }
+// The symbol sets settings page warns when frames arrive with no reference for a symbol set to
+// match on, which is otherwise invisible: the uploads themselves all look healthy.
+export const SymbolSetsPageWithMissingReferences: Story = {
+    name: 'Symbol sets settings with missing references',
+    parameters: {
+        pageUrl: urls.errorTracking({ activeTab: 'configuration' }) + '#selectedSetting=error-tracking-symbol-sets',
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/error_tracking/symbol_sets/': () => [200, { count: 0, results: [] }],
+                '/api/projects/:team_id/error_tracking/symbol_sets/missing_references/': () => [
+                    200,
+                    {
+                        lookback_hours: 24,
+                        platforms: [
+                            { platform: 'hermes', frame_count: 1284 },
+                            { platform: 'proguard', frame_count: 37 },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
 export const GroupPage: Story = {
     name: 'Issue scene',
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
