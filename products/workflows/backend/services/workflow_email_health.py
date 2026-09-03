@@ -30,6 +30,14 @@ logger = structlog.get_logger(__name__)
 
 APP_SOURCE: Final[str] = "hog_flow"
 
+PAUSED_BY_AUTO: Final[str] = "auto"
+PAUSED_BY_STAFF: Final[str] = "staff"
+
+
+class StaffPausedError(Exception):
+    """A customer tried to resume a pause staff placed. Only staff may clear it."""
+
+
 Signal = Literal["complaint", "bounce"]
 
 workflow_email_auto_pause_total = Counter(
@@ -339,7 +347,13 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
 
 
 def pause_workflow_email_sending(
-    *, team_id: int, hog_flow_id: str, hog_flow_name: str, reason: str, now: datetime | None = None
+    *,
+    team_id: int,
+    hog_flow_id: str,
+    hog_flow_name: str,
+    reason: str,
+    paused_by: str = PAUSED_BY_AUTO,
+    now: datetime | None = None,
 ) -> bool:
     """Pause one workflow's email and tell the project's admins.
 
@@ -358,9 +372,10 @@ def pause_workflow_email_sending(
             return False
         flow.email_sending_paused_at = now
         flow.email_sending_paused_reason = reason
+        flow.email_sending_paused_by = paused_by
         # The post_save signal publishes a worker config reload, so in-flight runs and queued batch
         # sends stop at the send choke point rather than only new runs.
-        flow.save(update_fields=["email_sending_paused_at", "email_sending_paused_reason"])
+        flow.save(update_fields=["email_sending_paused_at", "email_sending_paused_reason", "email_sending_paused_by"])
         # Dispatch after commit so a rollback can't leave an email claiming a pause that was never
         # persisted.
         transaction.on_commit(
@@ -370,6 +385,7 @@ def pause_workflow_email_sending(
                 hog_flow_name=hog_flow_name,
                 reason=reason,
                 paused_at=now.isoformat(),
+                resumable=paused_by != PAUSED_BY_STAFF,
             )
         )
     return True
@@ -507,8 +523,12 @@ def _decision_log_fields(decision: PauseDecision) -> dict:
     }
 
 
-def resume_workflow_email_sending(flow: HogFlow, *, now: datetime | None = None) -> bool:
+def resume_workflow_email_sending(flow: HogFlow, *, actor: str = "customer", now: datetime | None = None) -> bool:
     """Clear a workflow's pause. Returns False when it was not paused.
+
+    A staff pause exists because the automatic thresholds could not see the problem, so a customer
+    must not be able to clear it: only `actor="staff"` may. Raises StaffPausedError so the API can
+    tell the customer to contact support instead of reporting "not paused".
 
     `email_sending_resumed_at` is what re-arms the detector: every window is clamped to start after
     it, so a workflow that is still misbehaving trips again within minutes on fresh feedback
@@ -516,10 +536,18 @@ def resume_workflow_email_sending(flow: HogFlow, *, now: datetime | None = None)
     """
     if flow.email_sending_paused_at is None:
         return False
+    if actor != PAUSED_BY_STAFF and flow.email_sending_paused_by == PAUSED_BY_STAFF:
+        raise StaffPausedError("Only PostHog staff can resume this pause.")
     flow.email_sending_paused_at = None
     flow.email_sending_paused_reason = ""
+    flow.email_sending_paused_by = ""
     flow.email_sending_resumed_at = now or timezone.now()
     flow.save(
-        update_fields=["email_sending_paused_at", "email_sending_paused_reason", "email_sending_resumed_at"],
+        update_fields=[
+            "email_sending_paused_at",
+            "email_sending_paused_reason",
+            "email_sending_paused_by",
+            "email_sending_resumed_at",
+        ],
     )
     return True

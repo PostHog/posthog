@@ -13,7 +13,10 @@ from posthog.test.fixtures import create_app_metric2
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.services.workflow_email_health import (
+    PAUSED_BY_STAFF,
+    StaffPausedError,
     find_workflow_email_pauses,
+    pause_workflow_email_sending,
     resume_workflow_email_sending,
     sweep_workflow_email_health,
 )
@@ -294,6 +297,33 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert refreshed.email_sending_paused_at is None
         assert refreshed.email_sending_paused_reason == ""
         assert refreshed.email_sending_resumed_at is not None
+
+    def test_a_detector_pause_is_customer_resumable_and_a_staff_pause_is_not(self):
+        self._seed(sent=400, complaints=8)
+        self._sweep()
+        self.flow.refresh_from_db()
+        assert self.flow.email_sending_paused_by == "auto"
+        assert resume_workflow_email_sending(self.flow) is True
+
+        with patch("products.workflows.backend.services.workflow_email_health.send_workflow_email_sending_paused"):
+            with self.captureOnCommitCallbacks(execute=True):
+                pause_workflow_email_sending(
+                    team_id=self.team.pk,
+                    hog_flow_id=str(self.flow.id),
+                    hog_flow_name=self.flow.name,
+                    reason="Staff pause",
+                    paused_by=PAUSED_BY_STAFF,
+                )
+        self.flow.refresh_from_db()
+        assert self.flow.email_sending_paused_by == "staff"
+        try:
+            resume_workflow_email_sending(self.flow)
+            raise AssertionError("customer resume of a staff pause must raise")
+        except StaffPausedError:
+            pass
+        assert resume_workflow_email_sending(self.flow, actor=PAUSED_BY_STAFF) is True
+        self.flow.refresh_from_db()
+        assert self.flow.email_sending_paused_by == ""
 
     def test_resume_is_a_no_op_when_not_paused(self):
         assert resume_workflow_email_sending(self.flow) is False

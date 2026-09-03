@@ -13,11 +13,17 @@
         Spam complaints and emails to addresses that do not exist tell mailbox providers that a sender is not worth delivering, and that judgment follows every PostHog customer sharing our sending reputation. Pausing one workflow keeps the rest of your email delivering.
     </p>
     <p>
-        What to do next: remove old, bought or scraped addresses from this workflow's audience, stop sending to people who never open anything, and check that the content matches what recipients signed up for. Then resume sending from the workflow page.
+        What to do next: remove old, bought or scraped addresses from this workflow's audience, stop sending to people who never open anything, and check that the content matches what recipients signed up for.{% if resumable %} Then resume sending from the workflow page.{% endif %}
     </p>
-    <p>
-        Sending pauses again automatically if the problem continues, so there is no need to wait on support before resuming.
-    </p>
+    {% if resumable %}
+        <p>
+            Sending pauses again automatically if the problem continues, so there is no need to wait on support before resuming.
+        </p>
+    {% else %}
+        <p>
+            PostHog staff paused this workflow, so only we can resume it. Contact support once you have cleaned up the audience.
+        </p>
+    {% endif %}
     <div class="mb mt text-center">
         <a class="button" href="{% absolute_uri workflow_path %}">Open workflow</a>
     </div>
