@@ -13,6 +13,15 @@ import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/fr
 
 import { accountPropertiesInputLogic } from './accountPropertiesInputLogic'
 
+type ClearPropertyMarker = { __posthog_clear_property: true }
+type AccountProperties = Record<string, string | ClearPropertyMarker>
+
+function isClearPropertyMarker(value: unknown): value is ClearPropertyMarker {
+    return (
+        value !== null && typeof value === 'object' && (value as ClearPropertyMarker).__posthog_clear_property === true
+    )
+}
+
 export default function CyclotronJobInputAccountProperties({
     value,
     onChange,
@@ -20,15 +29,16 @@ export default function CyclotronJobInputAccountProperties({
 }: CustomInputRendererProps): JSX.Element {
     const { definitions, definitionsLoading } = useValues(accountPropertiesInputLogic)
 
-    // Keys stay stable across property renames. Values are Hog expressions or null to clear a property.
+    // Keys stay stable across property renames. The marker distinguishes a user-selected clear
+    // from a template that resolves to null.
     // Select properties store the chosen option label as a literal.
-    const properties: Record<string, string | null> = value ?? {}
+    const properties: AccountProperties = value ?? {}
     const entries = Object.entries(properties)
     const selectedIds = new Set(entries.map(([id]) => id))
     const available = definitions.filter((d) => !selectedIds.has(d.id))
 
     const setProperty = (id: string, hogValue: string): void => onChange({ ...properties, [id]: hogValue })
-    const clearProperty = (id: string): void => onChange({ ...properties, [id]: null })
+    const clearProperty = (id: string): void => onChange({ ...properties, [id]: { __posthog_clear_property: true } })
     const addProperty = (id: string): void => onChange({ ...properties, [id]: '' })
     const removeProperty = (id: string): void => {
         const next = { ...properties }
@@ -45,7 +55,7 @@ export default function CyclotronJobInputAccountProperties({
                         <div className="flex-1 min-w-50 font-medium truncate" title={definition?.name ?? id}>
                             {definition?.name ?? <span className="text-secondary italic">Unknown property</span>}
                         </div>
-                        {hogValue === null ? (
+                        {isClearPropertyMarker(hogValue) ? (
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -80,7 +90,7 @@ export default function CyclotronJobInputAccountProperties({
                                 globals={sampleGlobalsWithInputs ?? undefined}
                             />
                         )}
-                        {hogValue !== null && (
+                        {!isClearPropertyMarker(hogValue) && (
                             <LemonButton
                                 type="secondary"
                                 size="small"

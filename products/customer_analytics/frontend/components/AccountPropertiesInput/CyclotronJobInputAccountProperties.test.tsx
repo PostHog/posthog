@@ -47,7 +47,7 @@ describe('CyclotronJobInputAccountProperties', () => {
 
     afterEach(cleanup)
 
-    it('sets a cleared property value to null without removing its definition key', () => {
+    it('marks a cleared property without removing its definition key', () => {
         const onChange = jest.fn()
         const { container } = render(
             <CyclotronJobInputAccountProperties
@@ -65,6 +65,6 @@ describe('CyclotronJobInputAccountProperties', () => {
         expect(clearButton).toBeInTheDocument()
         fireEvent.click(clearButton as HTMLElement)
 
-        expect(onChange).toHaveBeenCalledWith({ 'property-id': null })
+        expect(onChange).toHaveBeenCalledWith({ 'property-id': { __posthog_clear_property: true } })
     })
 })

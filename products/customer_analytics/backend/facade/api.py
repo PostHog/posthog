@@ -3171,10 +3171,15 @@ def query_accounts_table(
         for definition_id, window_days in history_windows.items():
             history_filter |= Q(definition_id=definition_id, created_at__gte=now - timedelta(days=window_days))
             history_filter |= Q(definition_id=definition_id, is_deleted=False)
+        active_values = CustomPropertyValue.objects.for_team(team_id).filter(
+            account_id=OuterRef("account_id"),
+            definition_id=OuterRef("definition_id"),
+            is_deleted=False,
+        )
         history_point_count = 0
         history_values = (
             CustomPropertyValue.objects.for_team(team_id)
-            .filter(history_filter, account_id__in=account_ids, value_num__isnull=False)
+            .filter(history_filter, Exists(active_values), account_id__in=account_ids, value_num__isnull=False)
             .order_by("created_at", "id")
             .iterator(chunk_size=2_000)
         )
