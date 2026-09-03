@@ -478,6 +478,25 @@ class AlertCheck(UUIDTModel):
 
     class Meta:
         db_table = "posthog_alertcheck"
+        indexes = [
+            # Check history retrieve/list and the latest-check subquery both scope to one
+            # alert configuration and read newest-first.
+            models.Index(
+                fields=["alert_configuration", "-created_at"],
+                name="alertcheck_cfg_created_idx",
+            ),
+            # Investigation safety-net sweep scans firing checks that were never notified.
+            # The partial predicate keeps the index tiny — most checks are not firing.
+            models.Index(
+                fields=["created_at"],
+                name="alertcheck_pending_notif_idx",
+                condition=models.Q(
+                    state=AlertState.FIRING,
+                    notification_sent_at__isnull=True,
+                    notification_suppressed_by_agent=False,
+                ),
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"

@@ -1,1 +1,1 @@
-0003_alter_alertconfiguration_calculation_interval
+0004_alertcheck_alertcheck_cfg_created_idx_and_more
