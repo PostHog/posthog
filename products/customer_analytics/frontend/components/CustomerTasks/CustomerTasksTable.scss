@@ -2,6 +2,12 @@
     container-type: inline-size;
 }
 
+// Declared before the container query so the narrow override wins: both selectors are a
+// single class, so source order decides.
+.CustomerTasksTable__narrow-assignee {
+    display: none;
+}
+
 @container (max-width: 720px) {
     .CustomerTasksTable__updated,
     .CustomerTasksTable__assignee {
@@ -11,8 +17,4 @@
     .CustomerTasksTable__narrow-assignee {
         display: block;
     }
-}
-
-.CustomerTasksTable__narrow-assignee {
-    display: none;
 }
