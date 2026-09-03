@@ -268,7 +268,15 @@ describe('scoutFleetLogic', () => {
             },
         ])
         // `busy` filed a report in the window, which is what separates Working from Watching.
-        logic.actions.loadScoutRunsSuccess([makeRun({ skill_name: 'signals-scout-busy', emitted_report_ids: ['r-1'] })])
+        jest.useFakeTimers()
+        try {
+            jest.setSystemTime(new Date('2026-08-28T12:00:00Z'))
+            logic.actions.loadScoutRunsSuccess([
+                makeRun({ skill_name: 'signals-scout-busy', emitted_report_ids: ['r-1'] }),
+            ])
+        } finally {
+            jest.useRealTimers()
+        }
 
         // One flat list ordered by name, not split across lifecycle sections.
         expect(logic.values.rosterScouts.map((row) => [row.config.id, row.group])).toEqual([
