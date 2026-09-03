@@ -299,7 +299,9 @@ class PolicyEngine:
                 for rid in RoleMembership.objects.filter(
                     user=actor,
                     role__organization=org,
-                ).values_list("role_id", flat=True)
+                )
+                .valid_for_authorization()
+                .values_list("role_id", flat=True)
             }
             if user_role_ids & set(bypass_role_ids):
                 return True
@@ -326,8 +328,10 @@ class PolicyEngine:
 
             actor_roles = {
                 str(rid)
-                for rid in RoleMembership.objects.filter(user=actor, role__organization=org).values_list(
-                    "role_id", flat=True
+                for rid in (
+                    RoleMembership.objects.filter(user=actor, role__organization=org)
+                    .valid_for_authorization()
+                    .values_list("role_id", flat=True)
                 )
             }
 

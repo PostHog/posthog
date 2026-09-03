@@ -2,9 +2,10 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
+from posthog.models import Organization, OrganizationMembership, PropertyDefinition
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.access_control.backend.property_access_control import (
     PropertyAccessLevel,
     _restriction_cache_var,
@@ -413,6 +414,30 @@ class TestGetRestrictedPropertiesForTeam(BaseTest):
         )
         restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
         assert restricted == set()
+
+    def test_role_membership_from_another_organization_does_not_remove_restriction(self):
+        other_organization = Organization.objects.create(name="Other organization")
+        other_membership = OrganizationMembership.objects.create(
+            organization=other_organization,
+            user=self.user,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        role = Role.objects.create(name="Analyst", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=self.user, organization_member=other_membership)
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.event_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.event_prop,
+            access_level=PropertyAccessLevel.READ_WRITE.value,
+            role=role,
+        )
+
+        restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
+        assert restricted == {("secret_event_prop", PropertyDefinition.Type.EVENT)}
 
 
 class TestRestrictionCacheScope(BaseTest):
