@@ -340,7 +340,6 @@ describe("LlmGatewayService.fetchUsage", () => {
       exceeded: false,
     },
     is_rate_limited: false,
-    is_pro: true,
   };
 
   it("returns the schema-parsed usage payload", async () => {
@@ -350,7 +349,6 @@ describe("LlmGatewayService.fetchUsage", () => {
     const usage = await service.fetchUsage();
 
     expect(usage.product).toBe("code");
-    expect(usage.is_pro).toBe(true);
     expect(usage.sustained.used_percent).toBe(10);
     expect(fetchMock).toHaveBeenCalledWith(`${API_HOST}/gateway/usage`, {
       headers: { "X-PostHog-Project-Id": "42" },

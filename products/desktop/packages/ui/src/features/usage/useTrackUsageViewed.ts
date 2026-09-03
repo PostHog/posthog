@@ -4,13 +4,12 @@ import { useEffect, useRef } from "react";
 
 export interface TrackUsageViewedInput {
   isLoading: boolean;
-  isPro: boolean;
   sustainedUsedPercent: number | null;
   burstUsedPercent: number | null;
 }
 
 export function useTrackUsageViewed(input: TrackUsageViewedInput): void {
-  const { isLoading, isPro, sustainedUsedPercent, burstUsedPercent } = input;
+  const { isLoading, sustainedUsedPercent, burstUsedPercent } = input;
 
   const firedRef = useRef(false);
   useEffect(() => {
@@ -19,9 +18,8 @@ export function useTrackUsageViewed(input: TrackUsageViewedInput): void {
     if (isLoading) return;
     firedRef.current = true;
     track(ANALYTICS_EVENTS.USAGE_VIEWED, {
-      is_pro: isPro,
       sustained_used_percent: sustainedUsedPercent,
       burst_used_percent: burstUsedPercent,
     });
-  }, [isLoading, isPro, sustainedUsedPercent, burstUsedPercent]);
+  }, [isLoading, sustainedUsedPercent, burstUsedPercent]);
 }

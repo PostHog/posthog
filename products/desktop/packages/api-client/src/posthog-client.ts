@@ -308,17 +308,11 @@ export interface CreateResourceCommentRequest {
 export class CloudUsageLimitError extends Error {
   limitType: UsageLimitType;
   resetAt: string | null;
-  isPro: boolean;
-  constructor(params: {
-    limitType: UsageLimitType;
-    resetAt: string | null;
-    isPro: boolean;
-  }) {
+  constructor(params: { limitType: UsageLimitType; resetAt: string | null }) {
     super(CLOUD_USAGE_LIMIT_ERROR_MESSAGE);
     this.name = "CloudUsageLimitError";
     this.limitType = params.limitType;
     this.resetAt = params.resetAt;
-    this.isPro = params.isPro;
   }
 }
 
@@ -6133,7 +6127,6 @@ export class PostHogAPIClient {
           typeof parsed.body.reset_at === "string"
             ? parsed.body.reset_at
             : null,
-        isPro: parsed.body.is_pro === true,
       });
     }
   }

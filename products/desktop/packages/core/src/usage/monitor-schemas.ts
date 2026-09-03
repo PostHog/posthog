@@ -14,7 +14,6 @@ const thresholdCrossedEvent = z.object({
   ]),
   usedPercent: z.number(),
   resetAt: z.string().datetime(),
-  isPro: z.boolean(),
   userIsActive: z.boolean(),
 });
 

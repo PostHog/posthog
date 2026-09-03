@@ -38,7 +38,6 @@ function makeUsage(
     sustained: boolean;
     burst: boolean;
     isRateLimited: boolean;
-    isPro: boolean;
   }> = {},
 ): UsageOutput {
   return {
@@ -55,7 +54,6 @@ function makeUsage(
       exceeded: overrides.burst ?? false,
     },
     is_rate_limited: overrides.isRateLimited ?? false,
-    is_pro: overrides.isPro ?? false,
   };
 }
 
@@ -68,7 +66,7 @@ interface Case {
     cause?: "model_gate" | "org_limit" | null;
     resetAt?: string | null;
   };
-  trackPayload?: { bucket: "burst" | "sustained" | null; is_pro: boolean };
+  trackPayload?: { bucket: "burst" | "sustained" | null };
 }
 
 const cases: Case[] = [
@@ -82,7 +80,7 @@ const cases: Case[] = [
     name: "blocks with the daily reset hint when the burst bucket is exceeded",
     arrange: () =>
       refresh.mockResolvedValue(
-        makeUsage({ burst: true, isRateLimited: true, isPro: true }),
+        makeUsage({ burst: true, isRateLimited: true }),
       ),
     available: false,
     modal: {
@@ -90,7 +88,7 @@ const cases: Case[] = [
       cause: "org_limit",
       resetAt: "2026-05-01T12:10:00.000Z",
     },
-    trackPayload: { bucket: "burst", is_pro: true },
+    trackPayload: { bucket: "burst" },
   },
   {
     name: "falls back to the latest snapshot when refresh fails",
@@ -100,7 +98,7 @@ const cases: Case[] = [
     },
     available: false,
     modal: { isOpen: true, cause: "org_limit" },
-    trackPayload: { bucket: "sustained", is_pro: false },
+    trackPayload: { bucket: "sustained" },
   },
   {
     name: "falls back to the monthly reset hint when only is_rate_limited is set",
@@ -112,7 +110,7 @@ const cases: Case[] = [
       cause: "org_limit",
       resetAt: "2026-05-01T13:00:00.000Z",
     },
-    trackPayload: { bucket: null, is_pro: false },
+    trackPayload: { bucket: null },
   },
   {
     name: "fails open (allows creation) when usage cannot be fetched",

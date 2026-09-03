@@ -105,13 +105,11 @@ function makeUsage(overrides?: {
   billingPeriodEnd?: string | null;
   burstResetAt?: string;
   sustainedResetAt?: string;
-  isPro?: boolean;
 }): UsageOutput {
   return {
     product: "posthog_code",
     user_id: 42,
     is_rate_limited: false,
-    is_pro: overrides?.isPro ?? false,
     code_usage_subscribed: false,
     billing_period_end:
       overrides?.billingPeriodEnd === undefined
@@ -213,24 +211,6 @@ describe("UsageMonitorService", () => {
       "burst",
       "sustained",
     ]);
-  });
-
-  it("marks events with isPro from the gateway", async () => {
-    const events: { isPro: boolean }[] = [];
-    const gateway = mockGateway(
-      makeUsage({
-        sustainedPercent: 60,
-        isPro: true,
-        billingPeriodEnd: "2026-06-01T00:00:00.000Z",
-      }),
-    );
-    service = makeService(gateway, makeActivityMonitor());
-    service.on(UsageMonitorEvent.ThresholdCrossed, (e) =>
-      events.push(e as { isPro: boolean }),
-    );
-
-    await service.fetchOnce();
-    expect(events[0]?.isPro).toBe(true);
   });
 
   it("marks events with userIsActive from the agent service", async () => {

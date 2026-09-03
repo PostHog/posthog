@@ -57,7 +57,6 @@ export function PlanUsageSettings() {
 
   useTrackUsageViewed({
     isLoading: billingEnabled && usageLoading,
-    isPro: usage?.is_pro ?? false,
     sustainedUsedPercent: usage?.sustained.used_percent ?? null,
     burstUsedPercent: usage?.burst.used_percent ?? null,
   });
