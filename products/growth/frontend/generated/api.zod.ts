@@ -61,7 +61,7 @@ export const GrowthAiEnrichmentRunCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe(
-            'Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional.'
+            "Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. A 'pages.<type>.<key>' path (e.g. pages.home.markdown) reads the company's own fetched web pages instead; supported types are 'home' and 'pricing'. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional."
         ),
     output_fields: zod
         .array(
@@ -146,7 +146,7 @@ export const GrowthAiEnrichmentSaveCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe(
-            'Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional.'
+            "Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. A 'pages.<type>.<key>' path (e.g. pages.home.markdown) reads the company's own fetched web pages instead; supported types are 'home' and 'pricing'. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional."
         ),
     output_fields: zod
         .array(

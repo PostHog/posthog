@@ -55,7 +55,7 @@ export interface ConfigVersionApi {
     prompt_text: string
     /** Gateway model id this version was authored against. */
     model: string
-    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
+    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. A 'pages.<type>.<key>' path (e.g. pages.home.markdown) reads the company's own fetched web pages instead; supported types are 'home' and 'pricing'. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
     input_fields: string[]
     /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields. */
     output_fields: OutputFieldApi[]
@@ -125,7 +125,7 @@ export interface RunRequestApi {
      * @maxLength 128
      */
     model: string
-    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
+    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. A 'pages.<type>.<key>' path (e.g. pages.home.markdown) reads the company's own fetched web pages instead; supported types are 'home' and 'pricing'. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
     input_fields?: string[]
     /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields. */
     output_fields: OutputFieldApi[]
@@ -158,7 +158,7 @@ export interface SaveRequestApi {
      * @maxLength 128
      */
     model: string
-    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
+    /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. A 'pages.<type>.<key>' path (e.g. pages.home.markdown) reads the company's own fetched web pages instead; supported types are 'home' and 'pricing'. Every selected value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional. */
     input_fields?: string[]
     /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields. */
     output_fields: OutputFieldApi[]
