@@ -17,6 +17,7 @@
     "clean": "node ../../scripts/rimraf.mjs .turbo"
   },
   "dependencies": {
+    "@posthog/brand": "catalog:",
     "@posthog/core": "workspace:*",
     "@posthog/shared": "workspace:*",
     "@posthog/ui": "workspace:*",

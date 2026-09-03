@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat, SortMode
@@ -8,7 +10,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 DUB_BASE_URL = "https://api.dub.co"
 
 
-@dataclass
+@frozen
 class DubEndpointConfig:
     name: str
     path: str
@@ -23,6 +25,9 @@ class DubEndpointConfig:
     params: dict[str, str] = field(default_factory=dict)
     # Set for the /events streams; selects which event type the shared endpoint returns.
     event_type: Optional[str] = None
+    # /links returns only the links sitting outside a folder unless `folderId` is passed, so
+    # this endpoint has to be walked once per folder as well to import the whole workspace.
+    folder_scoped: bool = False
 
 
 def _event_endpoint(name: str, event_type: str, primary_key: str) -> DubEndpointConfig:
@@ -44,7 +49,7 @@ def _event_endpoint(name: str, event_type: str, primary_key: str) -> DubEndpoint
 
 
 DUB_ENDPOINTS: dict[str, DubEndpointConfig] = {
-    "links": DubEndpointConfig(name="links", path="/links", pagination="cursor"),
+    "links": DubEndpointConfig(name="links", path="/links", pagination="cursor", folder_scoped=True),
     "click_events": _event_endpoint("click_events", "clicks", primary_key="click_id"),
     "lead_events": _event_endpoint("lead_events", "leads", primary_key="eventId"),
     "sale_events": _event_endpoint("sale_events", "sales", primary_key="eventId"),
