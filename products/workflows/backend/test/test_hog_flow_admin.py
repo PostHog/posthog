@@ -27,7 +27,8 @@ class TestHogFlowAdminEmailAudit(TestCase):
         request.user = self.user
         # Admin actions call message_user, which needs a message store on the request.
         request.session = SessionStore()
-        request._messages = FallbackStorage(request)
+        # Set on the raw request only in tests; MessageMiddleware owns the attribute at runtime.
+        request._messages = FallbackStorage(request)  # type: ignore[attr-defined]
         return request
 
     def _admin_history(self) -> LogEntry:
