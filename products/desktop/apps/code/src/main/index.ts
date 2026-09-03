@@ -386,7 +386,7 @@ async function boot(): Promise<void> {
   const wsServer = container.get<WorkspaceServerService>(
     WORKSPACE_SERVER_SERVICE,
   );
-  await wsServer.start().catch((error: unknown) => {
+  const workspaceServerStart = wsServer.start().catch((error: unknown) => {
     log.error("workspace-server failed to start", error);
   });
   // The workspace-server child respawns on a new port/secret after a crash;
@@ -451,6 +451,8 @@ async function boot(): Promise<void> {
   // The hidden quick-ask panel must not keep the app alive after the main
   // window closes.
   onMainWindowClosed(destroyQuickAskWindow);
+  await workspaceServerStart;
+  if (shutdownStarted) return;
   await initializeServices();
   initializeDeepLinks();
 
