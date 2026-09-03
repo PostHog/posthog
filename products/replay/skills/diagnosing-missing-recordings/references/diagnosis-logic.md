@@ -37,11 +37,14 @@ $session_recording_remote_config.enabled == false?
 Any trigger status is 'trigger_pending' AND none is 'trigger_matched'?
   → TRIGGER_PENDING: recording gated on trigger that never fired
 
-$session_recording_start_reason == 'sampled_out'?
+$session_recording_start_reason == 'sampled_out'
+  OR every entry in $sdk_debug_replay_matched_recording_trigger_groups is
+  matched: true, sampled: false?
   → SAMPLED_OUT: excluded by configured sample rate
-  (posthog-js never writes this reason. A session that sampling dropped reaches
-   RECORDER_NOT_STARTED below instead, where a $replay_sample_rate under 1 names
-   sampling as the likely cause)
+  (posthog-js never writes the start reason. On trigger groups it does report the
+   per-group sampling decision, which is the definite signal. Without trigger
+   groups, a dropped session reaches RECORDER_NOT_STARTED below instead, where a
+   $replay_sample_rate under 1 names sampling as the likely cause)
 
 'lazy_loading' is the furthest status the session reached?
   → RECORDER_LOADING: the session ended before the recorder file took over
@@ -135,6 +138,8 @@ Review the trigger configuration to ensure it covers the expected pages/events.
 The SDK randomly excluded this session based on the configured sample rate.
 This is expected behavior — if the sample rate is 50%, roughly half of sessions won't be recorded.
 To capture more sessions, increase the sample rate or use triggers for important flows.
+On trigger groups, the trigger matched first and the group's own sample rate then dropped the
+session, so raising that group's rate is the fix rather than changing the trigger.
 
 ### BUFFERING_EMPTY
 

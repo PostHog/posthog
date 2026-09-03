@@ -127,6 +127,17 @@ const toNumber = (value: unknown): number | null => {
     return null
 }
 
+// Trigger groups are the V2 recording config. The SDK lists each group whose trigger matched and
+// records the sampling decision it then made for that group. The V1 sample rate property is not
+// written on this path, so this list is the only sampling decision a V2 session reports. Every
+// matched group sampled out means nothing was left to start the recorder.
+const isSampledOutByTriggerGroup = (value: unknown): boolean => {
+    if (!Array.isArray(value) || value.length === 0) {
+        return false
+    }
+    return value.every((group) => group?.matched === true && group?.sampled === false)
+}
+
 export function diagnoseReplayCapture(
     eventProperties: Record<string, any> | null | undefined,
     context?: DiagnosisContext
@@ -164,6 +175,9 @@ function diagnoseSignals(properties: Record<string, any>, recordingStatus: unkno
     const bufferLength = toNumber(properties['$sdk_debug_replay_internal_buffer_length'])
     const flushedSize = toNumber(properties['$sdk_debug_replay_flushed_size'])
     const sampleRate = toNumber(properties['$replay_sample_rate'])
+    const sampledOutByTriggerGroup = isSampledOutByTriggerGroup(
+        properties['$sdk_debug_replay_matched_recording_trigger_groups']
+    )
     const scriptNotLoaded = properties['$sdk_debug_recording_script_not_loaded']
     const rrwebError = properties['$sdk_debug_replay_rrweb_error']
 
@@ -305,13 +319,15 @@ function diagnoseSignals(properties: Record<string, any>, recordingStatus: unkno
 
     // posthog-js does not write this reason. Sampling out only logs a warning there, so a dropped
     // session arrives as `disabled` and is handled below. Kept for SDKs that do report it.
-    if (startReason === 'sampled_out') {
+    if (startReason === 'sampled_out' || sampledOutByTriggerGroup) {
         return {
             verdict: 'sampled_out',
             headline: 'This session was excluded by sampling',
             reasons: [
-                'The SDK selected this session to be dropped based on the configured replay sample rate.',
-                'Sampling is random per-session — increase the sample rate in project settings to capture more sessions.',
+                sampledOutByTriggerGroup
+                    ? 'A recording trigger matched this session, then the sample rate on that trigger group dropped it, so the recorder never started.'
+                    : 'The SDK selected this session to be dropped based on the configured replay sample rate.',
+                'Sampling is random per session. Raise the sample rate in replay settings to capture more sessions.',
             ],
             rawSignals,
             suggestedActions: [settingsAction, troubleshootingAction],

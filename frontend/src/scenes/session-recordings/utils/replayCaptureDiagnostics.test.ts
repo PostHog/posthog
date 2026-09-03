@@ -221,6 +221,46 @@ describe('diagnoseReplayCapture', () => {
             expected: 'sampled_out',
         },
         {
+            name: 'a trigger group that matched then sampled the session out reads as sampled_out',
+            properties: {
+                $recording_status: 'disabled',
+                $session_recording_remote_config: { enabled: true },
+                $sdk_debug_replay_matched_recording_trigger_groups: [
+                    { id: 'g1', name: 'Checkout', matched: true, sampled: false },
+                ],
+            },
+            expected: 'sampled_out',
+        },
+        {
+            name: 'a trigger group that sampled the session in is not read as sampled_out',
+            properties: {
+                $recording_status: 'disabled',
+                $sdk_debug_replay_matched_recording_trigger_groups: [
+                    { id: 'g1', name: 'Checkout', matched: true, sampled: true },
+                ],
+            },
+            expected: 'recorder_not_started',
+        },
+        {
+            name: 'no matched trigger groups is not read as sampled_out',
+            properties: {
+                $recording_status: 'disabled',
+                $sdk_debug_replay_matched_recording_trigger_groups: [],
+            },
+            expected: 'recorder_not_started',
+        },
+        {
+            name: 'replay being off for the project outranks a sampled-out trigger group',
+            properties: {
+                $recording_status: 'disabled',
+                $session_recording_remote_config: { enabled: false },
+                $sdk_debug_replay_matched_recording_trigger_groups: [
+                    { id: 'g1', name: 'Checkout', matched: true, sampled: false },
+                ],
+            },
+            expected: 'disabled',
+        },
+        {
             name: 'a session posthog-js dropped by sampling still reads as recorder_not_started',
             properties: {
                 $recording_status: 'disabled',
@@ -393,6 +433,19 @@ describe('diagnoseReplayCapture', () => {
         })
         expect(result.verdict).toBe('recorder_not_started')
         expect(result.reasons.join(' ')).toContain('10%')
+    })
+
+    it('names the trigger group sample rate when a V2 group sampled the session out', () => {
+        const result = diagnoseReplayCapture({
+            $recording_status: 'disabled',
+            $sdk_debug_replay_matched_recording_trigger_groups: [
+                { id: 'g1', name: 'Checkout', matched: true, sampled: false },
+            ],
+        })
+
+        expect(result.verdict).toBe('sampled_out')
+        expect(result.reasons.join(' ')).toMatch(/trigger group/i)
+        expect(result.reasons.join(' ')).toMatch(/raise the sample rate/i)
     })
 
     it('does not mention sampling when every session is sampled in', () => {
