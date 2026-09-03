@@ -337,7 +337,7 @@ class TestScoutReportAPI(APIBaseTest):
         run = _make_run(self.team)
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
-        with patch(AUTOSTART_PATH, new=AsyncMock()):
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
             response = self.client.post(
                 self._edit_url(str(run.id)),
                 data={"report_id": created["report_id"], **edit},
@@ -361,7 +361,7 @@ class TestScoutReportAPI(APIBaseTest):
         run = _make_run(self.team)
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
-        with patch(AUTOSTART_PATH, new=AsyncMock()):
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
             self.client.post(
                 self._edit_url(str(run.id)),
                 data={"report_id": created["report_id"], "summary": "the queue, not the handler"},
@@ -390,7 +390,7 @@ class TestScoutReportAPI(APIBaseTest):
         run = _make_run(self.team)
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
-        with patch(AUTOSTART_PATH, new=AsyncMock()):
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
             response = self.client.post(
                 self._edit_url(str(run.id)),
                 data={"report_id": created["report_id"], "supersedes_implementation": True, **edit},
@@ -412,7 +412,7 @@ class TestScoutReportAPI(APIBaseTest):
         report_id = created["report_id"]
         recorded = []
         for index in range(MAX_SCOUT_CONTENT_REVISIONS + 1):
-            with patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+            with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
                 response = self.client.post(
                     self._edit_url(str(run.id)),
                     data={
@@ -444,7 +444,7 @@ class TestScoutReportAPI(APIBaseTest):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
         report_id = created["report_id"]
         for summary, supersede in (("the queue, not the handler", True), ("the queue, with numbers", False)):
-            with patch(AUTOSTART_PATH, new=AsyncMock()):
+            with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
                 response = self.client.post(
                     self._edit_url(str(run.id)),
                     data={"report_id": report_id, "summary": summary, "supersedes_implementation": supersede},
