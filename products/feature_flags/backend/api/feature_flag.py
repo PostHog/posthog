@@ -43,6 +43,7 @@ from posthog.api.tagged_item import (
     TaggedItemSerializerMixin,
     TaggedItemViewSetMixin,
     current_tag_names,
+    normalize_tag_names,
     resolve_bulk_tags,
 )
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, ServiceRequest, action
@@ -70,7 +71,6 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
-from posthog.models.tag import tagify
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
@@ -1357,7 +1357,7 @@ class FeatureFlagSerializer(
             return attrs
 
         self._validate_evaluation_contexts_requirement(attrs, request, team, creation_context)
-        self._validate_tags_requirement(attrs, request, team, creation_context)
+        self._validate_tags_requirement(attrs, team, creation_context)
 
         return attrs
 
@@ -1401,7 +1401,7 @@ class FeatureFlagSerializer(
                         "because this flag already has evaluation contexts and the team requires them."
                     )
 
-    def _validate_tags_requirement(self, attrs: dict, request: Any, team: Team, creation_context: str | None) -> None:
+    def _validate_tags_requirement(self, attrs: dict, team: Team, creation_context: str | None) -> None:
         """Enforce the team's "require tags" setting."""
         if creation_context in TAG_REQUIREMENT_EXEMPT_CREATION_CONTEXTS:
             return
@@ -1410,20 +1410,21 @@ class FeatureFlagSerializer(
             return
 
         tags = attrs.get("tags")
-        # tagify() drops whitespace, so a payload of [""] or ["  "] would otherwise pass the check
-        # and then create a blank tag the flag list renders as nothing.
-        named_tags = [tagify(tag) for tag in tags or [] if isinstance(tag, str) and tagify(tag)]
+        named_tags = normalize_tag_names([tag for tag in tags or [] if isinstance(tag, str)])
 
-        if request.method == "POST":
+        # Branch on the instance rather than request.method. Products that write a flag as a side
+        # effect of their own request - launching an experiment, saving an early access feature,
+        # editing a product tour - drive this serializer with the real POST request that triggered
+        # them, and those updates carry no tags. Reading POST as "create" would reject them.
+        if self.instance is None:
             if not named_tags:
                 raise serializers.ValidationError({"tags": REQUIRE_TAGS_ON_CREATE_ERROR})
             return
 
         # Only block emptying a flag that already has tags. Flags that predate the setting stay
         # editable, so turning it on doesn't freeze the existing untagged ones.
-        if request.method in ["PUT", "PATCH"] and self.instance and tags is not None and not named_tags:
-            if current_tag_names(self.instance):
-                raise serializers.ValidationError({"tags": REQUIRE_TAGS_ON_UPDATE_ERROR})
+        if tags is not None and not named_tags and current_tag_names(self.instance):
+            raise serializers.ValidationError({"tags": REQUIRE_TAGS_ON_UPDATE_ERROR})
 
     def _validate_device_bucketing_with_persist_auth(self, attrs):
         """Validate that persist across auth is not enabled with device ID bucketing"""
@@ -3242,7 +3243,7 @@ class FeatureFlagViewSet(
         if not team_requires_flag_tags(self.team_id):
             return
 
-        normalized_tags = {tagify(tag) for tag in tags}
+        normalized_tags = normalize_tag_names(tags)
         if any(not resolve_bulk_tags(current_tag_names(flag), tag_action, normalized_tags) for flag in objects):
             raise serializers.ValidationError({"tags": REQUIRE_TAGS_ON_UPDATE_ERROR})
 

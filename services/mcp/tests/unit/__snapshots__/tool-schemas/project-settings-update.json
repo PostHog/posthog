@@ -383,6 +383,15 @@
                 }
             ]
         },
+        "feature_flag_policy_config": {
+            "properties": {
+                "require_tags": {
+                    "description": "When enabled, a new feature flag must carry at least one tag, and an existing tagged flag cannot have its last tag removed. Flags generated to back a survey, experiment, early access feature, product tour, or web experiment are exempt.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "flags_persistence_default": {
             "anyOf": [
                 {

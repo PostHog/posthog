@@ -2,10 +2,12 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIRequestFactory
 
 from posthog.models import Tag
 
 from products.feature_flags.backend.api.feature_flag import TAG_REQUIREMENT_EXEMPT_CREATION_CONTEXTS
+from products.feature_flags.backend.facade.api import update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 
@@ -96,6 +98,18 @@ class TestFeatureFlagRequireTags(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
 
+    def test_update_driven_by_a_post_request_is_not_read_as_a_create(self) -> None:
+        # Experiments, early access features, and product tours write a flag as a side effect of
+        # their own POST, so the flag serializer sees a POST it must still treat as an update.
+        flag = FeatureFlag.objects.create(key="experiment-flag", team=self.team, created_by=self.user)
+        self._require_tags(True)
+        request = APIRequestFactory().post("/")
+        request.user = self.user
+
+        updated = update_flag(flag, {"active": False}, team=self.team, user=self.user, request=request)
+
+        assert updated.active is False
+
     def test_create_with_a_blank_tag_is_rejected_when_required(self) -> None:
         self._require_tags(True)
 
@@ -103,7 +117,7 @@ class TestFeatureFlagRequireTags(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @parameterized.expand([("set", []), ("remove", ["billing"])])
+    @parameterized.expand([("set", []), ("set", ["   "]), ("remove", ["billing"])])
     def test_bulk_update_cannot_strip_the_last_tag_when_required(self, tag_action: str, tags: list[str]) -> None:
         flag = FeatureFlag.objects.create(key="tagged-flag", team=self.team, created_by=self.user)
         self._tag_flag(flag, "billing")

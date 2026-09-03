@@ -49,6 +49,15 @@ def cleanup_orphan_tags(team_id: int) -> None:
     Tag.objects.filter(Q(team_id=team_id) & Q(tagged_items__isnull=True)).delete()
 
 
+def normalize_tag_names(tags: Sequence[str]) -> set[str]:
+    """The tag names a request's raw strings resolve to, minus the blanks.
+
+    ``tagify`` strips whitespace, so a payload of ``[""]`` or ``["  "]`` would otherwise reach
+    ``Tag.objects.get_or_create`` and leave an empty tag that renders as nothing.
+    """
+    return {name for name in (tagify(tag) for tag in tags) if name}
+
+
 def current_tag_names(obj: Any) -> set[str]:
     """The object's tags, preferring a ``prefetched_tags`` attribute over a fresh query."""
     tagged_items = obj.prefetched_tags if hasattr(obj, "prefetched_tags") else obj.tagged_items.select_related("tag")
@@ -99,7 +108,7 @@ def apply_bulk_tag_changes(
     recorded for every object whose tags actually change, mirroring the single-object update path
     so the bulk endpoint leaves the same audit trail.
     """
-    normalized_tags = {tagify(t) for t in tags}
+    normalized_tags = normalize_tag_names(tags)
     updated: list[dict[str, Any]] = []
     team_ids: set[int] = set()
     activity_entries: list[LogActivityEntry] = []
@@ -310,6 +319,9 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
         Raise ``serializers.ValidationError`` to reject the whole request. Rejecting beats skipping
         here: the bulk-tag form reports skipped objects as permission failures, so a rule-based skip
         would reach the user as the wrong reason.
+
+        A viewset that reimplements ``bulk_update_tags`` must call this itself before
+        ``apply_bulk_tag_changes``, or its resource silently opts out of its own rule.
         """
 
     def prefetch_tagged_items_if_available(self, queryset: QuerySet | models.query.RawQuerySet) -> QuerySet:
