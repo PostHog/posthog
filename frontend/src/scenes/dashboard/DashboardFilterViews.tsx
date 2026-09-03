@@ -2,17 +2,15 @@ import { deepEqual } from 'fast-equals'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useState } from 'react'
 
-import { IconChevronDown, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, Popover } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
-import { SavedViewsList } from 'lib/components/SavedViews/SavedViewsList'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { DashboardFilterView, DashboardPlacement } from '~/types'
 
+import { DashboardFilterViewsButton } from './DashboardFilterViewsButton'
 import { dashboardLogic } from './dashboardLogic'
 import { searchParamsWithUrlFilters } from './dashboardUtils'
 
@@ -20,7 +18,6 @@ export function DashboardFilterViews(): JSX.Element | null {
     const enabled = useFeatureFlag('DASHBOARD_FILTER_SAVED_VIEWS')
     const { dashboard, placement, canEditDashboard, effectiveEditBarFilters, urlFilters } = useValues(dashboardLogic)
     const { triggerDashboardUpdate } = useActions(dashboardLogic)
-    const [visible, setVisible] = useState(false)
 
     if (!enabled || !dashboard || placement !== DashboardPlacement.Dashboard) {
         return null
@@ -52,7 +49,6 @@ export function DashboardFilterViews(): JSX.Element | null {
             searchParamsWithUrlFilters(currentLocation.searchParams, filters),
             currentLocation.hashParams
         )
-        setVisible(false)
     }
 
     const createView = (): void => {
@@ -85,44 +81,13 @@ export function DashboardFilterViews(): JSX.Element | null {
     }
 
     return (
-        <Popover
-            visible={visible}
-            padded={false}
-            onClickOutside={() => setVisible(false)}
-            overlay={
-                <div className="flex w-72 flex-col py-1" data-attr="dashboard-filter-views-popover">
-                    {canEditDashboard && views.length < 20 && (
-                        <LemonButton
-                            fullWidth
-                            size="small"
-                            type="tertiary"
-                            className="justify-start rounded-none px-3"
-                            icon={<IconPlus />}
-                            onClick={createView}
-                        >
-                            Save current filters
-                        </LemonButton>
-                    )}
-                    {canEditDashboard && views.length < 20 && <div className="border-t" />}
-                    <SavedViewsList
-                        views={[...views].sort((left, right) => left.name.localeCompare(right.name))}
-                        activeViewId={activeView?.id}
-                        emptyMessage="No saved filter views yet."
-                        onSelect={selectView}
-                        onDelete={canEditDashboard ? deleteView : undefined}
-                    />
-                </div>
-            }
-        >
-            <LemonButton
-                size="small"
-                type="secondary"
-                data-attr="dashboard-filter-views-picker"
-                sideIcon={<IconChevronDown />}
-                onClick={() => setVisible(!visible)}
-            >
-                {activeView?.name ?? 'Views'}
-            </LemonButton>
-        </Popover>
+        <DashboardFilterViewsButton
+            views={views}
+            activeView={activeView}
+            canEdit={canEditDashboard}
+            onCreate={createView}
+            onSelect={selectView}
+            onDelete={deleteView}
+        />
     )
 }
