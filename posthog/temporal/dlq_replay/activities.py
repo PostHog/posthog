@@ -1,13 +1,18 @@
 import ssl
 import asyncio
 import dataclasses
+from typing import Any
+
+from django.conf import settings
 
 import aiokafka
 from aiokafka import TopicPartition
 from structlog import get_logger
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.kafka_client.routing import get_profile_settings
+from posthog.settings.kafka import KafkaProfileSettings
 from posthog.temporal.common.heartbeat import Heartbeater
 
 LOGGER = get_logger(__name__)
@@ -54,9 +59,13 @@ class ReplayPartitionResult:
     messages_replayed: int
 
 
+_ENCRYPTED_PROTOCOLS = frozenset({"SSL", "SASL_SSL"})
+_SASL_PROTOCOLS = frozenset({"SASL_PLAINTEXT", "SASL_SSL"})
+
+
 def configure_ssl_context(security_protocol: str | None) -> ssl.SSLContext | None:
-    """Configure SSL context for Kafka if the profile uses SSL."""
-    if security_protocol != "SSL":
+    """Configure SSL context for Kafka if the profile encrypts the connection."""
+    if security_protocol not in _ENCRYPTED_PROTOCOLS:
         return None
 
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -67,21 +76,61 @@ def configure_ssl_context(security_protocol: str | None) -> ssl.SSLContext | Non
     return context
 
 
+def resolve_topic_profile(topic: str) -> KafkaProfileSettings:
+    """Resolve the cluster profile for a topic, and reject an unusable one.
+
+    Outside dev, a profile with no hosts env var keeps the dev-local fallback host,
+    which no deployment can reach. Report that as a config error, because a
+    connection timeout sends the reader after the cluster instead of the config.
+    """
+    profile = get_profile_settings(topic=topic)
+
+    if not profile.hosts_configured and not (settings.DEBUG or settings.TEST):
+        raise ApplicationError(
+            f"Kafka profile '{profile.name}' for topic '{topic}' has no hosts. "
+            f"Set KAFKA_{profile.name.upper()}_HOSTS or KAFKA_DEFAULT_HOSTS.",
+            non_retryable=True,
+        )
+
+    if profile.security_protocol in _SASL_PROTOCOLS and not (profile.sasl_mechanism and profile.sasl_user):
+        raise ApplicationError(
+            f"Kafka profile '{profile.name}' uses {profile.security_protocol} but has no SASL credentials. "
+            f"Set KAFKA_{profile.name.upper()}_SASL_MECHANISM, _SASL_USER, and _SASL_PASSWORD.",
+            non_retryable=True,
+        )
+
+    return profile
+
+
+def client_kwargs(profile: KafkaProfileSettings) -> dict[str, Any]:
+    """Connection arguments shared by every aiokafka client in this module.
+
+    aiokafka takes the SASL credentials at construction time only. A client built
+    without them cannot authenticate against a SASL cluster.
+    """
+    security_protocol = profile.security_protocol or "PLAINTEXT"
+    kwargs: dict[str, Any] = {
+        "bootstrap_servers": profile.hosts,
+        "security_protocol": security_protocol,
+        "ssl_context": configure_ssl_context(security_protocol),
+        "api_version": "2.5.0",
+    }
+    if security_protocol in _SASL_PROTOCOLS:
+        kwargs["sasl_mechanism"] = profile.sasl_mechanism
+        kwargs["sasl_plain_username"] = profile.sasl_user
+        kwargs["sasl_plain_password"] = profile.sasl_password
+    return kwargs
+
+
 @activity.defn
 async def get_topic_partitions(inputs: GetTopicPartitionsInputs) -> list[int]:
     """Get all partition numbers for a Kafka topic."""
     logger = LOGGER.bind(topic=inputs.topic)
     logger.info("Getting partitions for topic")
 
-    profile = get_profile_settings(topic=inputs.topic)
-    ssl_context = configure_ssl_context(profile.security_protocol)
+    profile = resolve_topic_profile(inputs.topic)
 
-    consumer = aiokafka.AIOKafkaConsumer(
-        bootstrap_servers=profile.hosts,
-        security_protocol=profile.security_protocol or "PLAINTEXT",
-        ssl_context=ssl_context,
-        api_version="2.5.0",
-    )
+    consumer = aiokafka.AIOKafkaConsumer(**client_kwargs(profile))
 
     await consumer.start()
     try:
@@ -121,29 +170,21 @@ async def replay_partition(inputs: ReplayPartitionInputs) -> ReplayPartitionResu
     )
     logger.info("Starting partition replay")
 
-    source_profile = get_profile_settings(topic=inputs.source_topic)
-    ssl_context = configure_ssl_context(source_profile.security_protocol)
+    source_profile = resolve_topic_profile(inputs.source_topic)
 
     consumer = aiokafka.AIOKafkaConsumer(
-        bootstrap_servers=source_profile.hosts,
-        security_protocol=source_profile.security_protocol or "PLAINTEXT",
-        ssl_context=ssl_context,
+        **client_kwargs(source_profile),
         enable_auto_commit=False,
         auto_offset_reset="earliest",
-        api_version="2.5.0",
     )
 
     # Replay must preserve per-message headers, which confluent-kafka's AIOProducer
     # refuses to pass through in batch mode. Use aiokafka directly for this activity
     # only — cluster routing still flows through `get_profile_settings(topic=...)`.
-    target_profile = get_profile_settings(topic=inputs.target_topic)
-    target_ssl_context = configure_ssl_context(target_profile.security_protocol)
+    target_profile = resolve_topic_profile(inputs.target_topic)
     producer = aiokafka.AIOKafkaProducer(
-        bootstrap_servers=target_profile.hosts,
-        security_protocol=target_profile.security_protocol or "PLAINTEXT",
-        ssl_context=target_ssl_context,
+        **client_kwargs(target_profile),
         acks="all",
-        api_version="2.5.0",
     )
 
     messages_replayed = 0

@@ -166,6 +166,10 @@ def _resolve_producer_settings(profile: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+# Dev-local host a profile falls back to when no `*_HOSTS` env var is set.
+KAFKA_DEV_LOCAL_HOSTS = "kafka:9092"
+
+
 @dataclass(frozen=True)
 class KafkaProfileSettings:
     """Fully resolved settings for one Kafka cluster profile."""
@@ -177,21 +181,25 @@ class KafkaProfileSettings:
     sasl_user: Optional[str]
     sasl_password: Optional[str] = field(repr=False)
     producer_settings: dict[str, Any] = field(default_factory=dict)
+    # False when `hosts` is the dev-local fallback rather than a configured value.
+    # Lets callers tell a missing config apart from a real cluster address.
+    hosts_configured: bool = True
 
 
 def _resolve_profile(profile: str) -> KafkaProfileSettings:
     # Any profile that has no hosts configured falls back to the dev-local
     # `kafka:9092`. In prod, `KAFKA_DEFAULT_HOSTS` (or the legacy `KAFKA_HOSTS`)
     # is always set, so this fallback only ever applies to local dev / tests.
-    hosts_raw = _env_for(profile, "HOSTS") or "kafka:9092"
+    hosts_raw = _env_for(profile, "HOSTS")
     return KafkaProfileSettings(
         name=profile,
-        hosts=_parse_kafka_hosts(hosts_raw),
+        hosts=_parse_kafka_hosts(hosts_raw or KAFKA_DEV_LOCAL_HOSTS),
         security_protocol=_env_for(profile, "SECURITY_PROTOCOL"),
         sasl_mechanism=_env_for(profile, "SASL_MECHANISM"),
         sasl_user=_env_for(profile, "SASL_USER"),
         sasl_password=_env_for(profile, "SASL_PASSWORD"),
         producer_settings=_resolve_producer_settings(profile),
+        hosts_configured=hosts_raw is not None,
     )
 
 
