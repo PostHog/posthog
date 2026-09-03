@@ -16,7 +16,7 @@ export interface FeatureFlagReleaseConditionsChangeProps {
     after: FeatureFlagFilters
 }
 
-function statusTag(set: ConditionSetChange): JSX.Element | undefined {
+function statusTag(set: ConditionSetChange): JSX.Element | null {
     if (set.status === 'added') {
         return (
             <LemonTag type="success" size="small">
@@ -31,7 +31,7 @@ function statusTag(set: ConditionSetChange): JSX.Element | undefined {
             </LemonTag>
         )
     }
-    return undefined
+    return null
 }
 
 export function FeatureFlagReleaseConditionsChange({

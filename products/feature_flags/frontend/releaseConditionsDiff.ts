@@ -119,6 +119,19 @@ export function diffReleaseConditionSets(
             claim(afterIndex, afterIndex)
         }
     })
+    // A set edited and moved in the same save has no positional partner. Pair it with the one leftover set
+    // it still resembles; with several look-alikes there is no safe pick, so those stay added and removed.
+    afterGroups.forEach((group, afterIndex) => {
+        if (matchedBefore.has(afterIndex)) {
+            return
+        }
+        const candidates = beforeGroups
+            .map((candidate, beforeIndex) => beforeIndex)
+            .filter((beforeIndex) => !usedBefore.has(beforeIndex) && looksLikeSameSet(group, beforeGroups[beforeIndex]))
+        if (candidates.length === 1) {
+            claim(afterIndex, candidates[0])
+        }
+    })
 
     const sets: ConditionSetChange[] = afterGroups.map((group, index) => {
         const beforeIndex = matchedBefore.get(index)

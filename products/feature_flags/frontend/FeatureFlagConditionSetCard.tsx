@@ -17,7 +17,7 @@ export interface FeatureFlagConditionSetCardProps {
     aggregationTargetName: string
     getDistinctIdName: (distinctId: string) => string
     getFlagKey: (flagId: string) => string
-    tag?: JSX.Element
+    tag?: JSX.Element | null
     previousRolloutPercentage?: number
 }
 
