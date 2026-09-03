@@ -1,6 +1,7 @@
 import { deepEqual } from 'fast-equals'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconChevronDown, IconPlus } from '@posthog/icons'
@@ -35,6 +36,17 @@ export function DashboardFilterViews(): JSX.Element | null {
     const selectView = (view: DashboardFilterView): void => {
         const { currentLocation } = router.values
         const filters = activeView?.id === view.id ? {} : view.filters
+        if (activeView?.id !== view.id) {
+            posthog.capture('dashboard filter view applied', {
+                dashboard_id: dashboard.id,
+                saved_view_count: views.length,
+                has_date_filter: !!(view.filters.date_from || view.filters.date_to),
+                property_filter_count: view.filters.properties?.length ?? 0,
+                has_breakdown_filter: !!view.filters.breakdown_filter,
+                has_interval_filter: !!view.filters.interval,
+                has_test_account_filter: view.filters.filterTestAccounts !== undefined,
+            })
+        }
         router.actions.push(
             currentLocation.pathname,
             searchParamsWithUrlFilters(currentLocation.searchParams, filters),

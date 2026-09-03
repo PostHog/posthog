@@ -186,6 +186,17 @@ def _effective_layout_compaction(customization: Any) -> str:
     return layout_compaction if layout_compaction in DASHBOARD_GRID_COMPACTION_MODES else "vertical"
 
 
+def _filter_view_analytics_properties(filters: dict[str, Any]) -> dict[str, bool | int]:
+    properties = filters.get("properties")
+    return {
+        "has_date_filter": bool(filters.get("date_from") or filters.get("date_to")),
+        "property_filter_count": len(properties) if isinstance(properties, list) else 0,
+        "has_breakdown_filter": bool(filters.get("breakdown_filter")),
+        "has_interval_filter": bool(filters.get("interval")),
+        "has_test_account_filter": filters.get("filterTestAccounts") is not None,
+    }
+
+
 logger = structlog.get_logger(__name__)
 
 DASHBOARD_TILE_ERROR_TYPE = "DashboardTileError"
@@ -1855,6 +1866,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
         grid_spacing = validated_data.pop("grid_spacing", None)
         layout_compaction = validated_data.pop("layout_compaction", None)
         filter_views = self.initial_data.get("filter_views")
+        previous_filter_view_ids = {
+            str(view.get("id"))
+            for view in _normalize_dashboard_customization(instance.customization).get("filter_views", [])
+            if isinstance(view, dict)
+        }
+        created_filter_views: list[dict[str, Any]] = []
         if grid_spacing is not None and not dashboard_customization_enabled(
             team=instance.team, user=cast(User, self.context["request"].user)
         ):
@@ -1867,6 +1884,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if not dashboard_filter_saved_views_enabled(team=instance.team):
                 raise serializers.ValidationError({"filter_views": "Dashboard filter views aren't available."})
             filter_views = self._validated_filter_views(filter_views)
+            created_filter_views = [view for view in filter_views if view["id"] not in previous_filter_view_ids]
         if grid_spacing is not None or layout_compaction is not None or filter_views is not None:
             validated_data["customization"] = {
                 **_normalize_dashboard_customization(instance.customization),
@@ -1943,6 +1961,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 self._deep_duplicate_tiles(instance, existing_tile, user_access_control)
 
         if "request" in self.context:
+            for created_filter_view in created_filter_views:
+                report_user_action(
+                    user,
+                    "dashboard filter view created",
+                    {
+                        "dashboard_id": instance.id,
+                        "saved_view_count": len(filter_views),
+                        **_filter_view_analytics_properties(created_filter_view["filters"]),
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
+                )
             if layout_compaction is not None and layout_compaction != previous_layout_compaction:
                 report_user_action(
                     user,

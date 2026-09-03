@@ -776,8 +776,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["attr"], "layout_compaction")
         self.assertEqual(response["detail"], "Tile movement settings aren't available.")
 
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
     @patch("products.dashboards.backend.api.dashboard.dashboard_filter_saved_views_enabled", return_value=True)
-    def test_dashboard_filter_views_are_saved(self, _mock_enabled: MagicMock) -> None:
+    def test_dashboard_filter_views_are_saved(
+        self, _mock_enabled: MagicMock, mock_report_user_action: MagicMock
+    ) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         view_id = "00000000-0000-0000-0000-000000000001"
 
@@ -796,6 +799,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(updated["customization"]["filter_views"][0]["id"], view_id)
         self.assertEqual(updated["customization"]["filter_views"][0]["filters"]["date_from"], "-30d")
+        created_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard filter view created"
+        )
+        self.assertEqual(
+            created_call.args[2],
+            {
+                "dashboard_id": dashboard_id,
+                "saved_view_count": 1,
+                "has_date_filter": True,
+                "property_filter_count": 0,
+                "has_breakdown_filter": False,
+                "has_interval_filter": False,
+                "has_test_account_filter": False,
+            },
+        )
 
     @patch("products.dashboards.backend.api.dashboard.dashboard_filter_saved_views_enabled", return_value=False)
     def test_dashboard_filter_views_require_feature_flag(self, _mock_enabled: MagicMock) -> None:
