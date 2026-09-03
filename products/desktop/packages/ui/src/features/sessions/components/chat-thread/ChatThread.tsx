@@ -11,7 +11,6 @@ import {
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 import { buildTurnRatingMetric } from "@posthog/core/analytics/aiFeedback";
 import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
-import { isShowActionsCall } from "@posthog/core/sessions/showActions";
 import { useService } from "@posthog/di/react";
 import {
   Button,
@@ -114,6 +113,7 @@ import {
 import { extractPeerAgentMessage } from "@posthog/ui/features/sessions/components/session-update/peerAgentMessage";
 import { collapsePiSkillInvocation } from "@posthog/ui/features/sessions/components/session-update/piSkillInvocation";
 import { SessionUpdateView } from "@posthog/ui/features/sessions/components/session-update/SessionUpdateView";
+import { isShowActionsItem } from "@posthog/ui/features/sessions/components/session-update/showActionsItem";
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
 import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
 import {
@@ -171,14 +171,6 @@ type SessionUpdateItem = Extract<ConversationItem, { type: "session_update" }>;
 function isToolCallItem(item: ConversationItem): item is SessionUpdateItem {
   return (
     item.type === "session_update" && item.update.sessionUpdate === "tool_call"
-  );
-}
-
-function isShowActionsItem(item: SessionUpdateItem): boolean {
-  if (item.update.sessionUpdate !== "tool_call") return false;
-  const resolved = item.turnContext.toolCalls.get(item.update.toolCallId);
-  return (
-    isShowActionsCall(resolved?._meta) || isShowActionsCall(item.update._meta)
   );
 }
 
