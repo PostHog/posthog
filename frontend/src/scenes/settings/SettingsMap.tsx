@@ -105,6 +105,7 @@ import {
     FlagPersistenceSettings,
     FlagsSecureApiKeys,
     RequireEvaluationContexts,
+    RequireFeatureFlagTags,
 } from './environment/FeatureFlagSettings'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
@@ -754,6 +755,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Show a confirmation modal before saving changes to existing feature flags, helping prevent accidental changes to release conditions.',
                 component: <FlagChangeConfirmationSettings />,
                 keywords: ['confirmation', 'safety', 'change', 'release'],
+            },
+            {
+                id: 'feature-flag-require-tags',
+                title: 'Require tags',
+                description:
+                    'Require every new feature flag to have at least one tag, so flags stay attributable to a team or workstream. Flags created for surveys, experiments, early access features, product tours, and web experiments are exempt.',
+                component: <RequireFeatureFlagTags />,
+                keywords: ['tag', 'tags', 'require', 'governance'],
             },
             {
                 id: 'feature-flag-require-evaluation-contexts',

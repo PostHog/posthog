@@ -2466,6 +2466,16 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     ),
             })
             .optional(),
+        feature_flag_policy_config: zod
+            .object({
+                require_tags: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, a new feature flag must carry at least one tag, and an existing tagged flag cannot have its last tag removed. Flags generated to back a survey, experiment, early access feature, product tour, or web experiment are exempt.'
+                    ),
+            })
+            .optional(),
         base_currency: zod
             .enum([
                 'AED',

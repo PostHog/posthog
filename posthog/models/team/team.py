@@ -783,6 +783,12 @@ class Team(UUIDTClassicModel):
 
         return get_or_create_team_extension(self, TeamWorkflowsConfig)
 
+    @cached_property
+    def feature_flag_policy_config(self):
+        from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+
+        return get_or_create_team_extension(self, TeamFeatureFlagPolicyConfig)
+
     @property
     def default_modifiers(self) -> dict:
         # Deferred: posthog.schema (the pydantic models) stays off django.setup(),

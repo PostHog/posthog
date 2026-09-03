@@ -118,6 +118,7 @@ from products.access_control.backend.presentation.access_control import (
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
+from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.logs.backend.models import TeamLogsConfig
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
@@ -471,6 +472,7 @@ TEAM_CONFIG_FIELDS = (
     "feature_flag_confirmation_message",
     "default_evaluation_contexts_enabled",
     "require_evaluation_contexts",
+    "feature_flag_policy_config",
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_analytics_config",
@@ -787,6 +789,21 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         fields = ["capture_workflows_engagement_events", "email_tracking_consent_mode"]
 
 
+class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
+    require_tags = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When enabled, a new feature flag must carry at least one tag, and an existing tagged flag "
+            "cannot have its last tag removed. Flags generated to back a survey, experiment, early access "
+            "feature, product tour, or web experiment are exempt."
+        ),
+    )
+
+    class Meta:
+        model = TeamFeatureFlagPolicyConfig
+        fields = ["require_tags"]
+
+
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     activity_event = serializers.JSONField(required=False, help_text="Event used as the activity signal (DAU/WAU/MAU).")
     signup_pageview_event = serializers.JSONField(
@@ -1038,6 +1055,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
     workflows_config = TeamWorkflowsConfigSerializer(required=False)
+    feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
     event_retention_months = serializers.IntegerField(
         read_only=True,
@@ -1228,6 +1246,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return None
 
         serializer = TeamWorkflowsConfigSerializer(data=value)
+        if not serializer.is_valid():
+            raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
+        return serializer.validated_data
+
+    @staticmethod
+    def validate_feature_flag_policy_config(value):
+        if value is None:
+            return None
+
+        serializer = TeamFeatureFlagPolicyConfigSerializer(data=value)
         if not serializer.is_valid():
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
@@ -1851,6 +1879,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if config_data := validated_data.pop("workflows_config", None):
             self._update_workflows_config(instance, config_data)
 
+        if config_data := validated_data.pop("feature_flag_policy_config", None):
+            self._update_feature_flag_policy_config(instance, config_data)
+
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
                 instance, validated_data["session_recording_retention_period"]
@@ -2100,6 +2131,30 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             field: getattr(instance.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields
         }
         self._capture_diff(instance, "workflows_config", old_config, new_config)
+        return instance
+
+    def _update_feature_flag_policy_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        old_config = {
+            field: getattr(instance.feature_flag_policy_config, field)
+            for field in TeamFeatureFlagPolicyConfigSerializer.Meta.fields
+        }
+
+        serializer = TeamFeatureFlagPolicyConfigSerializer(
+            instance.feature_flag_policy_config,
+            data=validated_data,
+            partial=True,
+            context={**self.context, "user_access_control": self.user_access_control},
+        )
+        if not serializer.is_valid():
+            raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+        serializer.save()
+
+        new_config = {
+            field: getattr(instance.feature_flag_policy_config, field)
+            for field in TeamFeatureFlagPolicyConfigSerializer.Meta.fields
+        }
+        self._capture_diff(instance, "feature_flag_policy_config", old_config, new_config)
         return instance
 
     def _verify_update_session_recording_retention_period(self, instance: Team, new_retention_period: str):

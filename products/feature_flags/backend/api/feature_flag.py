@@ -116,6 +116,7 @@ from products.feature_flags.backend.flag_status import (
 from products.feature_flags.backend.local_evaluation import _get_flag_properties_from_filters
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
+from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.feature_flags.backend.session_recording_links import (
     REPLAY_LINKED_FLAG_DELETE_ERROR,
     replay_linked_flag_ids,
@@ -453,6 +454,10 @@ FEATURE_FLAG_CREATION_CONTEXT_CHOICES = (
     "web_experiments",
     "product_tours",
 )
+
+# A flag created to back one of these objects never passes through a form with a tag input, so the
+# team's "require tags" setting would dead-end those flows rather than get anything tagged.
+TAG_REQUIREMENT_EXEMPT_CREATION_CONTEXTS = frozenset(FEATURE_FLAG_CREATION_CONTEXT_CHOICES) - {"feature_flags"}
 
 
 def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
@@ -1328,26 +1333,38 @@ class FeatureFlagSerializer(
         if not request:
             return attrs
 
-        # Survey flags are exempt from evaluation tag requirements
-        # They are created automatically by the survey system and don't need manual tagging
+        # Note: for creation_context, we use initial_data since it's metadata not part of the model
         creation_context = self.initial_data.get("creation_context") if hasattr(self, "initial_data") else None
-        if creation_context == "surveys":
-            return attrs
 
-        # Get the team to check if evaluation contexts are required
         # The context uses a lambda for lazy evaluation
         get_team = self.context.get("get_team")
         if not get_team:
             return attrs
 
         team = get_team()
-        if not team or not team.require_evaluation_contexts:
+        if not team:
             return attrs
+
+        self._validate_evaluation_contexts_requirement(attrs, request, team, creation_context)
+        self._validate_tags_requirement(attrs, request, team, creation_context)
+
+        return attrs
+
+    def _validate_evaluation_contexts_requirement(
+        self, attrs: dict, request: Any, team: Team, creation_context: str | None
+    ) -> None:
+        """Enforce the team's "require evaluation contexts" setting."""
+        # Survey flags are exempt from evaluation tag requirements
+        # They are created automatically by the survey system and don't need manual tagging
+        if creation_context == "surveys":
+            return
+
+        if not team.require_evaluation_contexts:
+            return
 
         if not self._is_evaluation_contexts_feature_enabled():
-            return attrs
+            return
 
-        # Note: for creation_context, we use initial_data since it's metadata not part of the model
         evaluation_contexts = attrs.get("evaluation_contexts")
 
         if request.method == "POST":
@@ -1373,7 +1390,42 @@ class FeatureFlagSerializer(
                         "because this flag already has evaluation contexts and the team requires them."
                     )
 
-        return attrs
+    def _validate_tags_requirement(self, attrs: dict, request: Any, team: Team, creation_context: str | None) -> None:
+        """Enforce the team's "require tags" setting."""
+        if creation_context in TAG_REQUIREMENT_EXEMPT_CREATION_CONTEXTS:
+            return
+
+        # Read the setting rather than going through team.feature_flag_policy_config, which would
+        # create the extension row for every team that writes a flag.
+        require_tags = (
+            TeamFeatureFlagPolicyConfig.objects.filter(team_id=team.id).values_list("require_tags", flat=True).first()
+        )
+        if not require_tags:
+            return
+
+        tags = attrs.get("tags")
+
+        if request.method == "POST":
+            if not tags:
+                raise serializers.ValidationError(
+                    {"tags": "Add at least one tag. This project requires new feature flags to be tagged."}
+                )
+            return
+
+        # Only block emptying a flag that already has tags. Flags that predate the setting stay
+        # editable, so turning it on doesn't freeze the existing untagged ones.
+        if request.method in ["PUT", "PATCH"] and self.instance and tags is not None and not tags:
+            if self._existing_tag_count(self.instance) > 0:
+                raise serializers.ValidationError(
+                    {"tags": "Keep at least one tag. This project requires feature flags to stay tagged."}
+                )
+
+    @staticmethod
+    def _existing_tag_count(flag: FeatureFlag) -> int:
+        # The list viewset prefetches tags onto the instance, so prefer that over a fresh query.
+        if hasattr(flag, "prefetched_tags"):
+            return len(flag.prefetched_tags)
+        return flag.tagged_items.count()
 
     def _validate_device_bucketing_with_persist_auth(self, attrs):
         """Validate that persist across auth is not enabled with device ID bucketing"""

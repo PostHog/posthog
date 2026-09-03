@@ -488,6 +488,21 @@ export function validateVariantRolloutSum(variants?: MultivariateFlagVariant[]):
     return `Percentage rollouts for variants must sum to 100 (currently ${displayedSum}).`
 }
 
+/** Reason string when the project requires flag tags and none are set, otherwise undefined. */
+export function validateFeatureFlagTags(
+    tags: string[] | undefined,
+    { required, isNewFlag, hadTags }: { required: boolean; isNewFlag: boolean; hadTags: boolean }
+): string | undefined {
+    if (!required || tags?.length) {
+        return undefined
+    }
+    if (isNewFlag) {
+        return 'Add at least one tag. This project requires new feature flags to be tagged.'
+    }
+    // Flags that predate the setting stay editable, so only block emptying one that already has tags.
+    return hadTags ? 'Keep at least one tag. This project requires feature flags to stay tagged.' : undefined
+}
+
 function validatePayloadRequired(is_remote_configuration: boolean, payload?: JsonType): string | undefined {
     if (!is_remote_configuration) {
         return undefined
@@ -880,6 +895,7 @@ export interface featureFlagLogicValues {
         | 'Release toggle (boolean)'
         | 'Remote configuration (single payload)'
     hasEarlyAccessFeatures: boolean
+    tagsRequired: boolean
     hasEncryptedPayloadBeenSaved: boolean | undefined
     hasExperiment: boolean | null
     hasSurveys: boolean | null
@@ -1930,6 +1946,7 @@ export interface featureFlagLogicMeta {
         sidePanelContext: (featureFlag: FeatureFlagType) => SidePanelSceneContext | null
         recordingFilterForFlag: (featureFlag: FeatureFlagType) => Partial<RecordingUniversalFilters>
         hasEarlyAccessFeatures: (featureFlag: FeatureFlagType) => boolean
+        tagsRequired: (currentTeam: TeamPublicType | TeamType | null) => boolean
         earlyAccessFeaturesList: (featureFlag: FeatureFlagType) => MinimalEarlyAccessFeatureType[]
         featureFlagKey: (featureFlag: FeatureFlagType) => string
         canCreateEarlyAccessFeature: (featureFlag: FeatureFlagType, variants: MultivariateFlagVariant[]) => boolean
@@ -2121,10 +2138,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 ...NEW_FLAG,
                 ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
             },
-            errors: ({ key, filters, is_remote_configuration }) => {
+            errors: ({ key, filters, is_remote_configuration, tags }) => {
                 const rolloutSumError = validateVariantRolloutSum(filters?.multivariate?.variants)
                 return {
                     key: validateFeatureFlagKey(key),
+                    // Cast because kea-forms types a `string[]` field's error as `string[]`, while
+                    // LemonField only renders a plain string.
+                    tags: validateFeatureFlagTags(tags, {
+                        required: values.tagsRequired,
+                        isNewFlag: !values.featureFlag.id,
+                        hadTags: !!values.originalFeatureFlag?.tags?.length,
+                    }) as any,
                     filters: {
                         multivariate: {
                             variants: filters?.multivariate?.variants?.map(
@@ -4414,6 +4438,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (featureFlag: FeatureFlagType) => {
                 return (featureFlag?.features?.length || 0) > 0
             },
+        ],
+        tagsRequired: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamPublicType | TeamType | null): boolean =>
+                !!currentTeam?.feature_flag_policy_config?.require_tags,
         ],
         earlyAccessFeaturesList: [
             (s) => [s.featureFlag],

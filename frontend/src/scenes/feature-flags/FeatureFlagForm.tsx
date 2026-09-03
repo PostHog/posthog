@@ -164,6 +164,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         openVariants,
         payloadExpanded,
         expandAdvancedOnEdit,
+        tagsRequired,
         hasEncryptedPayloadBeenSaved,
         hasEarlyAccessFeatures,
     } = useValues(featureFlagLogic)
@@ -518,10 +519,13 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </LemonField>
                             </div>
 
-                            {/* Advanced options - collapsed by default unless opened via overview pencil */}
+                            {/* Advanced options - collapsed by default unless opened via overview pencil,
+                                or the project requires a tag on the flag being created */}
                             <LemonCollapse
                                 className="bg-bg-light"
-                                defaultActiveKey={expandAdvancedOnEdit ? 'advanced' : undefined}
+                                defaultActiveKey={
+                                    expandAdvancedOnEdit || (isNewFeatureFlag && tagsRequired) ? 'advanced' : undefined
+                                }
                                 panels={[
                                     {
                                         key: 'advanced',

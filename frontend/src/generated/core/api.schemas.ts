@@ -1807,6 +1807,11 @@ export interface TeamWorkflowsConfigApi {
     email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
 }
 
+export interface TeamFeatureFlagPolicyConfigApi {
+    /** When enabled, a new feature flag must carry at least one tag, and an existing tagged flag cannot have its last tag removed. Flags generated to back a survey, experiment, early access feature, product tour, or web experiment are exempt. */
+    require_tags?: boolean
+}
+
 /**
  * * `0` - Disabled
  * * `1` - Stateless
@@ -2629,6 +2634,7 @@ export interface ProjectBackwardCompatApi {
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).
@@ -3489,6 +3495,7 @@ export interface PatchedProjectBackwardCompatApi {
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).
