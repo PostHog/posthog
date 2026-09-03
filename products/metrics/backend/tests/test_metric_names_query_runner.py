@@ -282,3 +282,93 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/metrics/values?limit=0")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    """The catalog is the picker row plus what makes a card scannable: the unit,
+    when the metric was last heard from, and a small sparkline of its recent
+    shape. Sparkline points come from `metric_samples`, so a series written
+    without a pre-aggregated `metrics` row still draws."""
+
+    CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self):
+        super().setUp()
+        truncate_metrics_tables()
+        cache.clear()
+
+    def test_catalog_row_carries_unit_and_last_seen(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="http.server.duration",
+            points=[(anchor, 1.0)],
+            metric_type="histogram",
+            unit="ms",
+        )
+
+        runner = MetricNamesQueryRunner(team=self.team)
+        row = next(r for r in runner.run() if r["name"] == "http.server.duration")
+
+        self.assertEqual(row["unit"], "ms")
+        # last_seen is an ISO string so the API layer can pass it straight through.
+        self.assertIn("T", row["last_seen"])
+
+    def test_sparkline_reflects_the_metric_shape(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=30)
+        # A clear rise across the window: any faithful downsampling keeps the
+        # last value above the first.
+        points = [(anchor + dt.timedelta(minutes=i), float(i)) for i in range(30)]
+        seed_metric(team_id=self.team.id, metric_name="queue.depth", points=points, metric_type="gauge")
+
+        runner = MetricNamesQueryRunner(team=self.team)
+        row = next(r for r in runner.run() if r["name"] == "queue.depth")
+
+        sparkline = row["sparkline"]
+        self.assertGreater(len(sparkline), 1)
+        self.assertLess(sparkline[0], sparkline[-1])
+
+    def test_sparkline_is_bounded(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=120)
+        points = [(anchor + dt.timedelta(minutes=i), float(i % 7)) for i in range(120)]
+        seed_metric(team_id=self.team.id, metric_name="busy.metric", points=points, metric_type="gauge")
+
+        runner = MetricNamesQueryRunner(team=self.team)
+        row = next(r for r in runner.run() if r["name"] == "busy.metric")
+
+        self.assertLessEqual(len(row["sparkline"]), 24)
+
+    def test_sparkline_reads_samples_without_a_preaggregated_row(self):
+        # seed_metric_event writes metric_series + metric_samples and no metrics
+        # row, so this fails if the sparkline goes back to aggregating posthog.metrics.
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=20)
+        points = [(anchor + dt.timedelta(minutes=i), float(i)) for i in range(10)]
+        seed_metric_event(team_id=self.team.id, metric_name="samples.only", points=points, metric_type="gauge")
+
+        runner = MetricNamesQueryRunner(team=self.team)
+        row = next(r for r in runner.run() if r["name"] == "samples.only")
+
+        self.assertGreater(len(row["sparkline"]), 1)
+        self.assertLess(row["sparkline"][0], row["sparkline"][-1])
+
+    def test_metric_with_no_samples_has_empty_sparkline(self):
+        # A series row whose samples all fell outside the sparkline window still
+        # appears in the catalog; it just has nothing to draw.
+        runner = MetricNamesQueryRunner(team=self.team)
+        self.assertEqual(runner.run(), [])
+
+    def test_sparkline_scoped_to_services(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=20)
+        for service, metric_name in (("web", "http.duration"), ("worker", "jobs.processed")):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name=metric_name,
+                points=[(anchor + dt.timedelta(minutes=i), float(i)) for i in range(10)],
+                service_name=service,
+            )
+
+        runner = MetricNamesQueryRunner(team=self.team, services=["web"])
+        rows = runner.run()
+
+        self.assertEqual([r["name"] for r in rows], ["http.duration"])
+        self.assertGreater(len(rows[0]["sparkline"]), 1)

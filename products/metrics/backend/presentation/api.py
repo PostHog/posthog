@@ -467,6 +467,17 @@ class _MetricNameSerializer(serializers.Serializer):
     metric_type = serializers.CharField(
         help_text="OTel metric type (gauge, sum, histogram, summary, exponential_histogram)."
     )
+    unit = serializers.CharField(
+        required=False, allow_blank=True, help_text="Unit of the metric value, if any (e.g. 'ms', 'By')."
+    )
+    last_seen = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="When the newest datapoint for this metric arrived, ISO 8601."
+    )
+    sparkline = serializers.ListField(
+        child=serializers.FloatField(),
+        required=False,
+        help_text="A small downsampled series of the metric's recent shape, for a sparkline.",
+    )
 
 
 class _MetricNamesResponseSerializer(serializers.Serializer):
