@@ -37,6 +37,10 @@ describe('HealthCheckItem', () => {
     test('clicking the check description opens the in-app install step', () => {
         const { container } = render(<HealthCheckItem check={failingPageviewCheck} />)
 
+        // A real anchor, so a modifier click opens the step in a new tab like the button does.
+        const summaryLink = within(container).getByText(failingPageviewCheck.description).closest('a')
+        expect(summaryLink?.getAttribute('href')).toContain('/onboarding/web_analytics')
+
         fireEvent.click(within(container).getByText(failingPageviewCheck.description))
 
         expect(router.values.location.pathname).toContain('/onboarding/web_analytics')

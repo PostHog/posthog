@@ -1,6 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 
 import api, { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -9,7 +8,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { isExternalLink } from 'lib/utils/url'
 import type { HealthIssuesResponse } from 'scenes/health/healthSceneLogic'
 import {
     REFRESH_COOLDOWN_MS,
@@ -230,9 +228,6 @@ export interface webAnalyticsHealthLogicActions {
             warning_count: number
         }
     } // eventUsageLogic
-    activateCheck: (check: HealthCheck) => {
-        check: HealthCheck
-    }
     loadHealthIssues: () => any
     loadHealthIssuesFailure: (
         error: string,
@@ -341,7 +336,6 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
             status,
             isUrgent,
         }),
-        activateCheck: (check: HealthCheck) => ({ check }),
         setNextRefreshAvailableAt: (timestamp: number | null) => ({ timestamp }),
         setNow: (now: number) => ({ now }),
         startCooldownCountdown: true,
@@ -631,23 +625,6 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                 category,
                 is_expanded: isExpanded,
             })
-        },
-        activateCheck: ({ check }) => {
-            const { action } = check
-            if (!action) {
-                return
-            }
-            actions.trackActionClicked(check.id, check.category, check.status, check.urgent ?? false)
-            action.onClick?.()
-            if (action.to) {
-                // External docs must open in a new tab. Navigating in place tears down the app
-                // and ends any active session recording.
-                if (isExternalLink(action.to)) {
-                    window.open(action.to, '_blank', 'noopener,noreferrer')
-                } else {
-                    router.actions.push(action.to)
-                }
-            }
         },
         trackActionClicked: ({ checkId, category, status, isUrgent }) => {
             actions.reportWebAnalyticsHealthActionClicked({

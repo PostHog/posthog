@@ -4,7 +4,7 @@ import { useActions } from 'kea'
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { Link } from 'lib/lemon-ui/Link'
+import { Link, LinkPrimitive } from 'lib/lemon-ui/Link'
 import { isExternalLink } from 'lib/utils/url'
 
 import { HealthCheck, HealthCheckStatus } from '../healthCheckTypes'
@@ -15,7 +15,7 @@ interface HealthCheckItemProps {
 }
 
 export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
-    const { activateCheck, trackActionClicked } = useActions(webAnalyticsHealthLogic)
+    const { trackActionClicked } = useActions(webAnalyticsHealthLogic)
 
     const handleActionClick = (): void => {
         trackActionClicked(check.id, check.category, check.status, check.urgent ?? false)
@@ -23,6 +23,9 @@ export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
     }
 
     const hasAction = !!check.action && (!!check.action.to || !!check.action.onClick)
+    // External docs links must open in a new tab — navigating in place tears down the app
+    // (and ends any active session recording).
+    const targetBlank = !!check.action?.to && isExternalLink(check.action.to)
     const summary = (
         <>
             {check.title.startsWith('$') ? (
@@ -46,14 +49,17 @@ export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
             <StatusIcon status={check.status} urgent={check.urgent} />
             {hasAction ? (
                 // The title and the description are where people click first, so the whole text
-                // block runs the same action as the button on the right.
-                <button
-                    type="button"
+                // block runs the same action as the button on the right. LinkPrimitive renders a
+                // real anchor when the action has a destination, so a modifier click opens it in a
+                // new tab like the button beside it.
+                <LinkPrimitive
+                    to={check.action?.to}
+                    target={targetBlank ? '_blank' : undefined}
                     className="flex-1 min-w-0 text-left cursor-pointer"
-                    onClick={() => activateCheck(check)}
+                    onClick={handleActionClick}
                 >
                     {summary}
-                </button>
+                </LinkPrimitive>
             ) : (
                 <div className="flex-1 min-w-0">{summary}</div>
             )}
@@ -68,9 +74,7 @@ export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
                         type="secondary"
                         size="small"
                         to={check.action.to}
-                        // External docs links must open in a new tab — navigating in place tears
-                        // down the app (and ends any active session recording).
-                        targetBlank={isExternalLink(check.action.to)}
+                        targetBlank={targetBlank}
                         onClick={handleActionClick}
                     >
                         {check.action.label}
