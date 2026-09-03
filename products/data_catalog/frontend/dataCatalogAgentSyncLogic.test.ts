@@ -78,6 +78,15 @@ describe('dataCatalogAgentSyncLogic', () => {
         await expectLogic(logic).toDispatchActions(['toolCompleted']).toNotHaveDispatchedActions(['metricsChanged'])
     })
 
+    it('does not reload an open metric after a read-only metric run', async () => {
+        foregroundStreamLogic.actions.setForegroundStream('run-1', 'panel-1')
+        logic.actions.setOpenMetricName('weekly_active_users')
+
+        toolStreamEventsLogic.actions.emitToolEvent(toolEvent({ toolName: 'data-catalog-metric-run' }))
+
+        await expectLogic(logic).toNotHaveDispatchedActions(['toolCompleted']).toFinishAllListeners()
+    })
+
     it('classifies every generated tool that can mutate or read a metric result', () => {
         const routedTools = [...METRIC_TOOLS, ...RELATIONSHIP_TOOLS, ...CERTIFICATION_TOOLS, ...READ_TOOLS]
         const generatedTools = DATA_CATALOG_MCP_TOOLS.map((tool) => tool.name).filter(
