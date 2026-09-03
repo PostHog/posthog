@@ -311,8 +311,9 @@ APPEND_ONLY_INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         }
     ],
     # Meter event summaries are aggregates over a day, so they carry `start_time` and `end_time`
-    # rather than `created`. The field doubles as the append watermark: the next sweep asks Stripe
-    # for the newest day the table holds and everything after it, instead of the whole lookback.
+    # rather than `created`. The field doubles as the sync watermark: the next sweep asks Stripe for
+    # the newest day the table holds and everything after it, instead of the whole lookback. That
+    # day is read a second time, which is why the table is in `MERGE_ONLY_ENDPOINTS`.
     BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME: [
         {
             "label": "start_time",
@@ -365,3 +366,11 @@ APPEND_ONLY_INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         )
     },
 }
+
+
+# Endpoints whose incremental sync has to merge rather than append. Every other endpoint above
+# filters on `created` with Stripe's exclusive `created[gt]`, so it never reads an object twice and
+# an append writes each row once. BillingMeterEventSummary asks Stripe for a day range that starts
+# at the newest day the table already holds, so an append would write that day again on every sync
+# and overcount its usage. A merge collapses the re-read onto the day bucket's own id.
+MERGE_ONLY_ENDPOINTS: set[str] = {BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME}

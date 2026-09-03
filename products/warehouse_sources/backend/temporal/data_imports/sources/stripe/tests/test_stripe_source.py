@@ -1460,6 +1460,29 @@ class TestSchemaWebhookCapability:
             assert schema.supports_webhooks is expected, name
 
 
+class TestSchemaSyncTypeCapability:
+    def setup_method(self):
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test_123")
+        )
+        self.by_name = {s.name: s for s in StripeSource().get_schemas(config, team_id=1)}
+
+    @parameterized.expand(
+        [
+            # The meter sweep asks Stripe for a day range that starts on the newest day the table
+            # already holds, and Stripe includes that day. An append never merges, so it would write
+            # the day a second time on every sync and double what a sum of the usage totals reports.
+            (BILLING_METER_EVENT_SUMMARY_RESOURCE_NAME, True, False),
+            # Stripe applies `created[gt]` exclusively, so a created-filtered table never reads a row
+            # it already holds and append stays the cheaper write.
+            (CHARGE_RESOURCE_NAME, False, True),
+        ]
+    )
+    def test_sync_type_capability(self, endpoint: str, incremental: bool, append: bool) -> None:
+        schema = self.by_name[endpoint]
+        assert (schema.supports_incremental, schema.supports_append) == (incremental, append)
+
+
 class TestCreateWebhookPermissionErrorCopy:
     # Regression test: a permission-denied webhook creation used to always tell the user to add
     # the "Write" permission to their API key, even when the source was connected via OAuth and
