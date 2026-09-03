@@ -127,6 +127,12 @@ export interface TaskChannel {
   name: string;
   channel_type: "public" | "personal";
   starred: boolean;
+  can_manage_slack_task_routing?: boolean;
+  slack_task_routing?: {
+    integration: number;
+    slack_channel_id: string;
+    display_name: string | null;
+  } | null;
   github_integration?: number | null;
   repositories?: string[];
   auto_archive_after_days?: number | null;

@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockClient = vi.hoisted(() => ({
   getTaskChannels: vi.fn(),
   updateTaskChannelRepositories: vi.fn(),
+  updateTaskChannelSlackTaskRouting: vi.fn(),
 }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => mockClient,
@@ -16,6 +17,7 @@ import {
   TASK_CHANNELS_QUERY_KEY,
   useTaskChannels,
   useUpdateTaskChannelRepositories,
+  useUpdateTaskChannelSlackTaskRouting,
 } from "./useTaskChannels";
 
 function taskChannel(
@@ -78,6 +80,111 @@ describe("useTaskChannels", () => {
     expect(result.current.channels).toEqual([]);
     expect(result.current.personalChannel).toBeUndefined();
     expect(result.current.generalChannel).toBeUndefined();
+  });
+
+  it("updates Slack task routing immediately and keeps the server response", async () => {
+    const channel = taskChannel("1", "growth");
+    queryClient.setQueryData<TaskChannel[]>(TASK_CHANNELS_QUERY_KEY, [channel]);
+    let finishUpdate: (updated: TaskChannel) => void = () => {};
+    mockClient.updateTaskChannelSlackTaskRouting.mockReturnValue(
+      new Promise((resolve) => {
+        finishUpdate = resolve;
+      }),
+    );
+
+    const { result } = renderHook(
+      () => useUpdateTaskChannelSlackTaskRouting(),
+      {
+        wrapper,
+      },
+    );
+    act(() => {
+      result.current.mutate({
+        channelId: channel.id,
+        slackTaskRouting: {
+          integration: 42,
+          slack_channel_id: "C123",
+          display_name: "builds",
+        },
+      });
+    });
+
+    await waitFor(() => expect(result.current.isPending).toBe(true));
+    expect(
+      queryClient.getQueryData<TaskChannel[]>(TASK_CHANNELS_QUERY_KEY),
+    ).toEqual([
+      {
+        ...channel,
+        slack_task_routing: {
+          integration: 42,
+          slack_channel_id: "C123",
+          display_name: "builds",
+        },
+      },
+    ]);
+
+    await act(async () => {
+      finishUpdate({
+        ...channel,
+        slack_task_routing: {
+          integration: 42,
+          slack_channel_id: "C123",
+          display_name: "Build and deploy",
+        },
+      });
+    });
+    await waitFor(() => expect(result.current.isPending).toBe(false));
+    expect(
+      queryClient.getQueryData<TaskChannel[]>(TASK_CHANNELS_QUERY_KEY),
+    ).toEqual([
+      {
+        ...channel,
+        slack_task_routing: {
+          integration: 42,
+          slack_channel_id: "C123",
+          display_name: "Build and deploy",
+        },
+      },
+    ]);
+    expect(mockClient.updateTaskChannelSlackTaskRouting).toHaveBeenCalledWith(
+      "1",
+      { integration: 42, slack_channel_id: "C123" },
+    );
+  });
+
+  it("restores Slack task routing when the update fails", async () => {
+    const channel: TaskChannel = {
+      ...taskChannel("1", "growth"),
+      slack_task_routing: {
+        integration: 24,
+        slack_channel_id: "C456",
+        display_name: "releases",
+      },
+    };
+    queryClient.setQueryData<TaskChannel[]>(TASK_CHANNELS_QUERY_KEY, [channel]);
+    mockClient.updateTaskChannelSlackTaskRouting.mockRejectedValue(
+      new Error("Request failed"),
+    );
+
+    const { result } = renderHook(
+      () => useUpdateTaskChannelSlackTaskRouting(),
+      {
+        wrapper,
+      },
+    );
+
+    await act(async () => {
+      await expect(
+        result.current.mutateAsync({
+          channelId: channel.id,
+          slackTaskRouting: null,
+        }),
+      ).rejects.toThrow("Request failed");
+    });
+
+    expect(
+      queryClient.getQueryData<TaskChannel[]>(TASK_CHANNELS_QUERY_KEY),
+    ).toEqual([channel]);
   });
 
   it("updates repository links immediately while the request is pending", async () => {

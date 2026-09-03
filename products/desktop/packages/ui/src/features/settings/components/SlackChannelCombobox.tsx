@@ -36,6 +36,7 @@ interface SlackChannelComboboxProps {
   ariaLabel: string;
   modal?: boolean;
   disabled?: boolean;
+  publicOnly?: boolean;
 }
 
 export function SlackChannelCombobox({
@@ -46,6 +47,7 @@ export function SlackChannelCombobox({
   ariaLabel,
   modal = false,
   disabled = false,
+  publicOnly = false,
 }: SlackChannelComboboxProps) {
   const selectedChannelId = parseChannelIdFromTargetValue(value);
   const selectedChannelName = parseChannelNameFromTargetValue(value);
@@ -63,15 +65,21 @@ export function SlackChannelCombobox({
   const initialLoading = !!integrationId && !channelsData && isFetching;
   const searchPending = open && (isFetching || searchDebouncing);
 
-  const visibleChannels = useMemo(
-    () =>
-      mergeVisibleChannels(
-        channelsData?.channels ?? [],
-        selectedChannelId,
-        selectedChannelName,
-      ),
-    [channelsData?.channels, selectedChannelId, selectedChannelName],
-  );
+  const visibleChannels = useMemo(() => {
+    const channels = mergeVisibleChannels(
+      channelsData?.channels ?? [],
+      selectedChannelId,
+      selectedChannelName,
+    );
+    return publicOnly
+      ? channels.filter((channel) => !channel.is_private)
+      : channels;
+  }, [
+    channelsData?.channels,
+    publicOnly,
+    selectedChannelId,
+    selectedChannelName,
+  ]);
 
   const comboboxItems = useMemo(
     () => [

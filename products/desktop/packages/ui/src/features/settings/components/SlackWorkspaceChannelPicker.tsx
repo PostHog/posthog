@@ -1,7 +1,6 @@
 import type { Integration } from "@posthog/core/integrations/selectors";
 import { SlackChannelCombobox } from "@posthog/ui/features/settings/components/SlackChannelCombobox";
 import { SlackWorkspaceSelect } from "@posthog/ui/features/settings/components/SlackWorkspaceSelect";
-import { Flex } from "@radix-ui/themes";
 
 interface SlackWorkspaceChannelPickerProps {
   integrations: Integration[];
@@ -13,6 +12,7 @@ interface SlackWorkspaceChannelPickerProps {
   offLabel?: string;
   disabled?: boolean;
   modal?: boolean;
+  publicOnly?: boolean;
 }
 
 export function SlackWorkspaceChannelPicker({
@@ -25,9 +25,10 @@ export function SlackWorkspaceChannelPicker({
   offLabel,
   disabled,
   modal,
+  publicOnly,
 }: SlackWorkspaceChannelPickerProps) {
   return (
-    <Flex align="center" gap="2" wrap="wrap">
+    <div className="flex flex-wrap items-center gap-2">
       {integrations.length > 1 ? (
         <SlackWorkspaceSelect
           integrations={integrations}
@@ -46,7 +47,8 @@ export function SlackWorkspaceChannelPicker({
         ariaLabel={channelAriaLabel}
         disabled={disabled}
         modal={modal}
+        publicOnly={publicOnly}
       />
-    </Flex>
+    </div>
   );
 }

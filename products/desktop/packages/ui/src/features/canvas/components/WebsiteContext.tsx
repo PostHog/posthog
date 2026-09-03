@@ -24,6 +24,7 @@ import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelPageIcon } from "@posthog/ui/features/canvas/components/channelPages";
+import { SpaceSlackTaskRouting } from "@posthog/ui/features/canvas/components/SpaceSlackTaskRouting";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
@@ -167,7 +168,10 @@ function WikiWebsiteContext({
         </PageHeader>
       ) : null}
       {spacesLayout && taskChannel ? (
-        <SpaceRepositories channel={taskChannel} />
+        <>
+          <SpaceRepositories channel={taskChannel} />
+          <SpaceSlackTaskRouting channel={taskChannel} />
+        </>
       ) : null}
       <ContextWikiPagePane key={path} path={path} />
     </div>
@@ -293,7 +297,10 @@ function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
         </PageHeader>
       )}
       {spacesLayout && taskChannel ? (
-        <SpaceRepositories channel={taskChannel} />
+        <>
+          <SpaceRepositories channel={taskChannel} />
+          <SpaceSlackTaskRouting channel={taskChannel} />
+        </>
       ) : null}
       <Flex
         align="center"
