@@ -6072,6 +6072,49 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(input_arg.slack_thread_context["channel"], "C123")
         self.assertEqual(input_arg.slack_thread_context["thread_ts"], "1234.5678")
 
+    @parameterized.expand(
+        [
+            ("over_the_cap", "x" * (tasks_facade.TASK_RUN_SUMMARY_MAX_CHARS + 1), "character limit"),
+            ("not_a_string", {"state": "halfway"}, "must be a string"),
+        ]
+    )
+    def test_set_output_rejects_an_unusable_summary(self, _name, summary, expected_error):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
+            {"output": {"summary": summary}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(expected_error, response.json()["error"])
+        run.refresh_from_db()
+        self.assertFalse(run.output)
+
+    @patch("products.tasks.backend.facade.api.signal_workflow_completion")
+    def test_summary_write_leaves_a_structured_output_run_running(self, mock_signal_workflow_completion):
+        # A structured-output task completes on any output write and validates it against the
+        # schema, so a progress summary would otherwise end the run it was reporting on.
+        task = self.create_task()
+        task.json_schema = {"type": "object", "required": ["verdict"]}
+        task.save(update_fields=["json_schema"])
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, output={"final_message": "Still going"}
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
+            {"output": {"summary": "Reading the schema"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_signal_workflow_completion.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.output, {"final_message": "Still going", "summary": "Reading the schema"})
+
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_set_output_publishes_stream_state_event(self, mock_publish_stream_state_event):
         task = self.create_task()

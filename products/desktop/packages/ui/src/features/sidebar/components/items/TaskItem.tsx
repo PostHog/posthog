@@ -251,22 +251,19 @@ export function TaskItem({
   // running down the list.
   return (
     <Tooltip
-      content={<SummaryTooltip summary={summary} />}
+      content={
+        // A summary runs to a paragraph or two, so it gets a readable column, not one line.
+        <span className="block max-w-[320px] whitespace-pre-wrap text-left">
+          {summary}
+        </span>
+      }
       side="right"
       align="start"
       delayDuration={700}
+      disableHoverableContent
     >
       <span className="block w-full">{row}</span>
     </Tooltip>
-  );
-}
-
-/** A summary runs to a paragraph or two, so it gets a readable column rather than one line. */
-function SummaryTooltip({ summary }: { summary: string }) {
-  return (
-    <span className="block max-w-[320px] whitespace-pre-wrap text-left">
-      {summary}
-    </span>
   );
 }
 

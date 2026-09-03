@@ -12,6 +12,10 @@ import { defineLocalTool, type LocalToolResult } from "../registry";
  */
 export const TASK_SUMMARY_MAX_CHARS = 1500;
 
+function errorResult(message: string): LocalToolResult {
+  return { content: [{ type: "text", text: message }], isError: true };
+}
+
 export const taskSummaryUpdateTool = defineLocalTool({
   name: "task_summary_update",
   description:
@@ -35,31 +39,17 @@ export const taskSummaryUpdateTool = defineLocalTool({
     meta?.environment === "cloud" && !!ctx.taskId && !!ctx.taskRunId,
   handler: async (ctx, args): Promise<LocalToolResult> => {
     if (!ctx.taskId || !ctx.taskRunId) {
-      return {
-        content: [
-          { type: "text", text: "Task summaries are not available here." },
-        ],
-        isError: true,
-      };
+      return errorResult("Task summaries are not available here.");
     }
     const summary = args.summary.trim();
     if (!summary) {
-      return {
-        content: [{ type: "text", text: "The summary is empty." }],
-        isError: true,
-      };
+      return errorResult("The summary is empty.");
     }
     const client = createSandboxPosthogClient();
     if (!client) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "PostHog is not configured in this sandbox; the summary cannot be saved.",
-          },
-        ],
-        isError: true,
-      };
+      return errorResult(
+        "PostHog is not configured in this sandbox; the summary cannot be saved.",
+      );
     }
     try {
       await withReportDeadline(
@@ -74,15 +64,9 @@ export const taskSummaryUpdateTool = defineLocalTool({
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `The summary was rejected and was not saved. Shorten it and call task_summary_update again. Server response: ${message}`,
-          },
-        ],
-        isError: true,
-      };
+      return errorResult(
+        `The summary was rejected and was not saved. Shorten it and call task_summary_update again. Server response: ${message}`,
+      );
     }
     return {
       content: [
