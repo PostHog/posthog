@@ -161,6 +161,12 @@ If a future producer emitted rows before person resolution, leaving `person_id` 
 The fix would belong to the producer, not the scanner.
 Keeping the fork downstream of person resolution is the contract, tracked on #81002.
 
+Write-time parity is not sufficient on its own, because a later merge moves the person the sweep looks for.
+`squash_person_overrides` rewrites `person_id` on `EVENTS_TARGETS` only, so after person A merges into B the events rows carry B while the flag-evaluation rows still carry A.
+A deletion of B is queued under B's uuid, so it misses those rows and they survive with their `person_properties` until the TTL drops the part.
+The squash deletes the overrides right after applying them, so nothing can reconcile the divergence afterwards.
+Extending the squash to `FLAG_EVALUATIONS` is the fix, and it belongs to `posthog/dags/person_overrides.py` rather than to this table. Tracked on #93035.
+
 ## Related, and deliberately unchanged
 
 `_fetch_stats` counts only the events tables. It feeds `AUTO_APPROVE_MAX_EVENTS`, a cost heuristic rather than a completeness claim, so a request auto-approved as small may move somewhat more rows than measured.

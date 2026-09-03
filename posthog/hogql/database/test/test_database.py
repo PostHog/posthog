@@ -422,9 +422,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             assert ("posthog.flag_evaluations" in database.get_posthog_table_names(include_hidden=True)) is flag_enabled
             assert ("posthog.flag_evaluations" in serialized) is flag_enabled
 
-            # The person and group traversers are the parts that resolve through a virtual subtable
-            # rather than straight to a column, so the query exercises those rather than a bare one.
-            query = "SELECT flag_key, person.properties.email, group_0.properties.name FROM posthog.flag_evaluations"
+            # The person traverser is the part that resolves through a virtual subtable rather than
+            # straight to a column, so the query exercises that rather than a bare one.
+            query = "SELECT flag_key, person.properties.email, `$group_0` FROM posthog.flag_evaluations"
             if flag_enabled:
                 execute_hogql_query(query, team=self.team, pretty=False)
             else:
