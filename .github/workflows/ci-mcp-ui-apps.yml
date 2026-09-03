@@ -52,6 +52,10 @@ jobs:
                         - 'products/*/mcp/**'
                         - 'services/mcp/definitions/*.yaml'
                         - 'common/mosaic/**'
+                        # Compiled into the UI apps: the quill packages they render
+                        # with, and the product-analytics chart transforms they import.
+                        - 'packages/quill/**'
+                        - 'products/product_analytics/frontend/insights/**'
                         - '.github/workflows/ci-mcp-ui-apps.yml'
 
     build-and-report:

@@ -52,6 +52,7 @@ jobs:
         name: Determine need to run MCP checks
         outputs:
             mcp: ${{ steps.filter.outputs.mcp || 'true' }}
+            mcp-typescript: ${{ steps.filter.outputs.mcp-typescript || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -90,6 +91,8 @@ jobs:
                         - 'products/*/backend/**/*.py'
                         # Query schemas used by MCP analytics tools
                         - 'frontend/src/queries/schema.json'
+                        # Widget catalog the notebook cell tools validate against
+                        - 'products/notebooks/notebook-widget-catalog.json'
                         # Shared UI component library (used by MCP UI apps)
                         - 'common/mosaic/**'
                         # Code generation tooling
@@ -154,13 +157,28 @@ jobs:
                         - '!products/*/backend/**/test_*.py'
                         - '!products/*/backend/**/*_test.py'
                         - '!products/*/backend/**/conftest.py'
+                      # TypeScript outside services/mcp/ that the MCP build compiles: the
+                      # quill packages the UI apps render with, and the product-analytics
+                      # chart transforms those UI apps import. Directory-wide on purpose,
+                      # so a relative import inside the tree comes along.
+                      #
+                      # Its own filter because it reaches a different set of jobs: `build`
+                      # (whose tsgo pass is stricter than the frontend tsconfig, so the
+                      # frontend lane can be green while this one is red) and `unit-tests`
+                      # (UI app snapshots), but never the integration tests, which drive the
+                      # Python backend. WF009 keeps the list in step with what MCP imports.
+                      mcp-typescript:
+                        - 'packages/quill/**'
+                        - 'products/product_analytics/frontend/insights/**'
     build:
         name: Build Package
         runs-on: ubuntu-latest
         timeout-minutes: 10
         needs: changes
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
-        if: needs.changes.outputs.mcp == 'true' && github.event_name != 'push'
+        if: >-
+            (needs.changes.outputs.mcp == 'true' || needs.changes.outputs.mcp-typescript == 'true')
+            && github.event_name != 'push'
 
         steps:
             - name: Checkout code
@@ -242,7 +260,9 @@ jobs:
         timeout-minutes: 10
         needs: changes
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
-        if: needs.changes.outputs.mcp == 'true' && github.event_name != 'push'
+        if: >-
+            (needs.changes.outputs.mcp == 'true' || needs.changes.outputs.mcp-typescript == 'true')
+            && github.event_name != 'push'
         steps:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -771,7 +791,7 @@ jobs:
         # A status function is required to commit regenerated snapshots even when unit-tests
         # failed (a snapshot mismatch fails that job). !cancelled() rather than always() so a
         # superseded run does not push a stale snapshot commit to the branch.
-        if: ${{ !cancelled() && needs.changes.outputs.mcp == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
+        if: ${{ !cancelled() && (needs.changes.outputs.mcp == 'true' || needs.changes.outputs.mcp-typescript == 'true') && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
         permissions:
             contents: write
             pull-requests: write
@@ -849,7 +869,7 @@ jobs:
                   fi
 
                   # Pass if no MCP changes detected (jobs were skipped)
-                  if [[ "${{ needs.changes.outputs.mcp }}" != "true" ]]; then
+                  if [[ "${{ needs.changes.outputs.mcp }}" != "true" && "${{ needs.changes.outputs.mcp-typescript }}" != "true" ]]; then
                     echo "MCP checks were skipped (no relevant changes)."
                     exit 0
                   fi

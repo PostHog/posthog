@@ -27,6 +27,7 @@ from hogli_commands.workflow_lint.checks.cache_writes import (
 from hogli_commands.workflow_lint.checks.checkout_full_depth import CheckoutFullDepthCheck
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
+from hogli_commands.workflow_lint.checks.mcp_filter_coverage import McpFilterCoverageCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
 from hogli_commands.workflow_lint.checks.pr_event_fanout import PrEventFanoutCheck
 from hogli_commands.workflow_lint.checks.required_gates import RequiredGateCheck
@@ -1557,6 +1558,142 @@ class TestRequiredGateCheck:
         _write(tmp_path, "ci-thing.yml", _nested_allow_marker_gate())
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert [issue.message.split("'")[1] for issue in issues] == ["changes"]
+
+
+# ---------------------------------------------------------------------------
+# McpFilterCoverageCheck
+# ---------------------------------------------------------------------------
+
+_MCP_TSCONFIG = """
+{
+    "compilerOptions": {
+        "paths": {
+            "products/*": ["../../products/*"],
+            "@posthog/quill-charts": ["../../packages/quill/packages/charts/dist/index.d.ts"]
+        }
+    }
+}
+"""
+
+_UI_APP_SOURCE = (
+    "import { Chart } from '@posthog/quill-charts'\n"
+    "import { transform } from 'products/product_analytics/frontend/insights/trends/transforms'\n"
+)
+
+_INSIGHTS = "products/product_analytics/frontend/insights"
+_INSIGHTS_TRENDS = f"{_INSIGHTS}/trends"
+_INSIGHTS_SHARED = f"{_INSIGHTS}/shared"
+_COVERING_PATTERNS = ["services/mcp/**", "packages/quill/**", f"{_INSIGHTS}/**"]
+
+
+def _write_file(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+
+
+def _filter_workflow(patterns: list[str]) -> str:
+    return "\n".join(
+        [
+            "name: x",
+            "on: [pull_request]",
+            "jobs:",
+            "  changes:",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 5",
+            "    steps:",
+            "      - uses: ./.github/actions/paths-filter",
+            "        with:",
+            "          filters: |",
+            "            mcp:",
+            *(f"              - '{pattern}'" for pattern in patterns),
+            "",
+        ]
+    )
+
+
+def _mcp_repo(
+    repo_root: Path,
+    *,
+    mcp_patterns: list[str],
+    ui_apps_patterns: list[str],
+    tool_source: str = "",
+) -> Path:
+    """Fixture repo: an MCP tsconfig, MCP sources, the trees they import, both workflows.
+
+    The UI app imports a product transform through an alias, and that transform
+    relatively imports a sibling tree, so the fixture exercises both hops.
+    """
+    _write_file(repo_root / "services" / "mcp" / "tsconfig.json", _MCP_TSCONFIG)
+    _write_file(repo_root / "services" / "mcp" / "src" / "ui-apps" / "Chart.tsx", _UI_APP_SOURCE)
+    _write_file(repo_root / "services" / "mcp" / "src" / "tools" / "tool.ts", tool_source)
+    insights = repo_root / "products" / "product_analytics" / "frontend" / "insights"
+    _write_file(insights / "trends" / "transforms.ts", "import { helper } from '../shared/helper'\n")
+    _write_file(insights / "shared" / "helper.ts", "export const helper = 1\n")
+    _write_file(repo_root / "products" / "notebooks" / "catalog.json", "{}\n")
+    workflows_dir = repo_root / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    _write(workflows_dir, "ci-mcp.yml", _filter_workflow(mcp_patterns))
+    _write(workflows_dir, "ci-mcp-ui-apps.yml", _filter_workflow(ui_apps_patterns))
+    return workflows_dir
+
+
+def _coverage_issues(repo_root: Path, workflows_dir: Path, workflow: str) -> list[str]:
+    result = McpFilterCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir))
+    return [issue.message for issue in result.issues if issue.workflow == workflow]
+
+
+class TestMcpFilterCoverageCheck:
+    def test_passes_when_directory_patterns_cover_every_import(self, tmp_path: Path) -> None:
+        # quill's alias target is a built `dist` file absent from a fresh checkout;
+        # the check must still demand coverage of it, and 'packages/quill/**' gives it.
+        workflows_dir = _mcp_repo(tmp_path, mcp_patterns=_COVERING_PATTERNS, ui_apps_patterns=_COVERING_PATTERNS)
+        assert McpFilterCoverageCheck(repo_root=tmp_path).run(_read_all(workflows_dir)).issues == []
+
+    @pytest.mark.parametrize(
+        "patterns, uncovered",
+        [
+            pytest.param([], [_INSIGHTS_SHARED, _INSIGHTS_TRENDS], id="no-pattern"),
+            # A module reaches its own relative imports, so covering the directly
+            # imported directory alone still leaves the sibling tree uncovered.
+            pytest.param([f"{_INSIGHTS_TRENDS}/**"], [_INSIGHTS_SHARED], id="only-the-imported-directory"),
+            pytest.param(
+                [f"{_INSIGHTS_TRENDS}/transforms.ts", f"{_INSIGHTS_SHARED}/helper.ts"],
+                [_INSIGHTS_SHARED, _INSIGHTS_TRENDS],
+                id="patterns-naming-the-files",
+            ),
+        ],
+    )
+    def test_flags_a_tree_no_directory_pattern_covers(
+        self, tmp_path: Path, patterns: list[str], uncovered: list[str]
+    ) -> None:
+        product_patterns = ["services/mcp/**", "packages/quill/**", *patterns]
+        workflows_dir = _mcp_repo(tmp_path, mcp_patterns=product_patterns, ui_apps_patterns=product_patterns)
+        messages = _coverage_issues(tmp_path, workflows_dir, "ci-mcp.yml")
+        assert sorted(message.split("'")[1] for message in messages) == uncovered
+
+    def test_a_data_import_is_covered_by_a_pattern_naming_it(self, tmp_path: Path) -> None:
+        # A JSON import has no relative imports of its own, so naming the file is enough.
+        workflows_dir = _mcp_repo(
+            tmp_path,
+            mcp_patterns=[*_COVERING_PATTERNS, "products/notebooks/catalog.json"],
+            ui_apps_patterns=_COVERING_PATTERNS,
+            tool_source="import catalog from 'products/notebooks/catalog.json'\n",
+        )
+        assert McpFilterCoverageCheck(repo_root=tmp_path).run(_read_all(workflows_dir)).issues == []
+
+    def test_ui_apps_workflow_ignores_imports_it_does_not_compile(self, tmp_path: Path) -> None:
+        # ci-mcp-ui-apps.yml builds only the UI apps, so an import reachable only
+        # from services/mcp/src/tools is not its filter's problem.
+        workflows_dir = _mcp_repo(
+            tmp_path,
+            mcp_patterns=_COVERING_PATTERNS,
+            ui_apps_patterns=_COVERING_PATTERNS,
+            tool_source="import catalog from 'products/notebooks/catalog.json'\n",
+        )
+        assert _coverage_issues(tmp_path, workflows_dir, "ci-mcp-ui-apps.yml") == []
+        assert [message.split("'")[1] for message in _coverage_issues(tmp_path, workflows_dir, "ci-mcp.yml")] == [
+            "products/notebooks/catalog.json"
+        ]
 
 
 class TestLiveTreeSmoke:
