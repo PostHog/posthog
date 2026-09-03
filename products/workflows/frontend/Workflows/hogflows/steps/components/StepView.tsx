@@ -118,7 +118,7 @@ export function StepView({
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col">
                         <span className="font-semibold leading-5">{action.name}</span>
-                        <span className="mt-0.5 text-sm text-secondary">
+                        <span className="mt-0.5 truncate text-xs text-secondary">
                             {scheduleDescription ?? action.description ?? 'No description'}
                         </span>
                         {!!Step?.previews.length && (

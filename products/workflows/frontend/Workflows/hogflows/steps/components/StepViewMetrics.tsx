@@ -29,7 +29,7 @@ export function StepViewMetrics({
             <div
                 className={
                     layout === 'list'
-                        ? 'ml-auto flex h-7 w-32 shrink-0 items-center gap-2 rounded border bg-fill-button-tertiary px-2'
+                        ? 'ml-auto flex h-7 w-32 shrink-0 items-center gap-2 self-center rounded border bg-fill-button-tertiary px-2'
                         : 'flex h-2 items-center gap-1 px-1'
                 }
             >
