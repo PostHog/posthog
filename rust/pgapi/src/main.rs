@@ -158,8 +158,18 @@ async fn main() -> Result<()> {
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
 
+    // Constant 1 with the crate version as a label, so dashboards can show which
+    // build each pod runs without reading pod specs.
+    prometheus::register_int_gauge_vec!("pgapi_build_info", "build metadata", &["version"])?
+        .with_label_values(&[env!("CARGO_PKG_VERSION")])
+        .set(1);
+
     let listener = tokio::net::TcpListener::bind(&cli.listen).await?;
-    tracing::info!(listen = cli.listen, "pgapi listening");
+    tracing::info!(
+        listen = cli.listen,
+        version = env!("CARGO_PKG_VERSION"),
+        "pgapi listening"
+    );
     axum::serve(listener, app).await?;
     Ok(())
 }

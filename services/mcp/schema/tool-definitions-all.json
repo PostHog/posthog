@@ -1227,6 +1227,20 @@
             "readOnlyHint": true
         }
     },
+    "canvas-move": {
+        "description": "Move a canvas to a visible destination space. The canvas and its full version history stay intact, but any pin in the current space is cleared. Only the canvas creator can move it. A sandbox task can move a canvas only within its own space; an attempted cross-space move returns 403.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Move canvas",
+        "title": "Move canvas",
+        "required_scopes": ["canvas:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "canvas-promote-create": {
         "description": "Make a draft version (staged with canvas-draft-create) the canvas's live head. A draft whose build is already ready goes live immediately with no rebuild; otherwise a fresh build is queued. Pass `expected_current_version_id` — the live `current_version_id` from canvas-source-retrieve — so a concurrent change is rejected with 409 version_conflict instead of overwritten. A 429 means the team's build capacity is exhausted; wait and retry. Returns the now-live build. This is the only way a draft reaches the head: revert does not act on drafts.",
         "category": "Canvas",
