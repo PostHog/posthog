@@ -117,6 +117,44 @@ describe('ScoutConfigForm', () => {
         unmount()
     })
 
+    // A failed write rolls the config back, so the picker has to follow it. Holding the picked mode
+    // would report a schedule the scout does not run on, and the obvious retry sends nothing.
+    it('follows the config back when a schedule write does not stick', () => {
+        const onUpdate = jest.fn()
+        const rollingConfig = { ...config, run_cron_schedule: null }
+        const { getByText, container, rerender, unmount } = render(
+            <ScoutConfigForm config={rollingConfig} onUpdate={onUpdate} />
+        )
+
+        expect(container.querySelector('input[type="time"]')).toBeNull()
+
+        fireEvent.click(getByText('Daily'))
+        fireEvent.click(getByText('Daily at a set time'))
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { run_cron_schedule: '0 9 * * *' })
+
+        rerender(<ScoutConfigForm config={{ ...rollingConfig, run_cron_schedule: '0 9 * * *' }} onUpdate={onUpdate} />)
+        expect(container.querySelector('input[type="time"]')).not.toBeNull()
+
+        rerender(<ScoutConfigForm config={rollingConfig} onUpdate={onUpdate} />)
+        expect(container.querySelector('input[type="time"]')).toBeNull()
+        unmount()
+    })
+
+    // Custom is the one mode no config can express while the field is still empty, so the picker
+    // holds it locally instead of waiting for a write.
+    it('opens an empty custom field without writing anything', () => {
+        const onUpdate = jest.fn()
+        const { getByText, getByLabelText, unmount } = render(
+            <ScoutConfigForm config={{ ...config, run_cron_schedule: null }} onUpdate={onUpdate} />
+        )
+
+        fireEvent.click(getByText('Daily'))
+        fireEvent.click(getByText('Custom cron'))
+        expect(getByLabelText('signals-scout-general cron expression')).toBeTruthy()
+        expect(onUpdate).not.toHaveBeenCalled()
+        unmount()
+    })
+
     it('edits a day-restricted cron in place and refuses one the scheduler would reject', () => {
         const onUpdate = jest.fn()
         const { getByLabelText, getByText, unmount } = render(
