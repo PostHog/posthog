@@ -18,6 +18,7 @@ export const DASHBOARD_AI_HIGHLIGHT_MS = 5_000
 
 export const DASHBOARD_AI_TOOL_NAMES = [
     'dashboard-update',
+    'dashboard-create-tile',
     'dashboard-create-text-tile',
     'dashboard-update-text-tile',
     'dashboard-delete-tile',
@@ -99,6 +100,7 @@ export function snapshotDashboardTiles(tiles: DashboardTile<QueryBasedInsightMod
 
 const structuralDashboardTools = new Set<string>([
     'dashboard-update',
+    'dashboard-create-tile',
     'dashboard-create-text-tile',
     'dashboard-update-text-tile',
     'dashboard-delete-tile',

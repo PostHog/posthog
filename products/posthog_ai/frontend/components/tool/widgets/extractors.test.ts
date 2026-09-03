@@ -158,6 +158,7 @@ describe('mcp tool adapter extractors', () => {
 
     describe('extractDashboardMutationRevealTarget', () => {
         it.each([
+            ['dashboard-create-tile', { id: 101 }, { id: 5 }, { dashboardId: 5, tileId: 101 }, true],
             ['dashboard-create-text-tile', { id: 101 }, { id: 5 }, { dashboardId: 5, tileId: 101 }, true],
             [
                 'dashboard-update-text-tile',

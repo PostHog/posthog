@@ -82,6 +82,7 @@ register(
 )
 register(
     [
+        'dashboard-create-tile',
         'dashboard-create-text-tile',
         'dashboard-update-text-tile',
         'dashboard-delete-tile',

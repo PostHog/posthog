@@ -147,6 +147,7 @@ describe('dashboardAiSyncLogic', () => {
 
     test.each([
         ['dashboard-update', { id: 5 }, true],
+        ['dashboard-create-tile', { id: '5' }, true],
         ['dashboard-create-text-tile', { id: '5' }, true],
         ['dashboard-widgets-batch-update', { id: 8 }, false],
         ['dashboards-move-tile-partial-update', { id: 5, to_dashboard: 8 }, true],

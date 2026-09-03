@@ -61,8 +61,9 @@ Prefer reusing existing insights over recreating them.
 ## When not to use this
 
 - Saving a single insight — just create the insight; it doesn't need a dashboard.
-- Adding non-insight widget tiles (text cards, widgets) — see the widget tools (`dashboard-widget-catalog-list`,
-  `dashboard-widgets-batch-add`) instead.
+- Adding text or image tiles - use `posthog:dashboard-create-tile`.
+- Adding product widgets - browse with `posthog:dashboard-widget-catalog-list`, then add them with
+  `posthog:dashboard-widgets-batch-add`.
 
 ## Related skills
 

@@ -63,9 +63,9 @@ describe('DashboardAiSync', () => {
             applyOn: 'tool_call_completed',
         })
 
-        applyBackOptions.onApply({ toolName: 'dashboard-create-text-tile' } as never, { innerInput: { id: 5 } })
+        applyBackOptions.onApply({ toolName: 'dashboard-create-tile' } as never, { innerInput: { id: 5 } })
 
-        expect(agentToolCompleted).toHaveBeenCalledWith('dashboard-create-text-tile', { id: 5 }, [
+        expect(agentToolCompleted).toHaveBeenCalledWith('dashboard-create-tile', { id: 5 }, [
             { tileId: 10, insightId: 42, insightShortId: 'insight-42' },
         ])
 

@@ -311,6 +311,7 @@ export function extractDashboardMutationRevealTarget(message: ToolCallMessage): 
     }
 
     switch (message.resolvedKey) {
+        case 'dashboard-create-tile':
         case 'dashboard-create-text-tile': {
             const dashboardId = asPositiveInteger(input.id)
             const tileId = asPositiveInteger(output.id)

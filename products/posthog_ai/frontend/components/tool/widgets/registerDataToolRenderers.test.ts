@@ -14,6 +14,7 @@ describe('registerDataToolRenderers', () => {
         ['dashboard-create', 'Dashboard'],
         ['dashboard-update', 'Dashboard'],
         ['upsert_dashboard', 'Dashboard'],
+        ['dashboard-create-tile', 'Dashboard update'],
         ['dashboard-create-text-tile', 'Dashboard update'],
         ['dashboard-update-text-tile', 'Dashboard update'],
         ['dashboard-delete-tile', 'Dashboard update'],
