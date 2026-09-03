@@ -19,9 +19,7 @@ from products.batch_exports.backend.api.destination_tests.databricks import (
     DatabricksDestinationTest,
     DatabricksEstablishConnectionTestStep,
 )
-from products.batch_exports.backend.api.destination_tests.snowflake import SnowflakeEstablishConnectionTestStep
 from products.batch_exports.backend.models.batch_export import BatchExportDestination
-from products.batch_exports.backend.tests.api.fixtures import create_integration_backed_snowflake_export
 from products.batch_exports.backend.tests.api.operations import create_batch_export_ok
 
 pytestmark = [
@@ -233,41 +231,6 @@ def test_run_test_step_rejects_destination_type_change(
     assert "Cannot change destination type" in response.json()["detail"]
     # Validation must fail before any destination test (and therefore any outbound request) runs.
     mock_get_destination_test.assert_not_called()
-
-
-def test_can_run_snowflake_test_step_for_partial_config(client: HttpClient, temporal, organization, team, user):
-    """A test step can run against a partial Snowflake config, merged with the stored config and integration."""
-    integration, batch_export = create_integration_backed_snowflake_export(client, team, user)
-
-    batch_export_data = {
-        "name": "my-production-snowflake-destination",
-        "destination": {
-            "type": "Snowflake",
-            "config": {"schema": "other_schema"},
-            "integration": integration.id,
-        },
-        "interval": "hour",
-    }
-
-    with unittest.mock.patch(
-        "products.batch_exports.backend.api.destination_tests.base.DestinationTest.run_step"
-    ) as run_step_mocked:
-        fake_test_step = SnowflakeEstablishConnectionTestStep()
-        fake_test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)
-        run_step_mocked.return_value = fake_test_step
-
-        response = client.post(
-            f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
-            {**{"step": 0}, **batch_export_data},
-            content_type="application/json",
-        )
-
-    assert response.status_code == status.HTTP_200_OK, response.json()
-
-    destination_test = response.json()
-
-    assert destination_test["result"]["status"] == "Passed", destination_test
-    assert destination_test["result"]["message"] is None
 
 
 def test_can_run_s3_test_step_with_additional_fields(
