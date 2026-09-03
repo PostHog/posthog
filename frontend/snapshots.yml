@@ -5540,6 +5540,10 @@ snapshots:
         hash: v1.k794b7964.c4ebc83f695831769cc95475925e983a71d5909636818ff2153e2dc7df5450a1.9VcSQPoSe9fMttmpga5INPhkJySlhF35v8dHEs52L90
     products-posthog-ai-virtualizedthread--streaming--light:
         hash: v1.k794b7964.e731151aea72bc9d5f4248dd2548e03fe07336fb29b2110d1e348020985ef9d1.NMSw9HS1VJuLZsmgp29MVPo708vTot8RLCqFv8IC7RQ
+    products-signals-self-driving-intro-modal--default--dark:
+        hash: v1.k794b7964.e72031a3a874ed6a1825089edff6147a3ea0d74c20c74951f8b5d38d92f54464.WQmsYZby7Raw1OaQn_oKtu1eASs_te6AgRALWXM6xLE
+    products-signals-self-driving-intro-modal--default--light:
+        hash: v1.k794b7964.602b1235812b95a5a5e1b8394fcb0bf613698958302c0d8555e89c587e258c36.00YN2IU5qnM8hUXbxAhMv5wX7Hiwrxw4vYXXOWKu1Is
     products-subscriptions-subscription-delivery-history--empty--dark:
         hash: v1.k794b7964.267363ce3a0453be58b96ef2c00446ae4aaf5ed42b02472c495b3c468f25e18f.PjabhWWV-dc6vzuSl_wdoaQ2VAB35IG84kOVKe5eaA4
     products-subscriptions-subscription-delivery-history--empty--light:

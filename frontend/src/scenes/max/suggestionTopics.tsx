@@ -1,7 +1,5 @@
 import { IconBook } from '@posthog/icons'
 
-import { urls } from 'scenes/urls'
-
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 /** One suggestion inside a topic. `content` is the prompt sent to PostHog AI. */
@@ -41,18 +39,17 @@ export interface SuggestionTopic {
     suggestions: TopicSuggestion[]
 }
 
-/** Shared across both experiment arms — routes to the PostHog Desktop beta in the inbox. */
+/** The Code badge rendered next to the topics; opens the self-driving intro modal. */
 export const CODE_BADGE = {
     key: 'code',
     label: 'Code',
-    to: urls.inbox(),
     beta: true as const,
 }
 
 /**
- * A few docs prompts included in every arm so newcomers can learn about PostHog. The sidebar
- * renders these as a plain question list (docs variant), matching the Docs suggestions we show
- * in production; the homepage suggestion cards use the title/description pair instead.
+ * A few docs prompts so newcomers can learn about PostHog. The sidebar renders these as a
+ * plain question list (docs variant), matching the Docs suggestions we show in production;
+ * the homepage suggestion cards use the title/description pair instead.
  */
 const LEARN_TOPIC: SuggestionTopic = {
     key: 'learn',
