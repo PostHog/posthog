@@ -233,6 +233,10 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
         "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
         lambda report_id: previous,
     )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id",
+        lambda team_id: 1,
+    )
 
     select_repo_called = False
 
@@ -257,6 +261,27 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_select_repository_activity_does_not_reuse_when_integration_lapsed(monkeypatch, ateam):
+    previous = RepoSelectionResult(repository="posthog/posthog", reason="Previously selected")
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
+        lambda report_id: previous,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id",
+        lambda team_id: None,
+    )
+
+    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+        result = await select_repository_activity(
+            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+        )
+
+    assert result.repository is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_select_repository_activity_retries_transient_db_drop(monkeypatch, ateam):
     # A pooled pgbouncer connection dropped mid-request raises OperationalError on the
     # activity's early read. The retry-once guard must evict the dead connection and
@@ -273,6 +298,10 @@ async def test_select_repository_activity_retries_transient_db_drop(monkeypatch,
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
         flaky_load,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id",
+        lambda team_id: 1,
     )
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
