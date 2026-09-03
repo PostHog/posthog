@@ -1803,6 +1803,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             email_subject=data.get("email_subject", ""),
             message=data["message"],
             rich_content=data.get("rich_content"),
+            distinct_id=distinct_id,
         )
         assert fingerprint is not None
         guarded = reply_dedupe.create_ticket_deduplicated(fingerprint, create_ticket)

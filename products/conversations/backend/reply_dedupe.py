@@ -379,7 +379,7 @@ def _classify_held_value(key: str, held: Any, token: str) -> Reservation:
 
 # Compose opens a brand-new outbound ticket, so it hashes into its own keyspace — a compose retry
 # must never collapse onto a reply, or vice versa. Bump the version when the contents below change.
-_COMPOSE_KEY_PREFIX = "conversations:compose_dedupe:v1:"
+_COMPOSE_KEY_PREFIX = "conversations:compose_dedupe:v2:"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -387,8 +387,8 @@ class ComposeFingerprint:
     """The immutable identity of an outbound compose request.
 
     Two requests with the same fingerprint open the same outbound ticket: same team, sending
-    channel, recipient, subject, and first message. ``build`` returns None for anything this guard
-    must not collapse.
+    channel, recipient, subject, first message, and resolved person link. ``build`` returns None
+    for anything this guard must not collapse.
     """
 
     team_id: int
@@ -397,6 +397,9 @@ class ComposeFingerprint:
     email_subject: str
     message: str
     rich_content: Any
+    # The resolved recipient person link the create writes onto the ticket. Two composes with the
+    # same body but a different recipient point at different people, so they must not collapse.
+    distinct_id: str
 
     @classmethod
     def build(
@@ -408,6 +411,7 @@ class ComposeFingerprint:
         email_subject: Any,
         message: Any,
         rich_content: Any,
+        distinct_id: Any,
     ) -> "ComposeFingerprint | None":
         if not email_config_id or not recipient_email or not isinstance(message, str) or not message:
             return None
@@ -418,6 +422,7 @@ class ComposeFingerprint:
             email_subject=str(email_subject or ""),
             message=message,
             rich_content=rich_content,
+            distinct_id=str(distinct_id or ""),
         )
 
     @property
@@ -430,6 +435,7 @@ class ComposeFingerprint:
                 "email_subject": self.email_subject,
                 "message": self.message,
                 "rich_content": self.rich_content,
+                "distinct_id": self.distinct_id,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -446,6 +452,7 @@ class ComposeFingerprint:
             or str(ticket.email_config_id or "") != self.email_config_id
             or (ticket.email_from or "") != self.recipient_email
             or (ticket.email_subject or "") != self.email_subject
+            or (ticket.distinct_id or "") != self.distinct_id
         ):
             return False
         # The first message lives on the ticket's opening comment, so confirm the body too: a

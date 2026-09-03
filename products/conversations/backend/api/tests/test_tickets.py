@@ -2101,6 +2101,38 @@ class TestComposeTicketAPI(APIBaseTest):
         assert first.json()["id"] != second.json()["id"]
         assert Ticket.objects.filter(team=self.team).count() == 2
 
+    def test_compose_same_message_to_different_persons_is_not_deduplicated(self, mock_on_commit):
+        # Two people can share one email address (person merging leaves this common). A compose to
+        # each — same subject and body, different recipient_distinct_id — is two distinct tickets,
+        # each linked to its own person. The fingerprint must not collapse them onto one.
+        _create_person(
+            team=self.team,
+            distinct_ids=["person-a"],
+            properties={"email": "shared@test.com"},
+            immediate=True,
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["person-b"],
+            properties={"email": "shared@test.com"},
+            immediate=True,
+        )
+        base = {
+            "recipient_email": "shared@test.com",
+            "email_config_id": str(self.email_config.id),
+            "message": "Same body",
+        }
+
+        first = self._compose({**base, "recipient_distinct_id": "person-a"})
+        second = self._compose({**base, "recipient_distinct_id": "person-b"})
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_201_CREATED
+        assert first.json()["id"] != second.json()["id"]
+        assert Ticket.objects.filter(team=self.team).count() == 2
+        assert Ticket.objects.get(pk=first.json()["id"]).distinct_id == "person-a"
+        assert Ticket.objects.get(pk=second.json()["id"]).distinct_id == "person-b"
+
     def test_compose_conflicts_while_an_identical_request_is_in_flight(self, mock_on_commit):
         payload = {
             "recipient_email": "pitch@test.com",
@@ -2114,6 +2146,7 @@ class TestComposeTicketAPI(APIBaseTest):
             email_subject="",
             message="Great idea, we logged it.",
             rich_content=None,
+            distinct_id="pitch@test.com",
         )
         assert fingerprint is not None
         # Another request holds the reservation and hasn't finished creating yet.
