@@ -85,6 +85,17 @@ const CONFIGS: SceneContextConfig[] = [
             },
         ],
     },
+    {
+        output: 'products/logs/frontend/generated/agentContext.ts',
+        tools: [{ constName: 'LOGS_MCP_TOOLS', yamlPath: 'products/logs/mcp/tools.yaml' }],
+        skills: [
+            {
+                constName: 'INVESTIGATING_LOGS_SKILL',
+                skillDir: 'products/logs/skills/investigating-logs',
+                files: ['SKILL.md'],
+            },
+        ],
+    },
 ]
 
 interface ToolDefinition {

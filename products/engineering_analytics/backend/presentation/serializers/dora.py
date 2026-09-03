@@ -40,6 +40,11 @@ class LeadTimeBucketSerializer(DataclassSerializer):
                 "help_text": "Fastest duration for this stage in this bucket, in seconds. Null when nothing deployed.",
                 "allow_null": True,
             },
+            "p05_seconds": {
+                "help_text": "5th percentile of the stage's duration, in seconds — the lower whisker when "
+                "outliers are excluded. Null when nothing deployed.",
+                "allow_null": True,
+            },
             "p25_seconds": {
                 "help_text": "25th percentile of the stage's duration, in seconds. Null when nothing deployed.",
                 "allow_null": True,
@@ -54,6 +59,11 @@ class LeadTimeBucketSerializer(DataclassSerializer):
             },
             "p75_seconds": {
                 "help_text": "75th percentile of the stage's duration, in seconds. Null when nothing deployed.",
+                "allow_null": True,
+            },
+            "p95_seconds": {
+                "help_text": "95th percentile of the stage's duration, in seconds — the upper whisker when "
+                "outliers are excluded. Null when nothing deployed.",
                 "allow_null": True,
             },
             "max_seconds": {
@@ -72,8 +82,8 @@ class DoraOverviewSerializer(DataclassSerializer):
     merge_to_deploy_series = LeadTimeBucketSerializer(
         many=True,
         help_text="Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot "
-        "series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, "
-        "or when github_team was passed without membership data synced.",
+        "series (min/p5/p25/p50/mean/p75/p95/max seconds per bucket). Empty when the deploy tables aren't "
+        "synced, or when github_team was passed without membership data synced.",
     )
     open_to_merge_series = LeadTimeBucketSerializer(
         many=True,
@@ -96,12 +106,13 @@ class DoraOverviewSerializer(DataclassSerializer):
                 "selected repo; every other field is then empty or null, never a fake zero."
             },
             "environment_scope": {
-                "help_text": "What the environment filter resolved to: 'production' (deployments GitHub marks "
-                "production_environment), an exact environment name (the one passed, or the busiest persistent "
-                "environment when nothing is marked production), or 'persistent' (no persistent environment "
-                "deployed in the window, so every non-transient one counts). Transient environments (ephemeral "
-                "per-PR previews) never join a default scope. The scope resolves from deployments in the scan "
-                "window, so two different windows can resolve different scopes and are not always comparable."
+                "help_text": "What the environment filter resolved to: the exact environment name(s) it matches "
+                "(the caller's picks, comma-joined when several; by default the busiest production-marked "
+                "environment, falling back to the busiest persistent one), or 'persistent' (no persistent "
+                "environment deployed in the window, so every non-transient one counts). Transient environments "
+                "(ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in "
+                "the scan window, so two different windows can resolve different scopes and are not always "
+                "comparable."
             },
             "environments": {
                 "help_text": "Distinct persistent environments deployed to in the scan window, most-deployed "
@@ -199,6 +210,7 @@ class DoraOverviewSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "series_granularity": {
-                "help_text": "Bucket width of every series, chosen to fit the window: 'hour', 'day', or 'week'."
+                "help_text": "Bucket width of every series: the granularity param when given, else chosen to "
+                "fit the window: 'hour', 'day', or 'week'."
             },
         }

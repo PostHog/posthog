@@ -186,6 +186,9 @@ const projectSettingsUpdate = (): ToolBase<
         if (params.product_description !== undefined) {
             body['product_description'] = params.product_description
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         if (params.app_urls !== undefined) {
             body['app_urls'] = params.app_urls
         }

@@ -2909,7 +2909,7 @@ export const getTasksSummariesCreateUrl = (projectId: string, params?: TasksSumm
 }
 
 /**
- * Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, `updated_at`, and the latest run's `status` and `environment`.
+ * Returns summary for the requested tasks, including the creator ID and the latest run's ID, status, and environment.
  * @summary Fetch task summaries by ID
  */
 export const tasksSummariesCreate = async (

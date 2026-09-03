@@ -232,6 +232,7 @@ export class ToolDomainExtractor {
         'calculate',
         'complete',
         'copy',
+        'disable',
         'discard',
         'duplicate',
         'edit',
