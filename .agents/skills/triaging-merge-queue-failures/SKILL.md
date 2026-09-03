@@ -2,9 +2,10 @@
 name: triaging-merge-queue-failures
 description: >
   Decision procedure for a PR that failed or was removed from the Trunk merge queue:
-  classify the kick (superseded by a newer commit, not mergeable, real failure,
-  one-off flake, or repo-wide flaky/infra issue) and take the matching action
-  (wait, hold and fix, requeue once, or escalate instead of spam-retrying).
+  classify the kick (superseded by a newer commit, not mergeable, a gate that
+  failed on a cancelled run, real failure, one-off flake, or repo-wide
+  flaky/infra issue) and take the matching action (wait, hold and fix, requeue
+  once, or escalate instead of spam-retrying).
   Use when a PR is kicked from the queue, Trunk reports a failed queue attempt on a
   PR, someone asks "why was my PR removed from the queue" or
   "should I requeue", or when running as the scheduled merge queue triage sweep.
@@ -63,10 +64,10 @@ An attempt tests one revision of the PR, and `source_head` is that revision: the
 | `superseded`                     | removed from the queue because the branch was pushed to | 1                     |
 | `conflict`                       | could not start testing, merge conflict                 | 2                     |
 | `blocked`                        | could not start testing, other reason                   | 2                     |
-| `kicked_failed`                  | removed from the queue because it failed tests          | 3, 4, or 5            |
-| `failed`                         | a required check failed, attempt not yet dropped        | 3, 4, or 5            |
-| `removed`                        | removed from the queue, reason not recognized           | 6                     |
-| `unknown`                        | wording this helper does not recognize                  | 6 — and say so        |
+| `kicked_failed`                  | removed from the queue because it failed tests          | 3, 4, 5, or 6         |
+| `failed`                         | a required check failed, attempt not yet dropped        | 3, 4, 5, or 6         |
+| `removed`                        | removed from the queue, reason not recognized           | 7                     |
+| `unknown`                        | wording this helper does not recognize                  | 7 — and say so        |
 
 `kicked_failed` is the plain kick: the PR is out of the queue and needs resubmitting. `failed` is the earlier moment — a required check has gone red and Trunk is still holding the entry, often to bisect. Both get the same chart treatment, but only `kicked_failed` needs a resubmit in its next step.
 
@@ -122,6 +123,27 @@ done
 
 Filter on `conclusion == "failure"`. A queue attempt that fails gets torn down, so it is littered with `cancelled` jobs that are collateral, not causes. `/debugging-ci-failures` covers reading the runs behind those links.
 
+One case inverts that sentence, and chart entry 3 turns on it. The required checks Trunk gates on are **collate gates** — jobs that report a verdict on other jobs instead of doing work, named `<area> Tests Pass` or similar. While gates run under `if: always()`, a cancelled run still runs its gate, and the gate exits nonzero on any dependency that is neither `success` nor `skipped`. So a cancelled run publishes a genuinely red required check with nothing broken under it, and there the cancelled jobs are the cause rather than collateral.
+
+Before reading any log, open the workflow run behind each failing check and list everything in it that did not pass:
+
+```bash
+RUN=<run id from the failing check's details_url>
+gh api "repos/$REPO/actions/runs/$RUN" --jq '{name, conclusion}'
+for pg in 1 2 3 4; do
+  gh api "repos/$REPO/actions/runs/$RUN/jobs?per_page=100&page=$pg" \
+    --jq '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped")
+          | "\(.conclusion)\t\(.name)"'
+done
+```
+
+Page all the way through. A sharded matrix here runs past 100 jobs, and a real failure sitting on an unread page reads as the cancellation class below.
+
+Read the answer off that list, not off the check name — a real failure is reported through a gate too, so the name never separates the two:
+
+- The gate is the **only** `failure`, and the jobs it gated on are `cancelled` → entry 3. The run's own `conclusion` is usually `cancelled` as well.
+- Any other job is `failure` or `timed_out` → a real failure. That job is the cause; carry on to entry 4.
+
 A `state=` of `submitted`, `queued`, `testing`, `batched`, or `passing` means the queue has not finished with this PR and there is nothing to triage yet: wait (unattended, skip the PR this sweep).
 
 ## The decision chart
@@ -132,6 +154,8 @@ Walk in order; the first YES wins.
 
 `state=superseded` — Trunk says the PR was removed because the branch was pushed to. Or the current `head.sha` differs from the SHA the attempt tested, or Trunk's state has already moved back to `idle` on a newer head. Any push removes the PR from the queue.
 
+This covers a push to the PR's own branch only. Trunk tearing down its own shadow PR mid-attempt cancels that attempt's CI too, but Trunk reports it as `kicked_failed`, not `superseded` — that is entry 3.
+
 **Verdict: wait for the latest SHA.** Let the newest commit's own checks finish, then submit to the queue again. Nothing is broken; do not diagnose the stale attempt.
 
 ### 2. Is the PR not mergeable, missing required checks, or in merge conflict?
@@ -140,7 +164,19 @@ Walk in order; the first YES wins.
 
 **Verdict: hold — fix the PR first.** Merge `master` in (or let the conflict autoresolver handle it), fix or wait for required checks, apply the `stamphog` label if approval is missing, then submit again.
 
-### 3. Does the failure look real and reproducible in this PR?
+### 3. Did a gate fail because its run was cancelled?
+
+`state=kicked_failed` or `state=failed`, and the run behind the failing check has the shape described above: the gate is the only `failure`, and what it gated on is `cancelled`.
+
+Nothing was tested and nothing is broken. Trunk closes its shadow PR the moment it stops needing an attempt — because a batch ahead failed, because it re-formed the batch, or because a sibling in the batch went red — and GitHub then cancels every run still in flight on that shadow PR. The gate turns that cancellation into a red required check, and Trunk reads its own teardown back as a test failure. Every PR in the batch is kicked, including ones whose code was never at fault.
+
+Do not route this to `/fixing-flaky-tests`. There is no flaky test — the tests did not finish.
+
+**Verdict: requeue once.** Apply the same retry gate as entry 5: count this head's attempts with `attempts $REPO <n> <head_oid>` and add nothing if a retry already happened. Say in the verdict that the attempt was cancelled rather than failed, so the author does not go looking for a broken test.
+
+Do not reach for a workflow-side fix. Putting the gate on `if: ${{ !cancelled() }}` looks like it removes the false red, but a gate that does not run reports `skipped`, and branch protection counts a skipped required check as passing — so it trades a red check that blocks an untested run for a green one that lets it through. `AGENTS.md`, under "Forcing the full CI matrix on a draft", covers that failure mode. If this class is a recurring drag rather than a one-off, still requeue, and raise it with the team that owns the queue the way entry 6 says to — repeated requeues are not a fix for it.
+
+### 4. Does the failure look real and reproducible in this PR?
 
 `state=kicked_failed` or `state=failed`. Read the failing job's logs. It is real when the failing test, lint, or type error touches code this PR changed. Interactively, confirm by reproducing locally (`hogli test <path>`); an unattended sweep never runs PR code (see the rules above), so it classifies from the logs and the PR's diff alone and says so in the verdict.
 
@@ -148,26 +184,27 @@ Two traps from `/debugging-ci-failures`, both sharpened by how Trunk batches her
 
 **Verdict: hold — fix code or tests.** Fix, push (the `ci:preflight` pre-push hook must pass), wait for green checks, then submit to the queue again.
 
-### 4. Does it look like a one-off flake or an unrelated infra blip?
+### 5. Does it look like a one-off flake or an unrelated infra blip?
 
 A known flaky test (Trunk Flaky Tests via the `trunk` MCP server, or `hogli ci:insights`), a runner falling over, a timeout in a job untouched by this PR — and it is not currently failing across other PRs or `master`.
 
-**Verdict: requeue once.** Count this head's attempts first with `attempts $REPO <n> <head_oid>`: more than one means a retry already happened, whether Trunk's anti-flake protection did it or a person did, so don't add your own. Do not read that count off `recent` — its `attempts_seen` spans every revision of the PR, so a PR that was pushed to and re-enqueued looks retried when its current head has been tried once. If the same head fails again after a requeue, escalate to verdict 5 or 6 instead of retrying. Route the flake itself to `/fixing-flaky-tests`.
+**Verdict: requeue once.** Count this head's attempts first with `attempts $REPO <n> <head_oid>`: more than one means a retry already happened, whether Trunk's anti-flake protection did it or a person did, so don't add your own. Do not read that count off `recent` — its `attempts_seen` spans every revision of the PR, so a PR that was pushed to and re-enqueued looks retried when its current head has been tried once. If the same head fails again after a requeue, escalate to verdict 6 or 7 instead of retrying. Route the flake itself to `/fixing-flaky-tests`.
 
-### 5. Is the same flaky test or infra issue hitting multiple PRs?
+### 6. Is the same flaky test or infra issue hitting multiple PRs?
 
 The same failing check name appears on other PRs' recent attempts or on `master`. The `recent` output makes this cheap: it lists every PR with a recent attempt, so run `state` across them and group by `check=`. `hogli ci:insights` shows cross-run history where it is available.
 
 **Verdict: wider issue — inform the team, do not retry.** Treat it as a repo-wide flaky or infra problem: raise it where the team will see it (interactively, tell the developer and suggest the owning team's Slack channel via `/establishing-code-ownership`; in an unattended run, make it the headline of the run report). Spam-retrying burns queue capacity for everyone. Requeue only after the issue is acknowledged or stabilized.
 
-### 6. None of the above
+### 7. None of the above
 
-**Verdict: check the Trunk dashboard and job logs.** Read the full logs behind the failing jobs and the queue history on the Trunk dashboard (`state`'s details link points at it). If the failure looks non-deterministic, requeue once; if it repeats, treat it as verdict 3 (fix the PR) or verdict 5 (escalate).
+**Verdict: check the Trunk dashboard and job logs.** Read the full logs behind the failing jobs and the queue history on the Trunk dashboard (`state`'s details link points at it). If the failure looks non-deterministic, requeue once; if it repeats, treat it as verdict 4 (fix the PR) or verdict 6 (escalate).
 
 ## Trunk behavior notes
 
 - Anti-flake protection means the optimistic merge queue is on with a pending failure depth above zero; only then does Trunk retry some failures itself.
 - Trunk is selective — it does not retry every failure automatically. Absence of an automatic retry is not evidence the failure was real.
+- Trunk closes a shadow PR as soon as it no longer needs that attempt, and GitHub cancels the attempt's in-flight runs with it. Read a wall of `cancelled` runs on a shadow PR as teardown, not as an outage.
 - A failed PR is not dropped immediately: Trunk's own wording is that it "failed tests and is waiting for other pull requests to finish testing", and it may then open a bisection attempt. A `failed` state can therefore be followed by more attempts without anyone requeueing.
 
 ## Unattended sweeps
@@ -179,7 +216,7 @@ One fire is one sweep. The trigger is a schedule; discover the work list yoursel
 3. Per candidate, run `state`. Keep `kicked_failed`, `failed`, `superseded`, `conflict`, `blocked`, `removed`, and `unknown`. Skip `submitted`, `queued`, `testing`, `batched`, `passing` (the queue is not done with it), and `none`, `idle`, `merged` (nothing to triage). Stop once 10 have a verdict.
 4. Skip any PR whose marker matches the current state: `mq-triage-marker.sh get $REPO <n>` returns the last triaged `<head_oid>:<attempt_pr>`; if it equals the current pair, this kick is already triaged.
 5. Walk the chart and upsert the verdict comment via `mq-triage-marker.sh set $REPO <n> <head_oid> <attempt_pr>` with the body on stdin (the helper appends the marker). One sticky comment per PR.
-6. Requeue only when all of these hold: `verify` reported no mismatch, `MQ_TRIAGE_ALLOW_REQUEUE=1` is set, the verdict is 4 or 6, the PR is mergeable with green checks and approval, the marker's `head_oid` differs from the current head OID (a matching `head_oid` with any attempt means this head was already triaged — a repeat, so escalate), and this head carries exactly one attempt — `attempts $REPO <n> <head_oid>` returns one line (more means someone or something already retried; `recent`'s `attempts_seen` cannot answer this, it counts older revisions too).
+6. Requeue only when all of these hold: `verify` reported no mismatch, `MQ_TRIAGE_ALLOW_REQUEUE=1` is set, the verdict is 3, 5, or 7, the PR is mergeable with green checks and approval, the marker's `head_oid` differs from the current head OID (a matching `head_oid` with any attempt means this head was already triaged — a repeat, so escalate), and this head carries exactly one attempt — `attempts $REPO <n> <head_oid>` returns one line (more means someone or something already retried; `recent`'s `attempts_seen` cannot answer this, it counts older revisions too).
 
 The marker's second field is the attempt's shadow PR number. It used to be a check run id; both are bare integers, so old markers still parse and still dedupe.
 
@@ -195,7 +232,7 @@ Follow the repo's user-facing copy rules. One short comment, updated in place:
 >
 > Next step: \<the verdict's action, addressed to the author\>. I won't repeat this until the branch or the queue state moves.
 
-When the sweep requeued (verdict 4 or 6 with requeue enabled), say so explicitly: "Requeued once. If this fails again I'll escalate instead of retrying."
+When the sweep requeued (verdict 3, 5, or 7 with requeue enabled), say so explicitly: "Requeued once. If this fails again I'll escalate instead of retrying."
 
 ## The run report
 

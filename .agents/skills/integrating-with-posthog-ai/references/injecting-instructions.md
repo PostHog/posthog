@@ -35,38 +35,25 @@ There is a second reason this matters. Instructions dedupe per task by **exact t
 
 If you truly must interpolate an identifier, allowlist its shape first — that file gates on `SAFE_ACTION_ID = /^[A-Za-z0-9_-]{1,128}$/` before any action id reaches trusted text, because action ids are arbitrary strings a workflow author controls.
 
-## Injecting a skill and a tool catalog
+## Naming a skill and a tool catalog
 
-**The two things worth putting in trusted context are your product's MCP tool names and its skills** — both of which already exist in the repo as build-time sources, which is exactly what makes them safe here.
+**The two things worth putting in trusted context are your product's skill names and its MCP tool names** — both already exist in the repo as build-time sources, which is exactly what makes them safe here.
 
-- **Skills** come from the skill build pipeline in `products/*/skills/`. Your product's skills are already written, linted, and shipped to external agents; embedding one gives the web agent the same job-to-be-done guidance a Claude Code user gets. See `/writing-skills`.
-- **MCP tool names and descriptions** come from your `products/<name>/mcp/tools.yaml` and the generated schemas. Naming the tools up front stops the agent burning turns on discovery. See `/implementing-mcp-tools`.
+- **Skills** come from the skill build pipeline in `products/*/skills/`. Every product skill is installed into the agent's sandbox, so the harness already lists it by name and description and loads the body in one call. See `/writing-skills`.
+- **MCP tool names** come from your `products/<name>/mcp/tools.yaml`. The agent already reaches every tool through the exec MCP tool, and `info <tool>` returns the full input schema. Naming the tools up front stops the agent burning turns on discovery. See `/implementing-mcp-tools`.
 
-The richest use of trusted context is handing the agent both up front, so it does not spend turns discovering tools or reading skill files. `workflowAgentContext.ts` attaches four things:
+`workflowAgentContext.ts` attaches two things for this:
 
-1. A **preamble** telling the agent the skill and tool catalog are already embedded, so it should call tools directly rather than go looking.
-2. The **skill content** itself, embedded as a string.
-3. One instruction item **per MCP tool**, each carrying the tool's name and description.
-4. A visible `type: 'skill'` chip so the user can see (and detach) what was attached.
+1. One static **preamble** instruction that tells the agent which skill to load before its first tool call and which exec commands cover the product (the `workflows-*` prefix plus the handful that matter most).
+2. A visible `type: 'skill'` chip so the user can see (and detach) what was attached.
 
-### Generate the payload, never hand-copy it
+### Name it, do not embed it
 
-All of it comes from `products/<product>/frontend/generated/agentContext.ts`, built by
-`services/mcp/scripts/build-scene-tool-context.ts` and regenerated with `hogli build:openapi`. That script
-reads two sources at build time:
+Do not embed skill markdown or per-tool descriptions into the payload. The context block rides on every message, so a skill body costs tens of thousands of tokens per task chain, and it duplicates a source the sandbox already has. It also needs codegen and a CI drift check to stay honest, and the copy still diverges from the rendered skill the sandbox installs. A skill name and a tool name are stable identifiers the agent resolves itself.
 
-- `products/<product>/mcp/*.yaml` — which tools are enabled, with their live descriptions.
-- `products/<product>/skills/<skill>/` — the skill markdown, named file by file (`SKILL.md` plus whichever
-  `references/*.md` are worth embedding).
+Keep the tool names you do mention in sync with the product YAML: a renamed tool turns the instruction into a dead pointer, and nothing catches it except the agent failing its first call.
 
-To get one for your product, add an entry to that script's config: the output path, the tool YAML files with
-a const name each, and the skill directories with the files to embed. The workflows entry is the model.
-
-This is what makes the payload safe as trusted text: it is our own source, checked into the repo, not runtime
-data. It is also what keeps it honest — hand-copied skill text or a pasted tool description silently drifts
-from the skill or tool it claims to describe, and nothing catches it.
-
-Tie the whole bundle together with a shared `dismissGroup` so the visible chip and the hidden payload detach as one.
+Tie the whole bundle together with a shared `dismissGroup` so the visible chip and the hidden instruction detach as one.
 
 ## Conditional instruction sets
 
