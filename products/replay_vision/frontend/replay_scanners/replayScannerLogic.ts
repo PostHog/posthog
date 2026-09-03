@@ -247,6 +247,25 @@ function observationFilterParams(
     return params
 }
 
+/**
+ * The observations table's filter + sort + page as URL query params. The scanner page's URL sync and
+ * the observation detail links both build from this, so the view a reader returns to via "back" is by
+ * construction the same one the list URL writes.
+ */
+export function observationListUrlParams(
+    values: ObservationFilterValues & { observationsSort: ObservationsSorting | null; observationsPage: number }
+): Record<string, string | number> {
+    const params: Record<string, string | number> = { ...observationFilterParams(values) }
+    const sort = serializeSortParam(values.observationsSort, DEFAULT_OBSERVATIONS_SORT)
+    if (sort) {
+        params.sort = sort
+    }
+    if (values.observationsPage > 1) {
+        params.page = values.observationsPage
+    }
+    return params
+}
+
 /** Translate kea filter + sort state into the query params accepted by the list and stats endpoints. */
 export function buildObservationListParams(
     values: ObservationFilterValues & {
@@ -1394,31 +1413,32 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 observationsSort: ObservationsSorting | null,
                 scanner: ReplayScanner | null
             ): Record<string, string | number> => {
+                const listValues = {
+                    observationStatusFilter,
+                    observationTriggeredByFilter,
+                    observationVerdictFilter,
+                    observationTagFilter,
+                    observationMinScoreFilter,
+                    observationMaxScoreFilter,
+                    observationSubjectFilter,
+                    observationDateFrom,
+                    observationDateTo,
+                    observationBackfillFilter,
+                    observationsSort,
+                    observationsPage,
+                    scanner,
+                }
+                // The same filter + sort + page the list URL carries, so "back" restores this exact view.
                 const params: Record<string, string | number> = {
-                    ...buildObservationListParams({
-                        observationStatusFilter,
-                        observationTriggeredByFilter,
-                        observationVerdictFilter,
-                        observationTagFilter,
-                        observationMinScoreFilter,
-                        observationMaxScoreFilter,
-                        observationSubjectFilter,
-                        observationDateFrom,
-                        observationDateTo,
-                        observationBackfillFilter,
-                        observationsSort,
-                        scanner,
-                    }),
-                    // The table lives on this tab, and `order_by` is an API key the list URL can't read,
-                    // so the return trip needs the tab and the table's own sort and page keys too.
+                    ...observationListUrlParams(listValues),
                     tab: ReplayScannerTab.Observations,
                 }
-                const sort = serializeSortParam(observationsSort, DEFAULT_OBSERVATIONS_SORT)
-                if (sort) {
-                    params.sort = sort
-                }
-                if (observationsPage > 1) {
-                    params.page = observationsPage
+                // Prev/next reads `order_by` (an API key) to fetch neighbors in the table's order. It
+                // rides alongside `sort` because the observation page can't map `sort` to `order_by`
+                // itself: resolveOrderByKey needs the scanner type, unknown until the observation loads.
+                const orderBy = buildObservationListParams(listValues).order_by
+                if (orderBy) {
+                    params.order_by = orderBy
                 }
                 return params
             },
@@ -2133,27 +2153,24 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     }),
 
     actionToUrl(({ values }) => {
-        const buildSearchParams = (): Record<string, string | undefined> => {
-            const next = { ...router.values.searchParams } as Record<string, string | undefined>
+        const buildSearchParams = (): Record<string, string | number | undefined> => {
+            const next = { ...router.values.searchParams } as Record<string, string | number | undefined>
+            // Clear the table's keys, then re-add only the ones the current state sets, so a cleared
+            // filter or a return to page 1 drops its param rather than lingering.
             for (const key of OBSERVATION_LIST_URL_PARAM_KEYS) {
                 delete next[key]
             }
-            if (values.observationsPage > 1) {
-                next.page = String(values.observationsPage)
-            }
-            const sort = values.observationsSort
-            next.sort = serializeSortParam(sort, DEFAULT_OBSERVATIONS_SORT)
-            Object.assign(next, observationFilterParams(values))
+            Object.assign(next, observationListUrlParams(values))
             return next
         }
-        const writeUrl = (): [string, Record<string, string | undefined>] => [
+        const writeUrl = (): [string, Record<string, string | number | undefined>] => [
             router.values.location.pathname,
             buildSearchParams(),
         ]
         // Replace (not push) so typing in the subject search doesn't spam browser history.
         const writeUrlReplace = (): [
             string,
-            Record<string, string | undefined>,
+            Record<string, string | number | undefined>,
             Record<string, string>,
             { replace: boolean },
         ] => [router.values.location.pathname, buildSearchParams(), {}, { replace: true }]

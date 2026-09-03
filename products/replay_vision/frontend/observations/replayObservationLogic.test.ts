@@ -91,8 +91,8 @@ describe('replayObservationLogic', () => {
         }
     })
 
-    // Back used to drop the reader on the scanner overview, losing the filtered list they opened the
-    // observation from. The list view rides along in the observation URL, so back can restore it.
+    // The list view rides along in the observation URL, so the back crumb restores the tab, filters,
+    // sort, and page the reader opened the observation from rather than the scanner overview.
     it('back returns to the filtered observations list the reader came from', async () => {
         router.actions.push('/replay-vision/observation/obs-1', {
             tab: 'observations',
@@ -108,6 +108,39 @@ describe('replayObservationLogic', () => {
             expect(breadcrumbs[breadcrumbs.length - 2].path).toBe(
                 '/replay-vision/scanner-9?tab=observations&page=2&sort=score&verdict=yes'
             )
+        } finally {
+            logic.unmount()
+        }
+    })
+
+    // The router decodes `q=true` to a boolean, so a naive string-only guard would drop it and land
+    // back on an empty search. Searching the literal text "true" must survive the round trip.
+    it('preserves a search query the router decoded to a boolean', async () => {
+        router.actions.push('/replay-vision/observation/obs-1', { tab: 'search', q: 'true' })
+        const logic = replayObservationLogic({ id: 'obs-1' })
+        logic.mount()
+        try {
+            await expectLogic(logic).toDispatchActions(['loadObservationSuccess'])
+            const { breadcrumbs } = sceneLogic.values
+            expect(breadcrumbs[breadcrumbs.length - 2].path).toBe('/replay-vision/scanner-9?tab=search&q=true')
+        } finally {
+            logic.unmount()
+        }
+    })
+
+    // Retry deletes the row and mints a pending replacement with no verdict, so the redirect must
+    // drop the reader's filters and page — a filtered list would hide the row it promises "shortly".
+    it('retry lands on the unfiltered scanner page, not the reader saved list view', async () => {
+        router.actions.push('/replay-vision/observation/obs-1', { tab: 'observations', verdict: 'yes', page: 2 })
+        const logic = replayObservationLogic({ id: 'obs-1' })
+        logic.mount()
+        try {
+            await expectLogic(logic).toDispatchActions(['loadObservationSuccess'])
+            await expectLogic(logic, () => logic.actions.retryObservation()).toDispatchActions([
+                'retryObservationSuccess',
+            ])
+            expect(router.values.location.pathname).toContain('/replay-vision/scanner-9')
+            expect(router.values.searchParams).toEqual({})
         } finally {
             logic.unmount()
         }

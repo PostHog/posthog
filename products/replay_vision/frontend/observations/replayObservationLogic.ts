@@ -55,8 +55,8 @@ export function observationParentUrl(
     if (!hasScannerPage(observation)) {
         return urls.replaySingle(observation.session_id)
     }
-    const scannerUrl = urls.replayVision(observation.scanner_id)
-    return Object.keys(returnParams).length > 0 ? combineUrl(scannerUrl, returnParams).url : scannerUrl
+    // combineUrl with no params returns the path unchanged, so the empty case needs no guard.
+    return combineUrl(urls.replayVision(observation.scanner_id), returnParams).url
 }
 
 /**
@@ -68,8 +68,9 @@ export function scannerReturnParams(searchParams: Record<string, unknown>): Reco
     // `tab` and `q` (the Search tab's query) sit alongside the observations table's own params.
     for (const key of ['tab', 'q', ...OBSERVATION_LIST_URL_PARAM_KEYS]) {
         const value = searchParams[key]
-        // The router coerces a numeric param (`page=2`) to a number, so both types arrive here.
-        if (typeof value === 'number' || (typeof value === 'string' && value)) {
+        // The router coerces a param by shape: `page=2` to a number, `q=true` to a boolean. Keep every
+        // scalar and stringify it; dropping the coerced ones would lose that filter on the way back.
+        if (typeof value === 'string' ? value !== '' : typeof value === 'number' || typeof value === 'boolean') {
             params[key] = String(value)
         }
     }
@@ -239,7 +240,10 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                 if (!observation) {
                     return
                 }
-                router.actions.push(observationParentUrl(observation, scannerReturnParams(router.values.searchParams)))
+                // Land on the unfiltered parent, not the reader's saved list view: the replacement is
+                // pending with no verdict yet, so a filtered or paged list would hide the row we just
+                // promised appears "shortly".
+                router.actions.push(observationParentUrl(observation))
             },
 
             // When the stream reports the observation has settled, reload once to render the final result.

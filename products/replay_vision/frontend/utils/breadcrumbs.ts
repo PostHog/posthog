@@ -22,6 +22,7 @@ export function scannerBreadcrumb(
     return {
         key: `scanner-${scannerId}`,
         name: name || 'Scanner',
-        path: searchParams && Object.keys(searchParams).length > 0 ? combineUrl(path, searchParams).url : path,
+        // combineUrl with no params returns the path unchanged, so the empty case needs no guard.
+        path: combineUrl(path, searchParams ?? {}).url,
     }
 }
