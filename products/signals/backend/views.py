@@ -1182,17 +1182,30 @@ class SignalReportViewSet(
         if raw.strip().lower() != "me":
             raise serializers.ValidationError({"assignee": "Invalid value. Allowed: me."})
         actor = self._request_attribution()
+        # The tenant bound sits on the report side of the join, and Postgres derives no equality
+        # between the two team columns. Repeating it on the assignment binds the leading column of
+        # the actor indexes, which turns a full index scan into a seek. An assignment always
+        # carries its report's team, so this narrows nothing.
         if actor.kind == "user":
-            return queryset.filter(assignment__actor_kind=actor.kind, assignment__actor_user_id=actor.user_id)
+            return queryset.filter(
+                assignment__team_id=self.team_id,
+                assignment__actor_kind=actor.kind,
+                assignment__actor_user_id=actor.user_id,
+            )
         if actor.kind == "task":
-            return queryset.filter(assignment__actor_kind=actor.kind, assignment__actor_task_id=actor.task_id)
+            return queryset.filter(
+                assignment__team_id=self.team_id,
+                assignment__actor_kind=actor.kind,
+                assignment__actor_task_id=actor.task_id,
+            )
         if actor.kind == "agent":
             return queryset.filter(
+                assignment__team_id=self.team_id,
                 assignment__actor_kind=actor.kind,
                 assignment__actor_user_id=actor.user_id,
                 assignment__actor_agent=actor.agent_name,
             )
-        return queryset.filter(assignment__actor_kind=SignalActorKind.SYSTEM)
+        return queryset.filter(assignment__team_id=self.team_id, assignment__actor_kind=SignalActorKind.SYSTEM)
 
     def _apply_signal_report_channel_filter(self, queryset):
         # `channel_id=<uuid>` narrows to reports assigned to one space. Absent or empty
