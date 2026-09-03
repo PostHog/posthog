@@ -108,15 +108,6 @@ class TestQueryStatusManager(SimpleTestCase):
             self.manager.get_query_status()
         assert self.manager.get_query_status(resolve_results=False).complete is True
 
-    def test_hands_back_an_explicit_result_reference(self):
-        self.query_status.complete = True
-        reference = {"object_key": "frames/abc.arrow", "bucket": "notebook-frames"}
-        self.manager.store_query_status(self.query_status, result_reference=reference)
-
-        status = self.manager.get_query_status()
-
-        assert status.results == reference
-
     def test_delete_forgets_the_query(self):
         self.manager.store_query_status(self.query_status)
 

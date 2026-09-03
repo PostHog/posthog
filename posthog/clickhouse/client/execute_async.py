@@ -101,12 +101,9 @@ class QueryStatusManager:
         self,
         query_status: QueryStatus,
         ttl_seconds: Optional[int] = None,
-        result_reference: Optional[dict] = None,
     ) -> None:
-        """Write the record. `query_status.results` is never stored: a query-runner result is
-        pointed at through the cache key it carries, and a caller whose result lives elsewhere
-        passes a small `result_reference` (for example the object key a notebook frame was
-        written under), which the poll hands back in place of the result."""
+        """Write the record. `query_status.results` is never stored; the record points at the
+        result through the cache key it carries."""
         ttl = ttl_seconds if ttl_seconds is not None else settings.ASYNC_QUERY_STATUS_TTL_SECONDS
         query_status.expiration_time = datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=ttl)
         fields: dict[str, str] = {
@@ -130,8 +127,6 @@ class QueryStatusManager:
         cache_key = query_status.results.get("cache_key") if isinstance(query_status.results, dict) else None
         if cache_key:
             fields["cache_key"] = cache_key
-        if result_reference is not None:
-            fields["result_reference"] = json.dumps(result_reference).decode("utf-8")
         self.redis_client.hset(self.status_key, mapping=fields)
         self.redis_client.expire(self.status_key, ttl)
 
@@ -214,10 +209,7 @@ class QueryStatusManager:
         )
 
         if query_status.complete and not query_status.error and resolve_results:
-            if record.get("result_reference"):
-                query_status.results = json.loads(record["result_reference"])
-            else:
-                query_status.results = self._load_result(record.get("cache_key"))
+            query_status.results = self._load_result(record.get("cache_key"))
 
         if show_progress and not query_status.complete:
             query_status.query_progress = self.get_clickhouse_progresses()
