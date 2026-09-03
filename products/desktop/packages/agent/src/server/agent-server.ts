@@ -4204,12 +4204,14 @@ ${unsupportedDeliverable}`;
   private buildSourceControlAccessInstructions(): string {
     const settingsUrl = `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/settings/user-personal-integrations`;
     return `
-## When you cannot reach the code
-You may have no repository checked out, or no credentials to push and open a pull request with.
-- Answer the part of the request that does not need the code first — questions about PostHog, their data, or their configuration are all still answerable.
-- If the request turns out not to need a code change at all, just answer it and say nothing about GitHub.
-- Only if it genuinely needs a code change, say so plainly and link them to ${settingsUrl} to connect GitHub, then ask them to come back to you.
-- Do not work around it: no guessing at file contents you cannot read, and no starting a change you have no way to deliver.`;
+## When repository access is unavailable
+A cloud run can start without repository content or GitHub credentials.
+- If the request does not need repository content, answer it and do not mention GitHub.
+- Codebase analysis, code review, and code changes require repository content.
+- If repository content is unavailable, do not replace the requested code work with generic guidance or PostHog data analysis.
+- State the access limit. Link the user to ${settingsUrl} to connect GitHub. Ask the user to send the request again.
+- If repository content is available but publishing credentials are not, complete read-only work. Request GitHub access before you change code.
+- Do not guess file contents. Do not start a change that you cannot deliver.`;
   }
 
   private buildCloudSystemPrompt(

@@ -5330,6 +5330,9 @@ describe("AgentServer HTTP Mode", () => {
           "`posthog:metric-list`",
           "`posthog:metric-describe`",
           "`posthog:data-catalog-metric-run`",
+          "Codebase analysis, code review, and code changes require repository content.",
+          "do not replace the requested code work with generic guidance or PostHog data analysis",
+          "/settings/user-personal-integrations",
         ],
         shouldNotContain: [
           "gh repo clone",
