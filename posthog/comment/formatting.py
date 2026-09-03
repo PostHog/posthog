@@ -523,12 +523,12 @@ def slack_blocks_to_rich_content(blocks: list[JSON] | None, user_names: dict[str
     return {"type": "doc", "content": doc_nodes or [{"type": "paragraph", "content": []}]}
 
 
-def _serialize_text_node_to_markdown(node: JSON) -> str:
+def _serialize_text_node_to_markdown(node: JSON, escape_markdown: bool = True) -> str:
     text = node.get("text", "")
     marks = node.get("marks", [])
     has_code_mark = any(mark.get("type") == "code" for mark in marks)
 
-    if not has_code_mark:
+    if escape_markdown and not has_code_mark:
         text = _escape_markdown(text)
 
     link_mark = next((mark for mark in marks if mark.get("type") == "link"), None)
@@ -551,12 +551,14 @@ def _serialize_text_node_to_markdown(node: JSON) -> str:
     return text
 
 
-def _serialize_inline_nodes_to_markdown(nodes: list[JSON], include_images: bool = True) -> str:
+def _serialize_inline_nodes_to_markdown(
+    nodes: list[JSON], include_images: bool = True, escape_markdown: bool = True
+) -> str:
     chunks: list[str] = []
     for node in nodes:
         node_type = node.get("type")
         if node_type == "text":
-            chunks.append(_serialize_text_node_to_markdown(node))
+            chunks.append(_serialize_text_node_to_markdown(node, escape_markdown=escape_markdown))
         elif node_type == "hardBreak":
             chunks.append("  \n")
         elif node_type == "image" and include_images:
@@ -575,22 +577,28 @@ def _list_start(node: JSON) -> int:
         return 1
 
 
-def _serialize_block_node_to_markdown(node: JSON, include_images: bool = True) -> str:
+def _serialize_block_node_to_markdown(node: JSON, include_images: bool = True, escape_markdown: bool = True) -> str:
     """Serialize a single non-list block node to markdown. Lists are handled by
     _serialize_list_to_markdown because they carry indentation state."""
     node_type = node.get("type")
 
     if node_type == "paragraph":
-        return _serialize_inline_nodes_to_markdown(node.get("content", []), include_images=include_images)
+        return _serialize_inline_nodes_to_markdown(
+            node.get("content", []), include_images=include_images, escape_markdown=escape_markdown
+        )
 
     if node_type == "blockquote":
         quote_lines: list[str] = []
         for child in node.get("content", []):
             child_type = child.get("type")
             if child_type in ("bulletList", "orderedList"):
-                child_md = _serialize_list_to_markdown(child, child_type == "orderedList", "", include_images)
+                child_md = _serialize_list_to_markdown(
+                    child, child_type == "orderedList", "", include_images, escape_markdown
+                )
             else:
-                child_md = _serialize_block_node_to_markdown(child, include_images=include_images)
+                child_md = _serialize_block_node_to_markdown(
+                    child, include_images=include_images, escape_markdown=escape_markdown
+                )
             if child_md:
                 quote_lines.extend(f"> {line}".rstrip() for line in child_md.split("\n"))
         return "\n".join(quote_lines)
@@ -601,7 +609,9 @@ def _serialize_block_node_to_markdown(node: JSON, include_images: bool = True) -
             level = min(max(int(attrs.get("level") or 1), 1), 6)
         except (TypeError, ValueError):
             level = 1
-        text = _serialize_inline_nodes_to_markdown(node.get("content", []), include_images=include_images)
+        text = _serialize_inline_nodes_to_markdown(
+            node.get("content", []), include_images=include_images, escape_markdown=escape_markdown
+        )
         return f"{'#' * level} {text}" if text else ""
 
     if node_type == "horizontalRule":
@@ -620,12 +630,16 @@ def _serialize_block_node_to_markdown(node: JSON, include_images: bool = True) -
         return ""
 
     if node.get("content"):
-        return _serialize_inline_nodes_to_markdown(node.get("content", []), include_images=include_images)
+        return _serialize_inline_nodes_to_markdown(
+            node.get("content", []), include_images=include_images, escape_markdown=escape_markdown
+        )
 
     return ""
 
 
-def _serialize_list_to_markdown(node: JSON, ordered: bool, indent: str, include_images: bool = True) -> str:
+def _serialize_list_to_markdown(
+    node: JSON, ordered: bool, indent: str, include_images: bool = True, escape_markdown: bool = True
+) -> str:
     start = _list_start(node)
     lines: list[str] = []
     position = 0
@@ -639,11 +653,15 @@ def _serialize_list_to_markdown(node: JSON, ordered: bool, indent: str, include_
         for child in item.get("content", []):
             child_type = child.get("type")
             if child_type in ("bulletList", "orderedList"):
-                nested = _serialize_list_to_markdown(child, child_type == "orderedList", child_indent, include_images)
+                nested = _serialize_list_to_markdown(
+                    child, child_type == "orderedList", child_indent, include_images, escape_markdown
+                )
                 if nested:
                     blocks.append((nested, True))
             else:
-                text = _serialize_block_node_to_markdown(child, include_images=include_images).strip()
+                text = _serialize_block_node_to_markdown(
+                    child, include_images=include_images, escape_markdown=escape_markdown
+                ).strip()
                 if text:
                     blocks.append((text, False))
         if not blocks:
@@ -663,8 +681,14 @@ def _serialize_list_to_markdown(node: JSON, ordered: bool, indent: str, include_
     return "\n".join(lines)
 
 
-def rich_content_to_markdown(rich_content: JSON | None, include_images: bool = True) -> str:
-    """Serialize PostHog rich content JSON to markdown text."""
+def rich_content_to_markdown(
+    rich_content: JSON | None, include_images: bool = True, escape_markdown: bool = True
+) -> str:
+    """Serialize PostHog rich content JSON to markdown text.
+
+    ``escape_markdown`` backslash-escapes markdown control characters in text without a
+    code mark. A destination with no markdown parser uses rich_content_to_plain_text.
+    """
     if not rich_content:
         return ""
 
@@ -677,21 +701,34 @@ def rich_content_to_markdown(rich_content: JSON | None, include_images: bool = T
         node_type = node.get("type")
 
         if node_type in ("bulletList", "orderedList"):
-            list_md = _serialize_list_to_markdown(node, node_type == "orderedList", "", include_images)
+            list_md = _serialize_list_to_markdown(node, node_type == "orderedList", "", include_images, escape_markdown)
             if list_md:
                 blocks.append(list_md)
             continue
 
         # Empty paragraphs are kept so intentional blank lines survive; other empty blocks are skipped.
         if node_type == "paragraph":
-            blocks.append(_serialize_block_node_to_markdown(node, include_images=include_images))
+            blocks.append(
+                _serialize_block_node_to_markdown(node, include_images=include_images, escape_markdown=escape_markdown)
+            )
             continue
 
-        block_md = _serialize_block_node_to_markdown(node, include_images=include_images)
+        block_md = _serialize_block_node_to_markdown(
+            node, include_images=include_images, escape_markdown=escape_markdown
+        )
         if block_md:
             blocks.append(block_md)
 
     return "\n\n".join(blocks).strip()
+
+
+def rich_content_to_plain_text(rich_content: JSON | None, include_images: bool = True) -> str:
+    """Serialize PostHog rich content JSON for a text/plain destination.
+
+    A plain-text reader has no markdown parser. A markdown escape thus reaches the
+    person as a literal backslash, for example "ok\\. tell me more".
+    """
+    return rich_content_to_markdown(rich_content, include_images=include_images, escape_markdown=False)
 
 
 def _text_node_to_slack_elements(node: JSON) -> list[JSON]:

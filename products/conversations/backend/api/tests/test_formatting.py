@@ -12,6 +12,7 @@ from posthog.comment.formatting import (
     extract_slack_user_ids,
     rich_content_to_html,
     rich_content_to_markdown,
+    rich_content_to_plain_text,
     rich_content_to_slack_payload,
     slack_to_content_and_rich_content,
 )
@@ -778,6 +779,50 @@ class TestRichContentBlockNodes(SimpleTestCase):
         assert '<ol start="2"><li>parent<ul><li>child</li></ul></li></ol>' in html
         assert "<hr>" in html
         assert "<s>gone</s>" in html
+
+    @parameterized.expand(
+        [
+            (
+                "paragraph_punctuation",
+                {"type": "doc", "content": [_paragraph("ok. tell me more")]},
+                "ok. tell me more",
+            ),
+            (
+                "list_item_with_brackets_and_dashes",
+                {
+                    "type": "doc",
+                    "content": [
+                        {"type": "bulletList", "content": [_list_item(_paragraph("v1.2 (beta) - ready"))]},
+                    ],
+                },
+                "- v1.2 (beta) - ready",
+            ),
+            (
+                "literal_backslash_survives",
+                {"type": "doc", "content": [_paragraph("C:\\logs")]},
+                "C:\\logs",
+            ),
+            (
+                "code_mark_stays_as_typed",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": "a.b", "marks": [{"type": "code"}]}],
+                        }
+                    ],
+                },
+                "`a.b`",
+            ),
+        ]
+    )
+    def test_rich_content_to_plain_text_drops_markdown_escapes(self, _name: str, doc: dict, expected: str) -> None:
+        assert rich_content_to_plain_text(doc) == expected
+
+    def test_rich_content_to_markdown_still_escapes_for_markdown_readers(self) -> None:
+        doc = {"type": "doc", "content": [_paragraph("ok. tell me more")]}
+        assert rich_content_to_markdown(doc) == "ok\\. tell me more"
 
     def test_rich_content_to_html_renders_unknown_block_inline_content_as_paragraph(self) -> None:
         doc = {

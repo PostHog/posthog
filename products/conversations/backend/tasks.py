@@ -25,6 +25,7 @@ from posthog.comment.formatting import (
     extract_images_from_rich_content,
     rich_content_to_html,
     rich_content_to_markdown,
+    rich_content_to_plain_text,
     rich_content_to_slack_payload,
 )
 from posthog.egress.github.transport import GitHubRateLimitError
@@ -775,7 +776,7 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
 
     if comment.rich_content:
         html_body = rich_content_to_html(comment.rich_content)
-        txt_body = rich_content_to_markdown(comment.rich_content, include_images=False)
+        txt_body = rich_content_to_plain_text(comment.rich_content, include_images=False)
     else:
         txt_body = comment.content or ""
         html_body = f"<p>{html_mod.escape(comment.content or '')}</p>"
