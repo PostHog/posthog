@@ -4,8 +4,6 @@ import { render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 import { router } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -27,10 +25,6 @@ describe('PlayerSidebarExperimentsSection', () => {
             getMocks: {
                 '/api/projects/:team_id/experiments/session_context/': experimentSessionContextEnrolledCurrentResponse,
             },
-        })
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT], {
-            [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true,
         })
     })
 

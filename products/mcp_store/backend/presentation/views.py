@@ -13,7 +13,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import DomainNameValidator
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import Count, Q, QuerySet
 from django.http import HttpResponse
 from django.http.response import HttpResponseBase
@@ -46,10 +46,9 @@ from posthog.rate_limit import (
     MCPProxyBurstThrottle,
     MCPProxySustainedThrottle,
 )
-from posthog.security.url_validation import is_url_allowed
 
 from ..agents import sync_built_in_agents
-from ..facade.api import resolve_member_tool_states
+from ..facade.api import check_mcp_url_policy, resolve_member_tool_states
 from ..gateway import link_installation_to_gateway, members_can_manage_agent_access, server_disabled_reason
 from ..models import (
     AGENT_GRANT_SCOPE_CHOICES,
@@ -379,6 +378,11 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
         return request.user.id == obj.user_id
 
 
+class MCPInstallationScope(models.TextChoices):
+    PERSONAL = "personal", "personal"
+    SHARED = "shared", "shared"
+
+
 class InstallCustomSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=200)
     url = serializers.URLField(max_length=2048)
@@ -392,7 +396,7 @@ class InstallCustomSerializer(serializers.Serializer):
     install_source = serializers.ChoiceField(choices=["posthog", "posthog-code"], required=False, default="posthog")
     posthog_code_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
     scope = serializers.ChoiceField(
-        choices=["personal", "shared"],
+        choices=MCPInstallationScope.choices,
         required=False,
         default="personal",
         help_text=(
@@ -425,7 +429,8 @@ class InstallCustomSerializer(serializers.Serializer):
     )
 
     def validate_url(self, value: str) -> str:
-        allowed, error = is_url_allowed(value)
+        team = self.context.get("team")
+        allowed, error = check_mcp_url_policy(value, getattr(team, "id", None))
         if not allowed:
             raise serializers.ValidationError(f"URL not allowed: {error}")
         return value
@@ -442,7 +447,7 @@ class InstallTemplateSerializer(serializers.Serializer):
     install_source = serializers.ChoiceField(choices=["posthog", "posthog-code"], required=False, default="posthog")
     posthog_code_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
     scope = serializers.ChoiceField(
-        choices=["personal", "shared"],
+        choices=MCPInstallationScope.choices,
         required=False,
         default="personal",
         help_text=(
@@ -982,7 +987,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _validate_mcp_url_or_error_response(self, mcp_url: str) -> Response | None:
-        allowed, reason = is_url_allowed(mcp_url)
+        allowed, reason = check_mcp_url_policy(mcp_url, self.team_id)
         if not allowed:
             logger.warning("SSRF blocked MCP server URL", url=mcp_url, reason=reason)
             return Response({"detail": "Server URL blocked by security policy"}, status=status.HTTP_400_BAD_REQUEST)
@@ -1540,6 +1545,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
     @validated_request(
         InstallCustomSerializer,
+        include_serializer_context=True,
         responses={
             200: OpenApiResponse(response=OAuthRedirectResponseSerializer),
             201: OpenApiResponse(response=MCPServerInstallationSerializer),
@@ -1563,7 +1569,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         user_client_secret = (data.get("client_secret") or "").strip()
         scope = data.get("scope", "personal")
         self._require_admin_for_shared_scope(scope)
-        self._require_custom_servers_allowed()
+        # Connecting to a server a teammate already registered is not adding
+        # one, so the team's custom-server setting does not apply.
+        if not MCPGatewayServer.objects.for_team(self.team_id).filter(url=url).exists():
+            self._require_custom_servers_allowed()
         self._validate_gateway_options(data)
 
         install_source = data.get("install_source", "posthog")

@@ -19,6 +19,7 @@ from llm_gateway.request_context import (
     get_posthog_flags,
     get_posthog_properties,
     get_product,
+    get_request_id,
     get_time_to_first_token,
     get_traceparent_trace_id,
 )
@@ -79,13 +80,25 @@ def _apply_owned_event_properties(
 ) -> None:
     """Enforce gateway-owned event properties, run after caller `x-posthog-property-*` headers are merged.
 
-    `ai_product`, `$ai_billable`, and `$ai_effort` are gateway-derived (effort via
+    `ai_product`, `$ai_billable`, `$ai_effort`, and `$ai_span_id` are gateway-derived (effort via
     `ProviderConfig.extract_effort`) and must not be spoofable via headers, so we re-assert them
-    here and drop `$ai_effort` when the gateway found none. OAuth requests use the authenticated
-    project as `team_id`; trusted server callers can attribute usage to a customer team.
+    here and drop `$ai_effort` when the gateway found none. `llm_gateway_request_id` is re-asserted
+    too, but its value is not unique: the caller's `x-request-id` when sent, a truncated uuid
+    otherwise. OAuth requests use the authenticated project as `team_id`; trusted server callers
+    can attribute usage to a customer team.
     """
     properties["ai_product"] = product
     properties["$ai_billable"] = _is_product_billable(product)
+    # Unique per event: one request can emit several (a provider fallback, a retry) and
+    # consumers key on this, so a shared value collapses them.
+    properties["$ai_span_id"] = str(uuid4())
+    # Joins an event to its gateway access log line. Named apart from capture's signed
+    # `$ai_gateway_request_id`, which carries a different trust model.
+    request_id = get_request_id()
+    if request_id:
+        properties["llm_gateway_request_id"] = request_id
+    else:
+        properties.pop("llm_gateway_request_id", None)
     effort = get_effort()
     if effort is not None:
         properties["$ai_effort"] = effort
@@ -235,7 +248,6 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_latency": standard_logging_object.get("response_time", 0.0),
             "$ai_stream": is_streaming,
             "$ai_trace_id": trace_id,
-            "$ai_span_id": str(uuid4()),
             # Stamped explicitly to bypass the SDK's group_type_index lookup.
             # The AI usage report hardcodes `$group_1` (posthog/tasks/usage_report.py)
             # so the gateway must guarantee that slot regardless of how the

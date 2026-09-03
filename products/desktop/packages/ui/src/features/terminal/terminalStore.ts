@@ -61,6 +61,32 @@ export function clearPersistedSessionIds(persistedState: unknown) {
   };
 }
 
+export function clearPersistedTranscripts(persistedState: unknown) {
+  if (!persistedState || typeof persistedState !== "object") {
+    return persistedState;
+  }
+
+  const state = persistedState as {
+    terminalStates?: Record<string, Partial<TerminalState>>;
+  };
+
+  if (!state.terminalStates || typeof state.terminalStates !== "object") {
+    return persistedState;
+  }
+
+  return {
+    ...state,
+    terminalStates: Object.fromEntries(
+      Object.entries(state.terminalStates).map(([key, value]) => [
+        key,
+        key.startsWith("claude-auth-")
+          ? { ...value, serializedState: null }
+          : value,
+      ]),
+    ),
+  };
+}
+
 export const useTerminalStore = create<TerminalStoreState>()(
   persist(
     (set, get) => ({
@@ -128,9 +154,15 @@ export const useTerminalStore = create<TerminalStoreState>()(
     }),
     {
       name: "terminal-store",
-      version: 1,
-      migrate: (persistedState) =>
-        clearPersistedSessionIds(persistedState) as PersistedTerminalStoreState,
+      version: 2,
+      migrate: (persistedState, version) => {
+        const withoutSessionIds = clearPersistedSessionIds(persistedState);
+        return (
+          version < 2
+            ? clearPersistedTranscripts(withoutSessionIds)
+            : withoutSessionIds
+        ) as PersistedTerminalStoreState;
+      },
       partialize: (state): PersistedTerminalStoreState => ({
         terminalStates: Object.fromEntries(
           Object.entries(state.terminalStates).map(([k, v]) => [

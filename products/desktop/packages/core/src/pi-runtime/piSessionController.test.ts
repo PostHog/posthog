@@ -1099,45 +1099,51 @@ describe("PiSessionController", () => {
     );
   });
 
-  it("resumes and retries a message when the prior sandbox is gone", async () => {
-    const staleSession = {
-      ...createSession(),
-      taskRunId: "run-1",
-      sendUserMessage: vi.fn(async () => {
-        throw new Error("No active sandbox for this task run");
-      }),
-    };
-    const resumedSession = {
-      ...createSession(),
-      sendUserMessage: vi.fn(async () => {}),
-    };
-    const provider = {
-      get: vi
-        .fn()
-        .mockResolvedValueOnce(staleSession)
-        .mockResolvedValue(resumedSession),
-    } as PiSessionProvider;
-    const resumeCloudPiRun = vi.fn(async () => ({ id: "run-2" }));
-    const taskService = {
-      prepareCloudPiMessage: vi.fn(async () => ({
-        content: "continue",
-        artifactIds: [],
-      })),
-      resumeCloudPiRun,
-    } as unknown as TaskService;
-    const controller = new PiSessionController(provider, taskService);
+  it.each([
+    ["the prior sandbox is gone", "No active sandbox for this task run"],
+    ["the prior workflow has ended", "Task run workflow has ended"],
+  ])(
+    "resumes and retries a message when %s",
+    async (_condition, errorMessage) => {
+      const staleSession = {
+        ...createSession(),
+        taskRunId: "run-1",
+        sendUserMessage: vi.fn(async () => {
+          throw new Error(errorMessage);
+        }),
+      };
+      const resumedSession = {
+        ...createSession(),
+        sendUserMessage: vi.fn(async () => {}),
+      };
+      const provider = {
+        get: vi
+          .fn()
+          .mockResolvedValueOnce(staleSession)
+          .mockResolvedValue(resumedSession),
+      } as PiSessionProvider;
+      const resumeCloudPiRun = vi.fn(async () => ({ id: "run-2" }));
+      const taskService = {
+        prepareCloudPiMessage: vi.fn(async () => ({
+          content: "continue",
+          artifactIds: [],
+        })),
+        resumeCloudPiRun,
+      } as unknown as TaskService;
+      const controller = new PiSessionController(provider, taskService);
 
-    await controller.connect("task-1");
-    await controller.submit("task-1", "continue", false, "steer");
+      await controller.connect("task-1");
+      await controller.submit("task-1", "continue", false, "steer");
 
-    expect(resumeCloudPiRun).toHaveBeenCalledWith("task-1", "run-1");
-    expect(resumedSession.sendUserMessage).toHaveBeenCalledWith(
-      "prompt",
-      "continue",
-      [],
-      expect.any(String),
-    );
-  });
+      expect(resumeCloudPiRun).toHaveBeenCalledWith("task-1", "run-1");
+      expect(resumedSession.sendUserMessage).toHaveBeenCalledWith(
+        "prompt",
+        "continue",
+        [],
+        expect.any(String),
+      );
+    },
+  );
 
   it("keeps a connected transcript usable when a command fails", async () => {
     const initialEvent: AgentConversationEvent = {
@@ -1165,6 +1171,7 @@ describe("PiSessionController", () => {
         scope: "operation",
         title: "Failed to send message",
         message: "temporary command failure",
+        recoveryPrompt: "retry me",
       },
     });
   });
@@ -1573,6 +1580,25 @@ describe("PiSessionController", () => {
     expect(controller.store.getState().sessions["task-1"].events).toEqual([
       turnCompleted,
     ]);
+  });
+
+  it("falls back to stored turn usage when the live stats RPC is unavailable", async () => {
+    const session = createSession();
+    vi.mocked(session.client.getSessionStats).mockRejectedValue(
+      new Error("Cloud task run run-1 is completed"),
+    );
+    session.usageStats = vi.fn(() => ({
+      contextUsage: { tokens: 50_000, contextWindow: 200_000, percent: 25 },
+    }));
+    const controller = createController(session);
+
+    await controller.connect("task-1");
+
+    await vi.waitFor(() => {
+      expect(controller.store.getState().sessions["task-1"].stats).toEqual({
+        contextUsage: { tokens: 50_000, contextWindow: 200_000, percent: 25 },
+      });
+    });
   });
 
   it("loads session state and appends normalized runtime events", async () => {

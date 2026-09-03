@@ -486,10 +486,12 @@ export interface hogFlowEditorLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
                                                         | 'task_model'
                                                         | 'task_repository'
+                                                        | 'task_skills'
                                                 }[]
                                               | undefined
                                           name: string
@@ -732,15 +734,11 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          events: any[]
                                           properties?: any[] | undefined
+                                          source: 'internal-events'
                                       }
-                                      type: 'github-event'
-                                  }
-                                | {
-                                      filters: {
-                                          properties?: any[] | undefined
-                                      }
-                                      type: 'slack-message'
+                                      type: 'internal-event'
                                   }
                                 | {
                                       filters: {
@@ -901,15 +899,11 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
+                                events: any[]
                                 properties?: any[] | undefined
+                                source: 'internal-events'
                             }
-                            type: 'github-event'
-                        }
-                      | {
-                            filters: {
-                                properties?: any[] | undefined
-                            }
-                            type: 'slack-message'
+                            type: 'internal-event'
                         }
                       | {
                             filters: {
@@ -1040,10 +1034,12 @@ export interface hogFlowEditorLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
                                 | 'task_model'
                                 | 'task_repository'
+                                | 'task_skills'
                         }[]
                       | null
                       | undefined
@@ -1345,10 +1341,12 @@ export interface hogFlowEditorLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
                                                         | 'task_model'
                                                         | 'task_repository'
+                                                        | 'task_skills'
                                                 }[]
                                               | undefined
                                           name: string
@@ -1591,15 +1589,11 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          events: any[]
                                           properties?: any[] | undefined
+                                          source: 'internal-events'
                                       }
-                                      type: 'github-event'
-                                  }
-                                | {
-                                      filters: {
-                                          properties?: any[] | undefined
-                                      }
-                                      type: 'slack-message'
+                                      type: 'internal-event'
                                   }
                                 | {
                                       filters: {
@@ -1760,15 +1754,11 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
+                                events: any[]
                                 properties?: any[] | undefined
+                                source: 'internal-events'
                             }
-                            type: 'github-event'
-                        }
-                      | {
-                            filters: {
-                                properties?: any[] | undefined
-                            }
-                            type: 'slack-message'
+                            type: 'internal-event'
                         }
                       | {
                             filters: {
@@ -1899,10 +1889,12 @@ export interface hogFlowEditorLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
                                 | 'task_model'
                                 | 'task_repository'
+                                | 'task_skills'
                         }[]
                       | null
                       | undefined

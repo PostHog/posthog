@@ -28,8 +28,14 @@ const ROSTER_COMPACT_MAX_PX = 768
  * outgrew a 760px portal, and a modal can't host the scout pages it links to.
  */
 export function ScoutsRosterLegacy(): JSX.Element {
-    const { scoutConfigs, scoutConfigsLoading, scoutFleetSynced, enabledCount, customScoutCount } =
-        useValues(scoutFleetLogic)
+    const {
+        scoutConfigs,
+        scoutConfigsLoading,
+        scoutFleetSynced,
+        scoutFleetSyncOutcome,
+        enabledCount,
+        customScoutCount,
+    } = useValues(scoutFleetLogic)
     const { loadScoutConfigs, materializeScoutFleet, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
     // One measurement for the whole roster, so the header chrome and the table agree on which
     // layout they're in — two observers could disagree for a frame mid-resize.
@@ -51,11 +57,12 @@ export function ScoutsRosterLegacy(): JSX.Element {
     }, [materializeScoutFleet])
 
     // Roster shape once per opening, the first time the fleet resolves. A failed load stays `null`
-    // and reports nothing — an unreachable scout API isn't an empty troop. An empty fleet waits for
-    // the materialization too, so a troop that is about to arrive is never counted as no troop.
+    // and reports nothing — an unreachable scout API isn't an empty troop. The report waits for the
+    // materialization either way: an empty troop that is about to arrive is never counted as no
+    // troop, and `sync_outcome` only means something once the sync has settled.
     const fleetViewedFiredRef = useRef(false)
     useEffect(() => {
-        if (scoutConfigs === null || (scoutConfigs.length === 0 && !scoutFleetSynced) || fleetViewedFiredRef.current) {
+        if (scoutConfigs === null || !scoutFleetSynced || fleetViewedFiredRef.current) {
             return
         }
         fleetViewedFiredRef.current = true
@@ -64,8 +71,9 @@ export function ScoutsRosterLegacy(): JSX.Element {
             enabledCount,
             customCount: customScoutCount,
             dryRunCount: scoutConfigs.filter((config) => !config.emit).length,
+            syncOutcome: scoutFleetSyncOutcome,
         })
-    }, [scoutConfigs, scoutFleetSynced, enabledCount, customScoutCount])
+    }, [scoutConfigs, scoutFleetSynced, scoutFleetSyncOutcome, enabledCount, customScoutCount])
 
     // An empty fleet before the first sync settles is a troop still being assembled, not an empty
     // one — showing the empty state here would tell people to create a scout moments before their

@@ -1,10 +1,8 @@
-use std::any::Any;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::rc::Rc;
+use std::sync::Arc;
 
-use indexmap::IndexMap;
-use serde::de::DeserializeOwned;
 use serde_json::{json, Value as JsonValue};
 
 use crate::{
@@ -12,6 +10,7 @@ use crate::{
     error::VmError,
     memory::{HeapReference, VmHeap},
     ops::Operation,
+    program::Token,
     state::{
         chunk_str, chunk_to_symbol, close_over_cells, closure_from_json, closure_to_json,
         collect_cells, rebuild_cells, root_closure_json, value_from_json, value_to_json,
@@ -20,7 +19,7 @@ use crate::{
     util::{get_json_nested, like, regex_match},
     values::{
         compare_values, temporal_seconds_pair, Callable, Closure, FromHogLiteral, HogLiteral,
-        HogValue, LocalCallable, Num, NumOp, Upvalue, UpvalueCell,
+        HogMap, HogStr, HogValue, LocalCallable, Num, NumOp, Upvalue, UpvalueCell,
     },
 };
 
@@ -83,6 +82,10 @@ pub struct HogVM<'a> {
     // the pointer is currently pointing into to e.g. "arrayExists", as part of the function call that branches into
     // that function.
     current_symbol: Option<Symbol>,
+    // The decoded token slice of the chunk `current_symbol` names, kept in lockstep with it (via
+    // `set_chunk`) so the per-step fetch is a bounds-checked index instead of a symbol match plus
+    // table lookup. Borrows from the context, like every other program view.
+    current_tokens: &'a [Token],
 }
 
 struct CallFrame {
@@ -114,6 +117,7 @@ impl<'a> HogVM<'a> {
             ops: 0,
             telemetry: Vec::new(),
             current_symbol: None,
+            current_tokens: context.chunk_tokens(&None)?,
             context,
             heap: VmHeap::new(context.max_heap_size),
         })
@@ -121,7 +125,7 @@ impl<'a> HogVM<'a> {
 
     /// Step the virtual machine, writing some debug information to the provided output function.
     pub fn debug_step(&mut self, output: &dyn Fn(String)) -> Result<StepOutcome, VmError> {
-        let op: Operation = self.next()?;
+        let op: Operation = self.next_op()?;
         let mut surrounding = Vec::new();
         let start = self.ip.saturating_sub(2);
         for i in 0..5 {
@@ -141,7 +145,7 @@ impl<'a> HogVM<'a> {
     /// Step the virtual machine one cycle.
     pub fn step(&mut self) -> Result<StepOutcome, VmError> {
         let pre_ip = self.ip;
-        let op: Operation = match self.next() {
+        let op: Operation = match self.next_op() {
             Ok(op) => op,
             // The reference VMs halt gracefully when the instruction pointer runs off the
             // end of the top-level program (it has no trailing RETURN), yielding the top of
@@ -179,7 +183,7 @@ impl<'a> HogVM<'a> {
                 // GetGlobal is used to do 1 of 2 things, either push a value from a global variable onto the stack, or push a new
                 // function reference (referred to in other impls as a "closure") onto the stack - either a native one, or a hog one
                 let mut chain = Vec::new();
-                let count: usize = self.next()?;
+                let count: usize = self.next_usize()?;
                 for _ in 0..count {
                     chain.push(self.pop_stack()?);
                 }
@@ -193,7 +197,7 @@ impl<'a> HogVM<'a> {
                 if let Some(found) = get_json_nested(&context.globals, &chain, self)? {
                     let val = self.json_to_hog(found)?;
                     self.push_stack(val)?;
-                } else if let Ok(closure) = self.get_fn_reference(&chain) {
+                } else if let Some(closure) = self.get_fn_reference(&chain) {
                     self.push_stack(closure)?;
                 } else if get_json_nested(&context.globals, &chain[..1], self)?.is_some() {
                     // If the first element of the chain is a global, push null onto the stack, e.g.
@@ -214,16 +218,20 @@ impl<'a> HogVM<'a> {
             Operation::CallGlobal => {
                 // The TS impl here has a bunch of special case handling for functions with particular names.
                 // I'm hoping I can simplify that here by unifying the native call interface a bit
-                let name: String = self.next()?;
-                let arg_count: usize = self.next()?;
+                let name = self.next_str()?;
+                let arg_count: usize = self.next_usize()?;
                 // NOTE - the TS implementation has a clause here that looks for the name in the
                 // "declared functions" - basically, the legacy way of declaring a function before Callable
                 // and closures were introduced. We leave it out because, as above, DeclareFn isn't supported
                 let available_args = self.stack.len() - self.current_frame_base();
                 if available_args < arg_count {
-                    return Err(VmError::NotEnoughArguments(name, available_args, arg_count));
+                    return Err(VmError::NotEnoughArguments(
+                        name.to_string(),
+                        available_args,
+                        arg_count,
+                    ));
                 }
-                let symbol = Symbol::new("stl", &name);
+                let symbol = Symbol::new("stl", name);
                 if self.context.has_symbol(&symbol) {
                     // Cross module calls are done in a manner very similar to CallLocal, just with some
                     // messing around with the current state module.
@@ -243,10 +251,10 @@ impl<'a> HogVM<'a> {
                 // This VM does native calls like so: it returns a "native call" struct, which the
                 // executing environment dispatches — inline for a native, or as a suspension for a
                 // registered async function (handled in the resumable driver).
-                return Ok(self.prep_native_call(name, args));
+                return Ok(self.prep_native_call(name.to_string(), args));
             }
             Operation::And => {
-                let count: usize = self.next()?;
+                let count: usize = self.next_usize()?;
                 let mut acc: HogLiteral = true.into();
                 for _ in 0..count {
                     let value = self.pop_stack()?;
@@ -256,7 +264,7 @@ impl<'a> HogVM<'a> {
                 self.push_stack(acc)?;
             }
             Operation::Or => {
-                let count: usize = self.next()?;
+                let count: usize = self.next_usize()?;
                 let mut acc: HogLiteral = false.into();
                 for _ in 0..count {
                     let value = self.pop_stack()?;
@@ -346,52 +354,50 @@ impl<'a> HogVM<'a> {
                 self.push_stack(HogLiteral::Null)?;
             }
             Operation::String => {
-                let val: String = self.next()?;
-                self.push_stack(val)?;
+                let val = self.next_str()?;
+                // Constants push a shared view of the pre-decoded token — no allocation.
+                self.push_stack(HogLiteral::String(HogStr::Shared(val.clone())))?;
             }
             Operation::Float => {
-                let val: f64 = self.next()?;
+                let val: f64 = self.next_f64()?;
                 self.push_stack(val)?;
             }
             // The reference's INTEGER opcode is untyped `pushStack(next())`; the SQL-AST compiler
             // emits it with a boolean operand. Fast-path the overwhelmingly common i64 (this is a hot
             // opcode — loop counters etc.), and fall back to pushing the raw token for anything else.
-            Operation::Integer => {
-                let as_int = self
-                    .context
-                    .get_bytecode(self.ip, &self.current_symbol)?
-                    .as_i64();
-                if let Some(i) = as_int {
-                    self.ip += 1;
-                    self.push_stack(i)?;
-                } else {
-                    let token = self
-                        .context
-                        .get_bytecode(self.ip, &self.current_symbol)?
-                        .clone();
-                    self.ip += 1;
-                    let val = self.json_to_hog(&token)?;
+            Operation::Integer => match self.next_token()? {
+                Token::Int(i) => self.push_stack(*i)?,
+                Token::Bool(b) => self.push_stack(*b)?,
+                Token::Float(f) => self.push_stack(*f)?,
+                Token::Str(s) => self.push_stack(HogLiteral::String(HogStr::Shared(s.clone())))?,
+                Token::Null => self.push_stack(HogLiteral::Null)?,
+                Token::Json(token) => {
+                    let val = self.json_to_hog(token)?;
                     self.push_stack(val)?;
                 }
-            }
+            },
             Operation::Pop => {
                 self.pop_stack()?;
             }
             Operation::GetLocal => {
                 let base = self.current_frame_base();
                 // Usize as a positive offset from the current frame
-                let offset: usize = self.next()?;
-                let ptr = self.hoist(base.checked_add(offset).ok_or(VmError::IntegerOverflow)?)?;
+                let offset: usize = self.next_usize()?;
+                let ptr = self.hoist(
+                    base.checked_add(offset)
+                        .ok_or_else(|| VmError::IntegerOverflow)?,
+                )?;
                 self.push_stack(ptr)?;
             }
             Operation::SetLocal => {
                 // Replace some item "lower" in the stack with the top one.
                 let base = self.current_frame_base();
                 // Usize as a positive offset from the current frame
-                let offset: usize = self.next()?;
+                let offset: usize = self.next_usize()?;
                 let value = self.pop_stack()?;
                 self.set_stack_val(
-                    base.checked_add(offset).ok_or(VmError::IntegerOverflow)?,
+                    base.checked_add(offset)
+                        .ok_or_else(|| VmError::IntegerOverflow)?,
                     value,
                 )?;
             }
@@ -407,32 +413,33 @@ impl<'a> HogVM<'a> {
                 //     return Ok(StepOutcome::Finished(result.deref(&self.heap)?.clone()));
                 // };
                 //
-                self.current_symbol = frame.ret_symbol;
+                self.set_chunk(frame.ret_symbol)?;
                 self.truncate_stack(frame.stack_start)?;
                 self.ip = frame.ret_ptr;
                 self.push_stack(result)?;
             }
             Operation::Jump => {
                 // i32 to permit branching backwards
-                let offset: i32 = self.next()?;
+                let offset: i32 = self.next_i32()?;
                 self.ip = ((self.ip as i64)
                     .checked_add(offset as i64)
-                    .ok_or(VmError::IntegerOverflow)?) as usize;
+                    .ok_or_else(|| VmError::IntegerOverflow)?) as usize;
             }
             Operation::JumpIfFalse => {
                 // i32 to permit branching backwards
-                let offset: i32 = self.next()?;
+                let offset: i32 = self.next_i32()?;
                 // The reference coerces with `!popStack()`, so any falsy value (0, "", null, …) branches.
                 let val = self.pop_stack()?;
                 if !val.deref(&self.heap)?.truthy() {
                     self.ip = ((self.ip as i64)
                         .checked_add(offset as i64)
-                        .ok_or(VmError::IntegerOverflow)?) as usize;
+                        .ok_or_else(|| VmError::IntegerOverflow)?)
+                        as usize;
                 }
             }
             Operation::JumpIfStackNotNull => {
                 // i32 to permit branching backwards
-                let offset: i32 = self.next()?;
+                let offset: i32 = self.next_i32()?;
                 // Weirdly, this operation doesn't pop the value from the stack. This is mostly a random choice.
                 if !self.stack.is_empty() {
                     let item = self.clone_stack_item(self.stack.len() - 1)?;
@@ -440,13 +447,13 @@ impl<'a> HogVM<'a> {
                     if !matches!(item, HogLiteral::Null) {
                         self.ip = ((self.ip as i64)
                             .checked_add(offset as i64)
-                            .ok_or(VmError::IntegerOverflow)?)
+                            .ok_or_else(|| VmError::IntegerOverflow)?)
                             as usize;
                     }
                 }
             }
             Operation::Dict => {
-                let element_count: usize = self.next()?;
+                let element_count: usize = self.next_usize()?;
                 let mut keys = Vec::with_capacity(element_count);
                 let mut values = Vec::with_capacity(element_count);
                 // The keys and values are pushed into the stack in key:value, key:value pairs, but we're
@@ -465,8 +472,8 @@ impl<'a> HogVM<'a> {
                 }
                 // keys/values were popped in reverse (stack order), so reverse the zip to restore
                 // the source insertion order in the IndexMap.
-                let map: IndexMap<String, HogValue> = keys.into_iter().zip(values).rev().collect();
-                let obj = HogLiteral::Object(map);
+                let map: HogMap = keys.into_iter().zip(values).rev().collect();
+                let obj = HogLiteral::Object(Box::new(map));
                 // For the non-primitive types below (objects, arrays, "tuples"), we /always/ heap allocate them. The reason
                 // is that the pattern for e.g. nestedly setting an array value is to GetLocal followed by GetProperty, followed
                 // by a SetProperty. If the array is "flat", as in, element 3 is a HogLiteral rather than Value, that SetProperty
@@ -479,7 +486,7 @@ impl<'a> HogVM<'a> {
                 self.push_stack(ptr)?;
             }
             Operation::Array => {
-                let element_count: usize = self.next()?;
+                let element_count: usize = self.next_usize()?;
                 let mut elements = Vec::with_capacity(element_count);
                 for _ in 0..element_count {
                     elements.push(self.pop_stack()?);
@@ -494,7 +501,7 @@ impl<'a> HogVM<'a> {
             Operation::Tuple => {
                 // A tuple behaves like an array but prints as `(a, b)` and has typeof "tuple", so it
                 // gets its own literal variant rather than reusing Array.
-                let element_count: usize = self.next()?;
+                let element_count: usize = self.next_usize()?;
                 let mut elements = Vec::with_capacity(element_count);
                 for _ in 0..element_count {
                     elements.push(self.pop_stack()?);
@@ -562,13 +569,14 @@ impl<'a> HogVM<'a> {
             }
             Operation::Try => {
                 // i32 to permit setting a catch offset lower than the IP
-                let catch_offset: i32 = self.next()?;
+                let catch_offset: i32 = self.next_i32()?;
                 // The reference computes `catchIp = <TRY position> + 1 + offset`. After reading the
                 // opcode and offset, self.ip points two past the TRY position, so subtract one to land
                 // on the same instruction (the compiler's offset already skips the POP_TRY).
                 let catch_ip = (self.ip as i64)
                     .checked_add(catch_offset as i64 - 1)
-                    .ok_or(VmError::IntegerOverflow)? as usize;
+                    .ok_or_else(|| VmError::IntegerOverflow)?
+                    as usize;
                 let frame = ThrowFrame {
                     catch_ptr: catch_ip,
                     catch_symbol: self.current_symbol.clone(),
@@ -611,34 +619,34 @@ impl<'a> HogVM<'a> {
                 self.truncate_stack(frame.stack_start)?;
                 self.stack_frames.truncate(frame.call_depth);
                 self.ip = frame.catch_ptr;
-                self.current_symbol = frame.catch_symbol;
+                self.set_chunk(frame.catch_symbol)?;
                 self.push_stack(exception)?;
             }
             Operation::Callable => {
                 // Construct a locally callable object - this is how e.g. fn decl's work
-                let name: String = self.next()?;
-                let stack_arg_count: usize = self.next()?;
-                let captured_arg_count: usize = self.next()?;
-                let body_length: usize = self.next()?;
+                let name = self.next_str()?;
+                let stack_arg_count: usize = self.next_usize()?;
+                let captured_arg_count: usize = self.next_usize()?;
+                let body_length: usize = self.next_usize()?;
                 let callable: Callable = LocalCallable {
-                    name,
+                    name: name.to_string(),
                     stack_arg_count,
                     capture_count: captured_arg_count,
                     ip: self.ip,
                     symbol: self.current_symbol.clone(), // Cross-module jumps are currently only done via CallGlobal
                 }
                 .into();
-                self.push_stack(HogLiteral::Callable(callable))?;
+                self.push_stack(HogLiteral::Callable(Box::new(callable)))?;
                 self.ip = self
                     .ip
                     .checked_add(body_length)
-                    .ok_or(VmError::IntegerOverflow)?;
+                    .ok_or_else(|| VmError::IntegerOverflow)?;
             }
             // A closure is a callable, plus some captured arguments from the scope
             // it was constructed in.
             Operation::Closure => {
                 let callable: Callable = self.pop_stack_as()?;
-                let capture_count: usize = self.next()?;
+                let capture_count: usize = self.next_usize()?;
                 // Only hog-local callables are wrapped by the CLOSURE opcode; native (STL) callables
                 // are produced already-closed by GetGlobal, so they should never reach here.
                 let Callable::Local(unwrapped) = &callable else {
@@ -657,13 +665,13 @@ impl<'a> HogVM<'a> {
                 for _ in 0..capture_count {
                     // Indicates whether this captured value is a local in this frame's stack, or an
                     // upvalue already captured by this frame's closure.
-                    let is_local: bool = self.next()?;
-                    let offset: usize = self.next()?;
+                    let is_local: bool = self.next_bool()?;
+                    let offset: usize = self.next_usize()?;
                     if is_local {
                         let location = self
                             .current_frame_base()
                             .checked_add(offset)
-                            .ok_or(VmError::IntegerOverflow)?;
+                            .ok_or_else(|| VmError::IntegerOverflow)?;
                         captures.push(self.capture_upvalue(location));
                     } else {
                         // Nested closure: share the parent frame's upvalue cell.
@@ -672,11 +680,11 @@ impl<'a> HogVM<'a> {
                 }
 
                 let closure = Closure { callable, captures };
-                self.push_stack(HogLiteral::Closure(closure))?;
+                self.push_stack(HogLiteral::Closure(Box::new(closure)))?;
             }
             Operation::CallLocal => {
                 let closure: Closure = self.pop_stack_as()?;
-                let arg_count: usize = self.next()?;
+                let arg_count: usize = self.next_usize()?;
                 // Extract the scalar callable fields up front so `closure` can be moved into the frame
                 // (which now retains it for snapshotting). A native-function value dispatches inline.
                 let (ip, symbol, stack_arg_count) = match &closure.callable {
@@ -718,11 +726,11 @@ impl<'a> HogVM<'a> {
                     closure,
                 };
                 self.stack_frames.push(frame);
-                self.current_symbol = symbol; // Prep to jump across the module boundary, if that's what we're doing
+                self.set_chunk(symbol)?; // Prep to jump across the module boundary, if that's what we're doing
                 self.ip = ip; // Do the jump
             }
             Operation::GetUpvalue => {
-                let index: usize = self.next()?;
+                let index: usize = self.next_usize()?;
                 let cell = self.frame_capture(index)?;
                 // Open: read through to the live stack slot. Closed: read the snapshot it owns.
                 let val = {
@@ -733,13 +741,13 @@ impl<'a> HogVM<'a> {
                         self.stack
                             .get(uv.location)
                             .cloned()
-                            .ok_or(VmError::StackIndexOutOfBounds)?
+                            .ok_or_else(|| VmError::StackIndexOutOfBounds)?
                     }
                 };
                 self.push_stack(val)?;
             }
             Operation::SetUpvalue => {
-                let index: usize = self.next()?;
+                let index: usize = self.next_usize()?;
                 let cell = self.frame_capture(index)?;
                 let val = self.pop_stack()?;
                 // Open: write through to the live stack slot. Closed: store into the snapshot.
@@ -783,7 +791,7 @@ impl<'a> HogVM<'a> {
             .captures
             .get(index)
             .cloned()
-            .ok_or(VmError::CaptureOutOfBounds(index))
+            .ok_or_else(|| VmError::CaptureOutOfBounds(index))
     }
 
     // Capture the stack slot at `location` as an open upvalue, deduplicating so all closures that
@@ -835,26 +843,82 @@ impl<'a> HogVM<'a> {
         }
     }
 
-    fn next<T>(&mut self) -> Result<T, VmError>
-    where
-        T: DeserializeOwned + Any,
-    {
-        let next = self.context.get_bytecode(self.ip, &self.current_symbol)?;
+    // Change the chunk being executed, keeping `current_tokens` in lockstep with
+    // `current_symbol`. Every assignment of `current_symbol` must go through here.
+    fn set_chunk(&mut self, symbol: Option<Symbol>) -> Result<(), VmError> {
+        self.current_tokens = self.context.chunk_tokens(&symbol)?;
+        self.current_symbol = symbol;
+        Ok(())
+    }
+
+    // Instruction fetches read the pre-decoded token stream — enum matches, no serde and no
+    // allocation per step. Error strings are built only on an actual mismatch (malformed
+    // bytecode), never on the hot path. The returned borrow is tied to the context's lifetime
+    // (`'a`), not to `&mut self`, so callers can keep it across further VM mutation.
+    fn next_token(&mut self) -> Result<&'a Token, VmError> {
+        let token = self
+            .current_tokens
+            .get(self.ip)
+            .ok_or_else(|| VmError::EndOfProgram(self.ip))?;
         self.ip += 1;
-        // Borrow-deserialize straight from the &JsonValue (serde_json implements Deserializer for
-        // &Value) instead of cloning the whole value and deserializing an owned copy on every
-        // single instruction fetch. The error type-name strings are built lazily, only on an actual
-        // mismatch, rather than allocating one per token read on the hot path.
-        T::deserialize(next).map_err(|_| {
-            VmError::InvalidValue(next_type_name(next), std::any::type_name::<T>().to_string())
-        })
+        Ok(token)
+    }
+
+    fn invalid_token(token: &Token, expected: &str) -> VmError {
+        VmError::InvalidValue(token.type_name().to_string(), expected.to_string())
+    }
+
+    fn next_op(&mut self) -> Result<Operation, VmError> {
+        match self.next_token()? {
+            Token::Int(i) => Operation::from_i64(*i),
+            token => Err(Self::invalid_token(token, "Operation")),
+        }
+    }
+
+    fn next_usize(&mut self) -> Result<usize, VmError> {
+        match self.next_token()? {
+            Token::Int(i) if *i >= 0 => Ok(*i as usize),
+            token => Err(Self::invalid_token(token, "usize")),
+        }
+    }
+
+    fn next_i32(&mut self) -> Result<i32, VmError> {
+        match self.next_token()? {
+            Token::Int(i) => {
+                i32::try_from(*i).map_err(|_| Self::invalid_token(&Token::Int(*i), "i32"))
+            }
+            token => Err(Self::invalid_token(token, "i32")),
+        }
+    }
+
+    fn next_bool(&mut self) -> Result<bool, VmError> {
+        match self.next_token()? {
+            Token::Bool(b) => Ok(*b),
+            token => Err(Self::invalid_token(token, "bool")),
+        }
+    }
+
+    // Serde deserialized integer tokens into f64 fetches transparently; keep accepting both.
+    fn next_f64(&mut self) -> Result<f64, VmError> {
+        match self.next_token()? {
+            Token::Float(f) => Ok(*f),
+            Token::Int(i) => Ok(*i as f64),
+            token => Err(Self::invalid_token(token, "f64")),
+        }
+    }
+
+    fn next_str(&mut self) -> Result<&'a Arc<str>, VmError> {
+        match self.next_token()? {
+            Token::Str(s) => Ok(s),
+            token => Err(Self::invalid_token(token, "String")),
+        }
     }
 
     fn pop_stack(&mut self) -> Result<HogValue, VmError> {
         if self.stack.len() <= self.current_frame_base() {
             return Err(VmError::StackUnderflow);
         }
-        self.stack.pop().ok_or(VmError::StackUnderflow)
+        self.stack.pop().ok_or_else(|| VmError::StackUnderflow)
     }
 
     // As above, but with a handy pointer chase and a cast/unwrap. Necessarily clones
@@ -891,7 +955,7 @@ impl<'a> HogVM<'a> {
 
     fn js_string_coerce(&self, value: &HogValue) -> Result<String, VmError> {
         match value.deref(&self.heap)? {
-            HogLiteral::String(s) => Ok(s.clone()),
+            HogLiteral::String(s) => Ok(s.to_string()),
             HogLiteral::Null => Ok("null".to_string()),
             HogLiteral::Boolean(b) => Ok(b.to_string()),
             HogLiteral::Number(n) => Ok(match n {
@@ -959,9 +1023,10 @@ impl<'a> HogVM<'a> {
         self.push_stack(result)
     }
 
-    /// `Eq`/`NotEq` core. The default path is the legacy structural equality every existing
-    /// shared-crate consumer relies on. Only when the context opts into coercing comparisons (the
-    /// realtime-cohort evaluator) does a temporal pair compare by epoch seconds to match ClickHouse
+    /// `Eq`/`NotEq` core. Both paths apply structural equality with numeric unification, so
+    /// `1 == 1.0` holds for every shared-crate consumer (see [`PartialEq for Num`](crate::Num)).
+    /// The flag gates only what sits on top: when the context opts into coercing comparisons (the
+    /// realtime-cohort evaluator), a temporal pair compares by epoch seconds to match ClickHouse
     /// (`is_date_exact`); every non-temporal pair is unchanged either way.
     ///
     /// "Temporal pair" is [`temporal_seconds_pair`] — the same predicate [`compare_values`] uses for
@@ -997,7 +1062,7 @@ impl<'a> HogVM<'a> {
         // TODO - revisit this, idk about it
         self.stack
             .get_mut(idx)
-            .ok_or(VmError::StackIndexOutOfBounds)
+            .ok_or_else(|| VmError::StackIndexOutOfBounds)
             .map(|v| *v = value.into())
     }
 
@@ -1024,22 +1089,29 @@ impl<'a> HogVM<'a> {
     // and filters are generally trivial
     // Resolve a global name referenced as a first-class function value. Currently supports native
     // (STL) functions — `let f := base64Encode` yields a closure that dispatches to the native fn.
-    fn get_fn_reference(&self, chain: &[HogValue]) -> Result<HogLiteral, VmError> {
+    // Returns None when the chain isn't a reference to a known native function — the caller's
+    // GetGlobal falls through to its next resolution strategy. A plain miss here is normal
+    // control flow, so it must not construct an error (this sat on the hot path allocating
+    // discarded error strings).
+    fn get_fn_reference(&self, chain: &[HogValue]) -> Option<HogLiteral> {
         if chain.len() != 1 {
-            return Err(VmError::NotImplemented("imports".to_string()));
+            return None;
         }
-        let name: &str = chain[0].deref(&self.heap)?.try_as()?;
+        let name: &str = chain[0].deref(&self.heap).ok()?.try_as().ok()?;
         if self.context.has_native(name) {
-            return Ok(HogLiteral::Closure(Closure {
+            return Some(HogLiteral::Closure(Box::new(Closure {
                 callable: Callable::Stl(name.to_string()),
                 captures: Vec::new(),
-            }));
+            })));
         }
-        Err(VmError::NotImplemented("imports".to_string()))
+        None
     }
 
     fn clone_stack_item(&self, idx: usize) -> Result<HogValue, VmError> {
-        self.stack.get(idx).cloned().ok_or(VmError::StackUnderflow)
+        self.stack
+            .get(idx)
+            .cloned()
+            .ok_or_else(|| VmError::StackUnderflow)
     }
 
     fn prep_native_call(&self, name: String, args: Vec<HogValue>) -> StepOutcome {
@@ -1086,7 +1158,7 @@ impl<'a> HogVM<'a> {
         };
 
         self.stack_frames.push(frame);
-        self.current_symbol = Some(symbol);
+        self.set_chunk(Some(symbol))?;
         self.ip = 0;
 
         Ok(StepOutcome::Continue)
@@ -1118,7 +1190,7 @@ impl<'a> HogVM<'a> {
             JsonValue::Null => Ok(HogLiteral::Null.into()),
             JsonValue::Bool(b) => Ok(HogLiteral::Boolean(*b).into()),
             JsonValue::Number(n) => Ok(HogLiteral::Number(n.clone().into()).into()),
-            JsonValue::String(s) => Ok(HogLiteral::String(s.clone()).into()),
+            JsonValue::String(s) => Ok(HogLiteral::from(s.clone()).into()),
             JsonValue::Array(arr) => {
                 let mut values = Vec::new();
                 for value in arr {
@@ -1129,11 +1201,11 @@ impl<'a> HogVM<'a> {
                 Ok(ptr.into())
             }
             JsonValue::Object(obj) => {
-                let mut map = IndexMap::new();
-                for (key, value) in obj {
+                let mut map = HogMap::default();
+                for (key, value) in obj.iter() {
                     map.insert(key.clone(), self.json_to_hog_impl(value, depth + 1)?);
                 }
-                let to_emplace = HogLiteral::Object(map);
+                let to_emplace = HogLiteral::Object(Box::new(map));
                 let ptr = self.heap.emplace(to_emplace)?;
                 Ok(ptr.into())
             }
@@ -1158,7 +1230,7 @@ impl<'a> HogVM<'a> {
             HogLiteral::Null => Ok(JsonValue::Null),
             HogLiteral::Boolean(b) => Ok(JsonValue::Bool(*b)),
             HogLiteral::Number(n) => Ok(JsonValue::Number(n.clone().try_into()?)),
-            HogLiteral::String(s) => Ok(JsonValue::String(s.clone())),
+            HogLiteral::String(s) => Ok(JsonValue::String(s.to_string())),
             HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                 let mut json_arr = Vec::new();
                 for elem in arr {
@@ -1168,7 +1240,7 @@ impl<'a> HogVM<'a> {
             }
             HogLiteral::Object(obj) => {
                 let mut map = serde_json::Map::new();
-                for (key, value) in obj {
+                for (key, value) in obj.iter() {
                     map.insert(key.clone(), self.hog_to_json_impl(value, depth + 1)?);
                 }
                 Ok(JsonValue::Object(map))
@@ -1360,7 +1432,7 @@ impl<'a> HogVM<'a> {
             return Err(VmError::Other("snapshot callStack is empty".to_string()));
         };
         vm.ip = Self::rust_ip(active.ip, &active.chunk, context);
-        vm.current_symbol = chunk_to_symbol(&active.chunk);
+        vm.set_chunk(chunk_to_symbol(&active.chunk))?;
 
         let n = call_stack.len() - 1;
         let mut stack_frames = Vec::with_capacity(n);
@@ -1572,16 +1644,5 @@ fn op_telemetry_name(op: &Operation) -> String {
         }
         name.push(c.to_ascii_uppercase());
     }
-    format!("{}/{}", op.clone() as u8, name)
-}
-
-fn next_type_name(next: &JsonValue) -> String {
-    match next {
-        JsonValue::Null => "null".to_string(),
-        JsonValue::Bool(_) => "bool".to_string(),
-        JsonValue::Number(_) => "number".to_string(),
-        JsonValue::String(_) => "string".to_string(),
-        JsonValue::Array(_) => "array".to_string(),
-        JsonValue::Object(_) => "object".to_string(),
-    }
+    format!("{}/{}", *op as u8, name)
 }

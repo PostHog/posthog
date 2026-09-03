@@ -176,6 +176,8 @@ TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS: list[str] = get_list(
 TASK_RUN_LOGS_MIRROR_OTLP_URL: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_URL", None, optional=True)
 TASK_RUN_LOGS_MIRROR_OTLP_TOKEN: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_TOKEN", None, optional=True)
 
+TASK_RUN_STREAM_PRESENCE_GATED_ORIGINS: list[str] = get_list(os.getenv("TASK_RUN_STREAM_PRESENCE_GATED_ORIGINS", ""))
+
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)
 
@@ -285,3 +287,7 @@ SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS: int = get_from_env(
 
 # Incoming webhook for experiment precompute canary divergence alerts. Unset: Slack alerting is skipped.
 EXPERIMENT_CANARY_SLACK_WEBHOOK_URL: str = os.getenv("EXPERIMENT_CANARY_SLACK_WEBHOOK_URL", "")
+
+# "report_only": the enrollment census logs candidates and writes nothing (default).
+# "enroll": the census also enables precomputation for qualifying teams, capped per run.
+EXPERIMENT_PRECOMPUTE_ENROLLMENT_MODE: str = os.getenv("EXPERIMENT_PRECOMPUTE_ENROLLMENT_MODE", "report_only")

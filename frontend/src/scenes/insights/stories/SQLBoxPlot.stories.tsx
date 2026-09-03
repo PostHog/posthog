@@ -88,6 +88,14 @@ export const EditOptions: Story = {
     },
     play: async ({ canvasElement }): Promise<void> => {
         await waitFor(
+            () => {
+                if (!canvasElement.querySelector('[data-attr="sql-box-plot"]')) {
+                    throw new Error('Box plot not ready')
+                }
+            },
+            { timeout: 10_000 }
+        )
+        await waitFor(
             async () => {
                 if (canvasElement.querySelector('[data-attr="box-plot-minColumn"]')) {
                     return

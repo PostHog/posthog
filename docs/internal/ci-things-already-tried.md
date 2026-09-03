@@ -172,7 +172,31 @@ The selection was also active for draft PRs only for some time. The team wanted 
 [#85530](https://github.com/PostHog/posthog/pull/85530) then extended the selection to PRs that are ready for review. [#88265](https://github.com/PostHog/posthog/pull/88265) put the Django selection and the product selection in one job.
 Read the comment at the top of `.github/workflows/ci-backend.yml` for the current rules.
 
+The jest and Playwright suites made the same move later, so `ready_for_review` no longer buys a full matrix anywhere.
+Selection now runs on drafts and ready PRs alike in `ci-backend.yml`, `ci-frontend.yml`, `ci-storybook.yml`, and `ci-e2e-playwright.yml`, and the merge queue's `trunk-merge/**` run is the only full gate.
+What still differs by draft state is the fallback when a selection cannot be trusted: a draft skips the suite and defers to its ready run, a ready PR takes the full matrix because no later run on that PR would cover it.
+
 _Also asked as:_ snob, is test selection on, why does CI run all the tests, do we select tests on PRs
+
+### Narrow the product test matrix when the backend selector returns `full`
+
+**Verdict: rejected** · Aug 2026 · read off the Turbo task graph, not measured
+
+On a legacy diff `turbo-discover.js` sets `products = allProducts`, roughly 30 matrix groups and the larger half of a full backend run.
+It already computes `mustRunProducts` (Turbo-affected products, their tach dependents, and the schema-affected set), but applies it only when the selection verdict is `selected`.
+Applying it on a `full` verdict too looks like free money.
+
+It is not. `backend:test` in `turbo.json` declares product-local inputs only — `backend/**/*.py`, `stats/`, `skills/`, `scripts/`, plus `../../pyproject.toml`, `../../uv.lock`, and `../../common/**/*.py`.
+No product task reads `posthog/**` or `ee/**`.
+So Turbo cannot see the core-to-product edge at all, and on a diff that touches only `posthog/` the affected set is empty, the tach dependents of an empty set are empty, and `mustRunProducts` comes out empty.
+Narrowing to it would run zero product tests on a core change that every product imports.
+
+The `selected` guard is what makes the existing narrowing safe: `narrowedProducts` unions `mustRunProducts` with the products Snob's import graph actually reached, and that union is the only thing covering the core-to-product edge.
+A `full` verdict means Snob produced no trustworthy set, so there is nothing to union.
+
+To go after those minutes, reduce how often the verdict is `full` — the `MAX_CHANGED_FILES = 50` bail and the `FULL_RUN_PATTERNS` list in `tools/snob_backend_test_selection_shadow.py` are the levers, and both change recall, so measure with the shadow first.
+
+_Also asked as:_ skip product tests on a full run, narrow the product matrix, why do all products run when I only changed core
 
 ### Disable the pytest `unraisableexception` and `threadexception` plugins
 

@@ -96,7 +96,7 @@ describe("ReportFeedbackFooter", () => {
         sentiment: "negative",
         has_pr: false,
         surface: "detail_footer",
-        note: "some detail",
+        note_length: 11,
       },
     );
     expect(screen.getByText("Note added")).toBeInTheDocument();

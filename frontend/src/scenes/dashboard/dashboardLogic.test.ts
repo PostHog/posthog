@@ -16,6 +16,7 @@ import * as featureFlagLib from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
+import { parseDashboardId } from 'scenes/dashboard/Dashboard'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
@@ -312,17 +313,43 @@ describe('dashboardLogic', () => {
         insightsModel.mount()
     })
 
-    describe('key() guard', () => {
+    describe('malformed dashboard id', () => {
         it.each([
             ['NaN', NaN],
             ['undefined', undefined as unknown as number],
             ['Infinity', Infinity],
-        ])('throws when id is %s', (_label, id) => {
-            expect(() => dashboardLogic({ id })).toThrow(/non-finite id/)
+        ])('mounts and reports not found instead of throwing when id is %s', async (_label, id) => {
+            const invalidLogic = dashboardLogic({ id })
+            invalidLogic.mount()
+            await expectLogic(invalidLogic).toMatchValues({ error404: true, hasInvalidDashboardId: true })
         })
 
         it('accepts a finite numeric id', () => {
             expect(() => dashboardLogic({ id: 42 })).not.toThrow()
+        })
+
+        it('reports not found when dashboard data is supplied for an invalid id', async () => {
+            const invalidLogic = dashboardLogic({ id: NaN, dashboard: dashboards[5] })
+            invalidLogic.mount()
+
+            await expectLogic(invalidLogic).toMatchValues({ error404: true, hasInvalidDashboardId: true })
+        })
+
+        it('does not load the zero dashboard sentinel', async () => {
+            const zeroLogic = dashboardLogic({ id: 0 })
+            zeroLogic.mount()
+
+            await expectLogic(zeroLogic)
+                .toNotHaveDispatchedActions(['loadDashboard', 'loadDashboardStreaming', 'dashboardNotFound'])
+                .toMatchValues({ error404: false, hasInvalidDashboardId: false })
+        })
+
+        it.each(['12abc', '12.5', '+12', '-12', '0', '00', '000'])('rejects invalid route id %s', (id) => {
+            expect(parseDashboardId(id)).toBeNaN()
+        })
+
+        it('parses a full numeric route id', () => {
+            expect(parseDashboardId('12')).toBe(12)
         })
     })
 
@@ -2691,6 +2718,36 @@ describe('dashboardLogic', () => {
             expect(updated.name).toEqual('renamed via bare patch')
             expect(updated.result).toEqual(originalResult)
             expect(updated.last_refresh).toEqual(originalLastRefresh)
+        })
+
+        it('preserves cached columns and types when a bare PATCH returns them null', async () => {
+            // SQL tiles draw from columns and types rather than result, and pick their axes from
+            // columns. Blanking those leaves the tile with nothing to draw.
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                columns: ['day', 'total'],
+                types: [
+                    ['day', 'DateTime'],
+                    ['total', 'UInt64'],
+                ],
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                name: 'renamed via bare patch',
+                columns: null,
+                types: null,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            const updated = logic.values.insightTiles[0].insight!
+            expect(updated.name).toEqual('renamed via bare patch')
+            expect(updated.columns).toEqual(['day', 'total'])
+            expect(updated.types).toEqual([
+                ['day', 'DateTime'],
+                ['total', 'UInt64'],
+            ])
         })
 
         it('replaces cached chart data when a full refresh returns non-null result', async () => {

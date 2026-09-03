@@ -26,10 +26,14 @@ logger = logging.getLogger(__name__)
 
 
 class RequestContext:
-    def __init__(self, method: str, user, data: dict):
+    def __init__(self, method: str, user, data: dict, skip_opportunistic_filter_cleanup: bool = False):
         self.method = method
         self.user = user
         self.data = data
+        # Carried from the original request via the intent. A write that sent no filters must not
+        # have them rewritten on replay either, and the exemption cannot be inferred here: an
+        # approved ordinary update should still get the cleanup.
+        self.skip_opportunistic_filter_cleanup = skip_opportunistic_filter_cleanup
         self.session: dict[str, Any] = {}
         self.META: dict[str, str] = {}
         self.headers: dict[str, str] = {}
@@ -58,6 +62,7 @@ def apply_change_request(change_request: ChangeRequest, request=None) -> Any:
         method=change_request.intent.get("http_method", "PATCH"),  # Stored in intent JSON
         user=change_request.created_by,  # Already in ChangeRequest
         data=change_request.intent.get("gated_changes", change_request.intent),  # Already in ChangeRequest
+        skip_opportunistic_filter_cleanup=bool(change_request.intent.get("skip_opportunistic_filter_cleanup")),
     )
 
     # Build base context with common metadata

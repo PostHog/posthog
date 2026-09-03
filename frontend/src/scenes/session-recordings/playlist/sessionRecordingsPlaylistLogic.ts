@@ -501,6 +501,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     isCreatingNewCollectionInModal: boolean
     isDeleteSelectedRecordingsDialogOpen: boolean
     isDeletingSelectedRecordings: boolean
+    isScopedByCaller: boolean
     logicProps: SessionRecordingPlaylistLogicProps
     matchingEventsMatchType: MatchingEventsMatchType
     newCollectionName: string
@@ -796,6 +797,7 @@ export interface sessionRecordingsPlaylistLogicMeta {
             }
         ) => boolean
         pinnedFilters: (arg: any) => UniversalFiltersGroup | undefined
+        isScopedByCaller: (arg: any) => boolean
         totalFiltersCount: (filters: RecordingUniversalFilters, arg: any, arg2: any) => number
         hiddenRecordings: (
             sessionRecordings: SessionRecordingType[],
@@ -1843,6 +1845,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         pinnedFilters: [
             () => [(_, props) => props.pinnedFilters],
             (pinnedFilters): UniversalFiltersGroup | undefined => pinnedFilters,
+        ],
+
+        // props.filters scopes embedded playlists (experiment tab, group page, notebook node).
+        isScopedByCaller: [
+            () => [(_, props) => props.filters],
+            (filters: RecordingUniversalFilters | undefined): boolean => !!filters,
         ],
 
         totalFiltersCount: [

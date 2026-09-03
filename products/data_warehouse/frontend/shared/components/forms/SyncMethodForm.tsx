@@ -44,7 +44,8 @@ const getIncrementalSyncSupported = (
     if (!schema.incremental_available) {
         return {
             disabled: true,
-            disabledReason: "Incremental replication isn't supported on this table",
+            disabledReason:
+                "Incremental replication isn't supported on this table. Use full table replication instead.",
         }
     }
 
@@ -67,7 +68,8 @@ const getAppendOnlySyncSupported = (
     if (!schema.append_available) {
         return {
             disabled: true,
-            disabledReason: "Append only replication isn't supported on this table",
+            disabledReason:
+                "Append only replication isn't supported on this table. Use full table replication instead.",
         }
     }
 

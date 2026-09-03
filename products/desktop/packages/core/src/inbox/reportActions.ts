@@ -7,9 +7,19 @@ import type { SignalReport } from "@posthog/shared/types";
  *
  * Mirrors the server-side autostart rules: only when the report is ready and
  * actually actionable, or when it's blocked on user input the user can supply.
- * Hidden once an implementation PR exists or the issue is already fixed.
+ * Hidden while linked task state is unknown, implementation work is live, an
+ * implementation PR is open, or the issue is already fixed.
  */
-export function canCreateImplementationPr(report: SignalReport): boolean {
+export function canCreateImplementationPr(
+  report: SignalReport,
+  context: {
+    hasLiveImplementationTask?: boolean;
+    isTaskLookupPending?: boolean;
+  } = {},
+): boolean {
+  if (context.hasLiveImplementationTask || context.isTaskLookupPending) {
+    return false;
+  }
   // A merged PR doesn't block: a report that outlived its fix (evidence kept
   // arriving) legitimately gets another attempt.
   if (report.implementation_pr_url && !report.implementation_pr_merged) {
@@ -24,6 +34,10 @@ export function canCreateImplementationPr(report: SignalReport): boolean {
     );
   }
   return false;
+}
+
+export function canResolveReport(report: SignalReport): boolean {
+  return report.status === "ready" || report.status === "pending_input";
 }
 
 interface BuildCreatePrReportPromptOptions {

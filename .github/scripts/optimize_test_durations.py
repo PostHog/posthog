@@ -129,6 +129,16 @@ class JUnitShard:
     # An XML of this shard (any attempt) did not parse, so call_times is incomplete.
     unreadable: bool = False
 
+    @property
+    def recorded_nothing(self) -> bool:
+        """Every XML parsed and none held a testcase: this shard ran no tests.
+
+        A product with no tests still uploads a JUnit declaring `tests="0"`, so a shard
+        holding only such products reads zero. That is a clock reading of zero rather
+        than a missing clock, which is why it is not `unreadable`.
+        """
+        return not self.unreadable and not self.call_times
+
     @classmethod
     def load_all(cls, junit_dir: Path, segment: str | None = None) -> list["JUnitShard"]:
         """Load JUnit XMLs and extract per-test call times from each shard.
@@ -948,7 +958,10 @@ def main():
         # The check is only as good as its clock. A missing, partial, or
         # truncated JUnit set would pass vacuously and let an unchecked slice
         # through, so a strict run needs one readable JUnit per timing shard.
-        unreadable = [shard.name for shard in junit_shards or [] if shard.unreadable or not shard.call_times]
+        # A shard that parsed and ran no tests counts as read: it reports zero
+        # rather than hiding a number, and refusing it discarded the slice for
+        # every product because one product had no tests yet.
+        unreadable = [shard.name for shard in junit_shards or [] if shard.unreadable]
         if not junit_shards:
             logger.error("--fail-on-drift needs JUnit artifacts and none loaded")
             sys.exit(1)
@@ -971,8 +984,10 @@ def main():
             logger.info("  map/clock %s: %.2f", name, ratio)
         # A shard with no ratio shares no keys with the map, or only zero times.
         # Neither is a pass: it means the clock and the map do not describe the
-        # same tests, which is exactly what strict mode is there to catch.
-        unrated = [shard.name for shard in junit_shards if shard.name not in ratios]
+        # same tests, which is exactly what strict mode is there to catch. A shard
+        # that ran no tests is the exception: there is nothing to compare, so its
+        # absence from the ratios says nothing about the map.
+        unrated = [shard.name for shard in junit_shards if shard.name not in ratios and not shard.recorded_nothing]
         if unrated and args.fail_on_drift:
             logger.error("Map/clock ratio missing for %d shards (no overlapping tests): %s", len(unrated), unrated)
             sys.exit(1)

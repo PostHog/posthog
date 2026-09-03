@@ -50,7 +50,9 @@ class ExportSurfacingScoresWorkflow(PostHogWorkflow):
         )
 
         if plan.disabled_reason is not None:
-            workflow.logger.warning("surfacing_score_export_sweep.disabled", disabled_reason=plan.disabled_reason)
+            workflow.logger.warning(
+                "surfacing_score_export_sweep.disabled", extra={"disabled_reason": plan.disabled_reason}
+            )
             return ExportScoresSweepResult(disabled_reason=plan.disabled_reason)
 
         if not plan.partitions:
@@ -101,15 +103,18 @@ def _summarize(
         if isinstance(r, BaseException):
             summary.partitions_failed += 1
             workflow.logger.warning(
-                "surfacing_score_export_sweep.partition_failed", error=str(r), error_type=type(r).__name__
+                "surfacing_score_export_sweep.partition_failed",
+                extra={"error": str(r), "error_type": type(r).__name__},
             )
             continue
         summary.total_rows += r.rows
     workflow.logger.info(
         "surfacing_score_export_sweep.tick_done",
-        partitions_dispatched=summary.partitions_dispatched,
-        partitions_failed=summary.partitions_failed,
-        total_rows=summary.total_rows,
+        extra={
+            "partitions_dispatched": summary.partitions_dispatched,
+            "partitions_failed": summary.partitions_failed,
+            "total_rows": summary.total_rows,
+        },
     )
     record_tick_summary(
         partitions_dispatched=summary.partitions_dispatched,

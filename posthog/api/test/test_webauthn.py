@@ -182,25 +182,41 @@ class TestWebAuthnLogin(APIBaseTest):
         response = self.client.post("/api/webauthn/login/complete/", {})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_login_complete_without_user_handle_fails(self):
+    @parameterized.expand(
+        [
+            (
+                "missing_user_handle",
+                {"authenticatorData": "data", "clientDataJSON": "data", "signature": "sig"},
+                "some-raw-id",
+                "userHandle",
+            ),
+            (
+                "missing_raw_id",
+                {"authenticatorData": "data", "clientDataJSON": "data", "signature": "sig", "userHandle": "handle"},
+                None,
+                "credential ID",
+            ),
+            (
+                "missing_signature",
+                {"authenticatorData": "data", "clientDataJSON": "data", "userHandle": "handle"},
+                "some-raw-id",
+                "Missing required fields",
+            ),
+        ]
+    )
+    def test_login_complete_with_unreadable_assertion_fails(
+        self, _name: str, response_data: dict, raw_id: str | None, expected_error: str
+    ):
         self.client.post("/api/webauthn/login/begin/")
 
-        response = self.client.post(
-            "/api/webauthn/login/complete/",
-            {
-                "id": "some-id",
-                "rawId": "some-raw-id",
-                "type": "public-key",
-                "response": {
-                    "authenticatorData": "data",
-                    "clientDataJSON": "data",
-                    "signature": "sig",
-                },
-            },
-            format="json",
-        )
+        payload = {"id": "some-id", "type": "public-key", "response": response_data}
+        if raw_id is not None:
+            payload["rawId"] = raw_id
+
+        response = self.client.post("/api/webauthn/login/complete/", payload, format="json")
+
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("userHandle", response.json()["error"])
+        self.assertIn(expected_error, response.json()["error"])
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_complete_success(self, mock_verify):
@@ -238,7 +254,7 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(me_response.json()["email"], self.user.email)
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
-    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.authentication.email_verification_code_verifier.send_code")
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_blocks_explicitly_unverified_email_accounts(
         self, mock_verify, mock_send_email_verification, mock_is_email_available
@@ -270,14 +286,17 @@ class TestWebAuthnLogin(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("awaiting verification", response.json()["error"].lower())
+        # The contract is the same as the password login path: the frontend uses the
+        # uuid to route to the code entry page at /verify_email/<uuid>.
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["code"], "verify_email_pending")
+        self.assertEqual(response.json()["detail"], str(self.user.uuid))
 
         me_response = self.client.get("/api/users/@me/")
         self.assertEqual(me_response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         mock_is_email_available.assert_called_once()
-        mock_send_email_verification.assert_called_once_with(self.user, None)
+        mock_send_email_verification.assert_called_once_with(self.user)
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_with_unverified_credential_fails(self, mock_verify):

@@ -1,0 +1,6 @@
+{
+    "id": "RA1",
+    "real": false,
+    "source": "fresh",
+    "reasoning": "Factually accurate but not a defect. review_pr.py:195-197 confirms self_driving sits after the `*` with default False, so it is keyword-only. All callers are unaffected: review_pr.py:984 passes only pr_number/repo positionally plus keywords; review_local.py:321 passes self_driving explicitly by keyword; every test (test_review_pr.py:55 etc.) uses keyword args. No caller can break, and the finding itself asserts no break exists. It is an observation plus a speculative style suggestion (enum over booleans) about a hypothetical fourth gate. No genuine, reachable problem in the tree, so real=false."
+}

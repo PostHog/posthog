@@ -59,6 +59,18 @@ The DuckLake copy and registration workflows write data into a DuckLake-managed 
 
 The workflows share the same infrastructure and configuration. Workers running these workflows must be configured explicitly; otherwise copies will fail before they even reach the first activity.
 
+## Managed view translation pass
+
+The `managed-warehouse.translate-views` Temporal workflow performs a best-effort HogQL-to-Trino compilation pass for an existing managed warehouse. It snapshots active views and materialized views for control-plane-enabled teams in the organization, excluding endpoint queries. Each view compiles through the managed-warehouse compiler facade in Django expansion mode, so references to other saved queries and copied warehouse tables resolve to their DuckLake relations. Each result is stored in `ManagedWarehouseViewTranslationResult`; it does not replace the saved query's canonical HogQL, execute SQL, or create Trino objects.
+
+Provisioning does not start this workflow. To run it, add a `Managed warehouse view translation job` row in Django admin and select the provisioned organization. Choose `Entire organization` to snapshot every eligible view, or choose `Selected views` and enter the saved-query UUIDs to test. The admin starts the workflow after the row commits. Only one pending or running job may exist for an organization.
+
+The job ends as completed when every snapshot compiles, completed with errors when individual views fail or become stale, and failed when setup or workflow infrastructure prevents the pass. Individual failures do not stop later views from compiling. A view becomes stale when its definition changes or is removed after the snapshot. The result rows retain the generated Trino SQL, named values, normalized HogQL, and any compilation error for inspection.
+
+To retry specific failures, select failed or stale rows in `Managed warehouse view translation results` and run `Retry selected translations`. The action creates a new selected-view job linked to the original job. Completed jobs and results remain immutable.
+
+The manual trigger is deliberately separate from provisioning. A future provisioning trigger should call the same job starter instead of adding compilation to the provisioning request path.
+
 ## Environment variables
 
 The workflow obtains its DuckLake configuration from the following environment variables:
@@ -125,8 +137,8 @@ Every copy is written to a deterministic schema inside DuckLake. Each workflow n
 ### Data Modeling
 
 - **Schema**: `posthog_data_modeling_team_<team_id>`
-- **Table**: `<model_label>` (derived from saved query name)
-- **Example**: `ducklake.posthog_data_modeling_team_123.my_saved_query`
+- **Table**: the sanitized model label, with the normalized saved query name as a fallback
+- **Example**: `ducklake.posthog_data_modeling_team_123.model_12345678123456781234567812345678`
 
 ### Data Imports and Data Import Registration
 

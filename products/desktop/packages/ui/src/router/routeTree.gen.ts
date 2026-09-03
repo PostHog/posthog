@@ -48,6 +48,7 @@ import { Route as InboxDismissedIndexRouteImport } from './routes/inbox/dismisse
 import { Route as AgentsScoutsIndexRouteImport } from './routes/agents/scouts.index'
 import { Route as ShellSpacesIndexRouteImport } from './routes/_shell/spaces/index'
 import { Route as ShellSettingsIndexRouteImport } from './routes/_shell/settings/index'
+import { Route as ShellFeedsIndexRouteImport } from './routes/_shell/feeds/index'
 import { Route as TasksPendingKeyRouteImport } from './routes/tasks/pending.$key'
 import { Route as LoopsLoopIdEditRouteImport } from './routes/loops/$loopId/edit'
 import { Route as InboxRunsReportIdRouteImport } from './routes/inbox/runs.$reportId'
@@ -266,6 +267,11 @@ const ShellSettingsIndexRoute = ShellSettingsIndexRouteImport.update({
   path: '/settings/',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellFeedsIndexRoute = ShellFeedsIndexRouteImport.update({
+  id: '/feeds/',
+  path: '/feeds/',
+  getParentRoute: () => ShellRoute,
+} as any)
 const TasksPendingKeyRoute = TasksPendingKeyRouteImport.update({
   id: '/tasks/pending/$key',
   path: '/tasks/pending/$key',
@@ -435,6 +441,7 @@ export interface FileRoutesByFullPath {
   '/inbox/runs/$reportId': typeof InboxRunsReportIdRoute
   '/loops/$loopId/edit': typeof LoopsLoopIdEditRoute
   '/tasks/pending/$key': typeof TasksPendingKeyRoute
+  '/feeds/': typeof ShellFeedsIndexRoute
   '/settings/': typeof ShellSettingsIndexRoute
   '/spaces/': typeof ShellSpacesIndexRoute
   '/agents/scouts/': typeof AgentsScoutsIndexRoute
@@ -489,6 +496,7 @@ export interface FileRoutesByTo {
   '/inbox/runs/$reportId': typeof InboxRunsReportIdRoute
   '/loops/$loopId/edit': typeof LoopsLoopIdEditRoute
   '/tasks/pending/$key': typeof TasksPendingKeyRoute
+  '/feeds': typeof ShellFeedsIndexRoute
   '/settings': typeof ShellSettingsIndexRoute
   '/spaces': typeof ShellSpacesIndexRoute
   '/agents/scouts': typeof AgentsScoutsIndexRoute
@@ -554,6 +562,7 @@ export interface FileRoutesById {
   '/inbox/runs/$reportId': typeof InboxRunsReportIdRoute
   '/loops/$loopId/edit': typeof LoopsLoopIdEditRoute
   '/tasks/pending/$key': typeof TasksPendingKeyRoute
+  '/_shell/feeds/': typeof ShellFeedsIndexRoute
   '/_shell/settings/': typeof ShellSettingsIndexRoute
   '/_shell/spaces/': typeof ShellSpacesIndexRoute
   '/agents/scouts/': typeof AgentsScoutsIndexRoute
@@ -619,6 +628,7 @@ export interface FileRouteTypes {
     | '/inbox/runs/$reportId'
     | '/loops/$loopId/edit'
     | '/tasks/pending/$key'
+    | '/feeds/'
     | '/settings/'
     | '/spaces/'
     | '/agents/scouts/'
@@ -673,6 +683,7 @@ export interface FileRouteTypes {
     | '/inbox/runs/$reportId'
     | '/loops/$loopId/edit'
     | '/tasks/pending/$key'
+    | '/feeds'
     | '/settings'
     | '/spaces'
     | '/agents/scouts'
@@ -737,6 +748,7 @@ export interface FileRouteTypes {
     | '/inbox/runs/$reportId'
     | '/loops/$loopId/edit'
     | '/tasks/pending/$key'
+    | '/_shell/feeds/'
     | '/_shell/settings/'
     | '/_shell/spaces/'
     | '/agents/scouts/'
@@ -1053,6 +1065,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSettingsIndexRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/feeds/': {
+      id: '/_shell/feeds/'
+      path: '/feeds'
+      fullPath: '/feeds/'
+      preLoaderRoute: typeof ShellFeedsIndexRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/tasks/pending/$key': {
       id: '/tasks/pending/$key'
       path: '/tasks/pending/$key'
@@ -1228,6 +1247,7 @@ interface ShellRouteChildren {
   ShellFeedsFeedIdRoute: typeof ShellFeedsFeedIdRoute
   ShellSettingsCategoryRoute: typeof ShellSettingsCategoryRoute
   ShellSpacesContextRoute: typeof ShellSpacesContextRoute
+  ShellFeedsIndexRoute: typeof ShellFeedsIndexRoute
   ShellSettingsIndexRoute: typeof ShellSettingsIndexRoute
   ShellSpacesIndexRoute: typeof ShellSpacesIndexRoute
   ShellSpacesChannelIdArtifactsRoute: typeof ShellSpacesChannelIdArtifactsRoute
@@ -1253,6 +1273,7 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellFeedsFeedIdRoute: ShellFeedsFeedIdRoute,
   ShellSettingsCategoryRoute: ShellSettingsCategoryRoute,
   ShellSpacesContextRoute: ShellSpacesContextRoute,
+  ShellFeedsIndexRoute: ShellFeedsIndexRoute,
   ShellSettingsIndexRoute: ShellSettingsIndexRoute,
   ShellSpacesIndexRoute: ShellSpacesIndexRoute,
   ShellSpacesChannelIdArtifactsRoute: ShellSpacesChannelIdArtifactsRoute,
