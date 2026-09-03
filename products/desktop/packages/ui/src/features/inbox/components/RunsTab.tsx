@@ -13,6 +13,10 @@ import {
 } from "@posthog/quill";
 import { AgentRunCard } from "@posthog/ui/features/inbox/components/AgentRunCard";
 import { CardSkeleton } from "@posthog/ui/features/inbox/components/CardSkeleton";
+import {
+  InboxLoadFailure,
+  InboxStaleListNotice,
+} from "@posthog/ui/features/inbox/components/InboxLoadFailure";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
 import { useMemo, useState } from "react";
@@ -25,7 +29,7 @@ export function RunsTab() {
   // is an output of research, so For-you would silently empty queued / live;
   // source and priority filters don't read as run-shaped questions either.
   // We pin ordering to newest-first locally too.
-  const { scopedReports, isLoading } = useInboxAllReports({
+  const { scopedReports, isLoading, isError, refetch } = useInboxAllReports({
     ignoreScope: true,
     ignoreFilters: true,
   });
@@ -84,8 +88,17 @@ export function RunsTab() {
   const hasAnyRuns =
     queuedRuns.length > 0 || liveRuns.length > 0 || finishedRuns.length > 0;
 
+  if (isError && !hasAnyRuns) {
+    return (
+      <div className="@container mx-auto flex w-full max-w-3xl flex-col gap-4 px-6 py-4">
+        <InboxLoadFailure noun="runs" onRetry={refetch} />
+      </div>
+    );
+  }
+
   return (
     <div className="@container mx-auto flex w-full max-w-3xl flex-col gap-4 px-6 py-4">
+      {isError && <InboxStaleListNotice noun="runs" onRetry={refetch} />}
       {!hasAnyRuns ? (
         <Empty className="mx-auto max-w-md py-16">
           <EmptyHeader>

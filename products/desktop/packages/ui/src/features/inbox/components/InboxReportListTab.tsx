@@ -20,6 +20,10 @@ import {
   type DismissReportDialogResult,
 } from "@posthog/ui/features/inbox/components/DismissReportDialog";
 import { InboxBulkSelectionBar } from "@posthog/ui/features/inbox/components/InboxBulkSelectionBar";
+import {
+  InboxLoadFailure,
+  InboxStaleListNotice,
+} from "@posthog/ui/features/inbox/components/InboxLoadFailure";
 import { InboxLoadMore } from "@posthog/ui/features/inbox/components/InboxLoadMore";
 import { InboxSearchFilterBar } from "@posthog/ui/features/inbox/components/InboxSearchFilterBar";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
@@ -109,9 +113,11 @@ export function InboxReportListTab({
     scopedReports,
     allReports,
     isLoading,
+    isError,
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
+    refetch,
   } = useInboxAllReports({
     pullRequestsOnly,
   });
@@ -195,10 +201,16 @@ export function InboxReportListTab({
     );
   }
 
+  const loadFailed = isError && allReports.length === 0;
+
   return (
     <>
       <div className={listShellClassName}>
         <InboxSearchFilterBar searchPlaceholder={searchPlaceholder} />
+
+        {isError && !loadFailed && (
+          <InboxStaleListNotice noun={emptyState.noun} onRetry={refetch} />
+        )}
 
         {selectedCount > 0 ? (
           <InboxBulkSelectionBar
@@ -208,7 +220,9 @@ export function InboxReportListTab({
           />
         ) : null}
 
-        {matchingReports.length === 0 && !hasNextPage ? (
+        {loadFailed ? (
+          <InboxLoadFailure noun={emptyState.noun} onRetry={refetch} />
+        ) : matchingReports.length === 0 && !hasNextPage ? (
           <Empty className="mx-auto max-w-md py-16">
             <EmptyHeader>
               <EmptyMedia variant="icon">

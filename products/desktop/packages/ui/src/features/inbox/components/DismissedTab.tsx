@@ -7,6 +7,10 @@ import {
   EmptyTitle,
 } from "@posthog/quill";
 import { CardSkeleton } from "@posthog/ui/features/inbox/components/CardSkeleton";
+import {
+  InboxLoadFailure,
+  InboxStaleListNotice,
+} from "@posthog/ui/features/inbox/components/InboxLoadFailure";
 import { InboxLoadMore } from "@posthog/ui/features/inbox/components/InboxLoadMore";
 import { ReportCard } from "@posthog/ui/features/inbox/components/ReportCard";
 import { useInboxDismissedReports } from "@posthog/ui/features/inbox/hooks/useInboxDismissedReports";
@@ -19,8 +23,15 @@ import { useInboxRestoreReport } from "@posthog/ui/features/inbox/hooks/useInbox
  * a read-only detail view (summary + evidence) — no triage affordances.
  */
 export function DismissedTab() {
-  const { reports, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } =
-    useInboxDismissedReports();
+  const {
+    reports,
+    isLoading,
+    isError,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    refetch,
+  } = useInboxDismissedReports();
   const restore = useInboxRestoreReport();
   const restoringId = restore.isPending ? restore.variables : null;
 
@@ -28,6 +39,14 @@ export function DismissedTab() {
     return (
       <div className="@container mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-4">
         <CardSkeleton count={4} variant="cards" />
+      </div>
+    );
+  }
+
+  if (isError && reports.length === 0) {
+    return (
+      <div className="mx-auto flex w-full max-w-4xl flex-col px-6 py-4">
+        <InboxLoadFailure noun="archived reports" onRetry={refetch} />
       </div>
     );
   }
@@ -54,6 +73,9 @@ export function DismissedTab() {
 
   return (
     <div className="@container mx-auto flex w-full max-w-4xl flex-col gap-3 px-6 py-4">
+      {isError && (
+        <InboxStaleListNotice noun="archived reports" onRetry={refetch} />
+      )}
       {reports.map((report) => (
         <ReportCard
           key={report.id}

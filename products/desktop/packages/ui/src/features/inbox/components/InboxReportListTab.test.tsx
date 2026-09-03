@@ -7,6 +7,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   reports: [] as SignalReport[],
   hasNextPage: false,
+  isError: false,
+  refetch: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
@@ -14,9 +16,11 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
     scopedReports: mocks.reports,
     allReports: mocks.reports,
     isLoading: false,
+    isError: mocks.isError,
     hasNextPage: mocks.hasNextPage,
     isFetchingNextPage: false,
     fetchNextPage: vi.fn(),
+    refetch: mocks.refetch,
   }),
 }));
 
@@ -73,6 +77,8 @@ describe("InboxReportListTab", () => {
   beforeEach(() => {
     mocks.reports = [];
     mocks.hasNextPage = false;
+    mocks.isError = false;
+    mocks.refetch.mockClear();
     useInboxSignalsFilterStore.setState({
       searchQuery: "",
       sourceProductFilter: [],
@@ -98,6 +104,33 @@ describe("InboxReportListTab", () => {
     expect(
       screen.queryByRole("button", { name: "Clear filters" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("blames the failed load instead of an empty inbox, and retries on click", async () => {
+    mocks.isError = true;
+    renderTab();
+
+    expect(screen.getByText("Couldn't load reports")).toBeInTheDocument();
+    expect(
+      screen.queryByText("No reports for you yet"),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(mocks.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps loaded reports and warns they could be out of date", () => {
+    mocks.isError = true;
+    mocks.reports = [{ id: "report-1" } as SignalReport];
+    renderTab();
+
+    expect(
+      screen.getByText(
+        "The last refresh failed. These reports could be out of date.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't load reports")).not.toBeInTheDocument();
   });
 
   it("names filters as the cause and clears them on click", async () => {
