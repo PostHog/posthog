@@ -9,6 +9,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -24,6 +25,7 @@ export function OrgCombobox({ allowCreate = true }: { allowCreate?: boolean }): 
     const { currentOrganization } = useValues(organizationLogic)
     const { otherOrganizations } = useValues(userLogic)
     const { updateCurrentOrganization } = useActions(userLogic)
+    const { reportOrganizationSwitched } = useActions(eventUsageLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     return (
@@ -74,7 +76,10 @@ export function OrgCombobox({ allowCreate = true }: { allowCreate?: boolean }): 
                                 <Combobox.Item key={otherOrganization.id} asChild>
                                     <ButtonPrimitive
                                         menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
+                                        onClick={() => {
+                                            reportOrganizationSwitched(otherOrganization.id)
+                                            updateCurrentOrganization(otherOrganization.id)
+                                        }}
                                         tooltip={
                                             otherOrganization.is_active === false
                                                 ? otherOrganization.is_not_active_reason || 'Organization is disabled'

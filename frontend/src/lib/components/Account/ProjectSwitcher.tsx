@@ -11,6 +11,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getProjectSwitchTargetUrl } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
@@ -54,6 +55,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
     const { closeProjectSwitcher, setAccountMenuOpen } = useActions(newAccountMenuLogic)
+    const { reportProjectSwitched } = useActions(eventUsageLogic)
     const [searchValue, setSearchValue] = useState('')
     const inputRef = useRef<HTMLInputElement>(null!)
 
@@ -148,6 +150,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                     currentTeam?.project_id,
                     item.team.project_id
                 )
+                reportProjectSwitched(item.team.id)
                 closeProjectSwitcher()
                 window.location.href = targetUrl
             }
@@ -155,6 +158,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
         [
             currentTeam?.project_id,
             closeProjectSwitcher,
+            reportProjectSwitched,
             guardAvailableFeature,
             showCreateProjectModal,
             currentOrganization?.teams?.length,

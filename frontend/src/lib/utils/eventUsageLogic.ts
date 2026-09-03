@@ -1787,6 +1787,12 @@ export interface eventUsageLogicActions {
     reportOnboardingUseCaseSkipped: () => {
         value: true
     }
+    reportOrganizationSwitched: (organizationId: string) => {
+        organizationId: string
+    }
+    reportOrganizationSwitcherOpened: () => {
+        value: true
+    }
     reportPersonDetailViewed: (person: PersonType) => {
         person: PersonType
     }
@@ -1863,6 +1869,12 @@ export interface eventUsageLogicActions {
     ) => {
         name: string
         value: any
+    }
+    reportProjectSwitched: (teamId: number) => {
+        teamId: number
+    }
+    reportProjectSwitcherOpened: () => {
+        value: true
     }
     reportPropertyGroupFilterAdded: () => {
         value: true
@@ -2851,6 +2863,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFeatureFlagScheduleSuccess: true,
         reportFeatureFlagScheduleFailure: (error) => ({ error }),
         reportInviteMembersButtonClicked: true,
+        reportOrganizationSwitcherOpened: true,
+        reportProjectSwitcherOpened: true,
+        reportOrganizationSwitched: (organizationId: string) => ({ organizationId }),
+        reportProjectSwitched: (teamId: number) => ({ teamId }),
         reportDashboardLoadingTime: (loadingMilliseconds: number, dashboardId: number) => ({
             loadingMilliseconds,
             dashboardId,
@@ -4160,6 +4176,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportInviteMembersButtonClicked: () => {
             posthog.capture('invite members button clicked')
+        },
+        reportOrganizationSwitcherOpened: () => {
+            posthog.capture('organization switcher opened')
+        },
+        reportProjectSwitcherOpened: () => {
+            posthog.capture('project switcher opened')
+        },
+        reportOrganizationSwitched: ({ organizationId }) => {
+            posthog.capture('organization switched', { organization_id: organizationId })
+        },
+        reportProjectSwitched: ({ teamId }) => {
+            posthog.capture('project switched', { team_id: teamId })
         },
         reportTeamSettingChange: ({ name, value }) => {
             posthog.capture(`${name} team setting updated`, {
