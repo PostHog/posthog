@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use personhog_common::persons::person_uuid;
 use personhog_common::properties::sanitize_for_jsonb;
 use serde_json::Value;
 use tonic::Status;
@@ -265,6 +266,7 @@ impl MergeEntrance {
             allow_identified_sources: request.allow_identified_sources,
             move_limit,
             creator_event_uuid: request.creator_event_uuid.clone(),
+            target_born: target_was_born,
         };
         let mut frozen = serde_json::to_value(&merge_request)
             .map_err(|e| Status::internal(format!("failed to freeze request: {e}")))?;
@@ -286,7 +288,8 @@ impl MergeEntrance {
     /// is not consulted for the person, because the op that caused the
     /// abort may have settled the target away since. A push failure errors
     /// the call rather than answering OK with lost writes; the retry
-    /// attaches to the aborted op and re-drives this delivery.
+    /// re-drives this delivery (a discarded claim abort re-runs the whole
+    /// call instead).
     async fn deliver_aborted_writes(
         &self,
         request: &MergePersonsRequest,
@@ -315,9 +318,17 @@ impl MergeEntrance {
         };
         // A saga only exists for legal resolved pairs, and ingestion marks
         // the target identified for any legal pair regardless of the merge
-        // outcome, so the flip always accompanies the delivery.
+        // outcome, so the flip always accompanies the delivery. The uuid
+        // check keeps the born stamp off a person the newborn was settled
+        // into before this resolve.
+        let was_born = row
+            .request
+            .get("target_born")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+            && survivor.uuid == person_uuid(request.team_id, &request.target_distinct_id);
         let pushed = self
-            .push_event_properties(request, &survivor, true, false)
+            .push_event_properties(request, &survivor, true, was_born)
             .await?;
         Ok(Some(pushed.unwrap_or_else(|| survivor.into())))
     }
@@ -449,7 +460,8 @@ impl MergeEntrance {
             .await
             .map_err(|e| Status::internal(format!("target creation failed: {e}")))?;
         match outcomes.into_iter().next() {
-            Some(StubOutcome::Committed { person, .. }) => Ok((person, true)),
+            // A rival's insert winning the row makes this call not the creator.
+            Some(StubOutcome::Committed { person, created }) => Ok((person, created)),
             // The race winner's person keeps its own establishment's creator.
             Some(StubOutcome::LostRace) | None => {
                 Ok((self.resolve_target_after_race(request).await?, false))
@@ -562,7 +574,8 @@ fn same_merge(recorded: Option<&Value>, incoming: &Value) -> bool {
 }
 
 /// The caller's durability decision: every outcome is final under retry
-/// except a claim conflict, whose discarded op row lets a retry re-run.
+/// except a claim conflict, and only where a retry actually re-runs it
+/// (a discarded claim abort, or an inline answer with no op row).
 fn outcome_settled(outcome: &str) -> bool {
     outcome != OUTCOME_SKIPPED_CONFLICT
 }
@@ -656,6 +669,9 @@ fn merge_response(
             Status::internal(format!("op {} original sources are malformed", row.op_id))
         })?;
 
+    // Only a claim-aborted row is discarded on re-presentation; any other
+    // terminal row replays verbatim, so its every answer is settled.
+    let redrivable = MergeOpExecutor::is_claim_abort(row);
     let results = original_sources
         .iter()
         .map(|did| {
@@ -668,7 +684,7 @@ fn merge_response(
             MergeSourceResult {
                 source_distinct_id: did.clone(),
                 outcome: outcome_enum(outcome).into(),
-                settled: outcome_settled(outcome),
+                settled: outcome_settled(outcome) || !redrivable,
                 // Only a merged source names a person, because only that
                 // person is permanently gone.
                 source_person_id: match outcome {

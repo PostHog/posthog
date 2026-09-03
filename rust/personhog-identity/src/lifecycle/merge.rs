@@ -36,6 +36,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
+use personhog_common::persons::person_uuid;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
@@ -111,10 +112,14 @@ pub struct MergeRequest {
     /// would make the flip's repoint an unbounded statement.
     pub move_limit: i64,
     /// The event that asked for this merge, recorded as $creator_event_uuid
-    /// on a person the establish path births. Skipped when empty so older
-    /// frozen rows compare equal.
+    /// on a person this call's establishment births. Skipped when empty so
+    /// older frozen rows compare equal.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub creator_event_uuid: String,
+    /// Establishment birthed the target, so the fold and the abort delivery
+    /// stamp its creating event (a recycled source can complete a born fold).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub target_born: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1332,13 +1337,32 @@ impl MergeDriver {
             });
         }
 
+        // The stub never reached the changelog, so the born stamp rides the
+        // fold's $set; the uuid check keeps it off a person the claim
+        // resolved after a rival settled the newborn away.
+        let mut event_set = request.event_set.clone();
+        if request.target_born
+            && !request.creator_event_uuid.is_empty()
+            && target.person_uuid == person_uuid(op.team_id, &request.target_distinct_id)
+        {
+            if event_set.is_null() {
+                event_set = Value::Object(Default::default());
+            }
+            let map = event_set.as_object_mut().ok_or_else(|| {
+                SagaError::CorruptState(format!("merge op {} event_set is not a map", op.op_id))
+            })?;
+            map.insert(
+                "$creator_event_uuid".to_string(),
+                Value::String(request.creator_event_uuid.clone()),
+            );
+        }
         let response = match self
             .leader
             .fold_person_document(FoldPersonDocumentRequest {
                 team_id: op.team_id,
                 person_id: target.person_id,
                 sealed_snapshots: snapshots,
-                event_set: encode_json_map(&request.event_set)?,
+                event_set: encode_json_map(&event_set)?,
                 event_set_once: encode_json_map(&request.event_set_once)?,
                 op_id: op.op_id.to_string(),
             })
@@ -1417,11 +1441,12 @@ impl MergeDriver {
 
 struct TargetRow {
     person_id: i64,
+    person_uuid: Uuid,
 }
 
 async fn target_row(pool: &PgPool, op: &OpRow) -> Result<TargetRow, SagaError> {
     let row = sqlx::query!(
-        "SELECT person_id FROM lifecycle_op_person WHERE op_id = $1 AND role = $2",
+        "SELECT person_id, person_uuid FROM lifecycle_op_person WHERE op_id = $1 AND role = $2",
         op.op_id,
         ROLE_TARGET,
     )
@@ -1429,6 +1454,7 @@ async fn target_row(pool: &PgPool, op: &OpRow) -> Result<TargetRow, SagaError> {
     .await?;
     Ok(TargetRow {
         person_id: row.person_id,
+        person_uuid: row.person_uuid,
     })
 }
 

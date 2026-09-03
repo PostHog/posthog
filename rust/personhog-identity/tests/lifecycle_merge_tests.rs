@@ -255,6 +255,7 @@ fn merge_request(target: &str, sources: &[&str]) -> MergeRequest {
         allow_identified_sources: false,
         move_limit: 1_000,
         creator_event_uuid: String::new(),
+        target_born: false,
     }
 }
 
@@ -264,6 +265,110 @@ fn result_map(outcome: &MergeOutcome) -> HashMap<String, String> {
         .iter()
         .map(|r| (r.distinct_id.clone(), r.outcome.clone()))
         .collect()
+}
+
+/// A person carrying the uuid establishment derives for `distinct_id`;
+/// `with_mapping` controls whether the distinct id row is written too.
+async fn insert_person_with_derived_uuid(
+    ctx: &TestContext,
+    distinct_id: &str,
+    with_mapping: bool,
+) -> i64 {
+    let insert_sql = format!(
+        r#"
+        INSERT INTO {}
+            (created_at, properties, properties_last_updated_at, properties_last_operation,
+             team_id, is_identified, uuid, version)
+        VALUES (now(), '{{}}'::jsonb, '{{}}'::jsonb, '{{}}'::jsonb, $1, false, $2, 0)
+        RETURNING id
+        "#,
+        ctx.tables.person
+    );
+    let person_id: i64 = sqlx::query_scalar(&insert_sql)
+        .bind(ctx.team_id as i32)
+        .bind(person_uuid(ctx.team_id, distinct_id))
+        .fetch_one(&ctx.pool)
+        .await
+        .expect("insert person");
+    if with_mapping {
+        let pdi_sql = format!(
+            "INSERT INTO {} (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, 0)",
+            ctx.tables.person_distinct_id
+        );
+        sqlx::query(&pdi_sql)
+            .bind(distinct_id)
+            .bind(person_id)
+            .bind(ctx.team_id as i32)
+            .execute(&ctx.pool)
+            .await
+            .expect("insert mapping");
+    }
+    person_id
+}
+
+#[tokio::test]
+async fn a_completing_fold_stamps_a_born_targets_creating_event() {
+    // The frozen request says establishment birthed the target; the source
+    // was classified refused but recycled to a claimable person before the
+    // claim's authoritative re-resolve, so the saga completes.
+    let h = MergeHarness::new().await;
+    let _target = insert_person_with_derived_uuid(&h.ctx, "born-target", true).await;
+    let _source = h.ctx.insert_person_with_distinct_id("born-source").await;
+
+    let mut request = merge_request("born-target", &["born-source"]);
+    request.creator_event_uuid = "88888888-8888-8888-8888-888888888888".to_string();
+    request.target_born = true;
+    let outcome = h
+        .execute(Uuid::now_v7(), &request)
+        .await
+        .expect("merge completes");
+
+    assert!(!outcome.aborted);
+    assert_eq!(
+        result_map(&outcome),
+        HashMap::from([("born-source".to_string(), OUTCOME_MERGED.to_string())])
+    );
+    let survivor = outcome
+        .survivor
+        .expect("committed merges carry the survivor");
+    assert_eq!(
+        survivor["properties"]["$creator_event_uuid"],
+        json!("88888888-8888-8888-8888-888888888888")
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_completing_fold_leaves_a_moved_away_target_unstamped() {
+    // The claimed target is not the person this call birthed (the newborn
+    // was settled away and the did re-resolved before the claim), so the
+    // fold must not overwrite that person's own creating event.
+    let h = MergeHarness::new().await;
+    let _target = h
+        .ctx
+        .insert_person_with_distinct_id("moved-fold-target")
+        .await;
+    let _source = h
+        .ctx
+        .insert_person_with_distinct_id("moved-fold-source")
+        .await;
+
+    let mut request = merge_request("moved-fold-target", &["moved-fold-source"]);
+    request.creator_event_uuid = "88888888-8888-8888-8888-888888888888".to_string();
+    request.target_born = true;
+    let outcome = h
+        .execute(Uuid::now_v7(), &request)
+        .await
+        .expect("merge completes");
+
+    assert!(!outcome.aborted);
+    let survivor = outcome
+        .survivor
+        .expect("committed merges carry the survivor");
+    assert!(survivor["properties"].get("$creator_event_uuid").is_none());
+
+    h.ctx.cleanup().await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -1699,6 +1804,80 @@ async fn a_conflict_is_not_recorded_and_a_plain_retry_merges_once_released() {
 }
 
 #[tokio::test]
+async fn a_completed_op_answers_its_embedded_conflict_settled() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let _target = h.ctx.insert_person_with_distinct_id("emb-target").await;
+    let held = h.ctx.insert_person_with_distinct_id("emb-held").await;
+    let _free = h.ctx.insert_person_with_distinct_id("emb-free").await;
+
+    let rival = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, lease_expires_at) VALUES ($1, 'merge', $2, 'claimed', '{}'::jsonb, now() + interval '1 hour')",
+    )
+    .bind(rival)
+    .bind(h.ctx.team_id as i32)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("insert rival op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) VALUES ($1, $2, $3, gen_random_uuid(), 'source', 'marked')",
+    )
+    .bind(rival)
+    .bind(h.ctx.team_id as i32)
+    .bind(held)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("insert rival mark");
+
+    // The free source completes the saga, freezing the held source's
+    // conflict in the terminal record.
+    let op_id = Uuid::now_v7();
+    let response = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "emb-target",
+            &["emb-held", "emb-free"],
+            op_id,
+        )))
+        .await
+        .expect("merge completes around the held source")
+        .into_inner();
+    let outcomes: HashMap<String, MergeSourceOutcome> =
+        rpc_outcomes(&response).into_iter().collect();
+    assert_eq!(outcomes["emb-free"], MergeSourceOutcome::Merged);
+    assert_eq!(outcomes["emb-held"], MergeSourceOutcome::SkippedConflict);
+    // A completed op's answers replay verbatim forever, so the conflict is
+    // settled: retrying this op id cannot change it.
+    for result in &response.results {
+        assert!(result.settled, "{} unsettled", result.source_distinct_id);
+    }
+
+    // Even released, a retry replays the frozen answer rather than
+    // re-running the held pair.
+    sqlx::query("UPDATE lifecycle_op_person SET status = 'cleared' WHERE op_id = $1")
+        .bind(rival)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("release rival mark");
+    let retry = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "emb-target",
+            &["emb-held", "emb-free"],
+            op_id,
+        )))
+        .await
+        .expect("retry attaches")
+        .into_inner();
+    let replayed: HashMap<String, MergeSourceOutcome> = rpc_outcomes(&retry).into_iter().collect();
+    assert_eq!(replayed["emb-held"], MergeSourceOutcome::SkippedConflict);
+    assert!(retry.results.iter().all(|r| r.settled));
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
 async fn a_saga_survivor_carries_the_folded_last_seen_at() {
     let h = MergeHarness::new().await;
     let service = h.service();
@@ -2128,6 +2307,45 @@ async fn an_unresolved_target_attaches_to_the_first_resolved_sources_person() {
 }
 
 #[tokio::test]
+async fn a_call_that_lost_the_birth_race_does_not_stamp_its_creator() {
+    // The person already exists under the derived uuid with the distinct id
+    // unmapped: establishment finds the row and only adds the mapping, so
+    // this call is not the creator and must not stamp.
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let target = insert_person_with_derived_uuid(&h.ctx, "lost-target", false).await;
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("lost-ident-source")
+        .await;
+    h.set_person(source, r#"{"plan": "pro"}"#, 3, true).await;
+
+    let mut request = rpc_request(
+        h.ctx.team_id,
+        "lost-target",
+        &["lost-ident-source"],
+        Uuid::now_v7(),
+    );
+    request.creator_event_uuid = "66666666-6666-6666-6666-666666666666".to_string();
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("call succeeds")
+        .into_inner();
+
+    let survivor = response.survivor.expect("survivor present");
+    assert_eq!(survivor.id, target);
+    let properties: serde_json::Value = if survivor.properties.is_empty() {
+        serde_json::json!({})
+    } else {
+        serde_json::from_slice(&survivor.properties).expect("properties are JSON")
+    };
+    assert_eq!(properties.get("$creator_event_uuid"), None);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
 async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_target() {
     let h = MergeHarness::new().await;
     let service = h.service();
@@ -2137,8 +2355,6 @@ async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_targ
         .await;
     h.set_person(source, r#"{"plan": "pro"}"#, 3, true).await;
 
-    // A creating event is sent, so the newborn's lack of one below is the
-    // saga path declining to stamp rather than nothing having been offered.
     let mut request = rpc_request(
         h.ctx.team_id,
         "elig-target",
@@ -2169,15 +2385,17 @@ async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_targ
             MergeSourceOutcome::SkippedAlreadyIdentified
         )]
     );
-    // Establishment birthed the target while the classification loop sent
-    // the identified source to the saga; only the inline settlement stamps
-    // a creating event, so the newborn carries none.
+    // Establishment birthed the target, so the abort delivery stamps its
+    // creating event.
     let born_properties: serde_json::Value = if survivor.properties.is_empty() {
         serde_json::json!({})
     } else {
         serde_json::from_slice(&survivor.properties).expect("survivor properties are JSON")
     };
-    assert_eq!(born_properties.get("$creator_event_uuid"), None);
+    assert_eq!(
+        born_properties.get("$creator_event_uuid"),
+        Some(&serde_json::json!("77777777-7777-7777-7777-777777777777"))
+    );
     assert_eq!(h.pdi_state("elig-target").await, (survivor.id, false, 0));
     assert_eq!(h.pdi_state("elig-ident-source").await.0, source);
     let (source_deleted, _, _) = h.person_state(source).await;
@@ -2191,6 +2409,68 @@ async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_targ
             is_identified: Some(true),
         }]
     );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn an_abort_redelivery_does_not_stamp_a_person_the_did_moved_to() {
+    // A refused abort replays on attach, so its delivery re-runs against
+    // whatever the distinct id resolves to now; a person other than the
+    // newborn must not gain the creating event.
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let target = h.ctx.insert_person_with_distinct_id("moved-target").await;
+    let source = h.ctx.insert_person_with_distinct_id("moved-source").await;
+
+    // Engine-stage the refused abort of a born-frozen op: the fence
+    // refusal at the seal step aborts without the claim-abort discard.
+    h.leader.fail_next(
+        Rpc::Fence,
+        source,
+        semantic_refusal("injected fence refusal", "test-refusal"),
+    );
+    let op_id = Uuid::now_v7();
+    let mut request = merge_request("moved-target", &["moved-source"]);
+    request.creator_event_uuid = "55555555-5555-5555-5555-555555555555".to_string();
+    request.target_born = true;
+    let mut frozen = serde_json::to_value(&request).unwrap();
+    frozen["original"] = json!({
+        "target_distinct_id": "moved-target",
+        "sources": ["moved-source"],
+        "event_set": {},
+        "event_set_once": {},
+        "allow_identified_sources": false,
+        "move_limit": 1000,
+        "created_at": 0,
+    });
+    frozen["inline_results"] = json!({});
+    let row = h
+        .engine
+        .execute(&h.driver, op_id, h.ctx.team_id, &frozen)
+        .await
+        .expect("the refusal aborts the op");
+    assert_eq!(row.outcome.as_ref().unwrap()["aborted"], json!(true));
+
+    let mut rpc = rpc_request(h.ctx.team_id, "moved-target", &["moved-source"], op_id);
+    rpc.creator_event_uuid = "55555555-5555-5555-5555-555555555555".to_string();
+    let response = service
+        .merge_persons(Request::new(rpc))
+        .await
+        .expect("the redelivery attaches")
+        .into_inner();
+
+    let survivor = response.survivor.expect("delivery answers the person");
+    assert_eq!(survivor.id, target);
+    // The delivery ran (the flip landed) but the stamp stayed off a person
+    // this op did not birth.
+    assert!(survivor.is_identified);
+    let properties: serde_json::Value = if survivor.properties.is_empty() {
+        serde_json::json!({})
+    } else {
+        serde_json::from_slice(&survivor.properties).expect("properties are JSON")
+    };
+    assert_eq!(properties.get("$creator_event_uuid"), None);
 
     h.ctx.cleanup().await.expect("cleanup");
 }

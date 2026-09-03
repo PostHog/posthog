@@ -178,7 +178,8 @@ enum MergeSourceOutcome {
   // allow_identified_sources.
   MERGE_SOURCE_OUTCOME_SKIPPED_ALREADY_IDENTIFIED = 5;
   // Another live lifecycle operation holds this person (or the source
-  // resolved differently between classification and claim). Retryable.
+  // resolved differently between classification and claim). Retryable
+  // only while unsettled; settled means this op's answer is frozen.
   MERGE_SOURCE_OUTCOME_SKIPPED_CONFLICT = 6;
   // The source person has more distinct ids than the request's move_limit.
   MERGE_SOURCE_OUTCOME_SKIPPED_MOVE_LIMIT = 7;
