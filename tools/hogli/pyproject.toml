@@ -51,6 +51,7 @@ Repository = "https://github.com/PostHog/posthog"
 packages = ["src/hogli"]
 
 [tool.uv]
+exclude-newer = "7 days"
 # uv keys the built wheel on pyproject.toml alone by default, so a source-only change leaves
 # the stale wheel in the cache and uv installs it again. List the sources to key on them too.
 cache-keys = [
