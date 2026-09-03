@@ -18,11 +18,11 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
 
     return (
         <aside
-            className="w-full shrink-0 border-r bg-surface-primary flex flex-col @min-[56rem]/account-detail:w-56"
+            className="w-full shrink-0  @max-[60rem]:border @max-[60rem]:rounded border-r rounded-r bg-surface-primary flex flex-col @min-[60rem]/account-detail:w-60"
             data-attr="account-sidebar"
         >
-            <div className="flex flex-col gap-1 py-4 pr-4" data-attr="account-rail-tags">
-                <span className="text-xs text-secondary">Tags</span>
+            <div className="flex flex-col gap-1 p-4" data-attr="account-rail-tags">
+                <span className="secondary text-secondary">Tags</span>
                 <ObjectTags
                     tags={account.tags ?? []}
                     onChange={updateTags}
@@ -32,9 +32,9 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
                 />
             </div>
             <LemonDivider className="my-0" />
-            <div className="flex flex-col gap-3 py-4 pr-4" data-attr="account-rail-properties">
+            <div className="flex flex-col gap-3 p-4" data-attr="account-rail-properties">
                 <div className="flex items-center gap-2">
-                    <span className="text-xs text-secondary">Properties</span>
+                    <span className="secondary text-secondary">Properties</span>
                     <LemonButton
                         size="xsmall"
                         icon={<IconGear />}
@@ -45,7 +45,7 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
                         data-attr="account-detail-configure-properties"
                     />
                 </div>
-                <span className="text-sm text-muted">No properties pinned.</span>
+                <span className="text-xs text-muted">No properties pinned.</span>
             </div>
         </aside>
     )
