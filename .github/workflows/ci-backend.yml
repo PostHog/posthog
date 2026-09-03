@@ -2812,8 +2812,8 @@ jobs:
             # Tool cache steps inlined rather than the setup-python-cached composite:
             # this job checks out the PR head ref, which cannot resolve a local
             # action that only exists on master until the branch rebases. The
-            # restore sits before the parallel block so the tool cache is warm
-            # when setup-python starts.
+            # restore sits before setup-python so the tool cache is warm when it
+            # runs.
             - name: Restore Python tool cache
               id: python-toolcache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -2821,12 +2821,11 @@ jobs:
                   path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
                   key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}
 
-            - parallel:
-                  - name: Set up Python
-                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-                    with:
-                        python-version: ${{ matrix.python-version }}
-                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: ${{ matrix.python-version }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Save Python tool cache
               if: github.ref == 'refs/heads/master' && steps.python-toolcache.outputs.cache-hit != 'true'
@@ -2850,10 +2849,9 @@ jobs:
               run: |
                   sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            # This job checks out the PR head ref, so setup-sqlx-cli resolves from the
-            # branch's tree, not from master. An unrebased branch still carries the
-            # copy that does not install Rust, so keep the toolchain here until those
-            # branches have rebased, then delete this step.
+            # Local actions resolve from the PR head ref here, and an unrebased
+            # branch carries a setup-sqlx-cli that installs no Rust. Delete once
+            # open branches have rebased.
             - name: Install Rust
               if: needs.changes.outputs.backend == 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9

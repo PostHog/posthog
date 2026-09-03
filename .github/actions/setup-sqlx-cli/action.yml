@@ -4,11 +4,9 @@ description: |
     Uses actions/cache to avoid recompiling from source on every run.
     The binary is pinned to a specific version for reproducibility.
 
-    Owns the Rust toolchain it needs. The cache key is a version pin, so a hit is
-    the normal outcome and nothing is compiled; a caller that installs Rust up
-    front pays for it on every job to cover the rare miss. Installing it here also
-    reaches callers that never installed one, such as ci-e2e-playwright.yml, which
-    would otherwise build against whatever unpinned Rust the runner image ships.
+    Installs the Rust toolchain it needs on a cache miss, so no caller has to.
+    The cache key is a version pin, so a miss is rare, and a caller that installs
+    Rust up front pays for it on every job.
 
 inputs:
     version:
@@ -16,7 +14,7 @@ inputs:
         required: false
         default: '0.8.0'
     toolchain:
-        description: 'Rust toolchain used to build sqlx-cli when the cache misses.'
+        description: 'Rust toolchain used to build sqlx-cli when the cache misses'
         required: false
         default: '1.91.1'
 
