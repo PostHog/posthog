@@ -1,8 +1,7 @@
 import { Brain } from "@phosphor-icons/react";
 import { ChatBubble, ChatBubbleContent, ChatMessage } from "@posthog/quill";
-import { ChatMarkdown } from "@posthog/ui/features/sessions/components/chat-thread/ChatMarkdown";
+import { UserMessageBody } from "@posthog/ui/features/sessions/components/chat-thread/UserMessageBody";
 import { PendingInputPlaceholder } from "@posthog/ui/features/sessions/components/PendingInputPlaceholder";
-import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
 import {
   CHAT_CONTENT_MAX_WIDTH,
   CHAT_CONTENT_PADDING_INLINE,
@@ -11,13 +10,17 @@ import type { UserMessageAttachment } from "@posthog/ui/features/sessions/userMe
 import { Box, Flex, Text } from "@radix-ui/themes";
 
 interface PendingChatViewProps {
-  promptText: string;
+  /**
+   * The prompt as the live transcript will render it (serialized content with
+   * chips), so the bubble looks the same when the transcript replaces it.
+   */
+  content: string;
   attachments?: UserMessageAttachment[];
   statusText?: string;
 }
 
 export function PendingChatView({
-  promptText,
+  content,
   attachments,
   statusText,
 }: PendingChatViewProps) {
@@ -35,12 +38,10 @@ export function PendingChatView({
             <ChatMessage align="end">
               <ChatBubble align="end" className="rounded-lg">
                 <ChatBubbleContent>
-                  <ChatMarkdown content={promptText} />
-                  {attachments && attachments.length > 0 && (
-                    <Box className="mt-1.5">
-                      <UserMessageAttachments attachments={attachments} />
-                    </Box>
-                  )}
+                  <UserMessageBody
+                    content={content}
+                    attachments={attachments}
+                  />
                 </ChatBubbleContent>
               </ChatBubble>
             </ChatMessage>

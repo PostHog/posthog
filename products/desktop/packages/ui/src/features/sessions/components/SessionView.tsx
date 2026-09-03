@@ -747,7 +747,9 @@ export function SessionView({
             ) : isInitializing ? (
               pendingTaskPrompt?.promptText ? (
                 <PendingChatView
-                  promptText={pendingTaskPrompt.promptText}
+                  content={
+                    pendingTaskPrompt.contentXml ?? pendingTaskPrompt.promptText
+                  }
                   attachments={pendingTaskPrompt.attachments}
                   statusText={
                     isCloud

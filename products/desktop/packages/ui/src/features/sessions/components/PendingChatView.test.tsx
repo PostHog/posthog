@@ -4,11 +4,18 @@ import { describe, expect, it } from "vitest";
 
 import { PendingChatView } from "./PendingChatView";
 
-function renderPending(props: { statusText?: string } = {}) {
+function renderPending(
+  props: {
+    content?: string;
+    attachments?: { id: string; label: string }[];
+    statusText?: string;
+  } = {},
+) {
   render(
     <Theme>
       <PendingChatView
-        promptText="Ship the login fix"
+        content={props.content ?? "Ship the login fix"}
+        attachments={props.attachments}
         statusText={props.statusText}
       />
     </Theme>,
@@ -26,5 +33,31 @@ describe("PendingChatView", () => {
     renderPending({ statusText: "Starting the sandbox…" });
     expect(screen.getByText("Starting the sandbox…")).toBeInTheDocument();
     expect(screen.queryByText("Starting task...")).not.toBeInTheDocument();
+  });
+
+  it("renders file mentions as chips so the bubble matches the live transcript", () => {
+    renderPending({
+      content: 'fix <file path="src/a.ts" />',
+    });
+    expect(screen.getByText("src/a.ts")).toBeInTheDocument();
+    expect(screen.queryByText("fix @src/a.ts")).not.toBeInTheDocument();
+  });
+
+  it("hides attachment chips when the content already carries file mentions", () => {
+    renderPending({
+      content: 'run this <file path="src/a.ts" />',
+      attachments: [{ id: "src/a.ts", label: "src/a.ts" }],
+    });
+    expect(screen.getByText("src/a.ts")).toBeInTheDocument();
+    // The attachment would render the same label a second time.
+    expect(screen.getAllByText("src/a.ts")).toHaveLength(1);
+  });
+
+  it("shows attachments for plain content without file mentions", () => {
+    renderPending({
+      content: "summarize this",
+      attachments: [{ id: "notes.txt", label: "notes.txt" }],
+    });
+    expect(screen.getByText("notes.txt")).toBeInTheDocument();
   });
 });

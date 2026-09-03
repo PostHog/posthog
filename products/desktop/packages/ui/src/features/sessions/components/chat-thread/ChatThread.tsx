@@ -86,6 +86,7 @@ import {
   type TurnRow,
 } from "@posthog/ui/features/sessions/components/chat-thread/threadVirtualization";
 import { buildTurnCopyText } from "@posthog/ui/features/sessions/components/chat-thread/turnCopyText";
+import { UserMessageBody } from "@posthog/ui/features/sessions/components/chat-thread/UserMessageBody";
 import { usePromptRecallSource } from "@posthog/ui/features/sessions/components/chat-thread/usePromptRecallSource";
 import { VirtualThreadScrollBody } from "@posthog/ui/features/sessions/components/chat-thread/VirtualThreadScrollBody";
 import {
@@ -105,16 +106,11 @@ import {
   ONBOARDING_BRIEF_LABEL,
   ONBOARDING_BRIEF_TOOLTIP,
 } from "@posthog/ui/features/sessions/components/session-update/onboardingBrief";
-import {
-  hasFileMentions,
-  MentionChip,
-  parseFileMentions,
-} from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
+import { MentionChip } from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
 import { extractPeerAgentMessage } from "@posthog/ui/features/sessions/components/session-update/peerAgentMessage";
 import { collapsePiSkillInvocation } from "@posthog/ui/features/sessions/components/session-update/piSkillInvocation";
 import { SessionUpdateView } from "@posthog/ui/features/sessions/components/session-update/SessionUpdateView";
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
-import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
 import {
   CHAT_CONTENT_MAX_WIDTH,
   CHAT_CONTENT_PADDING_INLINE,
@@ -590,8 +586,6 @@ function UserBubble({
     (s) => s.openCanvasInstructionsInSplit,
   );
 
-  const containsFileMentions = hasFileMentions(displayContent);
-
   const [isExpanded, setIsExpanded] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
   const textRef = useRef<HTMLDivElement>(null);
@@ -691,17 +685,11 @@ function UserBubble({
                       "[mask-image:linear-gradient(to_bottom,black_45%,transparent)]",
                   )}
                 >
-                  {containsFileMentions ? (
-                    parseFileMentions(displayContent)
-                  ) : (
-                    <ChatMarkdown content={displayContent} />
-                  )}
+                  <UserMessageBody
+                    content={displayContent}
+                    attachments={attachments}
+                  />
                 </div>
-                {attachments.length > 0 && !containsFileMentions && (
-                  <div className="mt-1.5">
-                    <UserMessageAttachments attachments={attachments} />
-                  </div>
-                )}
                 {isOverflowing && (
                   <button
                     type="button"
