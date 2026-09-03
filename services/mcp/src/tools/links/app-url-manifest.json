@@ -399,6 +399,11 @@
         "params": [],
         "scope": "project"
     },
+    "customerAnalyticsTasks": {
+        "template": "/customer_analytics/tasks",
+        "params": [],
+        "scope": "project"
+    },
     "customerJourneyBuilder": {
         "template": "/customer_analytics/journeys/new",
         "params": [],

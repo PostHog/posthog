@@ -60,7 +60,6 @@ ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE = 1000
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
     "customer_analytics",
-    "customer_task",
     "dashboard",
     "early_access_feature",
     "endpoint",
@@ -110,6 +109,7 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "llm_prompt": "llm_analytics",
     "account": "customer_analytics",
     "customer_journey": "customer_analytics",
+    "customer_task": "customer_analytics",
     "experiment_saved_metric": "experiment",
     "experiment_holdout": "experiment",
     "dashboard_template": "dashboard",

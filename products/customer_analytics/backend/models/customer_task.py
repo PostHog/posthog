@@ -20,7 +20,7 @@ class CustomerTaskActivityType(models.TextChoices):
 
 
 class CustomerTask(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     account = models.ForeignKey(
         "customer_analytics.Account",
         on_delete=models.CASCADE,
@@ -38,7 +38,7 @@ class CustomerTask(TeamScopedRootMixin, UUIDModel):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="assigned_customer_tasks",
+        related_name="+",
         db_constraint=False,
         db_index=False,
     )
@@ -49,7 +49,7 @@ class CustomerTask(TeamScopedRootMixin, UUIDModel):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="completed_customer_tasks",
+        related_name="+",
         db_constraint=False,
         db_index=False,
     )
@@ -58,7 +58,7 @@ class CustomerTask(TeamScopedRootMixin, UUIDModel):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="created_customer_tasks",
+        related_name="+",
         db_constraint=False,
         db_index=False,
     )
@@ -79,14 +79,14 @@ class CustomerTask(TeamScopedRootMixin, UUIDModel):
 
 
 class CustomerTaskActivity(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     task = models.ForeignKey(CustomerTask, on_delete=models.CASCADE, related_name="activities", db_index=False)
     actor = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="customer_task_activities",
+        related_name="+",
         db_constraint=False,
         db_index=False,
     )

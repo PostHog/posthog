@@ -1,15 +1,18 @@
 .CustomerTasksTable {
     container-type: inline-size;
 }
+
 @container (max-width: 720px) {
     .CustomerTasksTable__updated,
     .CustomerTasksTable__assignee {
         display: none;
     }
+
     .CustomerTasksTable__narrow-assignee {
         display: block;
     }
 }
+
 .CustomerTasksTable__narrow-assignee {
     display: none;
 }

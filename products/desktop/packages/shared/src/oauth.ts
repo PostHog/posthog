@@ -59,8 +59,6 @@ export const OAUTH_SCOPES = [
   "conversation:write",
   "customer_analytics:read",
   "customer_analytics:write",
-  "customer_task:read",
-  "customer_task:write",
   "customer_journey:read",
   "customer_journey:write",
   "customer_profile_config:read",
@@ -244,8 +242,7 @@ export const OAUTH_SCOPES = [
 // applies to every future server-side scope addition the app relies on, even when
 // OAUTH_SCOPES itself is unchanged.
 // v7: "*" replaced with the explicit list above.
-// v9: Added customer_task scopes, so existing sessions must reauthorize to receive them.
-export const OAUTH_SCOPE_VERSION = 9;
+export const OAUTH_SCOPE_VERSION = 8;
 
 export function getOauthClientIdFromRegion(region: CloudRegion): string {
   switch (region) {

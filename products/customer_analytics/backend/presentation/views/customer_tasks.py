@@ -78,6 +78,10 @@ class CustomerTaskSerializer(serializers.Serializer):
     can_edit = serializers.BooleanField(read_only=True, help_text="Whether the current user can edit this task.")
 
 
+class CustomerTaskAssigneeErrorSerializer(serializers.Serializer):
+    assigned_to_id = serializers.CharField(read_only=True, help_text="Why the selected assignee is not allowed.")
+
+
 class CustomerTaskCreateSerializer(serializers.Serializer):
     account_id = serializers.UUIDField(
         required=False, allow_null=True, help_text="UUID of a visible account, or null for an accountless task."
@@ -410,16 +414,17 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if isinstance(exc, contracts.CustomerTaskAccountNotFound):
             return Response({"detail": "Account not found."}, status=status.HTTP_404_NOT_FOUND)
         if isinstance(exc, contracts.CustomerTaskAssigneeInvalid):
-            return Response({"assigned_to_id": "Select a member of this project."}, status=status.HTTP_400_BAD_REQUEST)
+            error = CustomerTaskAssigneeErrorSerializer(instance={"assigned_to_id": "Select a member of this project."})
+            return Response(error.data, status=status.HTTP_400_BAD_REQUEST)
         if isinstance(exc, contracts.CustomerTaskAssigneeCannotViewAccount):
-            return Response(
-                {
+            error = CustomerTaskAssigneeErrorSerializer(
+                instance={
                     "assigned_to_id": "This person can"
                     + chr(39)
                     + "t access the selected account. Choose another assignee or remove the account link."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+                }
             )
+            return Response(error.data, status=status.HTTP_400_BAD_REQUEST)
         if isinstance(exc, contracts.CustomerTaskInvalidTransition):
             return Response(
                 {"status": "This task can" + chr(39) + f"t move from {exc.current} to {exc.requested}."},

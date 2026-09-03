@@ -1196,6 +1196,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                     | 'customer_analytics'
                     | 'customer_journey'
                     | 'customer_profile_config'
+                    | 'customer_task'
                     | 'dashboard'
                     | 'dashboard_template'
                     | 'data_catalog'
