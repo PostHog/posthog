@@ -1,6 +1,9 @@
 import type { EditorContent } from "@posthog/core/message-editor/content";
 import { resolveService, resolveServiceOptional } from "@posthog/di/container";
-import { ANALYTICS_EVENTS } from "@posthog/shared";
+import {
+  type AgentActionTaskAttribution,
+  ANALYTICS_EVENTS,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { navigateBrowserTab } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
@@ -114,6 +117,7 @@ export interface TaskInputNavigationOptions {
    */
   folderRunEnvironment?: "local" | "cloud";
   reportAssociation?: { reportId: string; title: string };
+  agentActionAttribution?: AgentActionTaskAttribution;
   /** Ignore whichever space is scoped and file the task nowhere. */
   unscoped?: boolean;
   /**
@@ -148,6 +152,7 @@ export function openTaskInput(
     !!options.initialCloudRepository ||
     !!options.initialModel ||
     !!options.initialMode ||
+    !!options.agentActionAttribution ||
     !!options.reportAssociation;
 
   useTaskInputPrefillStore.setState({
@@ -162,6 +167,7 @@ export function openTaskInput(
       initialMode: options.initialMode,
       folderRunEnvironment: options.folderRunEnvironment,
       reportAssociation: options.reportAssociation,
+      agentActionAttribution: options.agentActionAttribution,
       requestId: hasTransientState
         ? (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`)
         : undefined,

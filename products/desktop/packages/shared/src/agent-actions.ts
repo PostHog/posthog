@@ -81,7 +81,21 @@ export const showActionSchema = z.discriminatedUnion("kind", [
 
 export type ShowAction = z.infer<typeof showActionSchema>;
 
-export const openAgentActionInput = z.object({ action: agentActionSchema });
+export const agentActionAttributionSchema = z.object({
+  action_id: requiredField,
+  source_task_id: requiredField,
+  tool_call_id: requiredField,
+  action_index: z.number().int().nonnegative(),
+});
+
+export type AgentActionAttribution = z.infer<
+  typeof agentActionAttributionSchema
+>;
+
+export const openAgentActionInput = z.object({
+  action: agentActionSchema,
+  attribution: agentActionAttributionSchema,
+});
 
 /** One button as the renderer draws it: its text, and the verb behind it. */
 export interface ShowActionButton {

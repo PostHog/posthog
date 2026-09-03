@@ -1,9 +1,13 @@
 import { readShowActions } from "@posthog/core/sessions/showActions";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Button } from "@posthog/quill";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { ToolViewProps } from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
+import { useSessionTaskId } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { toast } from "@posthog/ui/primitives/toast";
+import { track } from "@posthog/ui/shell/analytics";
 import { useMutation } from "@tanstack/react-query";
+import { useEffect, useMemo } from "react";
 
 /**
  * The buttons a `show_actions` call offered, drawn where the agent offered them.
@@ -12,17 +16,45 @@ import { useMutation } from "@tanstack/react-query";
  */
 export function ShowActionsRow({ toolCall }: ToolViewProps) {
   const trpc = useHostTRPC();
+  const sourceTaskId = useSessionTaskId();
+  const buttons = useMemo(
+    () => readShowActions(toolCall.rawInput),
+    [toolCall.rawInput],
+  );
+  const attributionFor = (index: number) => ({
+    action_id: `${sourceTaskId}:${toolCall.toolCallId}:${index}`,
+    source_task_id: sourceTaskId ?? "unknown",
+    tool_call_id: toolCall.toolCallId,
+    action_index: index,
+  });
+  useEffect(() => {
+    if (!sourceTaskId) return;
+    buttons.forEach(({ action }, actionIndex) => {
+      track(ANALYTICS_EVENTS.AGENT_ACTION_SHOWN, {
+        action_id: `${sourceTaskId}:${toolCall.toolCallId}:${actionIndex}`,
+        source_task_id: sourceTaskId,
+        tool_call_id: toolCall.toolCallId,
+        action_index: actionIndex,
+        action_kind: action.kind,
+      });
+    });
+  }, [buttons, sourceTaskId, toolCall.toolCallId]);
   // A click that opens nothing is the failure this tool exists to avoid. One
   // handler covers both ways it happens: the call rejecting leaves `opened`
   // undefined, and the host finding no handler for the link answers false.
   const openAction = useMutation(
     trpc.deepLink.openAgentAction.mutationOptions({
-      onSettled: (opened) => {
-        if (!opened) toast.error("Couldn't open that");
+      onSettled: (opened, _error, variables) => {
+        if (!opened) {
+          toast.error("Couldn't open that");
+          track(ANALYTICS_EVENTS.AGENT_ACTION_OPEN_FAILED, {
+            ...variables.attribution,
+            action_kind: variables.action.kind,
+          });
+        }
       },
     }),
   );
-  const buttons = readShowActions(toolCall.rawInput);
 
   if (buttons.length === 0) return null;
 
@@ -30,17 +62,27 @@ export function ShowActionsRow({ toolCall }: ToolViewProps) {
   // frames them. A box around them would draw a second frame around nothing.
   return (
     <div className="flex flex-wrap gap-2">
-      {buttons.map(({ label, action }, index) => (
-        <Button
-          key={`${index}-${label}`}
-          variant="outline"
-          size="sm"
-          disabled={openAction.isPending}
-          onClick={() => openAction.mutate({ action })}
-        >
-          {label}
-        </Button>
-      ))}
+      {buttons.map(({ label, action }, index) => {
+        const attribution = attributionFor(index);
+        return (
+          <Button
+            key={`${index}-${label}`}
+            variant="outline"
+            size="sm"
+            disabled={openAction.isPending}
+            onClick={() => {
+              if (!sourceTaskId) return;
+              track(ANALYTICS_EVENTS.AGENT_ACTION_CLICKED, {
+                ...attribution,
+                action_kind: action.kind,
+              });
+              openAction.mutate({ action, attribution });
+            }}
+          >
+            {label}
+          </Button>
+        );
+      })}
     </div>
   );
 }

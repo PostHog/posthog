@@ -14,6 +14,7 @@ import type { HostTrpcClient } from "@posthog/host-router/client";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import {
   type Adapter,
+  type AgentActionTaskAttribution,
   type AgentRuntime,
   ANALYTICS_EVENTS,
   type ModelAccess,
@@ -140,6 +141,8 @@ async function trackTaskCreated(
   input: TaskCreationInput,
   selectedDirectory: string,
   hostClient: HostTrpcClient,
+  resultingTaskId: string,
+  attribution?: AgentActionTaskAttribution,
   codexModelAccess?: ModelAccess,
   claudeModelAccess?: ModelAccess,
 ): Promise<void> {
@@ -164,7 +167,7 @@ async function trackTaskCreated(
 
     track(ANALYTICS_EVENTS.TASK_CREATED, {
       auto_run: !!input.executionMode,
-      created_from: "command-menu",
+      created_from: attribution ? "agent-action" : "command-menu",
       repository_provider: input.repository ? "github" : "none",
       workspace_mode: workspaceMode,
       has_branch: !!input.branch,
@@ -184,6 +187,10 @@ async function trackTaskCreated(
       adapter: input.adapter,
       codex_model_access: codexModelAccess,
       claude_model_access: claudeModelAccess,
+      resulting_task_id: resultingTaskId,
+      source_task_id: attribution?.sourceTaskId,
+      agent_action_id: attribution?.actionId,
+      agent_action_tool_call_id: attribution?.toolCallId,
     });
   } catch (error) {
     log.warn("Failed to track Task created event", { error });
@@ -568,10 +575,20 @@ export function useTaskCreation({
             if (allowNoRepo && channelId) {
               useTaskRepositoryDraftStore.getState().clearDraft(channelId);
             }
+            const agentActionAttribution =
+              useTaskInputPrefillStore.getState().prefill
+                .agentActionAttribution;
+            if (agentActionAttribution) {
+              useTaskInputPrefillStore
+                .getState()
+                .consumeAgentActionAttribution(agentActionAttribution.actionId);
+            }
             void trackTaskCreated(
               input,
               selectedDirectory,
               hostClient,
+              result.data.task.id,
+              agentActionAttribution,
               input.codexModelAccess,
               input.claudeModelAccess,
             );

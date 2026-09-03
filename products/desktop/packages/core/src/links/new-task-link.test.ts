@@ -170,6 +170,29 @@ describe("NewTaskLinkService", () => {
         model: "opus",
       });
     });
+
+    it("passes complete agent-action attribution to the task composer", () => {
+      const listener = vi.fn();
+      service.on(NewTaskLinkEvent.Action, listener);
+
+      mockDeepLink._invoke(
+        "new",
+        new URLSearchParams(
+          "prompt=test&agent_action_id=action-1&agent_action_source_task_id=source-task&agent_action_tool_call_id=tool-call&agent_action_index=2",
+        ),
+      );
+
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentActionAttribution: {
+            actionId: "action-1",
+            sourceTaskId: "source-task",
+            toolCallId: "tool-call",
+            actionIndex: 2,
+          },
+        }),
+      );
+    });
   });
 
   describe("handlePlan", () => {

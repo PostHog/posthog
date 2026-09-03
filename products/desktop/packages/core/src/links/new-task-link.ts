@@ -65,6 +65,22 @@ export class NewTaskLinkService extends TypedEventEmitter<NewTaskLinkEvents> {
   private handleNew(params: URLSearchParams): boolean {
     const shared = this.extractSharedParams(params);
     const prompt = params.get("prompt") ?? undefined;
+    const actionId = params.get("agent_action_id") ?? undefined;
+    const sourceTaskId = params.get("agent_action_source_task_id") ?? undefined;
+    const toolCallId = params.get("agent_action_tool_call_id") ?? undefined;
+    const actionIndexValue = params.get("agent_action_index");
+    const actionIndex = actionIndexValue
+      ? Number.parseInt(actionIndexValue, 10)
+      : undefined;
+    const agentActionAttribution =
+      actionId &&
+      sourceTaskId &&
+      toolCallId &&
+      actionIndex !== undefined &&
+      Number.isInteger(actionIndex) &&
+      actionIndex >= 0
+        ? { actionId, sourceTaskId, toolCallId, actionIndex }
+        : undefined;
 
     if (!prompt && !shared.repo) {
       this.log.warn("New task link requires at least prompt or repo");
@@ -74,6 +90,7 @@ export class NewTaskLinkService extends TypedEventEmitter<NewTaskLinkEvents> {
     const payload: NewTaskLinkPayload = {
       action: "new",
       prompt,
+      agentActionAttribution,
       ...shared,
     };
 

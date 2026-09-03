@@ -5,6 +5,9 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 const openAgentAction = vi.hoisted(() => vi.fn());
+const track = vi.hoisted(() => vi.fn());
+
+vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
 
 vi.mock("@posthog/host-router/react", () => ({
   useHostTRPC: () => ({
@@ -16,13 +19,16 @@ vi.mock("@posthog/host-router/react", () => ({
   }),
 }));
 
+import { SessionTaskIdProvider } from "../../useSessionTaskId";
 import { ShowActionsRow } from "./ShowActionsRow";
 
 function renderCard(actions: unknown[]) {
   const toolCall = { toolCallId: "tc", rawInput: { actions } } as ToolCall;
   return render(
     <QueryClientProvider client={new QueryClient()}>
-      <ShowActionsRow toolCall={toolCall} turnComplete />
+      <SessionTaskIdProvider taskId="source-task">
+        <ShowActionsRow toolCall={toolCall} turnComplete />
+      </SessionTaskIdProvider>
     </QueryClientProvider>,
   );
 }
@@ -52,6 +58,19 @@ describe("ShowActionsRow", () => {
     await waitFor(() => expect(openAgentAction).toHaveBeenCalled());
     expect(openAgentAction.mock.calls[0]?.[0]).toEqual({
       action: { kind: "open_space", channel_id: "chan" },
+      attribution: {
+        action_id: "source-task:tc:0",
+        source_task_id: "source-task",
+        tool_call_id: "tc",
+        action_index: 0,
+      },
+    });
+    expect(track).toHaveBeenCalledWith("Agent action clicked", {
+      action_id: "source-task:tc:0",
+      source_task_id: "source-task",
+      tool_call_id: "tc",
+      action_index: 0,
+      action_kind: "open_space",
     });
   });
 });

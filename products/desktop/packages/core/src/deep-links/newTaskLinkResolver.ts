@@ -67,6 +67,7 @@ export class NewTaskLinkResolver {
           payload.repo ?? inferRepositoryFromPullRequests(payload.prompt),
         initialModel: payload.model,
         initialMode: payload.mode,
+        agentActionAttribution: payload.agentActionAttribution,
       },
       analytics: {
         event: ANALYTICS_EVENTS.DEEP_LINK_NEW_TASK,

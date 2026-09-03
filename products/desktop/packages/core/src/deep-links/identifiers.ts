@@ -1,4 +1,4 @@
-import type { GithubRef } from "@posthog/shared";
+import type { AgentActionTaskAttribution, GithubRef } from "@posthog/shared";
 import type {
   ANALYTICS_EVENTS,
   DeepLinkIssueFailedProperties,
@@ -26,6 +26,7 @@ export interface TaskInputNavigation {
   initialCloudRepository?: string;
   initialModel?: string;
   initialMode?: string;
+  agentActionAttribution?: AgentActionTaskAttribution;
 }
 
 export type NewTaskLinkAnalytics =

@@ -1,5 +1,8 @@
 export * from "./adapter";
 export {
+  type AgentAction,
+  type AgentActionAttribution,
+  agentActionSchema,
   buildActionUrl,
   openAgentActionInput,
   type ShowActionButton,
@@ -94,6 +97,8 @@ export {
   pickAllowedModel,
 } from "./cloud-task-models";
 export {
+  type AgentActionTaskAttribution,
+  buildInboxDeeplink,
   buildLoopDeeplink,
   buildScoutDeeplink,
   decodePlanBase64,
