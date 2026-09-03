@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
@@ -20,8 +20,9 @@ import { ExperimentStatsMethod } from '~/types'
 import { CONFIDENCE_LEVEL_OPTIONS } from 'products/experiments/frontend/constants'
 
 export function StatsMethodModal(): JSX.Element {
-    const { experiment, statsMethod } = useValues(experimentLogic)
-    const { updateExperimentSettings, setExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
+    const { experiment, statsMethod, experimentUpdateLoading } = useValues(experimentLogic)
+    const { setExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
+    const { updateExperimentSettings } = useAsyncActions(experimentLogic)
     const { closeStatsEngineModal } = useActions(modalsLogic)
     const { isStatsEngineModalOpen } = useValues(modalsLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
@@ -125,8 +126,14 @@ export function StatsMethodModal(): JSX.Element {
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        onClick={() => {
-                            updateExperimentSettings({ stats_config: experiment.stats_config })
+                        loading={experimentUpdateLoading}
+                        onClick={async () => {
+                            try {
+                                await updateExperimentSettings({ stats_config: experiment.stats_config })
+                            } catch {
+                                // Keep the modal open so the user can retry
+                                return
+                            }
                             closeStatsEngineModal()
                         }}
                     >
