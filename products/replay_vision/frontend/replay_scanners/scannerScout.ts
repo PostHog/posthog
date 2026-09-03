@@ -143,18 +143,19 @@ ${focus.skip}
 Decide this while you write the summary, not after: a bullet whose point is a trajectory or a spread
 reads faster as a chart than as a sentence. \`scout-emit-report\` and \`scout-edit-report\` both take
 \`charts\`, and each entry is \`{ chart_id, title, query, caption?, size? }\` where \`chart_id\` is your
-own slug and \`query\` is an insight query node of the kind \`execute-sql\` and the insight tools produce.
+own slug and \`query\` is an \`InsightVizNode\`, a \`DataVisualizationNode\` over a \`HogQLQuery\`, or a
+\`SavedInsightNode\`. Any other kind is refused when you write.
 
 - Attach one when a number's trajectory or spread carries the point, and place it in the summary with
   \`[label](chart:<chart_id>)\` so it renders next to the bullet it belongs to.
-- A number you have now tracked across several runs (a rate that moved again today) is exactly this
-  case: pull the daily series and chart the trajectory instead of narrating it run by run. Writing
-  "X fell from 98% to 93%" in prose is the case this bullet is for, so chart it rather than say it.
-- Run the query before attaching it, and keep the chart only if it came back with more than one row.
-  That check is what "looking at" a chart means here; a single row is the one-bar chart below.
+- A number you have tracked across several runs is exactly this case. Writing "X fell from 98% to
+  93%" in prose is the sentence to replace: pull the daily series and chart it instead.
+- Attach a query you already ran this session, and keep the chart only if the SQL behind it returned
+  more than one row. That check is what "looking at" a chart means here.
 - Skip it when a single number says the same thing. A chart of one bar is noise, and a quiet window
   needs no chart at all.
 - The chart must answer the bullet it sits under.
+- \`charts\` replaces the report's whole set, so when you edit a report send every chart you want kept.
 
 ## File your digest — every run, exactly once
 
