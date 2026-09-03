@@ -63,7 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 from products.warehouse_sources.backend.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
 from .credential import DataWarehouseCredential
-from .external_table_definitions import external_tables, get_hogql_column_name_mapping
+from .external_table_definitions import external_tables, get_hogql_column_name_mapping, resolve_external_table_fields
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
@@ -974,7 +974,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             )
 
         # Replace fields with any redefined fields if they exist
-        external_table_fields = external_tables.get(self.table_name_without_prefix())
+        external_table_fields = resolve_external_table_fields(self.table_name_without_prefix(), columns.keys())
         default_fields = external_tables.get("*", {})
         if external_table_fields is not None:
             fields = {**external_table_fields, **default_fields}

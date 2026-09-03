@@ -180,3 +180,27 @@ CUSTOMER_BALANCE_TRANSACTIONS: dict[str, list[dict]] = {
 }
 
 DELETED_CUSTOMER_IDS = {"cus_gone"}
+
+
+# A newer-shaped invoice. Stripe's 2025-03-31.basil release moved `subscription` into `parent` and
+# replaced `paid` with `status`, so an account whose default API version has moved delivers webhook
+# payloads without the flat columns the canonical schema reads.
+INVOICES = [
+    {
+        "id": "in_1SampleInvoiceIdAAAA",
+        "object": "invoice",
+        "created": 1743159813,
+        "currency": "usd",
+        "customer": "cus_SampleCustomerAAA",
+        "status": "paid",
+        "amount_paid": 4200,
+        "amount_due": 4200,
+        "billing_reason": "subscription_cycle",
+        "parent": {
+            "type": "subscription_details",
+            "quote_details": None,
+            "subscription_details": {"metadata": {}, "subscription": "sub_1SampleSubscriptionAA"},
+        },
+        "lines": {"object": "list", "data": [], "has_more": False},
+    },
+]

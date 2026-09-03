@@ -1,3 +1,5 @@
+from collections.abc import Collection
+
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
@@ -156,6 +158,8 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "id": StringDatabaseField(name="id"),
         "tax": IntegerDatabaseField(name="tax"),
         "paid": BooleanDatabaseField(name="paid"),
+        "__paid": BooleanDatabaseField(name="paid", hidden=True),
+        "parent": StringJSONDatabaseField(name="parent"),
         "lines": StringJSONDatabaseField(name="lines"),
         "total": IntegerDatabaseField(name="total"),
         "charge": StringDatabaseField(name="charge"),
@@ -236,6 +240,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
             name="effective_at",
         ),
         "subscription_id": StringDatabaseField(name="subscription"),
+        "__subscription": StringDatabaseField(name="subscription", hidden=True),
         "attempt_count": IntegerDatabaseField(name="attempt_count"),
         "automatic_tax": StringJSONDatabaseField(name="automatic_tax"),
         "customer_name": StringDatabaseField(name="customer_name"),
@@ -660,7 +665,10 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "tax_rates": StringJSONDatabaseField(name="tax_rates"),
         "test_clock": StringDatabaseField(name="test_clock"),
         "unit_amount": IntegerDatabaseField(name="unit_amount"),
+        "__unit_amount": IntegerDatabaseField(name="unit_amount", hidden=True),
         "unit_amount_decimal": StringDatabaseField(name="unit_amount_decimal"),
+        "__unit_amount_decimal": StringDatabaseField(name="unit_amount_decimal", hidden=True),
+        "pricing": StringJSONDatabaseField(name="pricing"),
     },
     "stripe_payout": {
         "id": StringDatabaseField(name="id"),
@@ -1519,3 +1527,180 @@ def get_hogql_column_name_mapping(table_name_without_prefix: str) -> dict[str, s
             mapping.setdefault(field.name, key)
 
     return mapping
+
+
+def _f(name: str) -> ast.Field:
+    return ast.Field(chain=[name])
+
+
+def _coalesce(*args: ast.Expr) -> ast.Call:
+    return ast.Call(name="coalesce", args=list(args))
+
+
+def _null_if(expr: ast.Expr, empty: str | int) -> ast.Call:
+    return ast.Call(name="nullIf", args=[expr, ast.Constant(value=empty)])
+
+
+def _json_str(column: str, *path: str) -> ast.Call:
+    return ast.Call(name="JSONExtractString", args=[_f(column), *[ast.Constant(value=part) for part in path]])
+
+
+def _epoch_to_datetime(expr: ast.Expr) -> ast.Call:
+    return ast.Call(name="toDateTime", args=[ast.Call(name="toString", args=[expr])])
+
+
+def _int_from_each(column: str, path: str, key: str) -> ast.Call:
+    """Pull one integer key out of every element of a JSON array column."""
+    return ast.Call(
+        name="arrayMap",
+        args=[
+            ast.Lambda(
+                args=["x"],
+                expr=ast.Call(name="JSONExtractInt", args=[_f("x"), ast.Constant(value=key)]),
+            ),
+            ast.Call(name="JSONExtractArrayRaw", args=[_f(column), ast.Constant(value=path)]),
+        ],
+    )
+
+
+def _expression(name: str, expr: ast.Expr) -> ast.ExpressionField:
+    return ast.ExpressionField(isolate_scope=True, expr=expr, name=name)
+
+
+# Stripe's 2025-03-31.basil release moved these fields into new objects, and a table holds the old
+# column, the new one, or both, depending on which API version rendered each row — polling is pinned
+# while webhook events render at the connected account's own default. Each definition reads the new
+# location and falls back to the legacy column so either shape resolves. Keyed by the columns the
+# expression needs: a table that has not synced them yet keeps the plain legacy field, because the
+# generated s3() structure would otherwise lack a column the field references and fail every query.
+_MOVED_COLUMN_FIELDS: dict[str, dict[str, tuple[frozenset[str], ast.ExpressionField]]] = {
+    "stripe_invoice": {
+        "subscription_id": (
+            frozenset({"parent"}),
+            _expression(
+                "subscription_id",
+                _coalesce(
+                    _null_if(_f("__subscription"), ""),
+                    _null_if(_json_str("parent", "subscription_details", "subscription"), ""),
+                ),
+            ),
+        ),
+        "paid": (
+            frozenset(),
+            _expression(
+                "paid",
+                _coalesce(
+                    _f("__paid"),
+                    ast.CompareOperation(
+                        left=_f("status"),
+                        right=ast.Constant(value="paid"),
+                        op=ast.CompareOperationOp.Eq,
+                    ),
+                ),
+            ),
+        ),
+    },
+    "stripe_subscription": {
+        "current_period_start": (
+            frozenset({"items"}),
+            _expression(
+                "current_period_start",
+                _epoch_to_datetime(
+                    _coalesce(
+                        _null_if(_f("__current_period_start"), 0),
+                        _null_if(
+                            ast.Call(
+                                name="arrayMin",
+                                args=[_int_from_each("items", "data", "current_period_start")],
+                            ),
+                            0,
+                        ),
+                    )
+                ),
+            ),
+        ),
+        "current_period_end": (
+            frozenset({"items"}),
+            _expression(
+                "current_period_end",
+                _epoch_to_datetime(
+                    _coalesce(
+                        _null_if(_f("__current_period_end"), 0),
+                        _null_if(
+                            ast.Call(
+                                name="arrayMax",
+                                args=[_int_from_each("items", "data", "current_period_end")],
+                            ),
+                            0,
+                        ),
+                    )
+                ),
+            ),
+        ),
+    },
+    "stripe_invoiceitem": {
+        "unit_amount_decimal": (
+            frozenset({"pricing"}),
+            _expression(
+                "unit_amount_decimal",
+                _coalesce(
+                    _null_if(_f("__unit_amount_decimal"), ""),
+                    _null_if(_json_str("pricing", "unit_amount_decimal"), ""),
+                ),
+            ),
+        ),
+        "unit_amount": (
+            frozenset({"pricing"}),
+            _expression(
+                "unit_amount",
+                _coalesce(
+                    _f("__unit_amount"),
+                    ast.Call(name="toIntOrNull", args=[_json_str("pricing", "unit_amount_decimal")]),
+                ),
+            ),
+        ),
+    },
+}
+
+
+def _referenced_keys(field: ast.ExpressionField) -> set[str]:
+    collector = _SingleFieldChainCollector()
+    collector.visit(field.expr)
+    return collector.names
+
+
+def resolve_external_table_fields(
+    table_name_without_prefix: str, present_columns: Collection[str]
+) -> dict[str, DatabaseField] | None:
+    """Curated HogQL fields for a table, adapted to the columns it actually synced.
+
+    Returns `None` for tables with no curated definition. A curated field is dropped when its raw
+    column is absent, because the generated s3() structure is built from the synced columns and a
+    field pointing outside it fails the whole query rather than just that column.
+    """
+    fields = external_tables.get(table_name_without_prefix)
+    if fields is None:
+        return None
+
+    available = set(present_columns)
+    dropped = {
+        key
+        for key, field in fields.items()
+        if not isinstance(field, ast.ExpressionField) and field.name not in available
+    }
+    overrides = _MOVED_COLUMN_FIELDS.get(table_name_without_prefix, {})
+
+    resolved: dict[str, DatabaseField] = {}
+    for key, field in fields.items():
+        if key in dropped:
+            continue
+        override = overrides.get(key)
+        if override is not None:
+            requires, expression = override
+            if requires <= available and not _referenced_keys(expression) & dropped:
+                resolved[key] = expression
+                continue
+        if isinstance(field, ast.ExpressionField) and _referenced_keys(field) & dropped:
+            continue
+        resolved[key] = field
+    return resolved
