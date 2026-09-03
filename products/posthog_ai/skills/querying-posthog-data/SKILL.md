@@ -43,7 +43,7 @@ When the user asks for a governed business or telemetry measure (MRR, activation
    Create it only after the user says yes, with `posthog:data-catalog-metric-create`; when the definition came from a saved insight, pass that insight's `source_insight_short_id` instead of copying its query.
    Never offer for a one-off exploration or debugging aggregate, and never after an unknown-table error: a project with no data catalog has no `posthog:data-catalog-metric-create` either.
 
-Curating the catalog — creating or approving metrics, certifying sources, reviewing the proposal queue — is a separate job covered by the `setting-up-data-catalog` skill. If you notice a clearly load-bearing or stale table while deriving, that skill covers proposing a trust mark on it. Everything an agent proposes lands unapproved for a human to promote, so never present a proposal as canonical.
+Curating the catalog — creating, approving, or retiring metrics, certifying sources, reviewing the proposal queue — is a separate job covered by the `setting-up-data-catalog` skill. If you notice a clearly load-bearing or stale table while deriving, that skill covers proposing a trust mark on it. Everything an agent proposes lands unapproved for a human to promote, so never present a proposal as canonical.
 
 ## Data Schema
 
