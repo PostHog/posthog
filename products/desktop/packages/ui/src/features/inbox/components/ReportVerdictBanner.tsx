@@ -46,7 +46,7 @@ import {
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
-import { useOpenTask } from "@posthog/ui/router/useOpenTask";
+import { openTaskInput, useOpenTask } from "@posthog/ui/router/useOpenTask";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
@@ -231,6 +231,17 @@ export function ReportVerdictBanner({
     void createPrReport(trimmed || undefined);
   }, [createPrReport, fireAction, prFeedback]);
 
+  const handleComposeImplementation = useCallback(() => {
+    openTaskInput({
+      initialPrompt: "Implement the recommended next step in this report.",
+      initialCloudRepository: cloudRepository ?? undefined,
+      reportAssociation: {
+        reportId: report.id,
+        title: report.title ?? "Untitled report",
+      },
+    });
+  }, [cloudRepository, report.id, report.title]);
+
   const handleOpenPr = useCallback(() => {
     if (!externalPrUrl) return;
     fireAction("open_pr");
@@ -291,6 +302,8 @@ export function ReportVerdictBanner({
     report.status === "suppressed" ||
     report.status === "deleted";
   const showActions = !isTerminalReport;
+  const shouldComposeImplementation =
+    report.status === "pending_input" && !hasExistingPr && canCreatePr;
 
   // Keyboard actions use the same guards as their buttons so shortcuts cannot
   // bypass loading, disabled, or duplicate-work states.
@@ -396,7 +409,18 @@ export function ReportVerdictBanner({
         </Button>
       )}
       {triageActions && dismissButton}
-      {report.status === "ready" && externalPrUrl ? (
+      {shouldComposeImplementation ? (
+        <Button
+          type="button"
+          variant="primary"
+          onClick={handleComposeImplementation}
+          className={buttonClass}
+          data-attr="inbox-report-implement"
+        >
+          <GitPullRequestIcon size={15} />
+          Implement
+        </Button>
+      ) : report.status === "ready" && externalPrUrl ? (
         <Button
           type="button"
           variant="primary"

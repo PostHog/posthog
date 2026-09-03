@@ -10,6 +10,7 @@ const {
   discussReport,
   invalidateQueries,
   openExternalUrl,
+  openTaskInput,
   openTask,
   setQueryData,
   useDiscussReport,
@@ -20,6 +21,7 @@ const {
   discussReport: vi.fn(),
   invalidateQueries: vi.fn(),
   openExternalUrl: vi.fn(),
+  openTaskInput: vi.fn(),
   openTask: vi.fn(),
   setQueryData: vi.fn(),
   useDiscussReport: vi.fn(),
@@ -85,6 +87,7 @@ vi.mock("@posthog/ui/features/inbox/hooks/useReportActionTracker", () => ({
 }));
 
 vi.mock("@posthog/ui/router/useOpenTask", () => ({
+  openTaskInput,
   useOpenTask: () => openTask,
 }));
 
@@ -156,6 +159,7 @@ describe("ReportVerdictBanner", () => {
     discussReport.mockResolvedValue(undefined);
     invalidateQueries.mockReset();
     openExternalUrl.mockReset();
+    openTaskInput.mockReset();
     openTask.mockReset();
     openResolveDialog.mockReset();
     setQueryData.mockReset();
@@ -222,6 +226,30 @@ describe("ReportVerdictBanner", () => {
     render(<ReportVerdictBanner report={report} initialEngagementOnly />);
 
     expect(screen.queryByText("Ask about it")).not.toBeInTheDocument();
+  });
+
+  it("opens the task composer when a report waiting on input can be implemented", async () => {
+    const user = userEvent.setup();
+    render(
+      <ReportVerdictBanner
+        report={{
+          ...report,
+          status: "pending_input",
+          actionability: "requires_human_input",
+        }}
+      />,
+    );
+
+    await user.click(screen.getByText("Implement"));
+
+    expect(openTaskInput).toHaveBeenCalledWith({
+      initialPrompt: "Implement the recommended next step in this report.",
+      initialCloudRepository: undefined,
+      reportAssociation: {
+        reportId: report.id,
+        title: report.title,
+      },
+    });
   });
 
   it("uses the PR shortcut to open an existing PR", async () => {

@@ -98,6 +98,8 @@ Detail screens layer additional data on top of the base report:
 
 Ready and pending-input report details offer Resolve and Dismiss beside the other report actions. Resolve records why the work is done; Dismiss records why the report should leave the inbox. Reviewer detail lives in the sidebar, not the title header.
 
+Pending-input reports also offer Implement. It opens the standard task composer with the report and repository attached so the user can add direction and choose the model before starting.
+
 List cards should prefer fields already present in the list response. Fetching per-card secondary data is acceptable only for small, clearly bounded adornments; avoid new N+1 request patterns without a batching plan.
 
 Report rows expose the same primary actions through a right-click menu. Reviewer data stays lazy until its submenu opens. Copy link is the menu's only link action; opening a report remains the row's primary interaction.

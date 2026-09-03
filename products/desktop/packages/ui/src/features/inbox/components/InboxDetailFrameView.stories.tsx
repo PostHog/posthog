@@ -150,6 +150,42 @@ type Story = StoryObj<typeof InboxDetailFrameView>;
 
 export const EvidenceFirst: Story = {};
 
+export const WaitingForInput: Story = {
+  args: {
+    report: inboxStoryReport({
+      status: "pending_input",
+      actionability: "requires_human_input",
+    }),
+    belowSummary: (
+      <div className="flex select-none flex-col gap-3 rounded-lg border border-(--amber-6) bg-(--amber-2) p-4">
+        <div className="flex flex-col gap-1">
+          <span className="font-semibold text-[15px] text-gray-12">
+            Waiting on you
+          </span>
+          <span className="text-[14px] text-gray-11">
+            Review the recommendation. Start an implementation task to add
+            direction and choose a model, or ask for more context.
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Button type="button" variant="primary">
+            <GitPullRequestIcon />
+            Implement
+          </Button>
+          <Button type="button" variant="outline">
+            <ChatCircleIcon />
+            Ask about it
+          </Button>
+          <Button type="button" variant="outline">
+            <EyeSlashIcon />
+            Dismiss…
+          </Button>
+        </div>
+      </div>
+    ),
+  },
+};
+
 export const NoEvidence: Story = {
   args: {
     report: inboxStoryReport({ signal_count: 0 }),
