@@ -669,6 +669,100 @@ describe('createParseMessageStep', () => {
         })
     })
 
+    describe('clock skew correction', () => {
+        const SEVEN_HOURS_MS = 7 * 60 * 60 * 1000
+
+        function skewedInput(options: {
+            baseMs: number
+            deviceOffsetMs?: number
+            latencyMs?: number
+            sentAt?: string | null
+            now?: string | null
+        }): ParseMessageStepInput {
+            const { baseMs, deviceOffsetMs = 0, latencyMs = 0 } = options
+            const now = options.now === undefined ? new Date(baseMs + latencyMs).toISOString() : options.now
+            const sentAt =
+                options.sentAt === undefined ? new Date(baseMs + deviceOffsetMs).toISOString() : options.sentAt
+            const payload = createSnapshotPayload({
+                sessionId: 'session-1',
+                snapshotItems: [
+                    { type: 2, timestamp: baseMs + deviceOffsetMs },
+                    { type: 3, timestamp: baseMs + deviceOffsetMs + 1000 },
+                ],
+                distinctId: 'user-123',
+                ...(now !== null && { now }),
+                ...(sentAt !== null && { sentAt }),
+            })
+            return createInput(0, 1, payload)
+        }
+
+        async function startMsOf(input: ParseMessageStepInput): Promise<number> {
+            const result = await createParseMessageStep()(input)
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type !== PipelineResultType.OK) {
+                throw new Error('expected an ok result')
+            }
+            return result.value.parsedMessage.eventsRange.start.toMillis()
+        }
+
+        it.each([
+            ['ahead', SEVEN_HOURS_MS],
+            ['behind', -SEVEN_HOURS_MS],
+        ])('shifts rrweb timestamps to server time when the device clock is %s', async (_name, deviceOffsetMs) => {
+            const baseMs = Date.now()
+            const step = createParseMessageStep()
+
+            const result = await step(skewedInput({ baseMs, deviceOffsetMs }))
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                const { parsedMessage } = result.value
+                expect(parsedMessage.eventsRange.start.toMillis()).toBe(baseMs)
+                expect(parsedMessage.eventsRange.end.toMillis()).toBe(baseMs + 1000)
+                expect(parsedMessage.eventsByWindowId['window-1'].map((e) => e.timestamp)).toEqual([
+                    baseMs,
+                    baseMs + 1000,
+                ])
+            }
+        })
+
+        it('corrects two messages of one session identically despite different latencies', async () => {
+            const baseMs = Date.now()
+
+            const fast = await startMsOf(skewedInput({ baseMs, deviceOffsetMs: SEVEN_HOURS_MS, latencyMs: 50 }))
+            const slow = await startMsOf(skewedInput({ baseMs, deviceOffsetMs: SEVEN_HOURS_MS, latencyMs: 2500 }))
+
+            expect(fast).toBe(slow)
+        })
+
+        it('leaves a well-behaved clock untouched, so latency cannot reorder its events', async () => {
+            const baseMs = Date.now()
+
+            const startMs = await startMsOf(skewedInput({ baseMs, deviceOffsetMs: 400, latencyMs: 900 }))
+
+            expect(startMs).toBe(baseMs + 400)
+        })
+
+        const validIso = '2023-01-01T00:00:00.000Z'
+        it.each([
+            ['sent_at is missing', { sentAt: null }],
+            ['now is missing', { now: null }],
+            ['sent_at is unparseable', { sentAt: 'not-a-date' }],
+            ['now is unparseable', { now: 'not-a-date' }],
+        ])(
+            'leaves timestamps unchanged when %s',
+            async (_name, overrides: { now?: string | null; sentAt?: string | null }) => {
+                const baseMs = Date.now()
+
+                const startMs = await startMsOf(
+                    skewedInput({ baseMs, deviceOffsetMs: SEVEN_HOURS_MS, now: validIso, ...overrides })
+                )
+
+                expect(startMs).toBe(baseMs + SEVEN_HOURS_MS)
+            }
+        )
+    })
+
     describe('decompressMessageValue lz4 hardening', () => {
         const lz4 = require('lz4')
 

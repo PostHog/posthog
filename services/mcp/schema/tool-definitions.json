@@ -754,7 +754,7 @@
         }
     },
     "workflows-blast-radius": {
-        "description": "Count how many users a batch workflow's audience matches (person/cohort, not event behavior). Always run this BEFORE run-batch / schedule-create. Then STOP and get the user's explicit confirmation: tell them the exact count and that running will send real messages to that many people. Do not proceed to run-batch / schedule-create until they say yes. The response's confirm_token signs the sized audience - pass it to workflows-run-batch along with the acknowledged count; it expires in 15 minutes and goes stale if the audience filters change.",
+        "description": "Count how many users a batch workflow's audience matches (person/cohort, not event behavior). Always run this BEFORE run-batch, and before schedule-create on a workflow with a 'batch' trigger. Then STOP and get the user's explicit confirmation: tell them the exact count and that running will send real messages to that many people. Do not proceed until they say yes. A 'schedule' trigger has no audience, so skip this and call schedule-create directly. The response's confirm_token signs the sized audience - pass it to workflows-run-batch along with the acknowledged count; it expires in 15 minutes and goes stale if the audience filters change.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Size workflow audience",
@@ -782,7 +782,7 @@
         }
     },
     "workflows-schedule-create": {
-        "description": "Attach a recurring RRULE schedule to a batch workflow so it re-broadcasts to its trigger audience on a cadence (iCalendar RRULE, e.g. 'FREQ=WEEKLY;BYDAY=MO'; at most one occurrence per hour). Only valid on workflows with a 'batch' trigger, and the workflow must already be active (workflows-enable first). Every firing sends real messages: run workflows-blast-radius, STOP and get the user's explicit confirmation of the count, then pass both acknowledged_affected_count and the confirm_token from that same preview — the API rejects the call without a fresh token (15-minute expiry, stale if the audience filters change). For a one-off send use workflows-run-batch; to change an existing schedule use workflows-update-schedule (schedule IDs appear in workflows-get's 'schedules').",
+        "description": "Attach a recurring RRULE schedule to a workflow with a 'batch' or 'schedule' trigger (iCalendar RRULE, e.g. 'FREQ=WEEKLY;BYDAY=MO'; at most one occurrence per hour). A 'schedule' trigger runs once per occurrence with no audience: pass rrule, starts_at and timezone and you are done. A 'batch' trigger re-broadcasts to its trigger audience on every firing, so the workflow must already be active (workflows-enable first) and you must run workflows-blast-radius, STOP and get the user's explicit confirmation of the count, then pass both acknowledged_affected_count and the confirm_token from that same preview — the API rejects a batch schedule without a fresh token (15-minute expiry, stale if the audience filters change). For a one-off send use workflows-run-batch; to change an existing schedule use workflows-update-schedule (schedule IDs appear in workflows-get's 'schedules').",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Schedule workflow runs",

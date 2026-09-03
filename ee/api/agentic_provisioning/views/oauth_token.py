@@ -330,6 +330,15 @@ class OAuthTokenView(ProvisioningAPIView):
             user = old_refresh.user
             old_scoped_teams = old_refresh.scoped_teams or []
 
+            # Deactivation drops the user's login sessions but leaves their OAuth tokens
+            # intact, and the team check below answers only about membership and roles, so a
+            # deactivated user still passes it. Without this gate the partner rotates into a
+            # fresh token pair for as long as it keeps refreshing. Checked before any token
+            # row is mutated, like the other fail-closed gates here.
+            if not user.is_active:
+                capture_provisioning_event("token_exchange", "user_inactive", grant_type="refresh_token")
+                raise ProvisioningError("invalid_grant", "User is not active; re-authorize.")
+
             # base_team_id at refresh: the first team in the prior scope. The consent team
             # (authorized at grant time) has the lowest id and sorts first at issuance;
             # partner-provisioned teams are always created later, so they take higher ids

@@ -11,6 +11,7 @@ from posthog.models import EventDefinition, PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import AIBurstRateThrottle
 
+from products.actions.backend.models.action import Action
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE
@@ -28,15 +29,20 @@ from products.replay_vision.backend.scanner_draft import (
     _finalize,
     _finalize_v2,
     _generate,
+    _goal_entity_matches,
     _goal_terms,
     _LlmDraft,
     _LlmDraftV2,
+    _LlmEventPropertyFilter,
+    _MatchedAction,
+    _MatchedSurvey,
     _solve_budget,
     _v2_query,
     draft_scanner_from_goal_v2,
 )
 from products.replay_vision.backend.tag_suggestions import _ProductTaxonomy
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
+from products.surveys.backend.models import Survey
 
 _GENERATE_PATH = "products.replay_vision.backend.scanner_draft._generate"
 _MODULE = "products.replay_vision.backend.scanner_draft"
@@ -46,7 +52,12 @@ _CORE_MEMORY_FLAG_PATH = "products.replay_vision.backend.scanner_draft.is_core_m
 
 def _access_control(*, allow: bool) -> MagicMock:
     ac = MagicMock()
-    ac.filter_queryset_by_access_level.side_effect = (lambda qs: qs) if allow else (lambda qs: qs.none())
+    # Callers pass `resource=` for resources that have their own access controls, so accept kwargs.
+    ac.filter_queryset_by_access_level.side_effect = (
+        (lambda qs, **kwargs: qs) if allow else (lambda qs, **kwargs: qs.none())
+    )
+    # The resource-level checks default to a truthy MagicMock, which is the "has access" path; a
+    # test that needs the denial sets them False explicitly.
     return ac
 
 
@@ -647,6 +658,82 @@ class TestEventsForGoal(_VisionAPITestCase):
         assert events == ["checkout_started"]
 
 
+class TestGoalEntityMatches(_VisionAPITestCase):
+    def _survey(self, name: str):
+        return Survey.objects.create(team=self.team, name=name, created_by=self.user)
+
+    def test_a_survey_named_in_the_goal_comes_back_with_its_id(self):
+        # The filter needs the id: every survey fires the same "survey sent" event, so a name alone
+        # cannot target one.
+        survey = self._survey("Pricing feedback")
+        self._survey("Onboarding NPS")
+
+        surveys, _ = _goal_entity_matches(
+            self.team, "watch people who answered the pricing feedback survey", _access_control(allow=True)
+        )
+
+        assert [(m.name, m.survey_id) for m in surveys] == [("Pricing feedback", str(survey.id))]
+
+    def test_an_action_named_in_the_goal_comes_back_with_its_id(self):
+        # An action is the team's own curated definition of a behavior, so a goal naming one is the
+        # sharpest filter available and must come back with the id the query needs.
+        action = Action.objects.create(team=self.team, name="Completed checkout")
+
+        _, actions = _goal_entity_matches(
+            self.team, "sessions where someone completed checkout", _access_control(allow=True)
+        )
+
+        assert [(a.name, a.action_id) for a in actions] == [("Completed checkout", action.id)]
+
+    def test_an_entity_the_caller_cannot_read_is_never_named_back(self):
+        # Surveys and actions are access-controlled, so naming one back would leak its existence.
+        self._survey("Pricing feedback")
+        Action.objects.create(team=self.team, name="Pricing feedback click")
+
+        assert _goal_entity_matches(self.team, "the pricing feedback survey", _access_control(allow=False)) == ([], [])
+
+    def test_no_resource_access_returns_nothing_even_though_the_queryset_filter_would_pass_it(self):
+        # `filter_queryset_by_access_level` returns the queryset untouched when the caller has
+        # neither resource access nor object grants, and this helper has no viewset permission check
+        # behind it, so the resource check is what stops the leak.
+        self._survey("Pricing feedback")
+        denied = _access_control(allow=True)
+        denied.check_access_level_for_resource.return_value = False
+        denied.has_any_specific_access_for_resource.return_value = False
+
+        assert _goal_entity_matches(self.team, "the pricing feedback survey", denied) == ([], [])
+
+    def test_a_scoped_token_lacking_survey_read_gets_no_surveys(self):
+        # A token with scanner and recording scopes but not survey:read must not learn a survey's
+        # name or id through the draft. RBAC alone would allow it; the scope gate is what stops it.
+        self._survey("Pricing feedback")
+        Action.objects.create(team=self.team, name="Pricing feedback click")
+
+        surveys, actions = _goal_entity_matches(
+            self.team,
+            "the pricing feedback survey",
+            _access_control(allow=True),
+            allowed_scopes=["replay_scanner:write", "session_recording:read"],
+        )
+
+        assert surveys == []
+        # The action is also gated: no action:read scope either.
+        assert actions == []
+
+    def test_a_write_scope_implies_read_and_a_star_scope_grants_all(self):
+        survey = self._survey("Pricing feedback")
+
+        by_write, _ = _goal_entity_matches(
+            self.team, "the pricing feedback survey", _access_control(allow=True), allowed_scopes=["survey:write"]
+        )
+        by_star, _ = _goal_entity_matches(
+            self.team, "the pricing feedback survey", _access_control(allow=True), allowed_scopes=["*"]
+        )
+
+        assert [s.survey_id for s in by_write] == [str(survey.id)]
+        assert [s.survey_id for s in by_star] == [str(survey.id)]
+
+
 class TestV2Query:
     def test_pages_become_one_multi_value_property(self):
         # Separate properties would AND and match almost nothing: measured 68 sessions where the
@@ -680,6 +767,22 @@ class TestV2Query:
         assert query is not None
         assert query["properties"][0]["value"] == ["/billing"]
         assert query["events"][0]["id"] == "checkout_started"
+
+    def test_a_property_filter_rides_on_its_own_event_entry(self):
+        # Every survey fires the same event, so the property has to sit on that event's entry. A
+        # sibling event must not inherit it, or the filter would demand the wrong condition.
+        query = _v2_query(
+            [],
+            ["survey sent", "checkout_started"],
+            [_LlmEventPropertyFilter(event="survey sent", property="$survey_id", value="abc-123")],
+        )
+
+        assert query is not None
+        by_id = {e["id"]: e for e in query["events"]}
+        assert by_id["survey sent"]["properties"] == [
+            {"key": "$survey_id", "value": ["abc-123"], "operator": "exact", "type": "event"}
+        ]
+        assert "properties" not in by_id["checkout_started"]
 
     def test_no_pages_and_no_events_is_no_query(self):
         assert _v2_query([], []) is None
@@ -730,6 +833,71 @@ class TestV2Query:
 
         assert query is not None
         assert query["properties"][0]["value"] == ["/invoice/[^/]+", "/invoice/[^/]+/edit"]
+
+
+class TestFinalizeV2PropertyFilters:
+    _SURVEY = _MatchedSurvey(name="Pricing feedback", survey_id="abc-123")
+
+    def _finalize(self, **overrides):
+        return _finalize_v2(
+            _draft_v2(filter_events=["survey sent"], **overrides),
+            allowed_pages=[],
+            allowed_events=["survey sent"],
+            team_id=1,
+            allowed_surveys=[self._SURVEY],
+        )
+
+    def test_a_grounded_survey_filter_reaches_the_query(self):
+        draft = self._finalize(
+            filter_event_properties=[
+                _LlmEventPropertyFilter(event="survey sent", property="$survey_id", value="abc-123")
+            ]
+        )
+
+        assert draft.query is not None
+        assert draft.query["events"][0]["properties"] == [
+            {"key": "$survey_id", "value": ["abc-123"], "operator": "exact", "type": "event"}
+        ]
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            # An id the briefing never showed: it would match no session, so the scanner never runs.
+            _LlmEventPropertyFilter(event="survey sent", property="$survey_id", value="not-a-real-id"),
+            # A property the briefing never showed.
+            _LlmEventPropertyFilter(event="survey sent", property="$made_up", value="abc-123"),
+            # An event that did not survive grounding, so there is no entry to attach to.
+            _LlmEventPropertyFilter(event="never_seen_event", property="$survey_id", value="abc-123"),
+        ],
+    )
+    def test_an_ungrounded_property_filter_is_dropped(self, bad):
+        draft = self._finalize(filter_event_properties=[bad])
+
+        assert draft.query is not None
+        assert "properties" not in draft.query["events"][0]
+
+
+class TestFinalizeV2Actions:
+    _ACTION = _MatchedAction(name="Completed checkout", action_id=42)
+
+    def _finalize(self, **overrides):
+        return _finalize_v2(
+            _draft_v2(**overrides), allowed_pages=[], allowed_events=[], team_id=1, allowed_actions=[self._ACTION]
+        )
+
+    def test_a_grounded_action_name_becomes_an_action_filter_with_its_id(self):
+        draft = self._finalize(filter_actions=["Completed checkout"])
+
+        assert draft.query is not None
+        assert draft.query["actions"] == [{"id": 42, "name": "Completed checkout", "type": "actions", "order": 0}]
+
+    def test_an_invented_action_name_is_dropped(self):
+        # A name has no id to resolve to unless it came from the matched list, so it cannot invent
+        # a filter that silently matches nothing.
+        draft = self._finalize(filter_actions=["Made-up behavior"])
+
+        assert draft.query is not None
+        assert "actions" not in draft.query
 
 
 class TestFinalizeV2:
@@ -941,9 +1109,9 @@ class TestDraftV2(_VisionAPITestCase):
         assert draft.estimated_monthly_observations == 300
 
     def test_the_model_and_credit_cap_reach_the_draft(self):
-        draft = self._run(pages=("/billing",), generate=_draft_v2(model="gemini-3.7-flash"))
+        draft = self._run(pages=("/billing",), generate=_draft_v2(model="gemini-3.8-flash"))
 
-        assert draft.model == "gemini-3.7-flash"
+        assert draft.model == "gemini-3.8-flash"
         assert draft.credit_limit == 10_000
 
 
@@ -968,7 +1136,7 @@ class TestDraftEndpointGoalFlow(_VisionAPITestCase):
             sampling_mode="comprehensive",
             sampling_rate=0.25,
             estimated_monthly_observations=1_000,
-            model="gemini-3.7-flash",
+            model="gemini-3.8-flash",
             credit_limit=5_000,
         )
 
@@ -988,7 +1156,7 @@ class TestDraftEndpointGoalFlow(_VisionAPITestCase):
         body = resp.json()
         assert body["sampling_mode"] == "comprehensive"
         assert body["sampling_rate"] == 0.25
-        assert body["model"] == "gemini-3.7-flash"
+        assert body["model"] == "gemini-3.8-flash"
         assert body["credit_limit"] == 5000
         assert body["estimated_monthly_observations"] == 1000
 

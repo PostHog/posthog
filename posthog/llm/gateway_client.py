@@ -201,14 +201,10 @@ def get_async_anthropic_gateway_client(
 def get_anthropic_gateway_client(
     product: Product = "django",
     team_id: int | None = None,
-    default_headers: Mapping[str, str] | None = None,
     use_bedrock_fallback: bool = False,
+    default_headers: Mapping[str, str] | None = None,
 ) -> Anthropic:
-    """
-    Sync variant of `get_async_anthropic_gateway_client`. See it for the rationale on `team_id`
-    attribution and per-call tags. `default_headers` are sent with every request; product-owned
-    headers such as team attribution override values supplied here.
-    """
+    """Synchronous variant of :func:`get_async_anthropic_gateway_client`."""
     if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
         raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
@@ -461,43 +457,37 @@ def build_async_anthropic_client(
 def build_anthropic_client(
     product: Product,
     ai_product: str | None = None,
-    ai_stage: str | None = None,
-    team_id: int | None = None,
+    trace_id: str | None = None,
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
+    team_id: int | None = None,
     use_bedrock_fallback: bool = False,
 ) -> Anthropic:
-    """Sync variant of :func:`build_async_anthropic_client`, plus caller ``properties``.
+    """Build a native Anthropic client for synchronous Django worker code.
 
-    Labels ride the ``X-PostHog-Properties`` blob in gateway mode and ``x-posthog-property-<key>``
-    headers on the fallback. ``distinct_id`` is a Go-gateway header only; the Go gateway ignores
-    ``metadata.user_id``.
+    The Anthropic SDK appends ``/v1/messages``, so the Go client removes the OpenAI ``/v1``
+    suffix. The Python fallback retains the product route and legacy observability headers.
     """
     gateway = resolve_ai_gateway_config()
     if gateway:
-        labels = {
-            key: value
-            for key, value in {
-                **dict(properties or {}),
-                "ai_stage": ai_stage,
-                "team_id": str(team_id) if team_id is not None else None,
-            }.items()
-            if value
-        }
+        labels = dict(properties or {})
+        if team_id is not None:
+            labels["team_id"] = str(team_id)
         return Anthropic(
             api_key=gateway.api_key,
             base_url=_anthropic_gateway_base_url(gateway.url),
             default_headers=ai_gateway_headers(
                 ai_product=ai_product,
-                trace_id=team_trace_id(team_id),
+                trace_id=trace_id or team_trace_id(team_id),
                 properties=labels,
                 distinct_id=distinct_id,
             ),
             http_client=httpx.Client(trust_env=False),
         )
+    fallback_headers = _python_gateway_observability_headers(trace_id, None, properties)
     return get_anthropic_gateway_client(
         product,
         team_id=team_id,
-        default_headers=_python_gateway_observability_headers(None, None, properties),
         use_bedrock_fallback=use_bedrock_fallback,
+        default_headers=fallback_headers,
     )

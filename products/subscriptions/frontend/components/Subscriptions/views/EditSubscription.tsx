@@ -572,8 +572,9 @@ function EditSubscriptionForm({
                                             </LemonField>
                                         )}
 
-                                        {(slackGalleryEnabled ||
-                                            subscription.delivery_config?.post_all_insights_in_main_message) &&
+                                        {!isAiPrompt &&
+                                            (slackGalleryEnabled ||
+                                                subscription.delivery_config?.post_all_insights_in_main_message) &&
                                             subscription.integration_id &&
                                             subscription.target_value &&
                                             (() => {

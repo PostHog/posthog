@@ -91,3 +91,6 @@ KAFKA_FLAGS_CACHE_INVALIDATION_DLQ = f"{KAFKA_PREFIX}flags_cache_invalidation_dl
 # Consumer: a dedicated throttling consumer that rate-limits $set events into capture-internal.
 KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES = f"{KAFKA_PREFIX}warehouse_person_property_updates{SUFFIX}"
 KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ = f"{KAFKA_PREFIX}warehouse_person_property_updates_dlq{SUFFIX}"
+
+KAFKA_TRACES_INGESTION = f"{KAFKA_PREFIX}ingestion-traces{SUFFIX}"
+KAFKA_TRACES_INGESTION_DLQ = f"{KAFKA_PREFIX}ingestion-traces-dlq{SUFFIX}"
