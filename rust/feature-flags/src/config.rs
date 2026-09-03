@@ -859,6 +859,12 @@ pub struct Config {
     #[envconfig(from = "SKIP_WRITES", default = "false")]
     pub skip_writes: FlexBool,
 
+    /// When false, `/flags` will not register request-time `person_properties`
+    /// as person property definitions. Independent of `SKIP_WRITES` so a pod
+    /// can keep other writes and turn only this path off.
+    #[envconfig(from = "OVERRIDE_PERSON_PROPERTY_DEFS", default = "true")]
+    pub override_person_property_defs: FlexBool,
+
     // Explicit core count for thread pool sizing. Overrides available_parallelism()
     // which reads the CFS quota (K8s CPU limit), not the CPU request.
     // 0 = auto (use available_parallelism).
@@ -1145,6 +1151,7 @@ impl Config {
             max_concurrent_batch_evals: 0,
             rayon_semaphore_timeout_ms: 0,
             skip_writes: FlexBool(false),
+            override_person_property_defs: FlexBool(true),
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
             team_negative_cache_ttl_seconds: 30,
@@ -1307,6 +1314,7 @@ mod tests {
         assert_eq!(config.debug, FlexBool(false));
         assert!(!config.flags_session_replay_quota_check);
         assert_eq!(config.skip_writes, FlexBool(false));
+        assert_eq!(config.override_person_property_defs, FlexBool(true));
         // Bot filter ships in LogOnly mode by default — pin the safe
         // posture so a future env-var rename / refactor can't silently
         // flip it back to Enforced.

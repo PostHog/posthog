@@ -62,7 +62,8 @@ fn in_flight_spawns() -> &'static Semaphore {
 /// Spawn taxonomy writes without waiting for them on the `/flags` response.
 ///
 /// Starts before evaluation; the task is detached so the request is not delayed.
-/// `skip_writes` is the process-wide off switch (same gate as PAK last-used).
+/// `skip_writes` is the process-wide off switch (same gate as PAK last-used),
+/// and also true when `OVERRIDE_PERSON_PROPERTY_DEFS=false`.
 pub fn maybe_spawn_register_override_person_properties(
     skip_writes: bool,
     redis: Arc<dyn RedisClient + Send + Sync>,
