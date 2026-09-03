@@ -13,7 +13,6 @@ function usageAt(percentage: number): ContextUsage {
     used: percentage,
     size: 100,
     percentage,
-    cost: null,
     breakdown: null,
   };
 }
