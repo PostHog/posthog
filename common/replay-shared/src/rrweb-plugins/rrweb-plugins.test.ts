@@ -1,7 +1,9 @@
 /**
  * @jest-environment jsdom
  */
-import { CorsPlugin, createHLSPlayerPlugin, WindowTitlePlugin } from './index'
+import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
+
+import { BoxOrientPlugin, CorsPlugin, createHLSPlayerPlugin, WindowTitlePlugin } from './index'
 
 describe('CorsPlugin', () => {
     it.each(['https://some-external.js'])('should replace JS urls', (jsUrl) => {
@@ -272,5 +274,93 @@ describe('WindowTitlePlugin', () => {
             { replayer: null as unknown as any }
         )
         expect(mockCallback).not.toHaveBeenCalled()
+    })
+})
+
+describe('BoxOrientPlugin', () => {
+    const buildContext = { id: 1, replayer: null as unknown as any }
+
+    const styleMutation = (id: number, style: unknown): eventWithTime =>
+        ({
+            type: EventType.IncrementalSnapshot,
+            timestamp: 0,
+            data: {
+                source: IncrementalSource.Mutation,
+                adds: [],
+                removes: [],
+                texts: [],
+                attributes: [{ id, attributes: { style } }],
+            },
+        }) as unknown as eventWithTime
+
+    const replayerFor = (node: HTMLElement): any => ({ getMirror: () => ({ getNode: () => node }) })
+
+    it('restores the webkit name in a stylesheet Firefox serialized', () => {
+        const style = document.createElement('style')
+        style.appendChild(
+            document.createTextNode(
+                '.clamped { display: -webkit-box; -moz-box-orient: vertical; -webkit-line-clamp: 2; }'
+            )
+        )
+
+        BoxOrientPlugin.onBuild?.(style, buildContext)
+
+        expect(style.textContent).toEqual(
+            '.clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }'
+        )
+    })
+
+    it('restores the webkit name in a style attribute', () => {
+        const el = document.createElement('p')
+        el.setAttribute('style', 'display:-webkit-box;-moz-box-orient:vertical;-webkit-line-clamp:2')
+
+        BoxOrientPlugin.onBuild?.(el, buildContext)
+
+        expect(el.getAttribute('style')).toEqual('display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2')
+    })
+
+    it('leaves a node without the moz name alone', () => {
+        const el = document.createElement('p')
+        el.setAttribute('style', 'color: red')
+
+        BoxOrientPlugin.onBuild?.(el, buildContext)
+
+        expect(el.getAttribute('style')).toEqual('color: red')
+    })
+
+    it('restores the webkit name when a mutation replaces the whole style attribute', () => {
+        const el = document.createElement('p')
+        el.setAttribute('style', 'display:-webkit-box;-moz-box-orient:vertical')
+
+        BoxOrientPlugin.handler?.(styleMutation(7, 'display:-webkit-box;-moz-box-orient:vertical'), false, {
+            replayer: replayerFor(el),
+        } as any)
+
+        expect(el.getAttribute('style')).toEqual('display:-webkit-box;-webkit-box-orient:vertical')
+    })
+
+    it.each([
+        ['a plain value', 'vertical', 'vertical', ''],
+        ['an important value', ['vertical', 'important'], 'vertical', 'important'],
+    ])('sets the webkit property when a mutation carries %s', (_name, mutated, value, priority) => {
+        const el = document.createElement('p')
+        const setProperty = jest.spyOn(el.style, 'setProperty')
+
+        BoxOrientPlugin.handler?.(styleMutation(7, { '-moz-box-orient': mutated }), false, {
+            replayer: replayerFor(el),
+        } as any)
+
+        expect(setProperty).toHaveBeenCalledWith('-webkit-box-orient', value, priority)
+    })
+
+    it('removes the webkit property when a mutation drops the moz one', () => {
+        const el = document.createElement('p')
+        const removeProperty = jest.spyOn(el.style, 'removeProperty')
+
+        BoxOrientPlugin.handler?.(styleMutation(7, { '-moz-box-orient': false }), false, {
+            replayer: replayerFor(el),
+        } as any)
+
+        expect(removeProperty).toHaveBeenCalledWith('-webkit-box-orient')
     })
 })
