@@ -45,7 +45,7 @@ _CATALOG_SHARED_COLUMNS = {
 # Both values reports return the same statistics; only the grouping columns differ. Rate statistics
 # come back as fractions between 0 and 1.
 _VALUES_REPORT_STATISTIC_COLUMNS = {
-    "timeframe_key": "The Klaviyo timeframe the statistics were computed over.",
+    "timeframe_key": "The timeframe the statistics were computed over.",
     "conversion_metric_id": "ID of the metric conversion statistics were attributed to.",
     "send_channel": "The channel the message was sent through (email, sms, push-notification, or whatsapp).",
     "average_order_value": "Average value of the orders attributed to the message.",
@@ -88,7 +88,7 @@ _SERIES_REPORT_DATE_TIME_COLUMN = {
 
 # Form reports take their own statistic set. Rate statistics come back as fractions between 0 and 1.
 _FORM_REPORT_STATISTIC_COLUMNS = {
-    "timeframe_key": "The Klaviyo timeframe the statistics were computed over.",
+    "timeframe_key": "The timeframe the statistics were computed over.",
     "closed_form": "Number of times the form was closed.",
     "closed_form_uniques": "Number of people who closed the form.",
     "qualified_form": "Number of times the form qualified to show.",
@@ -105,7 +105,7 @@ _FORM_REPORT_STATISTIC_COLUMNS = {
 
 # Segment reports report on membership churn over the window.
 _SEGMENT_REPORT_STATISTIC_COLUMNS = {
-    "timeframe_key": "The Klaviyo timeframe the statistics were computed over.",
+    "timeframe_key": "The timeframe the statistics were computed over.",
     "members_added": "Number of profiles added to the segment.",
     "members_removed": "Number of profiles removed from the segment.",
     "net_members_changed": "Net change in the segment's membership (added minus removed).",
@@ -317,8 +317,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "flow_series_reports": {
         "description": (
-            "Klaviyo's own flow-message performance statistics bucketed by week over the last 365 "
-            "days, one row per flow message per week. Each sync updates the weeks Klaviyo still "
+            "Klaviyo's own flow-message performance statistics bucketed by week over the last 52 "
+            "weeks, one row per flow message per week. Each sync updates the weeks Klaviyo still "
             "reports and keeps the weeks it no longer returns, so the table builds a history past "
             "Klaviyo's one-year limit."
         ),
@@ -343,8 +343,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "form_series_reports": {
         "description": (
-            "Klaviyo's own signup-form performance statistics bucketed by week over the last 365 "
-            "days, one row per form per week. Each sync updates the weeks Klaviyo still reports and "
+            "Klaviyo's own signup-form performance statistics bucketed by week over the last 52 "
+            "weeks, one row per form per week. Each sync updates the weeks Klaviyo still reports and "
             "keeps the weeks it no longer returns, so the table builds a history past Klaviyo's "
             "one-year limit."
         ),
@@ -368,7 +368,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "segment_series_reports": {
         "description": (
-            "Klaviyo's own segment membership statistics bucketed by week over the last 365 days, "
+            "Klaviyo's own segment membership statistics bucketed by week over the last 52 weeks, "
             "one row per segment per week. Each sync updates the weeks Klaviyo still reports and "
             "keeps the weeks it no longer returns, so the table builds a history past Klaviyo's "
             "one-year limit."
