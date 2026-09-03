@@ -64,6 +64,108 @@ export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
+export const QUERY_RESULT_EXPIRED_MESSAGE = 'The result expired. Refresh to run the query again.'
+
+// The server lets a query run for this long (MAX_QUERY_TIMEOUT in posthog/api/query.py). The
+// query keeps running after the ingress or the browser drops the request, so its result can still
+// land in the query cache until then.
+const CACHE_RECOVERY_DEADLINE_MS = 10 * 60 * 1000
+const CACHE_RECOVERY_POLL_INTERVAL_MS = 5_000
+// A cached entry only counts as this request's result if it was written after the request started.
+// Otherwise a stale entry would stand in for a run that failed. The allowance covers clock skew
+// between the browser and the server that stamps last_refresh.
+const CACHE_RECOVERY_CLOCK_SKEW_MS = 60_000
+
+/** What the cache fallback did for one request, reported on the query telemetry events. */
+export interface QueryRecoveryOutcome {
+    attempted: boolean
+    recovered: boolean
+    waitMs: number
+    afterStatus: number | null
+}
+
+function isCacheMissResponse(response: unknown): boolean {
+    return (
+        !!response &&
+        typeof response === 'object' &&
+        'cache_key' in response &&
+        !('results' in response) &&
+        !('result' in response)
+    )
+}
+
+/** The request never produced an answer: dropped by the browser, the network, or the ingress. */
+function isTransportFailure(error: unknown): boolean {
+    const status = (error as { status?: number } | null)?.status
+    const name = (error as { name?: string } | null)?.name
+    return name === 'NetworkError' || status === 0 || status === 502 || status === 503 || status === 504
+}
+
+function blocksOnServer(refresh: RefreshType | undefined): boolean {
+    return refresh !== 'async' && refresh !== 'force_async' && refresh !== 'lazy_async' && refresh !== 'force_cache'
+}
+
+async function fetchFreshCachedResult<N extends DataNode>(
+    queryNode: N,
+    methodOptions: ApiMethodOptions | undefined,
+    filtersOverride: DashboardFilter | null | undefined,
+    variablesOverride: Record<string, HogQLVariable> | null | undefined,
+    limitContext: 'posthog_ai' | undefined,
+    notBeforeMs: number
+): Promise<NonNullable<N['response']> | null> {
+    let response: any
+    try {
+        response = await api.query(queryNode, {
+            requestOptions: methodOptions,
+            refresh: 'force_cache',
+            filtersOverride,
+            variablesOverride,
+            limitContext,
+        })
+    } catch (e) {
+        if (isAbortError(e)) {
+            throw e
+        }
+        return null
+    }
+    if (!response || isCacheMissResponse(response) || isAsyncResponse(response)) {
+        return null
+    }
+    const lastRefresh = typeof response.last_refresh === 'string' ? Date.parse(response.last_refresh) : NaN
+    if (!Number.isNaN(lastRefresh) && lastRefresh < notBeforeMs - CACHE_RECOVERY_CLOCK_SKEW_MS) {
+        return null
+    }
+    return response
+}
+
+async function waitForCachedResult<N extends DataNode>(
+    queryNode: N,
+    methodOptions: ApiMethodOptions | undefined,
+    filtersOverride: DashboardFilter | null | undefined,
+    variablesOverride: Record<string, HogQLVariable> | null | undefined,
+    limitContext: 'posthog_ai' | undefined,
+    requestStartedAtMs: number
+): Promise<NonNullable<N['response']> | null> {
+    const untilMs = requestStartedAtMs + CACHE_RECOVERY_DEADLINE_MS
+    for (;;) {
+        const cached = await fetchFreshCachedResult(
+            queryNode,
+            methodOptions,
+            filtersOverride,
+            variablesOverride,
+            limitContext,
+            requestStartedAtMs
+        )
+        if (cached) {
+            return cached
+        }
+        const remainingMs = untilMs - Date.now()
+        if (remainingMs <= 0) {
+            return null
+        }
+        await delay(Math.min(CACHE_RECOVERY_POLL_INTERVAL_MS, remainingMs), methodOptions?.signal)
+    }
+}
 
 /**
  * Parse error message that may be in ErrorDetail string format.
@@ -181,19 +283,51 @@ async function executeQuery<N extends DataNode>(
      * (stale-while-revalidate: `is_cached` is true *and* an incomplete `query_status` is
      * attached), return the cached results immediately instead of blocking on the recompute.
      */
-    acceptStaleCache = false
+    acceptStaleCache = false,
+    /**
+     * Filled in when the request itself failed but the query cache could still answer. Two cases:
+     * a blocking request the ingress or the browser dropped while the query kept running on the
+     * server, and an async poll that found its query ID gone (the status record is short-lived,
+     * the cached result is not). Absent for poll-only callers, which cannot send queries.
+     */
+    recovery?: QueryRecoveryOutcome
 ): Promise<NonNullable<N['response']>> {
+    const requestStartedAtMs = Date.now()
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
 
-        const response = await api.query(queryNode, {
-            requestOptions: methodOptions,
-            clientQueryId: queryId,
-            refresh: refreshParam,
-            filtersOverride,
-            variablesOverride,
-            limitContext,
-        })
+        let response: any
+        try {
+            response = await api.query(queryNode, {
+                requestOptions: methodOptions,
+                clientQueryId: queryId,
+                refresh: refreshParam,
+                filtersOverride,
+                variablesOverride,
+                limitContext,
+            })
+        } catch (e: any) {
+            if (!recovery || !blocksOnServer(refreshParam) || !isTransportFailure(e)) {
+                throw e
+            }
+            const failedAtMs = Date.now()
+            recovery.attempted = true
+            recovery.afterStatus = e?.status ?? 0
+            const cached = await waitForCachedResult(
+                queryNode,
+                methodOptions,
+                filtersOverride,
+                variablesOverride,
+                limitContext,
+                requestStartedAtMs
+            )
+            if (!cached) {
+                throw e
+            }
+            recovery.recovered = true
+            recovery.waitMs = Date.now() - failedAtMs
+            return cached
+        }
 
         if (response.detail) {
             throw new Error(response.detail)
@@ -220,8 +354,35 @@ async function executeQuery<N extends DataNode>(
         }
     }
 
-    const statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
-    return statusResponse.results
+    try {
+        const statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
+        return statusResponse.results
+    } catch (e: any) {
+        if (!recovery || pollOnly || e?.status !== 404) {
+            throw e
+        }
+        // The run is over either way, so one cache check answers it: a fresh entry is the result,
+        // anything else means it failed or has since been evicted.
+        const failedAtMs = Date.now()
+        recovery.attempted = true
+        recovery.afterStatus = 404
+        const cached = await fetchFreshCachedResult(
+            queryNode,
+            methodOptions,
+            filtersOverride,
+            variablesOverride,
+            limitContext,
+            requestStartedAtMs
+        )
+        if (cached) {
+            recovery.recovered = true
+            recovery.waitMs = Date.now() - failedAtMs
+            return cached
+        }
+        e.detail = QUERY_RESULT_EXPIRED_MESSAGE
+        e.code = e.code ?? 'query_result_expired'
+        throw e
+    }
 }
 
 // Return data for a given query
@@ -240,6 +401,7 @@ export async function performQuery<N extends DataNode>(
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
     const startTime = performance.now()
+    const recovery: QueryRecoveryOutcome = { attempted: false, recovered: false, waitMs: 0, afterStatus: null }
 
     try {
         if (isPersonsNode(queryNode)) {
@@ -255,8 +417,14 @@ export async function performQuery<N extends DataNode>(
                 variablesOverride,
                 pollOnly,
                 limitContext,
-                acceptStaleCache
+                acceptStaleCache,
+                pollOnly ? undefined : recovery
             )
+            if (recovery.recovered) {
+                logParams.recovered_from_cache = true
+                logParams.recovery_wait_ms = Math.round(recovery.waitMs)
+                logParams.recovered_after_status = recovery.afterStatus
+            }
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
@@ -302,6 +470,7 @@ export async function performQuery<N extends DataNode>(
                 error_status: error?.status ?? null,
                 error_code: error?.code ?? null,
                 uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
+                cache_recovery_attempted: recovery.attempted,
                 ...logParams,
             })
         }

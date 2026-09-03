@@ -3,7 +3,13 @@ import posthog from 'posthog-js'
 import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
-import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
+import {
+    QUERY_RESULT_EXPIRED_MESSAGE,
+    performQuery,
+    pollForResults,
+    queryExportContext,
+    waitForPageVisible,
+} from '~/queries/query'
 import { EventsQuery, HogQLQuery, NodeKind, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -280,6 +286,112 @@ describe('query', () => {
             })
 
             await expect(promise).resolves.toMatchObject({ complete: true, results: ['ok'] })
+        })
+    })
+
+    describe('cache recovery', () => {
+        const query = { kind: NodeKind.EventsQuery, select: ['*'] } as EventsQuery
+        const asyncResponse = { query_status: { id: 'expired-query-id', complete: false } }
+        const cacheMiss = { cache_key: 'k', query_status: null }
+        const cachedAt = (ms: number): Record<string, any> => ({
+            results: ['cached'],
+            is_cached: true,
+            last_refresh: new Date(ms).toISOString(),
+        })
+        const notFound = (): ApiError =>
+            new ApiError('Query expired-query-id not found for team 1', 404, undefined, {
+                detail: 'Query expired-query-id not found for team 1',
+            })
+        let now: number
+
+        beforeEach(() => {
+            now = 1_700_000_000_000
+            jest.spyOn(Date, 'now').mockImplementation(() => now)
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('serves the cached result when the poll finds its own query gone', async () => {
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(notFound())
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockResolvedValueOnce(asyncResponse as any)
+                .mockResolvedValueOnce(cachedAt(now) as any)
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            await expect(performQuery(query, undefined, 'async')).resolves.toMatchObject({ results: ['cached'] })
+
+            expect(querySpy.mock.calls[1][1]).toMatchObject({ refresh: 'force_cache' })
+            const completed = captureSpy.mock.calls.filter((call) => call[0] === 'query completed')
+            expect(completed[0][1]).toMatchObject({ recovered_from_cache: true, recovered_after_status: 404 })
+        })
+
+        it('reports an expired result when the cache has nothing fresh for a gone query', async () => {
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(notFound())
+            jest.spyOn(api, 'query')
+                .mockResolvedValueOnce(asyncResponse as any)
+                .mockResolvedValueOnce(cacheMiss as any)
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            await expect(performQuery(query, undefined, 'async')).rejects.toMatchObject({
+                status: 404,
+                detail: QUERY_RESULT_EXPIRED_MESSAGE,
+                code: 'query_result_expired',
+            })
+
+            const failed = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
+            expect(failed[0][1]).toMatchObject({ cache_recovery_attempted: true, error_status: 404 })
+        })
+
+        it('waits for a blocking request the ingress dropped to land in the cache', async () => {
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockRejectedValueOnce(new ApiError('upstream request timeout', 504))
+                .mockImplementationOnce(async () => {
+                    // Nothing cached yet. Jump to just before the server-side limit so the next
+                    // check happens after a short wait instead of the real poll interval.
+                    now += 10 * 60 * 1000 - 10
+                    return cacheMiss as any
+                })
+                .mockImplementationOnce(async () => cachedAt(now) as any)
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            await expect(performQuery(query, undefined, 'blocking')).resolves.toMatchObject({ results: ['cached'] })
+
+            expect(querySpy).toHaveBeenCalledTimes(3)
+            expect(querySpy.mock.calls[1][1]).toMatchObject({ refresh: 'force_cache' })
+            const completed = captureSpy.mock.calls.filter((call) => call[0] === 'query completed')
+            expect(completed[0][1]).toMatchObject({ recovered_from_cache: true, recovered_after_status: 504 })
+        })
+
+        it('does not let a stale cache entry stand in for a dropped blocking request', async () => {
+            const startedAt = now
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockRejectedValueOnce(new ApiError('upstream request timeout', 504))
+                .mockImplementationOnce(async () => {
+                    now += 10 * 60 * 1000
+                    return cachedAt(startedAt - 60 * 60 * 1000) as any
+                })
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            await expect(performQuery(query, undefined, 'blocking')).rejects.toMatchObject({ status: 504 })
+
+            expect(querySpy).toHaveBeenCalledTimes(2)
+            const failed = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
+            expect(failed[0][1]).toMatchObject({ cache_recovery_attempted: true, error_status: 504 })
+        })
+
+        it('does not wait on the cache when an async submission itself fails', async () => {
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockRejectedValueOnce(new ApiError('upstream request timeout', 504))
+
+            await expect(performQuery(query, undefined, 'async')).rejects.toMatchObject({ status: 504 })
+
+            expect(querySpy).toHaveBeenCalledTimes(1)
         })
     })
 
