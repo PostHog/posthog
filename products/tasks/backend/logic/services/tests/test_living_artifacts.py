@@ -24,11 +24,13 @@ from products.tasks.backend.logic.services.living_artifacts import (
     DocumentConnectorUnavailable,
     PreparedSlackArtifacts,
     _artifact_card_blocks,
+    _pending_slack_artifact_version,
     _post_composed_answer_message,
     _section_blocks,
     _SlackArtifactCard,
     _trusted_slack_canvas_url,
     create_living_artifact,
+    deliver_pending_slack_artifacts,
     edit_living_artifact,
     get_task_artifact_for_run,
     get_task_artifacts_for_run,
@@ -275,6 +277,71 @@ class TestLivingArtifacts(TestCase):
                 artifact_type=TaskArtifact.ArtifactType.SLACK_CANVAS,
                 content="# Report",
             )
+
+    def test_canvas_written_before_staged_delivery_is_not_announced_again(self):
+        # A canvas from before delivery handled them announced itself on creation and carries
+        # no delivery status. Reading that as pending would post a card for a canvas the
+        # thread already shows, on every later turn of the task.
+        artifact = TaskArtifact.objects.for_team(self.team.pk).create(
+            team=self.team,
+            task=self.task,
+            task_run=self.task_run,
+            name="Report canvas",
+            artifact_type=TaskArtifact.ArtifactType.DOCUMENT,
+            adapter=TaskArtifact.Adapter.SLACK_CANVAS,
+            status=TaskArtifact.Status.ACTIVE,
+            location={"kind": "slack_canvas", "canvas_id": "F123", "url": "https://app.slack.com/docs/T123/F123"},
+            versions=[{"version": 1, "adapter": TaskArtifact.Adapter.SLACK_CANVAS, "location": {"canvas_id": "F123"}}],
+            current_version=1,
+        )
+
+        self.assertIsNone(_pending_slack_artifact_version(artifact))
+
+    @patch("products.tasks.backend.logic.services.living_artifacts.slack_message_exists", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_relayed_answer_carries_the_canvas_card(self, mock_integration_for_mapping, _mock_message_exists):
+        # The relay is the whole delivery path for a workspace without agent-design streaming,
+        # so a canvas that no longer announces itself has to arrive with the relayed answer.
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"scope": "chat:write,canvases:write"},
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="C123",
+            thread_ts="1111.1",
+            task=self.task,
+            task_run=self.task_run,
+            mentioning_slack_user_id="U123",
+        )
+        slack = MagicMock()
+        slack.api_call.return_value = {"canvas_id": "F123"}
+        slack.chat_postMessage.return_value = {"ok": True, "ts": "1111.2"}
+        slack_integration = MagicMock(client=slack)
+        slack_integration.missing_scopes.return_value = set()
+        mock_integration_for_mapping.return_value = slack_integration
+
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="Daily active users",
+            artifact_type=TaskArtifact.ArtifactType.DOCUMENT,
+            content="# Daily active users",
+        )
+        result = deliver_pending_slack_artifacts(self.task_run, answer_sections=["Traffic is flat."])
+
+        self.assertTrue(result.answer_posted)
+        blocks = slack.chat_postMessage.call_args.kwargs["blocks"]
+        self.assertEqual([b["type"] for b in blocks], ["section", "section", "actions"])
+        self.assertEqual(blocks[0]["text"]["text"], "Traffic is flat.")
+        self.assertEqual(blocks[1]["text"]["text"], "*Daily active users*")
+        self.assertEqual(blocks[2]["elements"][0]["url"], "https://app.slack.com/docs/T123/F123")
+
+        artifact.refresh_from_db()
+        self.assertEqual(artifact.location["delivery_status"], "delivered")
 
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.write")

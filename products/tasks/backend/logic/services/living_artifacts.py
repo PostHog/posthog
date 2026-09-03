@@ -1528,12 +1528,16 @@ def _pending_version_if_undelivered(
         return None
     raw_location = version.get("location")
     location = raw_location if isinstance(raw_location, dict) else {}
-    # A version with nothing behind it can't be delivered: a file needs its stored bytes,
-    # a canvas needs the canvas its card links to.
-    required_key = "canvas_id" if artifact.adapter == TaskArtifact.Adapter.SLACK_CANVAS else "storage_path"
-    if not location.get(required_key):
-        return None
-    return index, version
+    if artifact.adapter == TaskArtifact.Adapter.SLACK_CANVAS:
+        # A canvas version has to say it is waiting. Canvases written before delivery
+        # handled them announced themselves on creation and carry no delivery status,
+        # so reading an absent status as pending would announce them a second time.
+        if version.get("delivery_status") != "pending":
+            return None
+        # The card links to the canvas, so a version without one has nothing to show.
+        return (index, version) if location.get("canvas_id") else None
+    # A file version needs the bytes delivery uploads.
+    return (index, version) if location.get("storage_path") else None
 
 
 def _mark_slack_artifact_delivered(
