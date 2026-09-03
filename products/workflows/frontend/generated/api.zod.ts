@@ -2290,6 +2290,11 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'Plain-language reason for the pause, naming the signal and the window. Empty when not paused.'
                 ),
+            email_sending_paused_by: zod
+                .string()
+                .describe(
+                    'Who paused it: \"auto\" for the deliverability detector, \"staff\" for PostHog staff. A staff pause can only be resumed by staff, so the resume endpoint refuses it. Empty when not paused.'
+                ),
             email_sending_resumed_at: zod.iso
                 .datetime({ offset: true })
                 .nullable()

@@ -216,6 +216,7 @@ export interface workflowLogicValues {
     draftActionPending: 'discard' | 'publish' | null
     edgesByActionId: Record<string, HogFlowEdge[]>
     emailSendingPaused: boolean
+    emailSendingPausedByStaff: boolean
     emailSendingPausedReason: string
     externallyEdited: boolean
     hasStagedDraft: boolean
@@ -2984,6 +2985,7 @@ export interface workflowLogicMeta {
         hasStagedDraft: (originalWorkflow: HogFlow | null) => boolean
         emailSendingPaused: (originalWorkflow: HogFlow | null) => boolean
         emailSendingPausedReason: (originalWorkflow: HogFlow | null) => string
+        emailSendingPausedByStaff: (originalWorkflow: HogFlow | null) => boolean
         showDraftActions: (originalWorkflow: HogFlow | null) => boolean
         publishDisabledReason: (
             hasStagedDraft: boolean,
@@ -3781,6 +3783,11 @@ export const workflowLogic = kea<workflowLogicType>([
         emailSendingPausedReason: [
             (s) => [s.originalWorkflow],
             (originalWorkflow: HogFlow | null): string => originalWorkflow?.email_sending_paused_reason ?? '',
+        ],
+        // "staff" means only PostHog staff can lift the pause, so the banner hides the resume button.
+        emailSendingPausedByStaff: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean => originalWorkflow?.email_sending_paused_by === 'staff',
         ],
 
         // A staged draft outlives the edits made after it, so the draft actions stay mounted while

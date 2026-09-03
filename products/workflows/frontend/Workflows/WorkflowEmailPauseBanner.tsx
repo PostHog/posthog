@@ -5,11 +5,22 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { workflowLogic } from './workflowLogic'
 
 export function WorkflowEmailPauseBanner(): JSX.Element | null {
-    const { emailSendingPaused, emailSendingPausedReason, resumeEmailSendingPending } = useValues(workflowLogic)
+    const { emailSendingPaused, emailSendingPausedReason, emailSendingPausedByStaff, resumeEmailSendingPending } =
+        useValues(workflowLogic)
     const { resumeEmailSending } = useActions(workflowLogic)
 
     if (!emailSendingPaused) {
         return null
+    }
+
+    if (emailSendingPausedByStaff) {
+        return (
+            <LemonBanner type="error" data-attr="workflow-email-paused-banner">
+                PostHog staff paused email sending for this workflow to protect delivery for everyone. Its other steps
+                still run. {emailSendingPausedReason} Remove old or bought addresses from the audience, then contact
+                support to get sending re-enabled.
+            </LemonBanner>
+        )
     }
 
     return (

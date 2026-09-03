@@ -99,6 +99,8 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     // crossed a threshold. Read-only server state: only the resume endpoint clears it.
     email_sending_paused_at?: string | null
     email_sending_paused_reason?: string
+    // "auto" (detector) or "staff"; a staff pause has no customer resume. Empty when not paused.
+    email_sending_paused_by?: string
     email_sending_resumed_at?: string | null
 }
 

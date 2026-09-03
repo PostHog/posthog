@@ -42280,6 +42280,8 @@ export namespace Schemas {
       readonly email_sending_paused_at: string | null;
       /** Plain-language reason for the pause, naming the signal and the window. Empty when not paused. */
       readonly email_sending_paused_reason: string;
+      /** Who paused it: "auto" for the deliverability detector, "staff" for PostHog staff. A staff pause can only be resumed by staff, so the resume endpoint refuses it. Empty when not paused. */
+      readonly email_sending_paused_by: string;
       /**
          * When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.
          * @nullable
@@ -42742,6 +42744,8 @@ export namespace Schemas {
       readonly email_sending_paused_at: string | null;
       /** Plain-language reason for the pause, naming the signal and the window. Empty when not paused. */
       readonly email_sending_paused_reason: string;
+      /** Who paused it: "auto" for the deliverability detector, "staff" for PostHog staff. A staff pause can only be resumed by staff, so the resume endpoint refuses it. Empty when not paused. */
+      readonly email_sending_paused_by: string;
       /**
          * When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.
          * @nullable
@@ -63216,6 +63220,8 @@ export namespace Schemas {
       readonly email_sending_paused_at?: string | null;
       /** Plain-language reason for the pause, naming the signal and the window. Empty when not paused. */
       readonly email_sending_paused_reason?: string;
+      /** Who paused it: "auto" for the deliverability detector, "staff" for PostHog staff. A staff pause can only be resumed by staff, so the resume endpoint refuses it. Empty when not paused. */
+      readonly email_sending_paused_by?: string;
       /**
          * When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.
          * @nullable
