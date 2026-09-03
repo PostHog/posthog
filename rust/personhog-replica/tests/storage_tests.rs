@@ -5,6 +5,7 @@ use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::GroupKey;
 use rand::Rng;
 use rstest::rstest;
+use std::collections::HashSet;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -653,24 +654,53 @@ async fn test_get_group_type_mappings_by_project_id() {
     ctx.cleanup().await.ok();
 }
 
+// 120 project ids exercise the concurrent chunk path (bulk_chunk_size = 50 -> 3 chunks):
+// every chunk must reach the result, not only the first one.
+#[rstest]
+#[case::single_chunk(1)]
+#[case::multiple_chunks(120)]
 #[tokio::test]
-async fn test_get_group_type_mappings_by_project_ids() {
+async fn test_get_group_type_mappings_by_project_ids(#[case] project_count: i64) {
     let ctx = TestContext::new().await;
+    let project_ids: Vec<i64> = (0..project_count).map(|i| ctx.team_id + i).collect();
 
-    ctx.insert_group_type_mapping("team", 0)
-        .await
-        .expect("Failed to insert mapping");
+    insert_group_type_mappings_for_projects(&ctx.pool, &project_ids).await;
 
     let result = ctx
         .storage
-        .get_group_type_mappings_by_project_ids(&[ctx.team_id], ConsistencyLevel::Eventual)
+        .get_group_type_mappings_by_project_ids(&project_ids, ConsistencyLevel::Eventual)
         .await
         .expect("Failed to get mappings by project ids");
 
-    assert_eq!(result.len(), 1);
-    assert_eq!(result[0].group_type, "team");
+    assert_eq!(result.len(), project_ids.len());
+    assert!(result.iter().all(|m| m.group_type == "team"));
+    let returned: HashSet<i64> = result.iter().map(|m| m.project_id).collect();
+    assert_eq!(
+        returned,
+        project_ids.iter().copied().collect::<HashSet<_>>()
+    );
 
+    sqlx::query("DELETE FROM posthog_grouptypemapping WHERE project_id = ANY($1)")
+        .bind(&project_ids)
+        .execute(&ctx.pool)
+        .await
+        .expect("delete group type mappings");
     ctx.cleanup().await.ok();
+}
+
+async fn insert_group_type_mappings_for_projects(pool: &sqlx::PgPool, project_ids: &[i64]) {
+    sqlx::query(
+        r#"INSERT INTO posthog_grouptypemapping
+        (team_id, project_id, group_type, group_type_index,
+         name_singular, name_plural, default_columns, detail_dashboard_id)
+        SELECT id, id, 'team', 0, 'team (singular)', 'teams', ARRAY['col_a'], 1000
+        FROM UNNEST($1::bigint[]) AS t(id)
+        ON CONFLICT DO NOTHING"#,
+    )
+    .bind(project_ids)
+    .execute(pool)
+    .await
+    .expect("insert group type mappings");
 }
 
 #[tokio::test]
