@@ -3,7 +3,7 @@ import './Dashboard.scss'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
-import { DASHBOARD_TILE_SCREENSHOT_KEY } from 'lib/components/Cards/InsightCard/insightCardImageCapture'
+import { dashboardTileScreenshotKey } from 'lib/components/Cards/InsightCard/insightCardImageCapture'
 import { NotFound } from 'lib/components/NotFound'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -165,7 +165,7 @@ function DashboardScene({
             {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
             {/* Lets a tile copied as a PNG be annotated before it is shared. Export placement renders headlessly. */}
             {placement !== DashboardPlacement.Export && (
-                <ScreenShotEditor screenshotKey={DASHBOARD_TILE_SCREENSHOT_KEY} />
+                <ScreenShotEditor screenshotKey={dashboardTileScreenshotKey(dashboard?.id)} />
             )}
             <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
 

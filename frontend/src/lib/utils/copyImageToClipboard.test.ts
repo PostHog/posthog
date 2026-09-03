@@ -16,6 +16,13 @@ describe('captureElementAsPng', () => {
         expect(await filterFor()).toBeUndefined()
     })
 
+    it('draws the element at the origin, so a grid tile is not translated out of its own image', async () => {
+        await captureElementAsPng(document.createElement('div'))
+        const { style } = (toBlob as jest.Mock).mock.calls[0][1]
+
+        expect(style).toMatchObject({ transform: 'none', position: 'relative' })
+    })
+
     it('drops the excluded elements and keeps the rest', async () => {
         document.body.innerHTML = '<div class="CardMeta__controls">⋯</div><div class="chart">chart</div>'
         const filter = await filterFor('.CardMeta__controls')

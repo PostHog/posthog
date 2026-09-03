@@ -27,6 +27,22 @@ describe('insightCardCaptureTarget', () => {
         expect(document.querySelector(target.selector)).toHaveTextContent('insight-abc123')
     })
 
+    it('keys the screenshot editor per dashboard, so two dashboards on one page do not share one', () => {
+        expect(insightCardCaptureTarget(insight, { id: 2 }, 7).screenshotKey).not.toEqual(
+            insightCardCaptureTarget(insight, { id: 3 }, 8).screenshotKey
+        )
+    })
+
+    it('leaves the card chrome out of the capture', () => {
+        document.body.innerHTML =
+            '<div class="CardMeta__controls">⋯</div><div class="handle top"></div><div class="chart">chart</div>'
+        const { excludeSelector } = insightCardCaptureTarget(insight)
+
+        expect(document.querySelector('.CardMeta__controls')!.matches(excludeSelector!)).toBe(true)
+        expect(document.querySelector('.handle')!.matches(excludeSelector!)).toBe(true)
+        expect(document.querySelector('.chart')!.matches(excludeSelector!)).toBe(false)
+    })
+
     it('names the file after the insight', () => {
         expect(insightCardCaptureTarget(insight).name).toBe('Weekly signups')
         expect(insightCardCaptureTarget({ ...insight, name: '', derived_name: 'Pageview count' }).name).toBe(

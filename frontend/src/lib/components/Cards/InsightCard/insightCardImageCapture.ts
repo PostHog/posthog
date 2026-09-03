@@ -8,8 +8,17 @@ import { DashboardTile, QueryBasedInsightModel } from '~/types'
  */
 export const INSIGHT_CARD_KEY_ATTR = 'data-insight-card-key'
 
-/** Keys the screenshot editor instance that the dashboard scene mounts for its tiles. */
-export const DASHBOARD_TILE_SCREENSHOT_KEY = 'dashboard-tile'
+/**
+ * Keys the screenshot editor instance that a dashboard mounts for its tiles. One page can hold several
+ * dashboards — a notebook with dashboard widgets, a feature flag's dashboard — and editors sharing a key
+ * share their open state, so the key is per dashboard.
+ */
+export function dashboardTileScreenshotKey(dashboardId?: number | null): string {
+    return `dashboard-tile-${dashboardId ?? 'standalone'}`
+}
+
+/** The card's own chrome: the controls in the corner, the resize handles, and the grid's own handles. */
+const CARD_CHROME_SELECTOR = '.CardMeta__controls, .handle, .react-resizable-handle'
 
 export function insightCardKey(
     insight: Pick<QueryBasedInsightModel, 'short_id'>,
@@ -20,18 +29,20 @@ export function insightCardKey(
 }
 
 /**
- * Captures the whole card, not only the chart inside it: the title and the date range come with the image,
- * which is what makes a pasted tile readable on its own. The card's own controls are left out — the "⋯"
- * menu sits in the corner at all times, and a picture of a menu helps nobody.
+ * Captures the whole card, not only the chart inside it: the heading comes with the image, which is what
+ * makes a pasted tile readable on its own. A compact tile shows its date range only when it overrides the
+ * dashboard's, so the dashboard's own range stays outside the picture. The card's chrome is left out — the
+ * "⋯" menu sits in the corner at all times, and a picture of a menu helps nobody.
  */
 export function insightCardCaptureTarget(
     insight: Pick<QueryBasedInsightModel, 'short_id' | 'name' | 'derived_name'>,
-    tile?: Pick<DashboardTile<QueryBasedInsightModel>, 'id'>
+    tile?: Pick<DashboardTile<QueryBasedInsightModel>, 'id'>,
+    dashboardId?: number | null
 ): CaptureImageTarget {
     return {
         selector: `[${INSIGHT_CARD_KEY_ATTR}="${insightCardKey(insight, tile)}"]`,
-        excludeSelector: '.CardMeta__controls',
-        screenshotKey: DASHBOARD_TILE_SCREENSHOT_KEY,
+        excludeSelector: CARD_CHROME_SELECTOR,
+        screenshotKey: dashboardTileScreenshotKey(dashboardId),
         name: insight.name || insight.derived_name || undefined,
     }
 }

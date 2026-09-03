@@ -664,7 +664,7 @@ export function InsightMeta({
                             </>
                         ) : null}
                         <LemonButton
-                            onClick={() => copyImage(insightCardCaptureTarget(insight, tile))}
+                            onClick={() => copyImage(insightCardCaptureTarget(insight, tile, dashboardId))}
                             disabledReason={copyImageDisabledReason}
                             tooltip="Copy the tile to your clipboard as a PNG"
                             fullWidth
