@@ -25,4 +25,14 @@ describe('issueAlertThreadsLogic', () => {
         expect(logic.values.threads.map((t) => t.id)).toEqual(['t1'])
         logic.unmount()
     })
+
+    it('keeps a failed load apart from an empty list', async () => {
+        mockThreads.mockReset().mockRejectedValue(new Error('boom'))
+        const logic = issueAlertThreadsLogic({ issueId: 'issue-2' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadThreadsFailure'])
+        expect(logic.values.threadsLoaded).toBe(false)
+        expect(logic.values.loadError).toBeTruthy()
+        logic.unmount()
+    })
 })

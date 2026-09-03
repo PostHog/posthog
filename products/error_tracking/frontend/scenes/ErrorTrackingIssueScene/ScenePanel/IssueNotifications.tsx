@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
@@ -36,8 +36,7 @@ function ThreadRow({ thread }: { thread: ErrorTrackingAlertThreadApi }): JSX.Ele
                     thread.last_error || 'Delivery failed'
                 ) : thread.external_url ? (
                     <>
-                        Opened <TZLabel time={thread.created_at} /> by {thread.alert_name}
-                        {thread.delivered_count > 1 ? ` · ${thread.delivered_count - 1} updates` : ''}
+                        Opened by {thread.alert_name} · updated <TZLabel time={thread.updated_at} />
                     </>
                 ) : (
                     <>Not posted yet by {thread.alert_name}</>
@@ -48,14 +47,19 @@ function ThreadRow({ thread }: { thread: ErrorTrackingAlertThreadApi }): JSX.Ele
 }
 
 export function IssueNotifications({ issueId }: { issueId: string }): JSX.Element | null {
-    const { threads, threadsLoading } = useValues(issueAlertThreadsLogic({ issueId }))
+    const { threads, threadsLoading, threadsLoaded, loadError } = useValues(issueAlertThreadsLogic({ issueId }))
+    const { loadThreads } = useActions(issueAlertThreadsLogic({ issueId }))
 
     return (
         <ScenePanelLabel title="Notifications">
             <div className="flex flex-col divide-y">
-                {threadsLoading && threads.length === 0 ? (
+                {loadError ? (
+                    <span className="text-xs text-secondary py-1">
+                        Could not load Slack threads. <Link onClick={loadThreads}>Retry</Link>
+                    </span>
+                ) : threadsLoading && !threadsLoaded ? (
                     <Spinner className="my-1" />
-                ) : threads.length === 0 ? (
+                ) : threadsLoaded && threads.length === 0 ? (
                     <span className="text-xs text-secondary py-1">
                         No Slack threads for this issue.{' '}
                         <Link to={urls.settings('environment-error-tracking', 'error-tracking-alerting')}>
