@@ -88,6 +88,7 @@ _PRODUCT_ALLOWED_MODELS: dict[str, list[str]] = {
         "claude-opus-4-8",
         "claude-opus-5",
         "claude-fable-5",
+        "claude-fable-5-1",
         "gpt-5",
         "gpt-5.5",
         "gpt-5.6-sol",
