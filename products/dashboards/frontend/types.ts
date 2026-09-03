@@ -1,4 +1,4 @@
-export type DashboardAddTileType = 'insight' | 'text_card' | 'image' | 'button' | 'widget'
+export type DashboardAddTileType = 'insight' | 'text_card' | 'image' | 'separator' | 'button' | 'widget'
 
 /**
  * Product RBAC for gated widget types. New types: extend union here — see products/dashboards/CONTRIBUTING.md.

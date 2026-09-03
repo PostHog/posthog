@@ -12,6 +12,8 @@ import { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightMode
 
 import { DashboardImageTile } from '../ImageTile/DashboardImageTile'
 import { getImageOnlyTextCardImage } from '../ImageTile/imageTileUtils'
+import { DashboardSeparatorTile } from '../SeparatorTile/DashboardSeparatorTile'
+import { getSeparatorTileThickness } from '../SeparatorTile/separatorTileUtils'
 
 type BaseTextCardProps = React.ComponentProps<typeof TextCard>
 
@@ -51,7 +53,13 @@ function DashboardTextItemInternal(
     )
 
     const image = tile.text ? getImageOnlyTextCardImage(textCardConverter, tile.text.body) : null
-    const tileType = image ? 'image' : 'text'
+    const separatorThickness = tile.text ? getSeparatorTileThickness(tile.text.body) : null
+    let tileType = 'text'
+    if (image) {
+        tileType = 'image'
+    } else if (separatorThickness) {
+        tileType = 'separator'
+    }
     const moreButtonOverlay = (
         <>
             <LemonButton fullWidth onClick={onEdit} data-attr={`edit-${tileType}`}>
@@ -87,6 +95,19 @@ function DashboardTextItemInternal(
                 ref={ref}
                 tile={tile}
                 image={image}
+                placement={placement}
+                moreButtonOverlay={moreButtonOverlay}
+                {...textCardProps}
+            />
+        )
+    }
+
+    if (separatorThickness) {
+        return (
+            <DashboardSeparatorTile
+                ref={ref}
+                tile={tile}
+                thickness={separatorThickness}
                 placement={placement}
                 moreButtonOverlay={moreButtonOverlay}
                 {...textCardProps}

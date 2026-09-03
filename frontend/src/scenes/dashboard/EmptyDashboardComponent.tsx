@@ -41,6 +41,7 @@ function DashboardEmptyActions({
     onAddInsight,
     onAddText,
     onAddImage,
+    onAddSeparator,
     onAddButton,
     onAddWidget,
     push,
@@ -53,6 +54,7 @@ function DashboardEmptyActions({
     onAddInsight: () => void
     onAddText: () => void
     onAddImage: () => void
+    onAddSeparator: () => void
     onAddButton: () => void
     onAddWidget: () => void
     push: (path: string) => void
@@ -97,6 +99,7 @@ function DashboardEmptyActions({
                                                 onAddInsight: handleAddInsight,
                                                 onAddText,
                                                 onAddImage,
+                                                onAddSeparator,
                                                 onAddButton,
                                                 push,
                                                 setAddWidgetModalOpen: onAddWidget,
@@ -128,8 +131,13 @@ function DashboardEmptyActions({
 function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
-    const { setAddWidgetModalOpen, openTextTileModal, openImageTileModal, openButtonTileModal } =
-        useActions(dashboardLogic)
+    const {
+        setAddWidgetModalOpen,
+        openTextTileModal,
+        openImageTileModal,
+        openSeparatorTileModal,
+        openButtonTileModal,
+    } = useActions(dashboardLogic)
     const { push } = useActions(router)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
@@ -168,6 +176,7 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
                     onAddInsight={showAddInsightToDashboardModal}
                     onAddText={openTextTileModal}
                     onAddImage={openImageTileModal}
+                    onAddSeparator={openSeparatorTileModal}
                     onAddButton={openButtonTileModal}
                     onAddWidget={() => setAddWidgetModalOpen(true)}
                     push={push}

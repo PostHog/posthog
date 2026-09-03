@@ -9,6 +9,10 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardTile, DashboardTileIdOrNew, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
+import {
+    getSeparatorTileThickness,
+    separatorTileToMarkdown,
+} from 'products/dashboards/frontend/components/SeparatorTile/separatorTileUtils'
 
 import { textCardConverter } from './textCardMarkdown'
 
@@ -17,7 +21,7 @@ export interface TextTileForm {
     transparent_background: boolean
 }
 
-export type TextCardTileType = 'text' | 'image'
+export type TextCardTileType = 'text' | 'image' | 'separator'
 
 export interface TextCardModalProps {
     dashboard: DashboardType<QueryBasedInsightModel>
@@ -145,12 +149,19 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
             actions.resetTextTile()
             props?.onClose?.()
 
+            let contentType = 'text'
+            if (getImageOnlyTextCardImage(textCardConverter, textTile.body)) {
+                contentType = 'image'
+            } else if (getSeparatorTileThickness(textTile.body)) {
+                contentType = 'separator'
+            }
+
             posthog.capture('dashboard text tile saved', {
                 dashboard_id: props.dashboard.id,
                 text_tile_id: props.textTileId,
                 is_new: props.textTileId === null,
                 body_length: textTile.body.length,
-                content_type: getImageOnlyTextCardImage(textCardConverter, textTile.body) ? 'image' : 'text',
+                content_type: contentType,
             })
         },
     })),
@@ -158,7 +169,10 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
         textTile: {
             defaults: (props.textTileId !== null
                 ? getExistingTextTile(props.dashboard, props.textTileId)
-                : { body: '', transparent_background: props.tileType === 'image' }) as TextTileForm,
+                : {
+                      body: props.tileType === 'separator' ? separatorTileToMarkdown('thin') : '',
+                      transparent_background: props.tileType === 'image' || props.tileType === 'separator',
+                  }) as TextTileForm,
             errors: ({ body }) => {
                 return {
                     body: !body.trim()
