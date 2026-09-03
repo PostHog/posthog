@@ -90,12 +90,8 @@ class AsyncHarmonicClient:
 
         Tries domain variations: example.com → www.example.com if first fails.
 
-        None on every variation is a catch-all: it means not-found, a network or API error, or
-        the egress limiter shedding the call, with no way to tell those apart from the return
-        value alone. That is fine for a caller that just skips the domain and retries later, but
-        wrong for a caller that would persist a
-        not-found as data — use enrich_company_by_domain_strict there instead, which raises on an
-        operational failure or a shed rather than folding it into the same result as a real miss.
+        None covers a not-found, an operational failure and a shed call alike. A caller that
+        persists the result should use enrich_company_by_domain_strict, which tells them apart.
 
         Args:
             domain: Company domain (e.g., "posthog.com")
@@ -167,12 +163,9 @@ class AsyncHarmonicClient:
         sibling error — the suppressed error is captured rather than discarded, since that is
         exactly the failure mode that let the original bug hide with no signal anywhere.
 
-        A shed variation (the egress limiter denying the call) is never eligible for that
-        suppression, even when a sibling variation came back a clean not-found: unlike a network
-        error, a shed means Harmonic was never asked, so a sibling's not-found is not evidence
-        about it. Swallowing a shed into a not-found would write an "org has no Harmonic company"
-        result the re-enrichment sweep would not revisit for up to 90 days, purely because our
-        own budget was tight when this call landed — always re-raise it instead.
+        A shed variation always re-raises and is never suppressed by a sibling not-found. A shed
+        means Harmonic was never asked, so writing the miss would archive "no Harmonic company"
+        over our own throttling, and the sweep would not revisit it for up to 90 days.
         """
         domain = self._clean_domain(domain)
         domain_variations = [f"{prefix}{domain}" if prefix else domain for prefix in HARMONIC_DOMAIN_VARIATIONS]
