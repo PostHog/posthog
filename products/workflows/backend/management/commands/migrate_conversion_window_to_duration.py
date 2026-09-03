@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -41,11 +42,11 @@ class Command(BaseCommand):
         "which one is right needs a person. Default dry-run; pass --live-run to apply."
     )
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: Any) -> None:
         parser.add_argument("--team-id", default=None, type=int, help="Limit to a specific team ID")
         parser.add_argument("--live-run", action="store_true", help="Apply changes (default is dry-run)")
 
-    def handle(self, *args, **options):
+    def handle(self, *args: Any, **options: Any) -> None:
         live_run = options.get("live_run", False)
         team_id = options.get("team_id")
         mode = "LIVE RUN" if live_run else "DRY RUN"
@@ -169,7 +170,10 @@ class Command(BaseCommand):
         # sibling backfills guard against. A locked row that no longer qualifies (a save added a window
         # or pushed the value above the ceiling) is left for a rerun. .update() keeps updated_at
         # untouched: this is a representation change, not a user edit, so it must not fail an open
-        # editor's next save or re-sort untouched flows to the top.
+        # editor's next save or re-sort untouched flows to the top. The cost is that an editor which loaded
+        # the workflow before the run and saves after it writes its stale conversion back, returning that
+        # one row to window_minutes. The value it restores is under the ceiling and still honored, and a
+        # rerun converts it again, so this is the cheaper side of the trade.
         with transaction.atomic():
             locked = HogFlow.objects.select_for_update().get(pk=pk)
             rewritten = converted_conversion(locked.conversion or {})
@@ -188,7 +192,7 @@ class Command(BaseCommand):
             HogFlow.objects.filter(pk=pk).update(**fields)
         return ConvertedFlow(window=rewritten.window, minutes=rewritten.minutes, draft_converted=draft_converted)
 
-    def report_needs_review(self, needs_review):
+    def report_needs_review(self, needs_review: list[tuple[HogFlow, int]]) -> None:
         if not needs_review:
             return
         self.stdout.write("")
