@@ -223,6 +223,9 @@ export interface notebookNodeSQLV2LogicActions {
     setShowKernelInfo: (showKernelInfo: boolean) => {
         showKernelInfo: boolean
     } // notebookSettingsLogic
+    announceSandboxStart: (hourlyPrice: number | null) => {
+        hourlyPrice: number | null
+    }
     interruptRun: () => {
         value: true
     }
@@ -346,6 +349,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         resetPaging: true,
         setDirectRows: (directRows: NotebookNodeSQLV2DirectRows | null) => ({ directRows }),
         setPendingKernelStart: (pendingKernelStart: boolean) => ({ pendingKernelStart }),
+        announceSandboxStart: (hourlyPrice: number | null) => ({ hourlyPrice }),
     }),
     reducers({
         // Tracks the run being in progress; driven by the run's status, not a socket lifecycle.
@@ -552,7 +556,6 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     if (!kernelKnownRunning) {
                         actions.setShowKernelInfo(true)
                         actions.setPendingKernelStart(true)
-                        lemonToast.info('Starting a compute sandbox. The cell will run once it’s ready.')
                     }
                 }
                 // Read from the notebook rather than the caller: every run path (Run button,
@@ -560,7 +563,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 const variables = props.getVariables?.() ?? []
                 actions.startOperation(runOperation)
                 try {
-                    const { run_id } = await api.notebooks.sqlV2Run(props.notebookShortId, {
+                    const runResponse = await api.notebooks.sqlV2Run(props.notebookShortId, {
                         node_id: props.nodeId,
                         code,
                         refs,
@@ -577,7 +580,14 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     })
                     // Mark this as the active run so a still-in-flight poll from a previous run
                     // can't overwrite this result or stop this run's poller once it resolves.
+                    const run_id = runResponse.run_id
                     cache.activeRunId = run_id
+                    // The backend decides this at dispatch, so it is the only accurate source.
+                    // A kernel poll is up to ten seconds old, which is long enough to miss a
+                    // sandbox that stopped inside that window and start paid compute silently.
+                    if (runResponse.starts_sandbox) {
+                        actions.announceSandboxStart(runResponse.sandbox_hourly_price ?? null)
+                    }
                     // Persisting nodeId pins the cell's identity: markdown-notebook cell ids are
                     // content fingerprints otherwise, so without the pin any later prop change
                     // would orphan this run's node_id and break refs to this cell.
@@ -594,6 +604,18 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     actions.finishOperation(runOperation.id)
                     actions.nodeRunFinished(props.nodeId, 'failed', null)
                 }
+            },
+            announceSandboxStart: ({ hourlyPrice }) => {
+                // The panel that shows the price is only just opening, so say the rate in the
+                // toast too. A user who runs a Python cell never opens the panel deliberately and
+                // would otherwise start paid compute without being told what it costs. The price
+                // is null for a local docker kernel, which is free.
+                lemonToast.info(
+                    hourlyPrice == null
+                        ? 'Starting a compute sandbox. The cell will run once it’s ready.'
+                        : `Starting a compute sandbox at $${hourlyPrice.toFixed(2)} / h while it runs. ` +
+                              'Change its size in the kernel panel.'
+                )
             },
             runNode: ({ overrides }) => {
                 const content = props.getContent?.() ?? null
