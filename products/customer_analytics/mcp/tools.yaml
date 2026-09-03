@@ -826,6 +826,30 @@ tools:
     customer-profile-configs-update:
         operation: customer_profile_configs_update
         enabled: false
+    customer-tasks-archive-create:
+        operation: customer_tasks_archive_create
+        enabled: false
+    customer-tasks-create:
+        operation: customer_tasks_create
+        enabled: false
+    customer-tasks-list:
+        operation: customer_tasks_list
+        enabled: false
+    customer-tasks-partial-update:
+        operation: customer_tasks_partial_update
+        enabled: false
+    customer-tasks-restore-create:
+        operation: customer_tasks_restore_create
+        enabled: false
+    customer-tasks-retrieve:
+        operation: customer_tasks_retrieve
+        enabled: false
+    customer-tasks-update:
+        operation: customer_tasks_update
+        enabled: false
+    customerTasksActivitiesList:
+        operation: customerTasksActivitiesList
+        enabled: false
     event-streams-add-account:
         operation: event_streams_add_account_create
         enabled: true
