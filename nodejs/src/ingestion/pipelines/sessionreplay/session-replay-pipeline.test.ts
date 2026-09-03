@@ -239,6 +239,40 @@ describe('session-replay-pipeline', () => {
         }
     }
 
+    function createSkewedMessage(partition: number, offset: number, sessionId: string, skewMs: number): Message {
+        const event = {
+            event: '$snapshot_items',
+            properties: {
+                $session_id: sessionId,
+                $window_id: 'window-1',
+                $snapshot_items: [{ type: 2, timestamp: now.toMillis() + skewMs, data: {} }],
+            },
+        }
+        const payload = JSON.stringify({
+            distinct_id: 'user-123',
+            data: JSON.stringify(event),
+            now: now.toUTC().toISO(),
+            sent_at: now.plus({ milliseconds: skewMs }).toUTC().toISO(),
+        })
+
+        return {
+            partition,
+            offset,
+            topic: 'test-topic',
+            value: Buffer.from(payload),
+            key: Buffer.from('test-key'),
+            timestamp: Date.now(),
+            headers: [
+                { token: Buffer.from('test-token') },
+                { session_id: Buffer.from(sessionId) },
+                {
+                    distinct_id: Buffer.from('user-123'),
+                },
+            ],
+            size: payload.length,
+        }
+    }
+
     function createMessageWithOldTimestamps(
         partition: number,
         offset: number,
@@ -276,6 +310,34 @@ describe('session-replay-pipeline', () => {
         // recording is observed through the batch recorder mock.
         const recordedSessionIds = (): string[] =>
             (mockBatchRecorder.record as jest.Mock).mock.calls.map((call) => call[0].message.session_id)
+
+        it('corrects recording timestamps for a skewed device clock', async () => {
+            const skewMs = 7 * 60 * 60 * 1000
+            const pipeline = createSessionReplayPipeline({
+                outputs,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowMode: 'redirect',
+                promiseScheduler,
+                teamService: mockTeamService,
+                retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
+                topHog,
+                isDebugLoggingEnabled,
+            })
+
+            await runSessionReplayPipeline(
+                pipeline,
+                [createSkewedMessage(0, 1, 'session-1', skewMs)],
+                mockBatchRecorder,
+                promiseScheduler
+            )
+
+            const recorded = (mockBatchRecorder.record as jest.Mock).mock.calls[0][0].message
+            expect(recorded.eventsRange.start.toMillis()).toBe(now.toMillis())
+        })
 
         it('passes through messages when no restrictions apply', async () => {
             const pipeline = createSessionReplayPipeline({

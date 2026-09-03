@@ -1285,10 +1285,12 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["results"][0]["latest_run"]["id"], str(latest_run.id))
 
+        # Latest runs must come from one page-scoped DISTINCT ON query, not a correlated
+        # subquery that runs against posthog_task_run for every task row.
         task_run_sql = "\n".join(query["sql"] for query in ctx.captured_queries)
         self.assertIn('FROM "posthog_task_run"', task_run_sql)
-        self.assertIn('LIMIT 1) AS "_latest_run_id"', task_run_sql)
-        self.assertNotIn("DISTINCT ON", task_run_sql)
+        self.assertIn('DISTINCT ON ("posthog_task_run"."task_id")', task_run_sql)
+        self.assertNotIn('AS "_latest_run_id"', task_run_sql)
 
     def test_latest_run_tiebreaks_by_id(self):
         task = self.create_task("Tie-break task")

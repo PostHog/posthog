@@ -69,6 +69,17 @@ function withoutRunningTimeCalculationKeys(value: unknown): Record<string, unkno
     )
 }
 
+const DERIVED_RUNNING_TIME_KEYS = ['recommended_running_time', 'recommended_sample_size']
+
+/** Strip the derived calculator outputs so only deliberate input edits (MDE, exposure estimate) count. */
+function withoutDerivedRunningTimeKeys(value: unknown): Record<string, unknown> {
+    return Object.fromEntries(
+        Object.entries((value as Record<string, unknown> | null) ?? {}).filter(
+            ([key]) => !DERIVED_RUNNING_TIME_KEYS.includes(key)
+        )
+    )
+}
+
 function describeExcludedVariantsChange(before: string[] | undefined, after: string[] | undefined): string | null {
     const beforeSet = new Set(before ?? [])
     const afterSet = new Set(after ?? [])
@@ -284,7 +295,12 @@ export const getExperimentChangeDescription = (
             }
             return 'updated parameters'
         })
-        .with({ field: 'running_time_calculation' }, () => {
+        .with({ field: 'running_time_calculation' }, ({ before, after }) => {
+            // Opening the calculator re-saves the recomputed outputs, so they drift as exposure
+            // data changes — a row only earns its place when a calculator input was edited.
+            if (equal(withoutDerivedRunningTimeKeys(before), withoutDerivedRunningTimeKeys(after))) {
+                return null
+            }
             return 'updated the running time calculation'
         })
         .with({ field: 'excluded_variants' }, () => {

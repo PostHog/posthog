@@ -3,10 +3,6 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const openTaskInput = vi.hoisted(() => vi.fn());
-
-vi.mock("@posthog/ui/router/useOpenTask", () => ({ openTaskInput }));
-
 vi.mock("@posthog/ui/features/command-center/hooks/useAvailableTasks", () => ({
   useAvailableTasks: () => [],
 }));
@@ -22,6 +18,8 @@ vi.mock("@posthog/ui/features/folders/useFolders", () => ({
 
 import { TaskSelector } from "./TaskSelector";
 
+const onNewTask = vi.fn();
+
 function renderSelector() {
   return render(
     <Theme>
@@ -29,6 +27,7 @@ function renderSelector() {
         cellIndex={0}
         open
         onOpenChange={() => {}}
+        onNewTask={onNewTask}
         onNewTerminal={() => {}}
       >
         <button type="button">Add task</button>
@@ -62,11 +61,12 @@ describe("TaskSelector", () => {
     expectPopupWidth(screen.getByPlaceholderText("Search folders..."));
   });
 
-  it("opens the full task composer for a new task", async () => {
+  // Routing this to the full-page composer navigates the whole grid away.
+  it("composes a new task in the tile rather than navigating", async () => {
     renderSelector();
 
     await userEvent.click(screen.getByRole("button", { name: "New task" }));
 
-    expect(openTaskInput).toHaveBeenCalledOnce();
+    expect(onNewTask).toHaveBeenCalledOnce();
   });
 });
