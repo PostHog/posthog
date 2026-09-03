@@ -387,10 +387,16 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
  * HTTP status was 2xx, and recovery paths keyed on `status === undefined || status >= 500`
  * should classify a garbled body like the fetch-level network failure it effectively is. The
  * real status stays in the message for triage.
+ *
+ * What the body was is the part that makes an occurrence diagnosable — an HTML interstitial from a
+ * proxy and JSON cut mid-stream are different faults with the same symptom. So the content type and
+ * the body length travel in the message, and a content-free classification of the body's shape
+ * travels with the `client_malformed_response` event. The body itself never leaves the client,
+ * because it can hold user data.
  */
 async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
-    const requestContext = (): string =>
-        `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
+    const requestContext = (...details: string[]): string =>
+        `[${method} ${requestPathname(url)}] (${['status ' + response.status, ...details].join(', ')})`
     // A no-content response must not depend on reading its body: some engines (in our telemetry,
     // overwhelmingly WebKit) reject `.text()` on an empty body rather than resolving to "".
     if (response.status === 204 || response.status === 205 || response.body === null) {
@@ -413,8 +419,49 @@ async function getJSONFromSuccessResponse(response: Response, method: string, ur
     try {
         return JSON.parse(text)
     } catch {
-        throw new ApiError(`Malformed JSON response ${requestContext()}`)
+        const diagnostics = {
+            // The media type alone: the charset and any boundary parameter add nothing to triage.
+            content_type: response.headers?.get('content-type')?.split(';')[0].trim() || null,
+            body_length: text.length,
+            // The shape of the body, never its content. The body can hold user data, so no fragment
+            // of it may reach analytics, but its shape still separates a proxy page from a payload.
+            body_kind: malformedBodyKind(text),
+        }
+        captureMalformedResponse({
+            pathname: requestPathname(url),
+            method,
+            status: response.status,
+            ...diagnostics,
+        })
+        throw new ApiError(
+            `Malformed JSON response ${requestContext(
+                `content-type ${diagnostics.content_type ?? 'absent'}`,
+                `${diagnostics.body_length} chars`
+            )}`,
+            undefined,
+            response.headers,
+            diagnostics
+        )
     }
+}
+
+/**
+ * The shape of an unparseable body, carrying none of its content. It tells an HTML error page (a
+ * proxy or CDN interstitial) from JSON cut mid-stream, which is the diagnostic the message needs,
+ * while the body itself stays on the client because it can hold user data.
+ */
+export type MalformedBodyKind = 'html_like' | 'json_like' | 'other'
+
+function malformedBodyKind(text: string): MalformedBodyKind {
+    // The caller already dropped whitespace-only bodies, so a first non-whitespace char exists.
+    const firstChar = text.match(/\S/)?.[0]
+    if (firstChar === '<') {
+        return 'html_like'
+    }
+    if (firstChar === '{' || firstChar === '[') {
+        return 'json_like'
+    }
+    return 'other'
 }
 
 export class ApiConfig {
@@ -7546,6 +7593,24 @@ function captureClientRequestFailure(properties: {
     // check if the function is available before calling it.
     if (posthog.capture) {
         posthog.capture('client_request_failure', properties)
+    }
+}
+
+/**
+ * A response the server called a success, with a body no JSON parser accepts. It is separate from
+ * `client_request_failure` so failure-rate queries keep their meaning. It records only bounded,
+ * content-free facts about the body (see `malformedBodyKind`), never the body itself.
+ */
+function captureMalformedResponse(properties: {
+    pathname: string
+    method: string
+    status: number
+    content_type: string | null
+    body_length: number
+    body_kind: MalformedBodyKind
+}): void {
+    if (posthog.capture) {
+        posthog.capture('client_malformed_response', properties)
     }
 }
 

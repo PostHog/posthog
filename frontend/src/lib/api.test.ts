@@ -327,10 +327,19 @@ describe('API helper', () => {
     })
 
     describe('successful response body parsing', () => {
-        const fakeResponse = ({ status = 200, text }: { status?: number; text: () => Promise<string> }): any => ({
+        const fakeResponse = ({
+            status = 200,
+            text,
+            contentType,
+        }: {
+            status?: number
+            text: () => Promise<string>
+            contentType?: string
+        }): any => ({
             ok: true,
             status,
             text,
+            headers: new Headers(contentType ? { 'content-type': contentType } : {}),
         })
         const bodyOf =
             (body: string): (() => Promise<string>) =>
@@ -338,19 +347,51 @@ describe('API helper', () => {
                 Promise.resolve(body)
 
         it.each([
-            ['an HTML error page from a proxy/CDN', '<html><body>Bad gateway</body></html>'],
+            ['an HTML error page from a proxy/CDN', '<html><body>Bad gateway</body></html>', 'text/html', 'html_like'],
             // No content-length header involved: detection must work for chunked/compressed responses
-            ['truncated JSON from a response cut mid-stream', '{"results": [1, 2'],
-        ])('rejects with a status-less, request-scoped ApiError when the body is %s', async (_desc, body) => {
-            fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf(body) }))
+            ['truncated JSON from a response cut mid-stream', '{"results": [1, 2', 'application/json', 'json_like'],
+        ])(
+            'rejects with a status-less, request-scoped ApiError when the body is %s',
+            async (_desc, body, contentType, bodyKind) => {
+                fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf(body), contentType: `${contentType}; utf-8` }))
+                const error = await api.get('api/environments/2/insights').catch((e) => e)
+                expect(error).toBeInstanceOf(ApiError)
+                // Method + path so occurrences are triageable in error tracking
+                expect(error.message).toContain('[GET /api/environments/2/insights]')
+                expect(error.message).toContain('status 200')
+                // What the body was is what separates a proxy interstitial from a truncated payload
+                expect(error.message).toContain(`content-type ${contentType}`)
+                expect(error.message).toContain(`${body.length} chars`)
+                // The event carries a content-free shape of the body, matched to the same distinction
+                expect(posthog.capture).toHaveBeenCalledWith(
+                    'client_malformed_response',
+                    expect.objectContaining({ body_kind: bodyKind })
+                )
+                // No `status`: a 2xx on an ApiError would make retry/recovery checks
+                // (`status === undefined || status >= 500`) treat this transient failure as a client error
+                expect(error.status).toBeUndefined()
+            }
+        )
+
+        it('classifies an unparseable body on the event without carrying any of its content', async () => {
+            // A truncated JSON payload whose head is real content: a fake secret standing in for the
+            // user data (tokens, PII, query results) a live response could carry.
+            const secret = 'sk_live_0123456789abcdef'
+            const body = `{"results": [{"api_key": "${secret}"`
+            fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf(body), contentType: 'application/json' }))
             const error = await api.get('api/environments/2/insights').catch((e) => e)
-            expect(error).toBeInstanceOf(ApiError)
-            // Method + path so occurrences are triageable in error tracking
-            expect(error.message).toContain('[GET /api/environments/2/insights]')
-            expect(error.message).toContain('status 200')
-            // No `status`: a 2xx on an ApiError would make retry/recovery checks
-            // (`status === undefined || status >= 500`) treat this transient failure as a client error
-            expect(error.status).toBeUndefined()
+            expect(posthog.capture).toHaveBeenCalledWith('client_malformed_response', {
+                pathname: '/api/environments/2/insights',
+                method: 'GET',
+                status: 200,
+                content_type: 'application/json',
+                body_length: body.length,
+                body_kind: 'json_like',
+            })
+            // No fragment of the body may reach analytics, the error message, or the error data.
+            expect(JSON.stringify((posthog.capture as jest.Mock).mock.calls)).not.toContain(secret)
+            expect(error.message).not.toContain(secret)
+            expect(JSON.stringify(error.data)).not.toContain(secret)
         })
 
         it('carries the actual request method in the malformed-body error', async () => {
