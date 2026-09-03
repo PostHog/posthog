@@ -175,6 +175,7 @@ describe('scout schedule modes', () => {
             ['0 9 * * MON', 'a named weekday'],
             ['0 9 15 2 *', 'a real February date'],
             ['0 9 31 2,3 MON', 'a real date in one of the months'],
+            ['10,50 0,23 * * 1', 'slots either side of midnight, but only one day a week'],
             ['0 9 * * 5#2', 'syntax only the backend models'],
         ])('accepts %s (%s)', (expression) => {
             expect(scoutCronScheduleError(expression)).toBeNull()
@@ -188,6 +189,7 @@ describe('scout schedule modes', () => {
             ['0 0 31 2 MON', 'This schedule never matches a real date. Check the day and month.'],
             ['*/20 * * * *', 'Runs must be at least 30 minutes apart.'],
             ['0,15 9 * * *', 'Runs must be at least 30 minutes apart.'],
+            ['10,50 0,23 * * *', 'Runs must be at least 30 minutes apart.'],
         ])('refuses %s', (expression, expected) => {
             expect(scoutCronScheduleError(expression)).toEqual(expected)
         })

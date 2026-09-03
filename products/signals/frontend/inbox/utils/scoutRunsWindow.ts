@@ -675,6 +675,12 @@ export function scoutCronScheduleError(expression: string): string | null {
     if (minutes.kind === 'values' && hours.kind === 'values') {
         const slots = hours.values.flatMap((hour) => minutes.values.map((minute) => hour * 60 + minute))
         const gaps = slots.slice(1).map((slot, index) => slot - slots[index])
+        // A schedule that runs every day also runs across midnight, so the last slot of one day and
+        // the first of the next are one more gap. A day-restricted schedule can skip days, so how
+        // far its wrap reaches is left to the backend.
+        if (fields[2] === '*' && fields[4] === '*') {
+            gaps.push(slots[0] + 1440 - slots[slots.length - 1])
+        }
         if (gaps.some((gap) => gap < SCOUT_CRON_MIN_GAP_MINUTES)) {
             return `Runs must be at least ${SCOUT_CRON_MIN_GAP_MINUTES} minutes apart.`
         }
