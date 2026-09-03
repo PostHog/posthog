@@ -1,4 +1,3 @@
-import math
 from contextlib import asynccontextmanager
 
 import pytest
@@ -12,6 +11,7 @@ from posthog.temporal.ai_observability.team_discovery import (
     DEFAULT_SAMPLE_PERCENTAGE,
     TeamDiscoveryInput,
     _get_ai_observability_workflow_config,
+    _is_team_in_sample,
     get_min_traces_override,
     get_team_ids_for_ai_observability,
 )
@@ -153,6 +153,17 @@ class TestGetMinTracesOverride:
         assert get_min_traces_override(370629) is None
 
 
+class TestIsTeamInSample:
+    def test_boundaries(self) -> None:
+        assert _is_team_in_sample(12345, 0.0) is False
+        assert _is_team_in_sample(12345, 1.0) is True
+
+    def test_larger_percentage_only_adds_teams(self) -> None:
+        included_at_half = {t for t in range(20000, 20500) if _is_team_in_sample(t, 0.5)}
+        included_at_three_quarters = {t for t in range(20000, 20500) if _is_team_in_sample(t, 0.75)}
+        assert included_at_half <= included_at_three_quarters
+
+
 @patch(FF_PAYLOAD_PATH, return_value=None)
 @patch("posthog.temporal.ai_observability.team_discovery.Heartbeater", _noop_heartbeater)
 @pytest.mark.asyncio
@@ -212,16 +223,30 @@ class TestGetTeamIdsForAIObservability:
         assert set(result) == set(DEFAULT_GUARANTEED_TEAM_IDS) | set(extra_teams)
 
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
-    async def test_sampling_math(self, mock_get_teams, _mock_ff):
-        extra_teams = list(range(10000, 10100))  # 100 non-guaranteed teams
+    async def test_sampling_size_tracks_percentage(self, mock_get_teams, _mock_ff):
+        # The stable hash is uniform, so a 50% sample over many teams stays close to half.
+        extra_teams = list(range(10000, 11000))  # 1000 non-guaranteed teams
         mock_get_teams.return_value = extra_teams
         inputs = TeamDiscoveryInput()
 
         result = await get_team_ids_for_ai_observability(inputs)
 
         sampled_non_guaranteed = [t for t in result if t not in DEFAULT_GUARANTEED_TEAM_IDS]
-        expected_sample_size = math.ceil(len(extra_teams) * DEFAULT_SAMPLE_PERCENTAGE)
-        assert len(sampled_non_guaranteed) == expected_sample_size
+        expected = len(extra_teams) * DEFAULT_SAMPLE_PERCENTAGE
+        assert abs(len(sampled_non_guaranteed) - expected) < 0.1 * expected
+
+    @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
+    async def test_sample_membership_is_stable_across_runs(self, mock_get_teams, _mock_ff):
+        # The regression: a fresh random draw each run flipped a team in and out day to day.
+        # A stable hash returns the same teams every run.
+        extra_teams = list(range(10000, 10100))
+        mock_get_teams.return_value = extra_teams
+        inputs = TeamDiscoveryInput()
+
+        first = await get_team_ids_for_ai_observability(inputs)
+        second = await get_team_ids_for_ai_observability(inputs)
+
+        assert first == second
 
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
     async def test_empty_ai_events_returns_guaranteed(self, mock_get_teams, _mock_ff):
