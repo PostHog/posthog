@@ -142,6 +142,16 @@ Required: `variant_key` (e.g. "test"). Optional: `conclusion`, `conclusion_comme
 
 Returns 409 if an approval policy requires review before the flag change.
 
+### Flag cleanup PR (option on end and ship variant)
+
+Both `experiment-end` and `experiment-ship-variant` accept `open_cleanup_pr: true`.
+A background PostHog Code task then removes the experiment's feature flag code and opens a draft pull request in the team's connected GitHub repository.
+
+- Only set this when the user asks for it or confirms it.
+- Requires the team to have the flag cleanup feature enabled and the key to carry the `task:write` scope; silently skipped otherwise.
+- `repository` ("organization/repository") picks the target when several repositories are connected. Omit it to fall back to the experiment's saved repository, the team default, or the only connected repository. With several candidates and no default, the cleanup is skipped unless provided.
+- Track progress with `experiment-cleanup-task` — the PR URL appears there once opened; a cleanup typically takes several minutes.
+
 ### Archive (`experiment-archive`)
 
 Hides a stopped experiment from the default list view.
