@@ -1260,8 +1260,9 @@ class CSPMiddleware:
                 f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
                 f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
-                # allow all sites for displaying heatmaps
-                "frame-src https:",
+                # https: lets heatmaps frame a customer's site. 'self' is for the replay player
+                # frame, whose document is same-origin: an http origin does not match https:.
+                "frame-src 'self' https:",
                 "manifest-src 'self'",
                 "base-uri 'self'",
                 # form-action has no default-src fallback, so leaving it unset lets an injected

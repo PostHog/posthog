@@ -1899,6 +1899,12 @@ class TestCSPMiddleware(APIBaseTest):
         assert "Content-Security-Policy-Report-Only" not in response
         assert "Reporting-Endpoints" not in response
 
+    def test_app_policy_allows_framing_the_replay_player_frame(self):
+        # The player frame is same-origin, and an http origin does not match the https: source
+        # that heatmaps need.
+        response = self.client.get("/")
+        assert "frame-src 'self' https:" in response["Content-Security-Policy-Report-Only"]
+
     def test_replay_player_frame_is_reachable_without_a_session(self):
         # Shared recordings render the player for logged-out viewers.
         self.client.logout()
