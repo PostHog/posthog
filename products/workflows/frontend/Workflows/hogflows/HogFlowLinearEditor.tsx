@@ -8,8 +8,16 @@ import { getLinearWorkflowActionIds } from './linearWorkflow'
 import { StepView } from './steps/components/StepView'
 import type { HogFlowAction, HogFlowEdge } from './types'
 
-function HogFlowLinearDropzone({ active, edge }: { active: boolean; edge?: HogFlowEdge }): JSX.Element {
-    const { onDragOver, onDrop } = useActions(hogFlowEditorLogic)
+function HogFlowLinearDropzone({
+    active,
+    edge,
+    draggedActionId,
+}: {
+    active: boolean
+    edge?: HogFlowEdge
+    draggedActionId: string | null
+}): JSX.Element {
+    const { moveNodeToEdge, onDragOver, onDrop } = useActions(hogFlowEditorLogic)
     const [isHighlighted, setIsHighlighted] = useState(false)
 
     if (!active || !edge) {
@@ -32,7 +40,13 @@ function HogFlowLinearDropzone({ active, edge }: { active: boolean; edge?: HogFl
             onDragLeave={() => setIsHighlighted(false)}
             onDrop={(event) => {
                 setIsHighlighted(false)
-                onDrop(event, edge)
+                if (draggedActionId) {
+                    if (edge.from !== draggedActionId && edge.to !== draggedActionId) {
+                        moveNodeToEdge(draggedActionId, edge, false)
+                    }
+                } else {
+                    onDrop(event, edge)
+                }
             }}
             data-attr="workflow-linear-dropzone"
         >
@@ -48,6 +62,7 @@ function HogFlowLinearDropzone({ active, edge }: { active: boolean; edge?: HogFl
 
 export function HogFlowLinearEditor(): JSX.Element {
     const { workflow, nodeToBeAdded } = useValues(hogFlowEditorLogic)
+    const [draggedActionId, setDraggedActionId] = useState<string | null>(null)
     const actionIds = getLinearWorkflowActionIds(workflow)
 
     const actionsById = new Map(workflow.actions.map((action) => [action.id, action]))
@@ -63,9 +78,29 @@ export function HogFlowLinearEditor(): JSX.Element {
             <div className="mx-auto flex w-full max-w-3xl flex-col">
                 {linearActions.map((action, index) => (
                     <div key={action.id} className="flex flex-col">
-                        <StepView action={action} layout="list" />
+                        <div
+                            draggable={action.type !== 'trigger' && action.type !== 'exit'}
+                            onDragStart={(event) => {
+                                setDraggedActionId(action.id)
+                                event.dataTransfer.effectAllowed = 'move'
+                                event.dataTransfer.setData('text/plain', action.id)
+                            }}
+                            onDragEnd={() => setDraggedActionId(null)}
+                            className={`${
+                                action.type !== 'trigger' && action.type !== 'exit'
+                                    ? 'cursor-grab active:cursor-grabbing'
+                                    : ''
+                            } ${draggedActionId === action.id ? 'opacity-50' : ''}`}
+                            data-attr="workflow-linear-step-drag"
+                        >
+                            <StepView action={action} layout="list" />
+                        </div>
                         {index < linearActions.length - 1 && (
-                            <HogFlowLinearDropzone active={!!nodeToBeAdded} edge={linearEdges[index]} />
+                            <HogFlowLinearDropzone
+                                active={!!nodeToBeAdded || !!draggedActionId}
+                                edge={linearEdges[index]}
+                                draggedActionId={draggedActionId}
+                            />
                         )}
                     </div>
                 ))}
