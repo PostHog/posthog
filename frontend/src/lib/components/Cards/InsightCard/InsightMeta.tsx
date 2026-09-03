@@ -47,7 +47,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { Node, ProductKey } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode } from '~/queries/utils'
+import { isDataVisualizationNode, isDataVisualizationNodeWithHogQLQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -69,6 +69,8 @@ import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
+import { useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
+import type { DashboardSqlVisualizationPersistence } from './dashboardVisualizationOptions'
 import { dashboardWidgetMenusLogic } from './dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from './DashboardWidgetPlacementMenus'
 import { InsightCardProps } from './InsightCard'
@@ -157,7 +159,10 @@ export function InsightMeta({
     }
     const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
-    const { exportContext, insightData, query } = useValues(insightDataLogic(insightLogicProps))
+    const { exportContext, insightData, query, savingSqlVisualization, sqlVisualizationVersion } = useValues(
+        insightDataLogic(insightLogicProps)
+    )
+    const { persistSqlVisualization } = useActions(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
     const { loadAlerts: loadDeferredInsightAlerts } = useActions(
         insightAlertsLogic({
@@ -189,7 +194,7 @@ export function InsightMeta({
         placement === DashboardPlacement.Dashboard ||
         placement === DashboardPlacement.Public ||
         placement === DashboardPlacement.Builtin
-    const isSqlInsight = isDataVisualizationNode(insight.query)
+    const isSqlInsight = isDataVisualizationNodeWithHogQLQuery(insight.query)
     const showCompactHeading = !showCompactTile || !isSqlInsight
 
     const ignoresDashboardFilters = !!tileFiltersOverride?.ignoreDashboardFilters
@@ -240,9 +245,26 @@ export function InsightMeta({
     const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query)
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
-    // Hoist the hook out of the More overlay so kea logics it mounts don't do so lazily inside a
+    // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
     // portal, which cascades into closing the dropdown before the user can interact with it.
     const { items: displayOptionItems } = useInsightDisplayOptions()
+    const sqlVisualizationPersistence: DashboardSqlVisualizationPersistence | undefined = persistDisplayOptions
+        ? {
+              saving: savingSqlVisualization,
+              version: sqlVisualizationVersion,
+              persistChartType: (display) => persistSqlVisualization({ type: 'chart-type', display }),
+              persistDisplayOptions: (sqlQuery) =>
+                  persistSqlVisualization({ type: 'display-options', query: sqlQuery }),
+          }
+        : undefined
+    const visualizationItems = useDashboardVisualizationOptions({
+        query,
+        insightData,
+        variablesOverride,
+        loading: loading || loadingQueued,
+        persistence: sqlVisualizationPersistence,
+    })
+    const displayMenuItems = [...visualizationItems, ...displayOptionItems]
 
     const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
@@ -513,7 +535,7 @@ export function InsightMeta({
                                 Alerts
                             </LemonButton>
                         ) : null}
-                        {showDisplayOptionsMenu && <DashboardInsightDisplayOptions items={displayOptionItems} />}
+                        {showDisplayOptionsMenu && <DashboardInsightDisplayOptions items={displayMenuItems} />}
 
                         {canShowCopyToDashboardTile && !canEditDashboard && (
                             <>

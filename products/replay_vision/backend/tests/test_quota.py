@@ -1,6 +1,7 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -26,6 +27,7 @@ from products.replay_vision.backend.quota import (
     MONTHLY_CREDIT_QUOTA,
     BillingPeriod,
     ScannerBudget,
+    _current_period_bounds,
     _parse_org_credit_limit_overrides,
     compute_quota_snapshot,
     compute_scanner_budget,
@@ -355,7 +357,7 @@ class TestComputeScannerBudget(_VisionQuotaTestCase):
         self._make_observation(status=ObservationStatus.RUNNING)
         budget = compute_scanner_budget(self.scanner)
         assert budget.credits_used == 30
-        assert budget.settled_credits == 15
+        assert budget.credits_settled == 15
 
     def test_an_observation_settling_between_the_budget_reads_never_vanishes(self) -> None:
         # Reservations are read before receipts, so a settlement between the reads is seen by both
@@ -491,7 +493,7 @@ class TestScannerBudgetBlocked(SimpleTestCase):
             period_start=datetime(2026, 8, 1, tzinfo=UTC),
             period_end=datetime(2026, 9, 1, tzinfo=UTC),
             credits_per_observation=15,
-            settled_credits=credits_used,
+            credits_settled=credits_used,
         )
         assert budget.exhausted == expected_exhausted
         assert budget.blocked == expected_blocked
@@ -513,7 +515,7 @@ class TestScannerBudgetBlocked(SimpleTestCase):
             period_start=datetime(2026, 8, 1, tzinfo=UTC),
             period_end=datetime(2026, 9, 1, tzinfo=UTC),
             credits_per_observation=0,
-            settled_credits=credits_used,
+            credits_settled=credits_used,
         )
         assert budget.exhausted == expected_exhausted
         assert budget.blocked == expected_blocked
@@ -528,7 +530,7 @@ class TestScannerBudgetBlocked(SimpleTestCase):
     def test_blocked_by_settled_spend_ignores_live_reservations(
         self,
         _name: str,
-        settled_credits: int,
+        credits_settled: int,
         credits_used: int,
         expected_blocked: bool,
         expected_blocked_by_settled: bool,
@@ -539,7 +541,7 @@ class TestScannerBudgetBlocked(SimpleTestCase):
             period_start=datetime(2026, 8, 1, tzinfo=UTC),
             period_end=datetime(2026, 9, 1, tzinfo=UTC),
             credits_per_observation=15,
-            settled_credits=settled_credits,
+            credits_settled=credits_settled,
         )
         assert budget.blocked == expected_blocked
         assert budget.blocked_by_settled_spend == expected_blocked_by_settled
@@ -624,7 +626,9 @@ class TestBillingSyncedQuota(_VisionQuotaTestCase):
                 {"replay_vision_credits": {"limit": None, "usage": 0}},
                 None,
             ),
-            ("float_limit_honored", {"replay_vision_credits": {"limit": 42.0, "usage": 0}}, 42),
+            ("float_limit_truncated", {"replay_vision_credits": {"limit": 42.9, "usage": 0}}, 42),
+            # A negative limit would read as permanently over; it must clamp to a hard block, not fall back.
+            ("negative_limit_clamped_to_zero", {"replay_vision_credits": {"limit": -5, "usage": 0}}, 0),
             (
                 "malformed_limit_falls_back_not_uncapped",
                 {"replay_vision_credits": {"limit": "42", "usage": 0}},
@@ -733,15 +737,43 @@ class TestBillingSyncedQuota(_VisionQuotaTestCase):
         assert snapshot.period_start == start
         assert snapshot.period_end == end
 
-    def test_stale_billing_period_falls_back_to_calendar_month(self) -> None:
-        now = datetime.now(UTC)
-        self.organization.usage = {
-            "period": [(now - timedelta(days=70)).isoformat(), (now - timedelta(days=40)).isoformat()]
-        }
-        self.organization.save()
-        snapshot = compute_quota_snapshot(organization_id=self.organization.id)
-        assert snapshot.period_start == start_of_month(now)
-        assert snapshot.period_end > now
+
+class TestCurrentPeriodBounds(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("current_period_kept", "2026-08-15", "2026-09-15", "2026-09-01", "2026-08-15", "2026-09-15"),
+            # A lagging sync keeps the mid-month anniversary instead of snapping to the calendar month.
+            ("stale_anniversary_rolls_by_month", "2026-08-15", "2026-09-15", "2026-09-20", "2026-09-15", "2026-10-15"),
+            ("rolls_across_several_periods", "2026-08-15", "2026-09-15", "2026-12-01", "2026-11-15", "2026-12-15"),
+            (
+                "month_end_anniversary_keeps_its_day",
+                "2026-01-31",
+                "2026-02-28",
+                "2026-04-05",
+                "2026-03-31",
+                "2026-04-30",
+            ),
+            ("yearly_plan_rolls_by_year", "2025-03-01", "2026-03-01", "2026-06-10", "2026-03-01", "2027-03-01"),
+            # A period that is not a whole number of months rolls by its own length.
+            ("fixed_length_rolls_by_length", "2026-08-01", "2026-08-31", "2026-09-05", "2026-08-31", "2026-09-30"),
+            ("reversed_period_falls_back", "2026-09-15", "2026-08-15", "2026-09-20", "2026-09-01", "2026-10-01"),
+            ("future_period_falls_back", "2026-10-15", "2026-11-15", "2026-09-20", "2026-09-01", "2026-10-01"),
+        ]
+    )
+    def test_window_containing_now(
+        self, _name: str, start: str, end: str, now: str, expected_start: str, expected_end: str
+    ) -> None:
+        organization = Organization(usage={"period": [f"{start}T00:00:00+00:00", f"{end}T00:00:00+00:00"]})
+        period = _current_period_bounds(organization, datetime.fromisoformat(f"{now}T12:00:00+00:00"))
+        assert period.start == datetime.fromisoformat(f"{expected_start}T00:00:00+00:00")
+        assert period.end == datetime.fromisoformat(f"{expected_end}T00:00:00+00:00")
+
+    def test_inclusive_period_end_still_rolls_by_month(self) -> None:
+        # Billing closes a period a second before the next starts; the shortfall must not demote it to a fixed length.
+        organization = Organization(usage={"period": ["2026-02-01T00:00:00+00:00", "2026-02-28T23:59:59+00:00"]})
+        period = _current_period_bounds(organization, datetime.fromisoformat("2026-03-29T12:00:00+00:00"))
+        assert period.start == datetime.fromisoformat("2026-03-01T00:00:00+00:00")
+        assert period.end == datetime.fromisoformat("2026-03-31T23:59:59+00:00")
 
 
 class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
@@ -753,6 +785,7 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
         enabled: bool = True,
         estimate: int | None = None,
         model: ScannerModel = ScannerModel.GEMINI_3_8_FLASH,
+        credit_limit: int | None = None,
     ) -> None:
         scanner = ReplayScanner.objects.create(
             team=team,
@@ -761,6 +794,7 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
             scanner_config={"prompt": "p"},
             model=model,
             enabled=enabled,
+            credit_limit=credit_limit,
         )
         if estimate is not None:
             ReplayScanner.objects.filter(pk=scanner.pk).update(
@@ -779,6 +813,14 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
         self._make_scanner(team=self.team, name="unestimated", estimate=None)
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
         assert snapshot.projected_monthly_credits == 0
+
+    @freeze_time("2026-09-16T00:00:00Z")
+    def test_a_capped_scanner_projects_at_most_its_remaining_limit(self) -> None:
+        self._make_scanner(team=self.team, name="capped", estimate=100, credit_limit=200)  # 1500 uncapped
+        self._make_scanner(team=self.team, name="roomy", estimate=10, credit_limit=9000)  # 150, under its cap
+        snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        # 15 of 30 days left: the 200 headroom pro-rated back to a 30-day rate is 400.
+        assert snapshot.projected_monthly_credits == 400 + 150
 
     def test_other_orgs_scanners_not_counted(self) -> None:
         other_org = Organization.objects.create(name="other-projection-org")
@@ -799,6 +841,8 @@ class TestVisionQuotaEndpoint(_VisionQuotaTestCase):
         body = resp.json()
         assert body["credit_limit"] == MONTHLY_CREDIT_QUOTA
         assert body["credits_used"] == 0
+        assert body["credits_settled"] == 0
+        assert body["credits_reserved"] == 0
         assert body["remaining"] == MONTHLY_CREDIT_QUOTA
         assert body["exhausted"] is False
         assert body["projected_monthly_credits"] == 0
@@ -813,13 +857,52 @@ class TestVisionQuotaEndpoint(_VisionQuotaTestCase):
         resp = self.client.get(self.quota_url)
         assert resp.json()["projected_monthly_credits"] == 120 * 15
 
-    def test_reflects_recent_succeeded_observations(self) -> None:
+    def test_splits_settled_receipts_from_live_reservations(self) -> None:
         for _ in range(3):
             self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        self._make_observation(status=ObservationStatus.RUNNING)
 
-        resp = self.client.get(self.quota_url)
-        assert resp.json()["credits_used"] == 45
-        assert resp.json()["remaining"] == MONTHLY_CREDIT_QUOTA - 45
+        body = self.client.get(self.quota_url).json()
+        assert body["credits_settled"] == 45
+        assert body["credits_reserved"] == 15
+        assert body["credits_used"] == 60
+        assert body["remaining"] == MONTHLY_CREDIT_QUOTA - 60
+
+
+class TestVisionSpendSeriesEndpoint(_VisionQuotaTestCase):
+    @property
+    def series_url(self) -> str:
+        return f"/api/environments/{self.team.id}/vision/quota/spend_series/"
+
+    def _receipt(self, created_at: str, credits: int, organization_id: uuid.UUID | None = None) -> None:
+        ReplayObservationUsage.objects.create(
+            observation_id=uuid.uuid4(),
+            organization_id=organization_id or self.organization.id,
+            team_id=self.team.id,
+            observation_created_at=datetime.fromisoformat(created_at),
+            model=ScannerModel.GEMINI_3_8_FLASH,
+            credits=credits,
+        )
+
+    @freeze_time("2026-03-10T12:00:00Z")
+    def test_zero_filled_daily_credits_from_period_start_through_today(self) -> None:
+        self.organization.usage = {"period": ["2026-03-01T00:00:00+00:00", "2026-04-01T00:00:00+00:00"]}
+        self.organization.save()
+        self._receipt("2026-03-03T01:00:00+00:00", 15)
+        self._receipt("2026-03-03T23:30:00+00:00", 5)
+        self._receipt("2026-03-10T09:00:00+00:00", 2)
+        # Previous period and another org: never in this series.
+        self._receipt("2026-02-20T09:00:00+00:00", 99)
+        other_org = Organization.objects.create(name="other-series-org")
+        self._receipt("2026-03-03T09:00:00+00:00", 99, organization_id=other_org.id)
+
+        resp = self.client.get(self.series_url)
+        assert resp.status_code == 200, resp.json()
+        body = resp.json()
+        assert body["period_start"] == "2026-03-01T00:00:00Z"
+        assert body["period_end"] == "2026-04-01T00:00:00Z"
+        assert [d["date"] for d in body["days"]] == [f"2026-03-{day:02d}" for day in range(1, 11)]
+        assert [d["credits"] for d in body["days"]] == [0, 0, 20, 0, 0, 0, 0, 0, 0, 2]
 
 
 @patch("products.replay_vision.backend.api.trigger.async_to_sync")

@@ -22,10 +22,7 @@ logger = structlog.get_logger(__name__)
 
 CREDITS_PER_DOLLAR = 100  # 1 credit = $0.01, matching ai_credits
 
-# Google's list prices, tracked from GEMINI_PRICING_URL (standard tier, prompts <= 200k tokens).
-GEMINI_PRICING_URL = "https://ai.google.dev/gemini-api/docs/pricing"
-
-
+# Google's list prices, tracked from https://ai.google.dev/gemini-api/docs/pricing (standard tier, prompts <= 200k tokens).
 GeminiTier = Literal["flash lite", "flash", "pro"]
 
 
@@ -115,6 +112,18 @@ OBSERVATION_CREDITS_BY_MODEL: dict[str, int] = {
 
 # Unknown models bill at the highest known price: never underbill on a mapping gap.
 _FALLBACK_CREDITS = max(OBSERVATION_CREDITS_BY_MODEL.values())
+
+
+# Scanner estimates are a rate per this many days, whatever the billing period's length.
+ESTIMATE_MONTH_DAYS = 30
+
+
+def projected_monthly_credits(model: str, estimated_observations: int | None, credit_limit: int | None) -> int | None:
+    """A scanner's 30-day credit rate, capped at its own limit; None while no estimate exists."""
+    if estimated_observations is None:
+        return None
+    credits = observation_credits_for_model(model) * estimated_observations
+    return credits if credit_limit is None else min(credits, credit_limit)
 
 
 def observation_credits_for_model(model: str) -> int:
