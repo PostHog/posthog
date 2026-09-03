@@ -203,6 +203,13 @@ class TaskDetailDTO:
 
 
 @dataclass(frozen=True)
+class SlackTaskRoutingDTO:
+    integration: int
+    slack_channel_id: str
+    display_name: str | None = None
+
+
+@dataclass(frozen=True)
 class ChannelDTO:
     """The HTTP representation of a task channel."""
 
@@ -216,6 +223,7 @@ class ChannelDTO:
     created_by: "TaskUserBasicInfo | None" = None
     starred: bool = False
     system_role: str | None = None
+    slack_task_routing: SlackTaskRoutingDTO | None = None
 
 
 @dataclass(frozen=True)

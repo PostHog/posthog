@@ -258,6 +258,33 @@ class Channel(TeamScopedRootMixin):
         return f"#{self.name}"
 
 
+class SlackChannelSpaceBinding(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    channel = models.OneToOneField(
+        "tasks.Channel",
+        on_delete=models.CASCADE,
+        related_name="slack_task_routing",
+    )
+    integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+    slack_channel_id = models.CharField(max_length=64)
+    display_name = models.CharField(max_length=255, null=True, blank=True)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_slack_channel_space_binding"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "integration", "slack_channel_id"],
+                name="task_slack_channel_space_binding_unique",
+            ),
+        ]
+
+
 @receiver(pre_delete, sender=Integration)
 def clear_channel_repositories_on_github_integration_delete(
     sender: type[Integration], instance: Integration, **kwargs: Any
@@ -600,10 +627,12 @@ class Task(DeletedMetaFields, models.Model):
             logger.warning("task.capture_event_failed", analytics_event=event, error=str(e))
 
     def _track_task_created(self) -> None:
-        self.capture_event(
-            "task_created",
-            {"has_json_schema": self.json_schema is not None},
-        )
+        properties: dict[str, bool | str] = {"has_json_schema": self.json_schema is not None}
+        if self.origin_product == self.OriginProduct.SLACK:
+            properties["slack_task_routing"] = (
+                "bound_space" if (self.state or {}).get("slack_task_routing") == "bound_space" else "personal_fallback"
+            )
+        self.capture_event("task_created", properties)
 
     @staticmethod
     def generate_team_prefix(team_name: str) -> str:
@@ -905,6 +934,7 @@ class Task(DeletedMetaFields, models.Model):
         client_provenance: TaskClientProvenance | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        slack_task_routing: Literal["bound_space", "personal_fallback"] | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -996,6 +1026,8 @@ class Task(DeletedMetaFields, models.Model):
             raise ValueError(f"Agent key {mcp_builtin_agent_key!r} does not match task origin {origin_product!r}")
 
         initial_state: dict[str, Any] = {}
+        if slack_task_routing is not None:
+            initial_state["slack_task_routing"] = slack_task_routing
         if mcp_builtin_agent_key:
             initial_state[MCP_BUILT_IN_AGENT_STATE_KEY] = mcp_builtin_agent_key
             # Only ever recorded alongside the agent marker: without one there is no agent
@@ -1236,6 +1268,7 @@ class Task(DeletedMetaFields, models.Model):
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        slack_task_routing: Literal["bound_space", "personal_fallback"] | None = None,
     ) -> "Task":
         from products.tasks.backend.logic.services.workflow_dispatch import (
             WorkflowDispatchOptions,
@@ -1281,6 +1314,7 @@ class Task(DeletedMetaFields, models.Model):
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            slack_task_routing=slack_task_routing,
         )
 
         run_extra_state = dict(extra_state or {})

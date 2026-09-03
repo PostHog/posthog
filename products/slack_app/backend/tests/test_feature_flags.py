@@ -55,3 +55,20 @@ def test_agent_design_gate_resolves_against_the_acting_user(
     assert feature_enabled.call_args.args[1] == expected_identity
     assert feature_enabled.call_args.kwargs["person_properties"] == {"region": "DEV"}
     assert feature_enabled.call_args.kwargs["groups"] == {"organization": str(org.id)}
+
+
+def test_space_routing_gate_requires_a_resolved_user(settings, workspace_integration, org_team_user):
+    settings.CLOUD_DEPLOYMENT = "DEV"
+    org, _, user = org_team_user
+
+    with patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
+        assert feature_flags.is_slack_space_routing_enabled(workspace_integration, distinct_id=None) is False
+        assert (
+            feature_flags.is_slack_space_routing_enabled(workspace_integration, distinct_id=str(user.distinct_id))
+            is True
+        )
+
+    assert feature_enabled.call_count == 1
+    assert feature_enabled.call_args.args[0] == feature_flags.SLACK_SPACE_ROUTING_FLAG
+    assert feature_enabled.call_args.args[1] == str(user.distinct_id)
+    assert feature_enabled.call_args.kwargs["groups"] == {"organization": str(org.id)}

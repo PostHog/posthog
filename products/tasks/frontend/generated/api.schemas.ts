@@ -1094,6 +1094,18 @@ export const ChannelSystemRoleEnumApi = {
     General: 'general',
 } as const
 
+export interface SlackTaskRoutingDTOApi {
+    /** PostHog Slack integration that receives tasks from this Slack channel. */
+    integration: number
+    /** Slack external channel identifier that routes new root-thread tasks here. */
+    slack_channel_id: string
+    /**
+     * Optional Slack channel name for display. This does not affect routing.
+     * @nullable
+     */
+    display_name?: string | null
+}
+
 /**
  * Response shape for a task channel, read from a frozen ``ChannelDTO``.
  */
@@ -1114,6 +1126,8 @@ export interface ChannelDTOApi {
      * * `personal` - Personal
      * * `general` - General */
     readonly system_role: ChannelSystemRoleEnumApi | null
+    /** Slack channel routing for new root-thread tasks. Null means this space is not configured for Slack routing. */
+    slack_task_routing?: SlackTaskRoutingDTOApi | null
 }
 
 export interface PaginatedChannelDTOListApi {
@@ -1189,6 +1203,16 @@ export interface ChannelFeedMessageWriteApi {
     created_at?: string
 }
 
+export interface SlackTaskRoutingWriteApi {
+    /** Slack integration that owns the Slack channel. */
+    integration: number
+    /**
+     * Slack external channel identifier to route into this space.
+     * @maxLength 64
+     */
+    slack_channel_id: string
+}
+
 export interface PatchedChannelUpdateApi {
     /**
      * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
@@ -1213,6 +1237,8 @@ export interface PatchedChannelUpdateApi {
      * @nullable
      */
     auto_archive_after_days?: number | null
+    /** Slack channel routing for new root-thread tasks. Send null to clear it. Omit this field to leave it unchanged. */
+    slack_task_routing?: SlackTaskRoutingWriteApi | null
 }
 
 export interface ChannelDeleteConflictApi {

@@ -44,9 +44,10 @@ Source: `products/tasks/backend/models.py`
 
 Tracked when a new Task is saved. Additional properties:
 
-| Property          | Type   | Description                       |
-| ----------------- | ------ | --------------------------------- |
-| `has_json_schema` | `bool` | Whether a JSON schema is attached |
+| Property             | Type   | Description                                                  |
+| -------------------- | ------ | ------------------------------------------------------------ |
+| `has_json_schema`    | `bool` | Whether a JSON schema is attached                            |
+| `slack_task_routing` | `str?` | Slack task destination: `bound_space` or `personal_fallback` |
 
 ### `task_run_created`
 

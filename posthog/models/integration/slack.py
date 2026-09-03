@@ -101,6 +101,27 @@ class SlackIntegration:
         """
         return sorted(self._list_channels_by_type("public_channel"), key=lambda x: x["name"])
 
+    def get_public_channel_by_id(self, channel_id: str) -> dict[str, str] | None:
+        try:
+            channel = self.client.conversations_info(channel=channel_id).get("channel")
+        except SlackApiError:
+            return None
+        except Exception:
+            return None
+        if (
+            not isinstance(channel, dict)
+            or channel.get("is_archived") is not False
+            or channel.get("is_private") is not False
+            or channel.get("is_im") is not False
+            or channel.get("is_mpim") is not False
+            or channel.get("is_channel") is not True
+            or not isinstance(channel.get("id"), str)
+            or not isinstance(channel.get("name"), str)
+            or not channel["name"]
+        ):
+            return None
+        return {"id": channel["id"], "name": channel["name"]}
+
     def get_channel_by_id(
         self, channel_id: str, should_include_private_channels: bool = False, authed_user: str | None = None
     ) -> dict | None:

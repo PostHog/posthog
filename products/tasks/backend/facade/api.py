@@ -119,6 +119,7 @@ from products.tasks.backend.models import (
     SandboxEnvironment,
     SandboxSession,
     SandboxSnapshot,
+    SlackChannelSpaceBinding,
     Task,
     TaskActivity,
     TaskArtifact,
@@ -174,6 +175,21 @@ class _AutoArchiveUnchanged:
 
 _AUTO_ARCHIVE_UNCHANGED = _AutoArchiveUnchanged()
 
+
+class _SlackTaskRoutingUnchanged:
+    pass
+
+
+_SLACK_TASK_ROUTING_UNCHANGED = _SlackTaskRoutingUnchanged()
+
+
+@frozen
+class SlackTaskRoutingConfig:
+    integration_id: int
+    slack_channel_id: str
+    display_name: str | None
+
+
 __all__ = [
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
@@ -225,6 +241,7 @@ __all__ = [
     "get_sandbox_custom_image",
     "get_sandbox_environment",
     "get_sandbox_snapshot",
+    "get_slack_task_routing_channel_id",
     "get_stale_prewarmed_queued_task_run_ids",
     "get_stale_terminal_prewarmed_task_run_ids",
     "get_stale_queued_task_run_ids",
@@ -7599,6 +7616,16 @@ def _is_channel_starred(channel_id: UUID, user_id: int) -> bool:
     return ChannelStar.objects.filter(channel_id=channel_id, user_id=user_id).exists()
 
 
+def _slack_task_routing_to_dto(binding: SlackChannelSpaceBinding | None) -> contracts.SlackTaskRoutingDTO | None:
+    if binding is None:
+        return None
+    return contracts.SlackTaskRoutingDTO(
+        integration=binding.integration_id,
+        slack_channel_id=binding.slack_channel_id,
+        display_name=binding.display_name,
+    )
+
+
 def _channel_to_dto(channel: Channel, *, starred: bool = False) -> contracts.ChannelDTO:
     return contracts.ChannelDTO(
         id=channel.id,
@@ -7611,13 +7638,14 @@ def _channel_to_dto(channel: Channel, *, starred: bool = False) -> contracts.Cha
         created_at=channel.created_at,
         created_by=_user_basic_info(channel.created_by if channel.created_by_id else None),
         starred=starred,
+        slack_task_routing=_slack_task_routing_to_dto(getattr(channel, "slack_task_routing", None)),
     )
 
 
 def _team_channels(team_id: int) -> QuerySet[Channel]:
     # for_team rather than a bare team_id filter so these reads also resolve outside request
     # scope (Temporal activities), where the fail-closed manager raises on an unscoped read.
-    return Channel.objects.for_team(team_id)
+    return Channel.objects.for_team(team_id).select_related("slack_task_routing")
 
 
 def _ensure_system_channel(
@@ -7807,7 +7835,7 @@ def resolve_channel(team_id: int, user_id: int | None, *, name: str, star: bool)
     else:
         created = False
         try:
-            channel, created = Channel.objects.select_related("created_by").get_or_create(
+            channel, created = Channel.objects.select_related("created_by", "slack_task_routing").get_or_create(
                 team_id=team_id,
                 name=normalized,
                 channel_type=Channel.ChannelType.PUBLIC,
@@ -7815,7 +7843,7 @@ def resolve_channel(team_id: int, user_id: int | None, *, name: str, star: bool)
                 defaults={"created_by_id": user_id},
             )
         except IntegrityError:
-            channel = Channel.objects.select_related("created_by").get(
+            channel = Channel.objects.select_related("created_by", "slack_task_routing").get(
                 team_id=team_id, name=normalized, channel_type=Channel.ChannelType.PUBLIC, deleted=False
             )
         if created:
@@ -7837,44 +7865,76 @@ def update_channel(
     user_id: int | None,
     *,
     can_manage_shared_auto_archive: bool,
+    can_manage_slack_task_routing: bool,
     name: str | None = None,
     github_integration: Integration | None = None,
     repositories: list[str] | None = None,
     auto_archive_after_days: int | None | _AutoArchiveUnchanged = _AUTO_ARCHIVE_UNCHANGED,
+    slack_task_routing: SlackTaskRoutingConfig | None | _SlackTaskRoutingUnchanged = _SLACK_TASK_ROUTING_UNCHANGED,
 ) -> contracts.ChannelDTO | str:
     """Update a visible channel."""
-    channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
-    if channel is None:
-        return "not_found"
-    if channel.channel_type == Channel.ChannelType.PERSONAL:
-        if channel.created_by_id != user_id:
-            return "not_found"
-        if name is not None:
-            return "personal"
-    elif not isinstance(auto_archive_after_days, _AutoArchiveUnchanged) and not can_manage_shared_auto_archive:
-        return "auto_archive_forbidden"
-    if name is not None and _is_general_channel(channel):
-        return "general"
-    update_fields: list[str] = []
-    if name is not None:
-        normalized = normalize_channel_name(name)
-        if not normalized:
-            return "invalid_name"
-        channel.name = normalized
-        update_fields.append("name")
-    if repositories is not None:
-        channel.repositories = repositories
-        channel.github_integration = github_integration if repositories else None
-        update_fields.extend(["repositories", "github_integration"])
-    if not isinstance(auto_archive_after_days, _AutoArchiveUnchanged):
-        channel.auto_archive_after_days = auto_archive_after_days
-        update_fields.append("auto_archive_after_days")
-    if not update_fields:
-        return _channel_to_dto(channel)
+    routing_changed = not isinstance(slack_task_routing, _SlackTaskRoutingUnchanged)
     try:
-        channel.save(update_fields=[*update_fields, "updated_at"])
+        with transaction.atomic():
+            channel = Channel.objects.select_for_update().filter(id=channel_id, team_id=team_id, deleted=False).first()
+            if channel is None:
+                return "not_found"
+            if channel.channel_type == Channel.ChannelType.PERSONAL:
+                if channel.created_by_id != user_id:
+                    return "not_found"
+                if name is not None:
+                    return "personal"
+            elif not isinstance(auto_archive_after_days, _AutoArchiveUnchanged) and not can_manage_shared_auto_archive:
+                return "auto_archive_forbidden"
+            if routing_changed and not can_manage_slack_task_routing:
+                return "slack_task_routing_forbidden"
+            if routing_changed and channel.channel_type != Channel.ChannelType.PUBLIC:
+                return "slack_task_routing_public_only"
+            if (
+                routing_changed
+                and slack_task_routing is not None
+                and not Integration.objects.select_for_update()
+                .filter(
+                    id=slack_task_routing.integration_id,
+                    team_id=team_id,
+                    kind=Integration.IntegrationKind.SLACK,
+                )
+                .exists()
+            ):
+                return "slack_task_routing_invalid_integration"
+            if name is not None and _is_general_channel(channel):
+                return "general"
+            update_fields: list[str] = []
+            if name is not None:
+                normalized = normalize_channel_name(name)
+                if not normalized:
+                    return "invalid_name"
+                channel.name = normalized
+                update_fields.append("name")
+            if repositories is not None:
+                channel.repositories = repositories
+                channel.github_integration = github_integration if repositories else None
+                update_fields.extend(["repositories", "github_integration"])
+            if not isinstance(auto_archive_after_days, _AutoArchiveUnchanged):
+                channel.auto_archive_after_days = auto_archive_after_days
+                update_fields.append("auto_archive_after_days")
+            if update_fields:
+                channel.save(update_fields=[*update_fields, "updated_at"])
+            if routing_changed:
+                if slack_task_routing is None:
+                    SlackChannelSpaceBinding.objects.for_team(team_id).filter(channel_id=channel.id).delete()
+                else:
+                    SlackChannelSpaceBinding.objects.for_team(team_id).update_or_create(
+                        channel_id=channel.id,
+                        defaults={
+                            "team_id": team_id,
+                            "integration_id": slack_task_routing.integration_id,
+                            "slack_channel_id": slack_task_routing.slack_channel_id,
+                            "display_name": slack_task_routing.display_name,
+                        },
+                    )
     except IntegrityError:
-        return "name_taken"
+        return "slack_task_routing_taken" if routing_changed else "name_taken"
     return _channel_to_dto(channel)
 
 
@@ -7903,6 +7963,7 @@ def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) ->
         # no lock on the channel and can happen after the check above. Task visibility joins
         # through the channel, so a task left pointing at a deleted one leaves every list.
         channel.tasks.filter(deleted=False).update(channel=None)
+        SlackChannelSpaceBinding.objects.for_team(team_id).filter(channel_id=channel.id).delete()
         channel.deleted = True
         channel.save(update_fields=["deleted", "updated_at"])
     return "ok"
@@ -7951,6 +8012,22 @@ def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) 
         _team_channels(team_id)
         .select_related("created_by")
         .filter(visible_channels_q(user_id), id=channel_id, deleted=False)
+        .first()
+    )
+
+
+def get_slack_task_routing_channel_id(team_id: int, integration_id: int, slack_channel_id: str) -> UUID | None:
+    return (
+        SlackChannelSpaceBinding.objects.for_team(team_id)
+        .filter(
+            integration_id=integration_id,
+            slack_channel_id=slack_channel_id,
+            channel__team_id=F("team_id"),
+            channel__channel_type=Channel.ChannelType.PUBLIC,
+            channel__deleted=False,
+            integration__team_id=F("team_id"),
+        )
+        .values_list("channel_id", flat=True)
         .first()
     )
 

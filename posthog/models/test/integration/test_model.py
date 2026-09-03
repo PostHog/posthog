@@ -7,12 +7,13 @@ from typing import Optional, cast
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 from django.db import connection
 from django.test import override_settings
 
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import set_instance_setting
@@ -105,6 +106,54 @@ class TestIntegrationModel(BaseTest):
         integration.refresh_from_db()
 
         assert getattr(integration, field_name) == "a-real-token"
+
+    @parameterized.expand(
+        [
+            ("archived", {"id": "C123", "name": "old", "is_archived": True, "is_channel": True}),
+            ("private", {"id": "C123", "name": "private", "is_private": True, "is_channel": True}),
+            ("im", {"id": "D123", "name": "direct", "is_im": True}),
+            ("mpim", {"id": "G123", "name": "group", "is_mpim": True}),
+            ("missing", None),
+        ]
+    )
+    def test_get_public_channel_by_id_rejects_nonpublic_conversations(self, _name: str, channel: dict | None) -> None:
+        integration = self.create_integration("slack", sensitive_config={"access_token": "token"})
+        with patch.object(SlackIntegration, "client", new_callable=PropertyMock) as client:
+            client.return_value.conversations_info.return_value = {"channel": channel}
+
+            result = SlackIntegration(integration).get_public_channel_by_id("C123")
+
+        assert result is None
+
+    def test_get_public_channel_by_id_returns_authoritative_public_channel(self) -> None:
+        integration = self.create_integration("slack", sensitive_config={"access_token": "token"})
+        with patch.object(SlackIntegration, "client", new_callable=PropertyMock) as client:
+            client.return_value.conversations_info.return_value = {
+                "channel": {
+                    "id": "C123",
+                    "name": "builds",
+                    "is_archived": False,
+                    "is_private": False,
+                    "is_im": False,
+                    "is_mpim": False,
+                    "is_channel": True,
+                }
+            }
+
+            result = SlackIntegration(integration).get_public_channel_by_id("C123")
+
+        assert result == {"id": "C123", "name": "builds"}
+
+    def test_get_public_channel_by_id_fails_closed_for_slack_errors(self) -> None:
+        integration = self.create_integration("slack", sensitive_config={"access_token": "token"})
+        with patch.object(SlackIntegration, "client", new_callable=PropertyMock) as client:
+            client.return_value.conversations_info.side_effect = SlackApiError(
+                "missing_scope", {"error": "missing_scope"}
+            )
+
+            result = SlackIntegration(integration).get_public_channel_by_id("C123")
+
+        assert result is None
 
     def test_slack_integration_config(self):
         set_instance_setting("SLACK_APP_CLIENT_ID", None)

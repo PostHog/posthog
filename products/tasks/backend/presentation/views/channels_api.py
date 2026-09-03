@@ -16,6 +16,7 @@ from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import OrganizationMembership
+from posthog.models.integration import SlackIntegration
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 
@@ -69,6 +70,9 @@ class ChannelListPagination(LimitOffsetPagination):
 
 # Shared by the PUT and PATCH verbs on /instructions/ — same request/response contract,
 # PATCH is an alias for clients that can't send PUT.
+_SLACK_TASK_ROUTING_UNCHANGED = object()
+
+
 PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS: dict[str, Any] = {
     "request": ChannelInstructionsWriteSerializer,
     "responses": {200: ChannelInstructionsSerializer},
@@ -257,19 +261,45 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         request=ChannelUpdateSerializer,
         responses={200: ChannelSerializer},
-        summary="Rename a public channel",
+        summary="Update a public channel",
     )
     def partial_update(self, request, pk=None, **kwargs):
         serializer = ChannelUpdateSerializer(data=request.data, context={"team_id": self.team_id}, partial=True)
         serializer.is_valid(raise_exception=True)
         membership_level = self.user_permissions.current_team.effective_membership_level
+        can_manage_shared_settings = (
+            membership_level is not None and membership_level >= OrganizationMembership.Level.ADMIN
+        )
+        slack_task_routing = serializer.validated_data.pop("slack_task_routing", _SLACK_TASK_ROUTING_UNCHANGED)
+        if slack_task_routing is not _SLACK_TASK_ROUTING_UNCHANGED and not can_manage_shared_settings:
+            raise PermissionDenied("Only project admins can change Slack task routing")
+        if slack_task_routing is _SLACK_TASK_ROUTING_UNCHANGED:
+            routing_kwargs: dict[str, tasks_facade.SlackTaskRoutingConfig | None] = {}
+        elif slack_task_routing is None:
+            routing_kwargs = {"slack_task_routing": None}
+        else:
+            public_channel = SlackIntegration(slack_task_routing["integration"]).get_public_channel_by_id(
+                slack_task_routing["slack_channel_id"]
+            )
+            if public_channel is None:
+                return Response(
+                    {"detail": "Choose an active public Slack channel."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            routing_kwargs = {
+                "slack_task_routing": tasks_facade.SlackTaskRoutingConfig(
+                    integration_id=slack_task_routing["integration"].id,
+                    slack_channel_id=public_channel["id"],
+                    display_name=public_channel["name"],
+                )
+            }
         result = tasks_facade.update_channel(
             pk,
             self.team_id,
             self._user_id(),
-            can_manage_shared_auto_archive=(
-                membership_level is not None and membership_level >= OrganizationMembership.Level.ADMIN
-            ),
+            can_manage_shared_auto_archive=can_manage_shared_settings,
+            can_manage_slack_task_routing=can_manage_shared_settings,
+            **routing_kwargs,
             **serializer.validated_data,
         )
         if result == "not_found":
@@ -280,6 +310,23 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise PermissionDenied("The general space can't be renamed")
         if result == "auto_archive_forbidden":
             raise PermissionDenied("Only project admins can change automatic archiving for shared spaces")
+        if result == "slack_task_routing_forbidden":
+            raise PermissionDenied("Only project admins can change Slack task routing")
+        if result == "slack_task_routing_public_only":
+            return Response(
+                {"detail": "Slack task routing can only target public spaces."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if result == "slack_task_routing_invalid_integration":
+            return Response(
+                {"detail": "The Slack integration is no longer available in this project."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if result == "slack_task_routing_taken":
+            return Response(
+                {"detail": "This Slack channel already routes tasks to another space."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if result == "invalid_name":
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         if result == "name_taken":

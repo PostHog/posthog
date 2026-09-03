@@ -31,6 +31,7 @@ from products.tasks.backend.facade.contracts import (
     DesktopAccessReason,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
+    SlackTaskRoutingDTO,
     SlackThreadReferenceDTO,
     TaskActivityDTO,
     TaskActivityPageDTO,
@@ -2052,10 +2053,35 @@ class TaskSearchResultSerializer(serializers.Serializer):
     metadata = serializers.JSONField(help_text="Resource-specific navigation metadata.")
 
 
+class SlackTaskRoutingSerializer(DataclassSerializer):
+    integration = serializers.IntegerField(
+        help_text="PostHog Slack integration that receives tasks from this Slack channel."
+    )
+    slack_channel_id = serializers.CharField(
+        help_text="Slack external channel identifier that routes new root-thread tasks here."
+    )
+    display_name = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Optional Slack channel name for display. This does not affect routing.",
+    )
+
+    class Meta:
+        dataclass = SlackTaskRoutingDTO
+        fields = ["integration", "slack_channel_id", "display_name"]
+
+
 class ChannelSerializer(DataclassSerializer):
     """Response shape for a task channel, read from a frozen ``ChannelDTO``."""
 
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+    slack_task_routing = SlackTaskRoutingSerializer(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Slack channel routing for new root-thread tasks. Null means this space is not configured for Slack routing."
+        ),
+    )
     system_role = serializers.ChoiceField(
         choices=tasks_facade.Channel.SystemRole.choices,
         allow_null=True,
@@ -2080,6 +2106,7 @@ class ChannelSerializer(DataclassSerializer):
             "created_by",
             "starred",
             "system_role",
+            "slack_task_routing",
         ]
 
 
@@ -2182,6 +2209,24 @@ class ChannelWriteSerializer(serializers.Serializer):
         return value
 
 
+class SlackTaskRoutingWriteSerializer(serializers.Serializer):
+    integration = TeamScopedPrimaryKeyRelatedField(
+        queryset=Integration.objects.filter(kind=Integration.IntegrationKind.SLACK),
+        help_text="Slack integration that owns the Slack channel.",
+    )
+    slack_channel_id = serializers.CharField(
+        max_length=64,
+        help_text="Slack external channel identifier to route into this space.",
+    )
+
+    def validate_integration(self, value: Integration) -> Integration:
+        if value.kind != Integration.IntegrationKind.SLACK:
+            raise serializers.ValidationError("Integration must be a Slack integration.")
+        if value.team_id != self.context["team_id"]:
+            raise serializers.ValidationError("Integration must belong to this project.")
+        return value
+
+
 class ChannelUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(
         max_length=128,
@@ -2206,6 +2251,13 @@ class ChannelUpdateSerializer(serializers.Serializer):
         min_value=1,
         max_value=365,
         help_text="Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.",
+    )
+    slack_task_routing = SlackTaskRoutingWriteSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Slack channel routing for new root-thread tasks. Send null to clear it. Omit this field to leave it unchanged."
+        ),
     )
 
     def validate_name(self, value: str) -> str:

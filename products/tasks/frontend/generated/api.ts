@@ -910,7 +910,7 @@ export const getTaskChannelsPartialUpdateUrl = (projectId: string, id: string) =
  * provision_defaults action get-or-creates the requester's personal "#me" channel and
  * the team's shared "#general" channel; creation is resolve-or-create by normalized
  * name so clients can map channel-like surfaces onto backend channels.
- * @summary Rename a public channel
+ * @summary Update a public channel
  */
 export const taskChannelsPartialUpdate = async (
     projectId: string,

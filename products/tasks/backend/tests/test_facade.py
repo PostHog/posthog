@@ -29,6 +29,7 @@ from products.tasks.backend.models import (
     Channel,
     SandboxCustomImage,
     SandboxEnvironment,
+    SlackChannelSpaceBinding,
     Task,
     TaskRun,
     TaskWorkflowDispatch,
@@ -1211,6 +1212,26 @@ class TestFacadeReadsAndMappers(TestCase):
                 facade.create_channel_task(
                     self.team.id, self.user.id, channel_id, title="From canvas", description="desc"
                 )
+
+    def test_slack_task_routing_lookup_returns_only_a_live_public_space(self):
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})
+        channel = self._make_channel()
+        SlackChannelSpaceBinding.objects.unscoped().create(
+            team=self.team,
+            channel=channel,
+            integration=integration,
+            slack_channel_id="C123",
+        )
+
+        self.assertEqual(
+            facade.get_slack_task_routing_channel_id(self.team.id, integration.id, "C123"),
+            channel.id,
+        )
+
+        channel.deleted = True
+        channel.save(update_fields=["deleted"])
+
+        self.assertIsNone(facade.get_slack_task_routing_channel_id(self.team.id, integration.id, "C123"))
 
     def test_ensure_personal_channel_id_idempotent_outside_request_scope(self):
         # No ambient team_scope here, like a Temporal activity — guards the for_team scoping.

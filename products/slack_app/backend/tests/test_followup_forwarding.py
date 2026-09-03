@@ -26,6 +26,7 @@ from posthog.temporal.ai.slack_app.helpers import safe_react
 from products.slack_app.backend.api import SlackUserContext
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
+from products.tasks.backend.models import Channel, SlackChannelSpaceBinding
 
 
 def _make_inputs(
@@ -301,9 +302,12 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert mock_write.call_args.args[1] == b"log bytes"
         mock_execute_workflow.assert_called_once()
 
+    @patch("posthog.temporal.ai.slack_app.activities.task_creation.is_slack_space_routing_enabled", return_value=True)
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_existing_mapping_skips_duplicate_task_creation(self, mock_slack_cls, mock_execute_workflow):
+    def test_existing_mapping_skips_duplicate_task_creation(
+        self, mock_slack_cls, mock_execute_workflow, mock_space_routing
+    ):
         """A retried activity (or a concurrent duplicate mention) must not create a
         second task for a thread that already has one and repoint the mapping."""
         mock_slack_cls.return_value = MagicMock()
@@ -347,6 +351,126 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert mapping.task_id == existing_task.id
         assert mapping.task_run_id == existing_run.id
         mock_execute_workflow.assert_not_called()
+        mock_space_routing.assert_not_called()
+
+    @patch("posthog.temporal.ai.slack_app.activities.task_creation.is_slack_space_routing_enabled", return_value=True)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_bound_slack_channel_files_a_new_task_in_its_public_space(
+        self, mock_slack_cls, _mock_execute_workflow, mock_capture, _mock_space_routing
+    ):
+        space = Channel.objects.unscoped().create(team=self.team, name="builds", created_by=self.user)
+        SlackChannelSpaceBinding.objects.unscoped().create(
+            team=self.team,
+            channel=space,
+            integration=self.integration,
+            slack_channel_id="C123",
+            display_name="builds",
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        event = {**inputs.event, "channel_type": "channel"}
+
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            event,
+            [{"user": "U_ALICE", "text": "do something"}],
+            None,
+        )
+
+        task = self.Task.objects.get(team=self.team)
+        assert task.channel_id == space.id
+        task_created = next(call for call in mock_capture.call_args_list if call.kwargs["event"] == "task_created")
+        assert task_created.kwargs["properties"]["slack_task_routing"] == "bound_space"
+
+    @patch("posthog.temporal.ai.slack_app.activities.task_creation.is_slack_space_routing_enabled", return_value=True)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_bound_space_does_not_receive_private_slack_tasks(
+        self, mock_slack_cls, _mock_execute_workflow, mock_capture, _mock_space_routing
+    ):
+        space = Channel.objects.unscoped().create(team=self.team, name="builds", created_by=self.user)
+        SlackChannelSpaceBinding.objects.unscoped().create(
+            team=self.team,
+            channel=space,
+            integration=self.integration,
+            slack_channel_id="C123",
+            display_name="builds",
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        event = {**inputs.event, "channel_type": "group"}
+
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            event,
+            [{"user": "U_ALICE", "text": "do something"}],
+            None,
+        )
+
+        task = self.Task.objects.select_related("channel").get(team=self.team)
+        assert task.channel is not None
+        assert task.channel.channel_type == Channel.ChannelType.PERSONAL
+        mapping = SlackThreadTaskMapping.objects.get(
+            integration=self.integration, channel="C123", thread_ts="1234.5678"
+        )
+        assert mapping.conversation_type == SlackThreadTaskMapping.ConversationType.PRIVATE_CHANNEL
+        task_created = next(call for call in mock_capture.call_args_list if call.kwargs["event"] == "task_created")
+        assert task_created.kwargs["properties"]["slack_task_routing"] == "personal_fallback"
+        mock_slack_instance.client.conversations_info.assert_not_called()
+
+    @patch("posthog.temporal.ai.slack_app.activities.task_creation.is_slack_space_routing_enabled", return_value=True)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_unbound_slack_channel_uses_personal_space(
+        self, mock_slack_cls, _mock_execute_workflow, mock_capture, _mock_space_routing
+    ):
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+        inputs = _make_inputs(self.integration.id, self.user.id)
+
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [{"user": "U_ALICE", "text": "do something"}],
+            None,
+        )
+
+        task = self.Task.objects.select_related("channel").get(team=self.team)
+        assert task.channel is not None
+        assert task.channel.channel_type == Channel.ChannelType.PERSONAL
+        assert task.channel.created_by_id == self.user.id
+        task_created = next(call for call in mock_capture.call_args_list if call.kwargs["event"] == "task_created")
+        assert task_created.kwargs["properties"]["slack_task_routing"] == "personal_fallback"
 
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
