@@ -3,15 +3,13 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common_kafka_consumer::{
-    Charge, Offset as LedgerOffset, Partition, TopicOffsetLedger, TopicPartition,
-};
+use common_kafka_consumer::{Charge, Offset, Partition, TopicOffsetLedger, TopicPartition};
 use futures::StreamExt;
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::message::{Headers, Message};
-use rdkafka::{Offset, TopicPartitionList};
+use rdkafka::TopicPartitionList;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
@@ -66,7 +64,7 @@ struct PartitionDeliveries {
     /// Comparing it per message is cheaper than reading the generation.
     generations_version_seen: u64,
     /// The slice charged to the ledger: offsets delivered under `generation`.
-    charges: Vec<(LedgerOffset, Charge)>,
+    charges: Vec<(Offset, Charge)>,
     /// Max Kafka message timestamp (ms) — for `latest_processed_timestamp_ms`.
     latest_kafka_ts: i64,
     /// Max ingestion lag (ms) — for `ingestion_lag_ms`.
@@ -79,7 +77,7 @@ impl PartitionDeliveries {
             span: OffsetSpan::new(delivery.offset),
             generation,
             generations_version_seen: generations_version,
-            charges: vec![(LedgerOffset(delivery.offset), delivery.charge)],
+            charges: vec![(Offset(delivery.offset), delivery.charge)],
             latest_kafka_ts: delivery.kafka_ts,
             max_lag_ms: delivery.lag_ms,
         }
@@ -111,7 +109,7 @@ impl PartitionDeliveries {
             }
         }
         self.charges
-            .push((LedgerOffset(delivery.offset), delivery.charge));
+            .push((Offset(delivery.offset), delivery.charge));
     }
 }
 
@@ -1028,7 +1026,7 @@ async fn run_commit_monitor(
                     .elements()
                     .iter()
                     .filter_map(|e| match e.offset() {
-                        Offset::Offset(offset) => {
+                        rdkafka::Offset::Offset(offset) => {
                             Some((e.topic().to_string(), e.partition(), offset))
                         }
                         // Invalid = no offset stored for the partition yet.
