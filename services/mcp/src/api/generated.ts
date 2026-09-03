@@ -795,6 +795,14 @@ export namespace Schemas {
       Host: '$host',
       Pathname: '$pathname',
       CurrentUrl: '$current_url',
+      Browser: '$browser',
+      Os: '$os',
+      BrowserLanguage: '$browser_language',
+      ScreenWidth: '$screen_width',
+      ScreenHeight: '$screen_height',
+      GeoipCountryCode: '$geoip_country_code',
+      Referrer: '$referrer',
+      ReferringDomain: '$referring_domain',
     } as const;
 
     export type CustomBotMatcher = typeof CustomBotMatcher[keyof typeof CustomBotMatcher];
@@ -21984,20 +21992,6 @@ export namespace Schemas {
          * @nullable
          */
       connection_id?: string | null;
-    }
-
-    export interface DataWarehouseModelPath {
-      readonly id: string;
-      readonly path: readonly string[];
-      team: number;
-      /** @nullable */
-      table?: string | null;
-      /** @nullable */
-      saved_query?: string | null;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      /** @nullable */
-      readonly updated_at: string | null;
     }
 
     export type DataWarehouseSavedQueryQueryKind = typeof DataWarehouseSavedQueryQueryKind[keyof typeof DataWarehouseSavedQueryQueryKind];
@@ -54363,15 +54357,6 @@ export namespace Schemas {
       results: DataWarehouseExpression[];
     }
 
-    export interface PaginatedDataWarehouseModelPathList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: DataWarehouseModelPath[];
-    }
-
     export interface PaginatedDataWarehouseSavedQueryColumnAnnotationList {
       count: number;
       /** @nullable */
@@ -76210,6 +76195,35 @@ export namespace Schemas {
       deleted?: boolean;
       /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
       block_consent_modals?: boolean;
+    }
+
+    export interface SavedQueryAncestors {
+      /** Ids of the saved queries and warehouse tables this query reads from, directly or through other queries, and the names of the PostHog tables among them. */
+      ancestors: string[];
+    }
+
+    export interface SavedQueryDependencies {
+      /** How many tables and queries this query reads from directly. */
+      upstream_count: number;
+      /** How many queries read from this query directly. */
+      downstream_count: number;
+    }
+
+    export interface SavedQueryDescendants {
+      /** Ids of the saved queries that read from this query, directly or through other queries. */
+      descendants: string[];
+    }
+
+    /**
+     * Body of the `ancestors` and `descendants` actions.
+     */
+    export interface SavedQueryLineageRequest {
+      /**
+         * How many hops to walk, so 1 gives the immediate neighbours. Omit to walk the whole cone.
+         * @minimum 1
+         * @nullable
+         */
+      level?: number | null;
     }
 
     /**
@@ -100832,17 +100846,6 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
-    };
-
-    export type WarehouseModelPathsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type WarehouseSavedQueriesListParams = {
