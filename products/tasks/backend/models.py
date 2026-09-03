@@ -490,6 +490,10 @@ class Task(DeletedMetaFields, models.Model):
             ),
             models.Index(fields=["team", "-created_at", "-id"], name="posthog_task_team_created_idx"),
             models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
+            # Single-column, so the SET_NULL cascades can seek them. The composite index
+            # above leads with `team`, so a filter on `created_by` alone cannot use it.
+            models.Index(fields=["created_by"], name="posthog_task_creator_idx"),
+            models.Index(fields=["github_user_integration"], name="posthog_task_gh_user_int_idx"),
             models.Index(fields=["channel", "-created_at"], name="posthog_task_channel_feed_idx"),
             models.Index(
                 fields=["team", "internal", "archived", "-last_activity_at", "-id"],
