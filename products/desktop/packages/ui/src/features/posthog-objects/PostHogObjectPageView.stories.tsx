@@ -204,7 +204,35 @@ export const SqlQuery: Story = {
     fallbackName: "Total pageviews",
     url: "https://us.posthog.com/project/2/sql?open_query=SELECT+1",
     state: "ready",
-    preview: null,
+    preview: {
+      title: "Total pageviews",
+      chartData: { type: "number", value: 68831577 },
+    },
+  },
+};
+
+export const InsightChart: Story = {
+  args: {
+    objectKind: "insight",
+    objectId: "9pQx3",
+    fallbackName: "Checkout funnel",
+    url: "https://us.posthog.com/project/2/insights/9pQx3",
+    occurrenceCount: 2,
+    state: "ready",
+    preview: {
+      title: "Checkout funnel",
+      detail: "Daily unique visitors",
+      headline: { value: "1.5M", delta: { direction: "down", label: "70%" } },
+      spark: { points: [24, 32, 28, 46, 51, 63, 58], render: "line" },
+      chartData: {
+        type: "series",
+        labels: DAYS,
+        series: [{ key: "series-0", label: "DAU", data: [24, 32, 28, 46, 51, 63, 58] }],
+        render: "line",
+        isTimeSeries: true,
+        interval: "day",
+      },
+    },
   },
 };
 

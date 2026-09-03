@@ -1,6 +1,11 @@
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import type { PostHogObjectArtifactMetadata } from "@posthog/core/canvas/runArtifactSchemas";
 import {
+  chartHeadlineStat,
+  reportChartHeightClass,
+  reportChartOpenTarget,
+} from "@posthog/core/inbox/reportCharts";
+import {
   Badge,
   Button,
   Empty,
@@ -12,12 +17,20 @@ import {
   Skeleton,
   Text,
 } from "@posthog/quill";
+import { getCloudUrlFromRegion } from "@posthog/shared";
+import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useEvidenceUrl } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
 import {
+  EVIDENCE_PREVIEW_STALE_TIME,
   type EvidenceCardData,
+  evidencePreviewQueryKey,
   fetchEvidencePreview,
 } from "@posthog/ui/features/editor/evidencePreview";
+import {
+  type ReportChartCardState,
+  ReportChartCardView,
+} from "@posthog/ui/features/inbox/components/detail/ReportChartCard";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
@@ -27,6 +40,9 @@ import {
 } from "@posthog/ui/utils/objectKinds";
 import { ExperimentResultsSummary } from "./ExperimentResultsSummary";
 import { PostHogObjectDetails } from "./PostHogObjectDetails";
+
+const CHART_ERROR_MESSAGE =
+  "Couldn't run the query behind this chart. Open it in PostHog to investigate.";
 
 function StatStrip({
   stats,
@@ -83,6 +99,55 @@ const STATUS_BADGE_VARIANT = {
   caution: "warning",
   critical: "destructive",
 } as const;
+
+/**
+ * Full interactive chart for a query-backed object (insight, hogql), rendered
+ * from the shared evidence-preview cache. The hover card and idle prefetch
+ * already ran the query and kept the shaped result on `preview.chartData`, so
+ * opening the page draws the chart without a second fetch. Title comes from
+ * the page header (the insight's live name, or the chip label for hogql),
+ * never from a chart series label — a HogQL series label is raw SQL, not a
+ * name worth showing.
+ */
+function ObjectChartCard({
+  objectKind,
+  objectId,
+  title,
+  state,
+}: {
+  objectKind: string;
+  objectId: string;
+  title: string;
+  state: ReportChartCardState;
+}) {
+  const projectId = useAuthStateValue((s) => s.currentProjectId);
+  const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
+  const data = state.kind === "data" ? state.data : null;
+  const openTarget =
+    projectId && cloudRegion
+      ? reportChartOpenTarget(
+          objectKind === "insight"
+            ? { kind: "SavedInsightNode", shortId: objectId }
+            : {
+                kind: "DataVisualizationNode",
+                source: { kind: "HogQLQuery", query: objectId },
+              },
+          { cloudUrl: getCloudUrlFromRegion(cloudRegion), projectId },
+        )
+      : null;
+  return (
+    <div className="mb-2">
+      <ReportChartCardView
+        chartId={`artifact:${objectKind}:${objectId}`}
+        title={title}
+        heightClass={reportChartHeightClass(null, data)}
+        state={state}
+        openTarget={openTarget}
+        stat={data ? chartHeadlineStat(data) : null}
+      />
+    </div>
+  );
+}
 
 function FactChips({ facts }: { facts: string[] }) {
   return (
@@ -251,14 +316,44 @@ export function PostHogObjectPageView({
               {preview && <PostHogObjectDetails preview={preview} />}
             </div>
           ) : usesChartRenderer ? (
-            <MessageChartCard
-              spec={
-                objectKind === "insight"
-                  ? { mode: "insight", shortId: objectId }
-                  : { mode: "hogql", query: objectId }
-              }
-              blockKey={`artifact:${objectKind}:${objectId}`}
-            />
+            // The shared evidence-preview cache carries the shaped chart, so a
+            // page opened from a hovered or prefetched chip draws immediately.
+            state === "loading" ? (
+              <Skeleton className="h-72 w-full rounded-lg" />
+            ) : state === "error" ? (
+              <ObjectChartCard
+                objectKind={objectKind}
+                objectId={objectId}
+                title={title}
+                state={{ kind: "error", message: CHART_ERROR_MESSAGE }}
+              />
+            ) : preview?.chartData ? (
+              <ObjectChartCard
+                objectKind={objectKind}
+                objectId={objectId}
+                title={title}
+                state={{ kind: "data", data: preview.chartData }}
+              />
+            ) : state === "missing" ? (
+              <ObjectChartCard
+                objectKind={objectKind}
+                objectId={objectId}
+                title={title}
+                state={{
+                  kind: "error",
+                  message: `No ${objectKind === "insight" ? "insight" : "query"} matches "${objectId}" in the current project.`,
+                }}
+              />
+            ) : (
+              // The preview resolved without chart data: the insight's query
+              // plan isn't runnable here, so link out like InsightChartCard.
+              <ObjectChartCard
+                objectKind={objectKind}
+                objectId={objectId}
+                title={title}
+                state={{ kind: "link-out" }}
+              />
+            )
           ) : state === "loading" ? (
             // Mirrors the loaded layout (stat strip, chart, detail card) so
             // content lands in place instead of reflowing the page.
@@ -301,18 +396,21 @@ export function PostHogObjectPage({
     Partial<Omit<PostHogObjectArtifactMetadata, "object_kind" | "object_id">>;
   fallbackName: string;
 }) {
-  const usesChartRenderer =
-    metadata.object_kind === "insight" || metadata.object_kind === "hogql";
+  // The page reads the same evidence-preview entry the hover card and idle
+  // prefetch warm, for every kind. For insight/hogql that entry now carries
+  // the shaped chart, so opening from a chip draws the chart with no refetch.
   const query = useAuthenticatedQuery(
-    ["evidence-preview", metadata.object_kind, metadata.object_id],
+    evidencePreviewQueryKey({
+      kind: metadata.object_kind,
+      id: metadata.object_id,
+    }),
     (client) =>
       fetchEvidencePreview(client, {
         kind: metadata.object_kind,
         id: metadata.object_id,
       }),
     {
-      enabled: !usesChartRenderer,
-      staleTime: 5 * 60 * 1000,
+      staleTime: EVIDENCE_PREVIEW_STALE_TIME,
       refetchOnWindowFocus: false,
       retry: 1,
     },
@@ -321,15 +419,13 @@ export function PostHogObjectPage({
     metadata.object_kind,
     query.data?.resolvedId ?? metadata.object_id,
   );
-  const state = usesChartRenderer
-    ? "ready"
-    : query.isPending
-      ? "loading"
-      : query.isError
-        ? "error"
-        : query.data
-          ? "ready"
-          : "missing";
+  const state = query.isPending
+    ? "loading"
+    : query.isError
+      ? "error"
+      : query.data
+        ? "ready"
+        : "missing";
 
   return (
     <PostHogObjectPageView

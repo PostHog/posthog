@@ -34,6 +34,13 @@ export interface EvidenceCardData {
   headline?: ChartHeadlineStat | null;
   /** Mini chart of the primary series; `labels` carries bucket dates. */
   spark?: { points: number[]; labels?: string[]; render: "line" | "bar" };
+  /**
+   * The full shaped chart behind `headline`/`spark`, kept so the object's
+   * page can render its interactive chart from the same fetch instead of
+   * re-running the query. Only set by the query-backed kinds (insight,
+   * hogql); object kinds shape their own `chart` inside `getEvidencePreview`.
+   */
+  chartData?: ReportChartData;
   /** A titled multi-series time chart, drawn with hover values on full pages. */
   chart?: {
     title: string;
@@ -110,10 +117,11 @@ async function hogqlPreview(
   if (data.type === "series" && preview.spark) {
     return {
       ...preview,
+      chartData: data,
       facts: [`${data.labels.length} rows · ${data.series.length + 1} columns`],
     };
   }
-  return preview;
+  return { ...preview, chartData: data };
 }
 
 async function insightPreview(
@@ -129,8 +137,14 @@ async function insightPreview(
   const plan = planReportChart(insight.query);
   if (plan.kind !== "run") return base;
   const response = insight.response ?? (await client.runQuery(plan.source));
-  const chart = fromChartData(shapeReportChartData(response, plan), base.title);
-  return { ...chart, title: base.title, detail: chart.detail ?? base.detail };
+  const data = shapeReportChartData(response, plan);
+  const chart = fromChartData(data, base.title);
+  return {
+    ...chart,
+    chartData: data,
+    title: base.title,
+    detail: chart.detail ?? base.detail,
+  };
 }
 
 /**
