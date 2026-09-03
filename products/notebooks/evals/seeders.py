@@ -19,6 +19,8 @@ from django.utils import timezone
 
 from posthog.models import Team
 from posthog.models.event.util import bulk_create_events
+from posthog.models.filters.utils import GroupTypeIndex
+from posthog.models.group.util import raw_create_group_ch
 from posthog.models.person.util import create_person, create_person_distinct_id
 
 from products.notebooks.evals.synthesizer import CHURN_TOKEN, SIGNUP_EVENT, ChurnAccount, build_churn_needle
@@ -31,6 +33,27 @@ _FILE_EVENT_PROPS: dict[str, dict[str, Any]] = {
     "downloaded_file": {"file_type": "application/pdf", "file_size_b": 5_242_880, "file_name": "quarterly-report"},
     "shared_file_link": {"file_type": "application/pdf", "file_size_b": 5_242_880},
 }
+
+# Hedgebox registers its "account" group type at index 0, which is what ``$group_0`` on the
+# planted events points at.
+_ACCOUNT_GROUP_TYPE_INDEX: GroupTypeIndex = 0
+_MB_PER_PLANTED_FILE = 5
+
+
+def _workspace_name(account: ChurnAccount) -> str:
+    return f"{account.name} workspace"
+
+
+def _group_properties(account: ChurnAccount, uploads: int) -> dict[str, Any]:
+    """The account group as the demo writes it: name, industry, storage, plan, team size."""
+    return {
+        "name": _workspace_name(account),
+        "industry": None,
+        "used_mb": uploads * _MB_PER_PLANTED_FILE,
+        "file_count": uploads,
+        "plan": "personal/free",
+        "team_size": 1,
+    }
 
 
 def seed_case_team(context: CustomPromptSandboxContext) -> dict[str, Any]:
@@ -70,8 +93,11 @@ def seed_churn_signal(context: CustomPromptSandboxContext) -> dict[str, Any]:
         now - timedelta(days=planted.days_before_now, minutes=slot) for slot, planted in enumerate(needle.schedule)
     ]
     newest_planted_at = max(planted_at)
+    # The signup opens the account, so the group starts there.
+    account_created_at = min(planted_at)
     # Persons exist before their first event, so the account looks real to the analysis.
     person_created_at = now - timedelta(days=needle.active_window_days[0] + 5)
+    uploads = sum(1 for planted in needle.schedule if planted.event == "uploaded_file")
 
     events: list[dict[str, Any]] = []
     for account in needle.accounts:
@@ -91,10 +117,21 @@ def seed_churn_signal(context: CustomPromptSandboxContext) -> dict[str, Any]:
             last_seen_at=newest_planted_at,
         )
         create_person_distinct_id(team_id=team.id, distinct_id=account.distinct_id, person_id=str(person_uuid))
+        # HogQL reads account.key and account.properties through the groups table, so an
+        # analysis that starts from the account list only sees accounts with a group row.
+        # ClickHouse only, like the demo generator, so a planted account reads the same as
+        # a simulated one.
+        raw_create_group_ch(
+            team_id=team.id,
+            group_type_index=_ACCOUNT_GROUP_TYPE_INDEX,
+            group_key=account.account_key,
+            properties=_group_properties(account, uploads),
+            created_at=account_created_at,
+        )
         for planted, timestamp in zip(needle.schedule, planted_at):
             properties = _event_properties(planted.event, account)
             group_columns = (
-                {"group0_properties": {"name": f"{account.name} workspace"}} if "$group_0" in properties else {}
+                {"group0_properties": {"name": _workspace_name(account)}} if "$group_0" in properties else {}
             )
             events.append(
                 {

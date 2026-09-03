@@ -117,6 +117,7 @@ def test_planted_persons_are_last_seen_at_their_newest_event(team: Team) -> None
         patch("products.notebooks.evals.seeders.create_person") as create_person,
         patch("products.notebooks.evals.seeders.create_person_distinct_id"),
         patch("products.notebooks.evals.seeders.bulk_create_events") as bulk_create_events,
+        patch("products.notebooks.evals.seeders.raw_create_group_ch"),
     ):
         seed_churn_signal(CustomPromptSandboxContext(team_id=team.id, user_id=1))
 
@@ -140,3 +141,24 @@ async def test_churn_cohort_surfaced_on_a_timed_out_case(
     score = await ChurnCohortSurfaced().eval_async(timed_out, expected)
 
     assert score.score == expected_score
+
+
+@pytest.mark.django_db
+def test_every_planted_account_key_gets_a_group_row(team: Team) -> None:
+    with (
+        patch("products.notebooks.evals.seeders.create_person"),
+        patch("products.notebooks.evals.seeders.create_person_distinct_id"),
+        patch("products.notebooks.evals.seeders.bulk_create_events") as bulk_create_events,
+        patch("products.notebooks.evals.seeders.raw_create_group_ch") as raw_create_group_ch,
+    ):
+        seed_churn_signal(CustomPromptSandboxContext(team_id=team.id, user_id=1))
+
+    event_keys = {
+        event["properties"]["$group_0"]
+        for event in bulk_create_events.call_args.args[0]
+        if "$group_0" in event["properties"]
+    }
+    planted = {call.kwargs["group_key"]: call.kwargs["properties"] for call in raw_create_group_ch.call_args_list}
+
+    assert event_keys and event_keys == set(planted)
+    assert all(CHURN_TOKEN in properties["name"].lower() for properties in planted.values())
