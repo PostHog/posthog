@@ -22,6 +22,7 @@ from posthog.egress.github.transport import (
     GitHubRateLimitError,
     raise_if_github_rate_limited,
 )
+from posthog.egress.limiter.outbound import OutboundRateLimitAdmission
 from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import (
     GITHUB_BRANCH_CACHE_TTL_SECONDS,
@@ -1952,9 +1953,12 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         assert body == {"default_branch": "main"}
 
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=False)
+    @patch(
+        "posthog.egress.github.transport.reserve_github_installation_sync",
+        return_value=OutboundRateLimitAdmission(granted=False, reservation=None),
+    )
     @patch("posthog.models.integration.github.GitHubIntegration.access_token_expired", return_value=False)
-    def test_batch_instance_is_shed_when_budget_denied(self, _mock_expired, _mock_consume, mock_request):
+    def test_batch_instance_is_shed_when_budget_denied(self, _mock_expired, _mock_reserve, mock_request):
         # Guards the lane plumbing: if the instance priority stops reaching the transport, BATCH
         # callers silently ride the never-shed CRITICAL lane again and denials stop deferring work.
         integration = self._create_integration()
@@ -1964,9 +1968,12 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         mock_request.assert_not_called()
 
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=False)
+    @patch(
+        "posthog.egress.github.transport.reserve_github_installation_sync",
+        return_value=OutboundRateLimitAdmission(granted=False, reservation=None),
+    )
     @patch("posthog.models.integration.github.GitHubIntegration.access_token_expired", return_value=False)
-    def test_critical_default_proceeds_when_budget_denied(self, _mock_expired, _mock_consume, mock_request):
+    def test_critical_default_proceeds_when_budget_denied(self, _mock_expired, _mock_reserve, mock_request):
         ok = MagicMock()
         ok.status_code = 200
         mock_request.return_value = ok
