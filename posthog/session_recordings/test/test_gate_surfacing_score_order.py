@@ -36,22 +36,13 @@ class TestGateSurfacingScoreOrder(TestCase):
 
     @parameterized.expand(
         [
-            ("surfacing_flag_enabled", True, None, RecordingOrder.SURFACING_SCORE),
-            ("experiment_test_arm", False, "test", RecordingOrder.SURFACING_SCORE),
-            ("experiment_control_arm", False, "control", RecordingOrder.START_TIME),
-            ("neither_enabled", False, None, RecordingOrder.START_TIME),
+            ("surfacing_flag_enabled", True, RecordingOrder.SURFACING_SCORE),
+            ("surfacing_flag_disabled", False, RecordingOrder.START_TIME),
         ]
     )
-    def test_surfacing_score_kept_only_for_rollout_or_experiment_test_arm(
-        self, _name, surfacing_enabled, experiment_variant, expected
-    ):
-        with (
-            mock.patch(
-                "posthog.session_recordings.utils.posthoganalytics.feature_enabled", return_value=surfacing_enabled
-            ),
-            mock.patch(
-                "posthog.session_recordings.utils.posthoganalytics.get_feature_flag", return_value=experiment_variant
-            ),
+    def test_surfacing_score_kept_only_for_rollout(self, _name, surfacing_enabled, expected):
+        with mock.patch(
+            "posthog.session_recordings.utils.posthoganalytics.feature_enabled", return_value=surfacing_enabled
         ):
             query = _query(RecordingOrder.SURFACING_SCORE)
             gate_surfacing_score_order(query, _user())

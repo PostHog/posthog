@@ -18,6 +18,7 @@ import {
     FilterLogicalOperator,
     PropertyFilterValue,
     PropertyOperator,
+    PropertyFilterType,
     RecordingDurationFilter,
     RecordingUniversalFilters,
     UniversalFiltersGroup,
@@ -27,6 +28,9 @@ import {
 import { filtersFromUniversalFilterGroups } from '../utils'
 
 export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
+
+// Unscored recordings use 0.36 server-side, so the strict cutoff excludes them.
+export const RECOMMENDED_RECORDINGS_SURFACING_SCORE_THRESHOLD = 0.36
 
 export const DURATION_KEYS = new Set(['duration', 'active_seconds', 'inactive_seconds'])
 
@@ -103,6 +107,15 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
     // Push every duration filter — a scanner query can carry more than one, and the inverse extracts them all.
     if (universalFilters.duration.length > 0) {
         having_predicates.push(...universalFilters.duration)
+    }
+
+    if (universalFilters.recommended_only) {
+        having_predicates.push({
+            type: PropertyFilterType.Recording,
+            key: 'surfacing_score',
+            operator: PropertyOperator.GreaterThan,
+            value: RECOMMENDED_RECORDINGS_SURFACING_SCORE_THRESHOLD,
+        })
     }
 
     filters.forEach((f) => {

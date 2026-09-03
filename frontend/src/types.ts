@@ -1551,6 +1551,7 @@ export interface RecordingPropertyFilter extends BasePropertyFilter {
         | 'click_count'
         | 'keypress_count'
         | 'mouse_activity_count'
+        | 'surfacing_score'
     operator: PropertyOperator
 }
 
@@ -1606,6 +1607,7 @@ export interface RecordingUniversalFilters {
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']
+    recommended_only?: boolean
     /**
      * Server-resolved population narrowing (sessions of persons exposed to the experiment).
      * Not part of `filter_group`, so the filter-pill editor neither renders nor edits it;

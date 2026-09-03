@@ -11,7 +11,6 @@ if TYPE_CHECKING:
     from posthog.models import User
 
 SURFACING_SCORE_ORDER_FLAG = "replay-playlist-surfacing-score"
-RELEVANCE_SORT_EXPERIMENT_FLAG = "replay-playlist-relevance-sort-experiment"
 
 
 def recordings_query_has_event_filters(query: RecordingsQuery) -> bool:
@@ -27,9 +26,8 @@ def recordings_query_has_event_filters(query: RecordingsQuery) -> bool:
 def gate_surfacing_score_order(query: RecordingsQuery, user: "User | None") -> None:
     """`surfacing_score` ordering is gated behind a feature flag. It's exposed to clients via the
     generated RecordingOrder enum (both the REST list endpoint and the MCP query), so the gate has to
-    be enforced server-side, not just in the UI. When neither the surfacing-score rollout nor the
-    relevance-sort experiment's test arm is enabled (or there's no user to evaluate against), fall back
-    to the default ordering rather than erroring on an otherwise valid request."""
+    be enforced server-side, not just in the UI. Without the surfacing-score rollout, fall back to the
+    default ordering rather than erroring on an otherwise valid request."""
     if query.order != RecordingOrder.SURFACING_SCORE:
         return
 
@@ -40,23 +38,14 @@ def gate_surfacing_score_order(query: RecordingsQuery, user: "User | None") -> N
 def _can_order_by_surfacing_score(user: "User") -> bool:
     distinct_id = str(user.distinct_id)
     person_properties = {"email": user.email}
-    if posthoganalytics.feature_enabled(
-        SURFACING_SCORE_ORDER_FLAG,
-        distinct_id,
-        person_properties=person_properties,
-        send_feature_flag_events=False,
-    ):
-        return True
-    # The relevance-sort experiment's test arm needs the same ordering capability, otherwise the server
-    # resets its default sort back to recency and the experiment measures nothing.
     return (
-        posthoganalytics.get_feature_flag(
-            RELEVANCE_SORT_EXPERIMENT_FLAG,
+        posthoganalytics.feature_enabled(
+            SURFACING_SCORE_ORDER_FLAG,
             distinct_id,
             person_properties=person_properties,
             send_feature_flag_events=False,
         )
-        == "test"
+        is True
     )
 
 

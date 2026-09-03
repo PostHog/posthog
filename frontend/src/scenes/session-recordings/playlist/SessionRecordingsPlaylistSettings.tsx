@@ -72,6 +72,12 @@ export function getSortChangedEvent(
     }
 }
 
+export function getRecommendedFilterChange(enabled: boolean): Partial<RecordingUniversalFilters> {
+    return enabled
+        ? { recommended_only: true, order: 'start_time', order_direction: 'DESC' }
+        : { recommended_only: false }
+}
+
 function SortedBy({
     filters,
     setFilters,
@@ -82,10 +88,8 @@ function SortedBy({
     disabledReason?: string
 }): JSX.Element {
     const surfacingScoreEnabled = useFeatureFlag('REPLAY_PLAYLIST_SURFACING_SCORE')
-    const inRelevanceSortExperiment = useFeatureFlag('REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT', 'test')
-    const showRelevanceSort = surfacingScoreEnabled || inRelevanceSortExperiment
+    const showRelevanceSort = surfacingScoreEnabled
 
-    // Track sort changes for the relevance-sort experiment
     const changeSort = (sort: RecordingSort): void => {
         const sortChangedEvent = getSortChangedEvent(filters, sort)
         if (sortChangedEvent) {
@@ -196,6 +200,35 @@ function SortedBy({
                 )
             }
         />
+    )
+}
+
+function RecommendedOnlyFilter({
+    filters,
+    setFilters,
+}: {
+    filters: RecordingUniversalFilters
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+}): JSX.Element | null {
+    const enabled = useFeatureFlag('REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT', 'test')
+    if (!enabled) {
+        return null
+    }
+
+    return (
+        <Tooltip title="Show recommended recordings, ordered newest first">
+            <span className="inline-flex items-center ml-3">
+                <LemonCheckbox
+                    label="Recommended only"
+                    checked={!!filters.recommended_only}
+                    onChange={(checked) => {
+                        posthog.capture('session recording recommended filter changed', { enabled: checked })
+                        setFilters(getRecommendedFilterChange(checked))
+                    }}
+                    data-attr="session-recordings-recommended-only"
+                />
+            </span>
+        </Tooltip>
     )
 }
 
@@ -577,14 +610,17 @@ export function SessionRecordingsPlaylistTopSettings({
                     aria-label="Select all recordings"
                 />
                 {filters && setFilters ? (
-                    <span className="text-xs font-normal inline-flex items-center ml-2">
-                        Sort by:{' '}
-                        <SortedBy
-                            filters={filters}
-                            setFilters={setFilters}
-                            disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
-                        />
-                    </span>
+                    <>
+                        <span className="text-xs font-normal inline-flex items-center ml-2">
+                            Sort by:{' '}
+                            <SortedBy
+                                filters={filters}
+                                setFilters={setFilters}
+                                disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
+                            />
+                        </span>
+                        <RecommendedOnlyFilter filters={filters} setFilters={setFilters} />
+                    </>
                 ) : null}
             </div>
             <div className="flex items-center">

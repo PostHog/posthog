@@ -178,10 +178,7 @@ const getDefaultFilterTestAccounts = (): boolean => {
     return stored === 'true'
 }
 
-// The sort the user explicitly picked in the list settings. It wins over the relevance
-// rollout/experiment default, so users who prefer another order aren't re-defaulted
-// into relevance on every visit and filter reset. Keyed per team, like the playlist
-// filter persistence below, so the preference doesn't leak across accounts
+// Keyed per team so a sort preference does not leak across accounts.
 export const preferredRecordingsSortStorage = localStorageSlot(
     () => `${getCurrentTeamId()}__replay_list_preferred_sort`,
     z.object({ order: z.enum(VALID_RECORDING_ORDERS), order_direction: z.enum(['ASC', 'DESC']) })
@@ -197,31 +194,27 @@ export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     order_direction: 'DESC',
 }
 
+export const getEffectiveRecordingFilters = (
+    filters: RecordingUniversalFilters,
+    featureFlags: FeatureFlagsSet
+): RecordingUniversalFilters =>
+    featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] === 'test'
+        ? filters
+        : { ...filters, recommended_only: false }
+
 export const getDefaultFilters = (
     personUUID?: PersonUUID,
     pinnedFilters?: UniversalFiltersGroup,
     urlFilters?: Partial<RecordingUniversalFilters>
 ): RecordingUniversalFilters => {
     const filterTestAccounts = getDefaultFilterTestAccounts()
-    // Person/group pages (personUUID/pinnedFilters) and deep links with pre-applied filters
-    // (urlFilters, e.g. "View recordings" CTAs) come with a specific session in mind,
-    // where recency is the better default than relevance
     const hasSpecificIntent = !!personUUID || !!pinnedFilters || !!urlFilters
-    // A sort the user explicitly picked beats the relevance default, but specific-intent
-    // surfaces keep recency regardless
     const preferredSort = hasSpecificIntent ? null : preferredRecordingsSortStorage.get()
     const defaults: RecordingUniversalFilters = {
         ...DEFAULT_RECORDING_FILTERS,
         filter_test_accounts: filterTestAccounts,
         date_from: personUUID ? '-30d' : '-3d',
-        // Default to sorting by relevance for the surfacing-score rollout or the relevance-sort experiment's test arm
-        order:
-            preferredSort?.order ??
-            (!hasSpecificIntent &&
-            (posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE) ||
-                posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT) === 'test')
-                ? 'surfacing_score'
-                : DEFAULT_RECORDING_FILTERS.order),
+        order: preferredSort?.order ?? DEFAULT_RECORDING_FILTERS.order,
         order_direction: preferredSort?.order_direction ?? DEFAULT_RECORDING_FILTERS.order_direction,
     }
     if (pinnedFilters) {
@@ -297,6 +290,10 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
     }
 
     if ('filter_test_accounts' in filters && typeof filters.filter_test_accounts !== 'boolean') {
+        return false
+    }
+
+    if ('recommended_only' in filters && typeof filters.recommended_only !== 'boolean') {
         return false
     }
 
@@ -960,7 +957,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     // Captured before the awaits: `values` reads throw if this logic unmounts
                     // mid-flight, and the fetch report must carry the filters the request was
                     // built from, not whatever they are once the response lands.
-                    const filters = values.filters
+                    const filters = getEffectiveRecordingFilters(values.filters, values.featureFlags)
                     const convertedQuery = convertUniversalFiltersToRecordingsQuery(filters)
                     const params: RecordingsQuery & { add_events_to_property_queries?: '1' } = {
                         ...convertedQuery,
@@ -2124,6 +2121,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         // Drop a bad rehydrated value here, reusing the check that already guards the URL and setFilters paths.
         if (!isValidRecordingFilters(values.filters)) {
             actions.resetFilters()
+            return
+        }
+
+        if (
+            values.filters.recommended_only &&
+            values.featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] !== 'test'
+        ) {
+            actions.setFilters({ recommended_only: false })
             return
         }
 

@@ -36,6 +36,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
+from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.session_recording_list_from_query import (
     SessionRecordingListFromQuery,
     SessionRecordingQueryResult,
@@ -122,6 +123,35 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             team=team,
             event_name="$pageleave",
             properties={"$session_id": session_id, "$window_id": "1"},
+        )
+
+    def test_filters_recommended_recordings_by_surfacing_score(self) -> None:
+        recommended_session_id = str(uuid7())
+        for session_id, surfacing_score in (
+            (recommended_session_id, 0.8),
+            (str(uuid7()), 0.2),
+            (str(uuid7()), None),
+        ):
+            produce_replay_summary(
+                distinct_id="user",
+                session_id=session_id,
+                first_timestamp=self.an_hour_ago,
+                team_id=self.team.id,
+                surfacing_score=surfacing_score,
+            )
+
+        self._assert_query_matches_session_ids(
+            {
+                "having_predicates": [
+                    {
+                        "key": "surfacing_score",
+                        "operator": "gt",
+                        "type": "recording",
+                        "value": 0.36,
+                    }
+                ]
+            },
+            [recommended_session_id],
         )
 
     @property
