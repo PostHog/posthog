@@ -1032,7 +1032,11 @@ export interface dashboardLogicMeta {
         shouldUseStreaming: (featureFlags: FeatureFlagsSet) => boolean
         canAutoPreview: (insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]) => boolean
         hasIntermittentFilters: (intermittentFilters: DashboardFilter) => boolean
-        hasUrlFilters: (urlFilters: DashboardFilter) => boolean
+        hasUrlFilters: (
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
+            externalFilters: DashboardFilter,
+            urlFilters: DashboardFilter
+        ) => boolean
         showApplyFiltersBanner: (canAutoPreview: boolean, hasIntermittentFilters: boolean) => boolean
         urlFilters: (searchParams: Record<string, any>) => DashboardFilter
         filtersOverrideForLoad: (externalFilters: DashboardFilter, urlFilters: DashboardFilter) => DashboardFilter
