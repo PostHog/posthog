@@ -61,15 +61,40 @@ const ROOTS = [
         ],
     },
     {
+        root: 'src/scenes/App.tsx',
+        label: 'app shell (preloaded by every page, including /login and /signup)',
+        // The backend preloads this closure for logged-out pages too (preload-manifest.json
+        // `js`), so it is the whole JS cost of /login. 2026-09-03: 3.31 MiB eager output (2.33 MiB
+        // JS + the App stylesheet) after making ProductEmptyStateGate lazy (it dragged the
+        // authenticated navigation in) and cutting the query-utils -> ActionFilterRow ->
+        // dashboardLogic import chain; it was 7.5 MiB of JS before. ~15% headroom so routine
+        // churn doesn't trip the warn; ratchet down on a split win.
+        budgetBytes: 3_990_000,
+        forbidden: [
+            'node_modules/monaco-editor/',
+            // Authenticated-only code. Either of these on the App path means a component that
+            // logged-out pages render has grown a static import into the logged-in app.
+            'src/layout/navigation-3000/navigationLogic.tsx',
+            'src/scenes/dashboard/dashboardLogic.tsx',
+        ],
+    },
+    {
         root: 'src/scenes/AuthenticatedShell.tsx',
         label: 'authenticated shell (every logged-in page)',
-        // 2026-07-07: 8.02 MiB eager output after moving all @posthog/brand/hoggies usage in
-        // eager code to PNG stubs (lib/brand/hoggies) — the inline-SVG modules are now a
-        // forbidden module below. ~21% headroom so routine churn doesn't trip the warn.
-        budgetBytes: 10_185_000,
+        // 2026-09-03: 7.64 MiB eager output after moving DASHBOARD_WIDGET_PREVIEWS out of the
+        // widget catalog and importing MathAvailability from ActionFilterRow/types instead of the
+        // component. ~15% headroom so routine churn doesn't trip the warn.
+        budgetBytes: 9_200_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'src/lib/components/ActivityLog/describers',
+            // Widget previews render product UI (recordings player, error tracking list, logs) and
+            // are only needed by the add-widget modal; the recordings player logic pulls in rrweb.
+            {
+                pattern: 'products/dashboards/frontend/widgets/previews/',
+                verifyPrefix: 'products/dashboards/frontend/widgets/',
+            },
+            'src/scenes/session-recordings/player/sessionRecordingPlayerLogic.ts',
             // See the entry root's note: inline-SVG hoggies must stay off the eager path.
             {
                 pattern: 'node_modules/@posthog/brand/dist/generated/hoggies/svg/',
