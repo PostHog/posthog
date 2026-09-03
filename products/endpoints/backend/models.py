@@ -281,9 +281,9 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
             columns = EndpointVersion.extract_columns(self.query, self.endpoint.team_id)
         except Exception as e:
             capture_exception(e)
-            return []
+            columns = []
         if not columns:
-            return []
+            return columns
         self.refresh_from_db(fields=["columns"])
         if not self.columns:
             self.columns = columns
