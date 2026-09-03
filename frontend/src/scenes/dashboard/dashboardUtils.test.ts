@@ -2,7 +2,17 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 
-import { DashboardPlacement, DashboardTile, DashboardType, InsightModel, QueryBasedInsightModel } from '~/types'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
+import {
+    AnyPropertyFilter,
+    DashboardPlacement,
+    DashboardTile,
+    DashboardType,
+    InsightModel,
+    PropertyFilterType,
+    PropertyOperator,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import {
     dashboardToSaveableTemplate,
@@ -18,8 +28,15 @@ import {
 } from './dashboardUtils'
 
 describe('searchParamsWithUrlFilters', () => {
-    const propertyFilter = [{ key: '$browser', value: 'Chrome', type: 'event' }]
-    const breakdownFilter = { breakdown: '$browser', breakdown_type: 'event' }
+    const propertyFilter: AnyPropertyFilter[] = [
+        {
+            key: '$browser',
+            value: 'Chrome',
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.Exact,
+        },
+    ]
+    const breakdownFilter: BreakdownFilter = { breakdown: '$browser', breakdown_type: 'event' }
 
     it.each([
         ['property filter', { properties: [] }, { properties: propertyFilter }],
