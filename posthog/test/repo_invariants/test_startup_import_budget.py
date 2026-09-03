@@ -457,3 +457,56 @@ print("WSGI_PREBUILD_OK")
     )
     assert result.returncode == 0, f"posthog.wsgi import failed:\n{result.stderr[-2000:]}"
     assert "WSGI_PREBUILD_OK" in result.stdout, result.stdout[-500:]
+
+
+# Five API modules under products/ai_observability/backend/api/ import constants and input types
+# from posthog.temporal.ai_observability, and the URLconf reaches all five. Those packages used to
+# aggregate every workflow and activity in their ``__init__``, so the whole worker tree came along.
+# That both defeats the lazy router above and makes any broken import in the worker tree fail every
+# manage.py command — behind a misleading ``posthog.urls has no attribute handler400``, because the
+# URL system check reports the failed attribute lookup and not the ImportError under it. The
+# ``__init__`` files are empty now; this pins the modules that emptying them took out of reach.
+#
+# It does not pin the whole tree. The URLconf still reaches ``run_evaluation``, ``run_tagger``,
+# ``run_trace_evaluation``, ``run_session_evaluation``, and ``evaluation_workflow_activities``,
+# because the API modules read helper functions and input types that live inside those workflow
+# modules. To take those out of reach as well, move the helpers into leaf modules first, then add
+# the workflow modules here.
+FORBIDDEN_AT_URLCONF = [
+    "posthog.temporal.ai_observability.worker_registry",
+    "posthog.temporal.ai_observability.trace_clustering.workflow",
+    "posthog.temporal.ai_observability.trace_clustering.coordinator",
+    "posthog.temporal.ai_observability.trace_summarization.workflow",
+    "posthog.temporal.ai_observability.trace_summarization.coordinator",
+    "posthog.temporal.ai_observability.evaluation_clustering",
+]
+
+_URLCONF_SNAPSHOT = """
+import os
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+import django
+django.setup()
+import importlib
+importlib.import_module("posthog.urls")
+import sys
+print("\\n".join(sorted(m for m in sys.modules)))
+"""
+
+
+def test_urlconf_does_not_import_the_worker_registry_or_the_clustering_workflows() -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", _URLCONF_SNAPSHOT],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, f"cold URLconf import failed:\n{result.stderr[-2000:]}"
+    loaded = set(result.stdout.splitlines())
+
+    offenders = [mod for mod in FORBIDDEN_AT_URLCONF if mod in loaded or any(m.startswith(mod + ".") for m in loaded)]
+    assert not offenders, (
+        f"The URLconf reached modules that must stay out of it: {offenders}. Either an API module now "
+        "imports one of these, or one of the emptied `__init__` files aggregates again. Import the leaf "
+        "module directly (`...trace_clustering.constants`), or move the shared constant or input type "
+        "out of the worker module."
+    )
