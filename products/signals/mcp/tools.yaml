@@ -221,8 +221,6 @@ tools:
                 aliases:
                     - report_id
         response:
-            # The validation prompt may name internal hosts and staff-only tools. Agents reading a
-            # report through MCP often write to a public repository, so it stays off this surface.
             exclude:
                 - validation_prompt
     inbox-reports-set-state:
