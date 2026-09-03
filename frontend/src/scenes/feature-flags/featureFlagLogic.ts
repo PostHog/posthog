@@ -4201,7 +4201,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, tags: previousTags })
                 }
                 actions.updateFlag({ ...flag, tags: previousTags })
-                lemonToast.error('Failed to save tags')
+                // The server explains rule failures such as a project that requires tags, so show
+                // its message rather than a generic one the user cannot act on.
+                lemonToast.error(error?.detail || 'Failed to save tags')
             }
         },
         editFeatureFlag: async ({ editing }) => {

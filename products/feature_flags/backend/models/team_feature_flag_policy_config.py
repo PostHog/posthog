@@ -27,3 +27,15 @@ class TeamFeatureFlagPolicyConfig(models.Model):
 
 
 register_team_extension_signal(TeamFeatureFlagPolicyConfig, logger=logger)
+
+
+def team_requires_flag_tags(team_id: int) -> bool:
+    """Whether this team requires tags on flags.
+
+    Queries the row rather than going through ``get_or_create_team_extension`` so a read on the
+    flag-write path does not create the row for every team that never touched the setting.
+    """
+    return (
+        TeamFeatureFlagPolicyConfig.objects.filter(team_id=team_id).values_list("require_tags", flat=True).first()
+        is True
+    )

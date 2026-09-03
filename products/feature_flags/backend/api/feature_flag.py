@@ -6,7 +6,7 @@ import json
 import math
 import logging
 import functools
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, NoReturn, Optional, cast
@@ -39,7 +39,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.flags_service import RETRYABLE_FLAGS_SERVICE_EXCEPTIONS, get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.tagged_item import (
+    TaggedItemSerializerMixin,
+    TaggedItemViewSetMixin,
+    current_tag_names,
+    resolve_bulk_tags,
+)
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, ServiceRequest, action
 from posthog.auth import (
     IDJagAccessTokenAuthentication,
@@ -65,6 +70,7 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
+from posthog.models.tag import tagify
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
@@ -116,7 +122,7 @@ from products.feature_flags.backend.flag_status import (
 from products.feature_flags.backend.local_evaluation import _get_flag_properties_from_filters
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
-from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+from products.feature_flags.backend.models.team_feature_flag_policy_config import team_requires_flag_tags
 from products.feature_flags.backend.session_recording_links import (
     REPLAY_LINKED_FLAG_DELETE_ERROR,
     replay_linked_flag_ids,
@@ -456,8 +462,13 @@ FEATURE_FLAG_CREATION_CONTEXT_CHOICES = (
 )
 
 # A flag created to back one of these objects never passes through a form with a tag input, so the
-# team's "require tags" setting would dead-end those flows rather than get anything tagged.
+# team's "require tags" setting would dead-end those flows rather than get anything tagged. The
+# caller declares its own creation_context, so this exempts flows rather than enforcing anything on
+# them - the setting is bookkeeping, not an access boundary.
 TAG_REQUIREMENT_EXEMPT_CREATION_CONTEXTS = frozenset(FEATURE_FLAG_CREATION_CONTEXT_CHOICES) - {"feature_flags"}
+
+REQUIRE_TAGS_ON_CREATE_ERROR = "Add at least one tag. This project requires new feature flags to be tagged."
+REQUIRE_TAGS_ON_UPDATE_ERROR = "Keep at least one tag. This project requires feature flags to stay tagged."
 
 
 def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
@@ -1395,37 +1406,24 @@ class FeatureFlagSerializer(
         if creation_context in TAG_REQUIREMENT_EXEMPT_CREATION_CONTEXTS:
             return
 
-        # Read the setting rather than going through team.feature_flag_policy_config, which would
-        # create the extension row for every team that writes a flag.
-        require_tags = (
-            TeamFeatureFlagPolicyConfig.objects.filter(team_id=team.id).values_list("require_tags", flat=True).first()
-        )
-        if not require_tags:
+        if not team_requires_flag_tags(team.id):
             return
 
         tags = attrs.get("tags")
+        # tagify() drops whitespace, so a payload of [""] or ["  "] would otherwise pass the check
+        # and then create a blank tag the flag list renders as nothing.
+        named_tags = [tagify(tag) for tag in tags or [] if isinstance(tag, str) and tagify(tag)]
 
         if request.method == "POST":
-            if not tags:
-                raise serializers.ValidationError(
-                    {"tags": "Add at least one tag. This project requires new feature flags to be tagged."}
-                )
+            if not named_tags:
+                raise serializers.ValidationError({"tags": REQUIRE_TAGS_ON_CREATE_ERROR})
             return
 
         # Only block emptying a flag that already has tags. Flags that predate the setting stay
         # editable, so turning it on doesn't freeze the existing untagged ones.
-        if request.method in ["PUT", "PATCH"] and self.instance and tags is not None and not tags:
-            if self._existing_tag_count(self.instance) > 0:
-                raise serializers.ValidationError(
-                    {"tags": "Keep at least one tag. This project requires feature flags to stay tagged."}
-                )
-
-    @staticmethod
-    def _existing_tag_count(flag: FeatureFlag) -> int:
-        # The list viewset prefetches tags onto the instance, so prefer that over a fresh query.
-        if hasattr(flag, "prefetched_tags"):
-            return len(flag.prefetched_tags)
-        return flag.tagged_items.count()
+        if request.method in ["PUT", "PATCH"] and self.instance and tags is not None and not named_tags:
+            if current_tag_names(self.instance):
+                raise serializers.ValidationError({"tags": REQUIRE_TAGS_ON_UPDATE_ERROR})
 
     def _validate_device_bucketing_with_persist_auth(self, attrs):
         """Validate that persist across auth is not enabled with device ID bucketing"""
@@ -3231,6 +3229,22 @@ class FeatureFlagViewSet(
     # deleted=False filter in safely_get_queryset.
     queryset = FeatureFlag.objects_including_soft_deleted.all()
     serializer_class = FeatureFlagSerializer
+
+    def validate_bulk_tag_changes(self, objects: Sequence, tag_action: str, tags: list[str]) -> None:
+        """Stop a bulk edit from stripping the last tag off a flag when the project requires one.
+
+        Without this the flags list's bulk tag action defeats the setting in one click, since the
+        bulk path writes TaggedItem rows directly and never reaches FeatureFlagSerializer.
+        """
+        if tag_action == "add" or not objects:
+            return
+
+        if not team_requires_flag_tags(self.team_id):
+            return
+
+        normalized_tags = {tagify(tag) for tag in tags}
+        if any(not resolve_bulk_tags(current_tag_names(flag), tag_action, normalized_tags) for flag in objects):
+            raise serializers.ValidationError({"tags": REQUIRE_TAGS_ON_UPDATE_ERROR})
 
     @extend_schema(request=FeatureFlagCreateRequestSchemaSerializer)
     def create(self, request, *args, **kwargs):

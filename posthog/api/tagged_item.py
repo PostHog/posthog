@@ -49,6 +49,21 @@ def cleanup_orphan_tags(team_id: int) -> None:
     Tag.objects.filter(Q(team_id=team_id) & Q(tagged_items__isnull=True)).delete()
 
 
+def current_tag_names(obj: Any) -> set[str]:
+    """The object's tags, preferring a ``prefetched_tags`` attribute over a fresh query."""
+    tagged_items = obj.prefetched_tags if hasattr(obj, "prefetched_tags") else obj.tagged_items.select_related("tag")
+    return {tagged_item.tag.name for tagged_item in tagged_items}
+
+
+def resolve_bulk_tags(current_tags: set[str], tag_action: str, normalized_tags: set[str]) -> set[str]:
+    """The tags an object ends up with after an add/remove/set bulk mutation."""
+    if tag_action == "add":
+        return current_tags | normalized_tags
+    if tag_action == "remove":
+        return current_tags - normalized_tags
+    return set(normalized_tags)
+
+
 @dataclasses.dataclass(frozen=True)
 class BulkTagActivityContext:
     """Context needed to write an activity-log entry for each object mutated in bulk.
@@ -91,19 +106,8 @@ def apply_bulk_tag_changes(
 
     for obj in objects:
         team_ids.add(obj.team_id)
-        current_tags = {
-            ti.tag.name
-            for ti in (
-                obj.prefetched_tags if hasattr(obj, "prefetched_tags") else obj.tagged_items.select_related("tag").all()
-            )
-        }
-
-        if tag_action == "add":
-            new_tags = current_tags | normalized_tags
-        elif tag_action == "remove":
-            new_tags = current_tags - normalized_tags
-        else:  # set
-            new_tags = set(normalized_tags)
+        current_tags = current_tag_names(obj)
+        new_tags = resolve_bulk_tags(current_tags, tag_action, normalized_tags)
 
         set_tags_on_object(list(new_tags), obj)
         updated.append({"id": obj.id, "tags": sorted(new_tags)})
@@ -300,6 +304,14 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
             activity="updated",
         )
 
+    def validate_bulk_tag_changes(self, objects: Sequence, tag_action: str, tags: list[str]) -> None:
+        """Hook for resources whose tags carry a rule the bulk path must honor.
+
+        Raise ``serializers.ValidationError`` to reject the whole request. Rejecting beats skipping
+        here: the bulk-tag form reports skipped objects as permission failures, so a rule-based skip
+        would reach the user as the wrong reason.
+        """
+
     def prefetch_tagged_items_if_available(self, queryset: QuerySet | models.query.RawQuerySet) -> QuerySet:
         if isinstance(queryset, models.query.RawQuerySet):
             return queryset  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
@@ -385,6 +397,8 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
         for obj_id in validated_ids:
             if obj_id not in found_ids:
                 errors.append({"id": obj_id, "reason": "Not found"})
+
+        self.validate_bulk_tag_changes(editable_objects, tag_action, tags)
 
         updated = apply_bulk_tag_changes(
             editable_objects, tag_action, tags, activity_context=self._bulk_tag_activity_context()

@@ -95,3 +95,39 @@ class TestFeatureFlagRequireTags(APIBaseTest):
         response = self.client.patch(f"{self.url}{flag.id}/", {"name": "Renamed"}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
+
+    def test_create_with_a_blank_tag_is_rejected_when_required(self) -> None:
+        self._require_tags(True)
+
+        response = self.client.post(self.url, {"key": "blank-tag-flag", "tags": ["   "]}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand([("set", []), ("remove", ["billing"])])
+    def test_bulk_update_cannot_strip_the_last_tag_when_required(self, tag_action: str, tags: list[str]) -> None:
+        flag = FeatureFlag.objects.create(key="tagged-flag", team=self.team, created_by=self.user)
+        self._tag_flag(flag, "billing")
+        self._require_tags(True)
+
+        response = self.client.post(
+            f"{self.url}bulk_update_tags/",
+            {"ids": [flag.id], "action": tag_action, "tags": tags},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert flag.tagged_items.count() == 1
+
+    def test_bulk_update_can_still_swap_tags_when_required(self) -> None:
+        flag = FeatureFlag.objects.create(key="tagged-flag", team=self.team, created_by=self.user)
+        self._tag_flag(flag, "billing")
+        self._require_tags(True)
+
+        response = self.client.post(
+            f"{self.url}bulk_update_tags/",
+            {"ids": [flag.id], "action": "set", "tags": ["growth"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert list(flag.tagged_items.values_list("tag__name", flat=True)) == ["growth"]
