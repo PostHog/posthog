@@ -146,6 +146,10 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                     name: z.string().optional(), // Custom name for the cohort
                 })
             ),
+            // When true, bucket on a hash of the person id instead of Math.random(), so a person
+            // re-entering the workflow lands in the same cohort as before. Absent or false assigns a
+            // fresh random cohort on every entry.
+            sticky_assignment: z.boolean().optional(),
         }),
     }),
 

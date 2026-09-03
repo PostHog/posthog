@@ -7,6 +7,7 @@ import { IconBalance, IconPlus, IconX } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
@@ -107,6 +108,13 @@ export function StepRandomCohortBranchConfiguration({
         })
     }
 
+    const setStickyAssignment = (sticky_assignment: boolean): void => {
+        setWorkflowAction(action.id, {
+            ...action,
+            config: { ...action.config, sticky_assignment },
+        })
+    }
+
     const normalizePercentages = (): void => {
         if (cohorts.length === 0) {
             return
@@ -173,6 +181,15 @@ export function StepRandomCohortBranchConfiguration({
                     <IconBalance />
                 </LemonButton>
             </div>
+
+            <LemonSwitch
+                checked={action.config.sticky_assignment ?? false}
+                onChange={setStickyAssignment}
+                label="Keep people in the same cohort on re-entry"
+                bordered
+                tooltip="Assigns each person a cohort based on their ID instead of at random, so someone who enters this workflow again lands in the same cohort. Leave this off to assign a new cohort every time."
+                data-attr="cohort-branch-sticky-assignment-switch"
+            />
         </>
     )
 }
