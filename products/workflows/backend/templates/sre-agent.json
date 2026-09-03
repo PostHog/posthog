@@ -1,7 +1,7 @@
 {
     "id": "d6832fb3-b05d-459e-a899-275621d68cc7",
     "name": "Investigate Slack alerts with an SRE agent",
-    "description": "Start an AI investigation when a Slack message contains \"Alert\". The agent uses PostHog and your connected tools, then replies with evidence and next steps.",
+    "description": "Start an AI investigation when an alerting app or bot posts a Slack message containing \"Alert\". The agent uses PostHog and your connected tools, then replies with evidence and next steps.",
     "version": 1,
     "created_at": "2026-09-02T00:00:00Z",
     "updated_at": "2026-09-02T00:00:00Z",
@@ -16,6 +16,12 @@
                 }
             ],
             "properties": [
+                {
+                    "key": "bot_id",
+                    "value": "is_set",
+                    "operator": "is_set",
+                    "type": "event"
+                },
                 {
                     "key": "thread_ts",
                     "value": "is_not_set",
@@ -53,7 +59,7 @@
         {
             "id": "trigger_node",
             "name": "Slack alert received",
-            "description": "Choose the Slack channel where alert messages are posted.",
+            "description": "Choose the Slack channel where your alerting tools post. Messages typed by people are ignored.",
             "on_error": null,
             "created_at": 0,
             "updated_at": 0,
@@ -70,6 +76,12 @@
                         }
                     ],
                     "properties": [
+                        {
+                            "key": "bot_id",
+                            "value": "is_set",
+                            "operator": "is_set",
+                            "type": "event"
+                        },
                         {
                             "key": "thread_ts",
                             "value": "is_not_set",
