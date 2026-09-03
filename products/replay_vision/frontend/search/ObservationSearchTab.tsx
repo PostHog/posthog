@@ -6,11 +6,12 @@ import { IconSearch } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { urls } from 'scenes/urls'
 
 import { ObservationResultSummary } from '../components/ObservationCard'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import type { ObservationSearchResultApi } from '../generated/api.schemas'
+import { observationDetailUrl } from '../observations/replayObservationLogic'
+import { ReplayScannerTab } from '../replay_scanners/replayScannerSceneLogic'
 import type { ReplayScanner } from '../replay_scanners/types'
 import { scannerLabel } from '../utils/observation'
 import { observationSearchLogic } from './observationSearchLogic'
@@ -48,17 +49,19 @@ function SearchResultCard({
     searchedQuery,
     showScanner,
     strongMatch,
+    returnParams,
 }: {
     result: ObservationSearchResultApi
     searchedQuery: string
     showScanner: boolean
     strongMatch: boolean
+    returnParams: Record<string, string>
 }): JSX.Element {
     const observation = result.observation
     const snapshot = observation.scanner_snapshot
     return (
         <Link
-            to={urls.replayVisionObservation(observation.id)}
+            to={observationDetailUrl(observation.id, returnParams)}
             className="block border rounded p-3 bg-surface-primary hover:border-accent space-y-2 text-primary"
             data-attr="vision-search-result"
         >
@@ -107,6 +110,9 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
     const { query, results, searching, searchedQuery, strongMatchDistanceCutoff, truncated } = useValues(logic)
     const { setQuery, search } = useActions(logic)
     const crossScanner = scanner === null
+    // A scanner-scoped search lives in the scanner URL, so a result can point back at the query it came from.
+    const returnParams: Record<string, string> =
+        crossScanner || !searchedQuery ? {} : { tab: ReplayScannerTab.Search, q: searchedQuery }
 
     return (
         <div className="w-full max-w-3xl mx-auto flex flex-col gap-4 pt-2">
@@ -180,6 +186,7 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                                         result={result}
                                         searchedQuery={searchedQuery ?? ''}
                                         showScanner={crossScanner}
+                                        returnParams={returnParams}
                                         strongMatch={
                                             strongMatchDistanceCutoff !== null &&
                                             result.distance <= strongMatchDistanceCutoff

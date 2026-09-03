@@ -11,7 +11,7 @@ import { visionObservationsRetrieve } from '../generated/api'
 import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
-import { OBSERVATION_LIST_FILTER_KEYS } from '../replay_scanners/types'
+import { OBSERVATION_LIST_FILTER_KEYS, OBSERVATION_LIST_URL_PARAM_KEYS } from '../replay_scanners/types'
 import { scannerBreadcrumb } from '../utils/breadcrumbs'
 import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
@@ -48,16 +48,41 @@ export function neighborFilterParams(searchParams: Record<string, unknown>): Vis
  * A saved scanner owns its observations and lists them. A one-off scan is owned by the recording it
  * ran from, which is also the safe side of [hasScannerPage] because it always resolves.
  */
-export function observationParentUrl(observation: ReplayObservationApi): string {
-    return hasScannerPage(observation)
-        ? urls.replayVision(observation.scanner_id)
-        : urls.replaySingle(observation.session_id)
+export function observationParentUrl(
+    observation: ReplayObservationApi,
+    returnParams: Record<string, string | number> = {}
+): string {
+    if (!hasScannerPage(observation)) {
+        return urls.replaySingle(observation.session_id)
+    }
+    const scannerUrl = urls.replayVision(observation.scanner_id)
+    return Object.keys(returnParams).length > 0 ? combineUrl(scannerUrl, returnParams).url : scannerUrl
+}
+
+/**
+ * The list view an observation was opened from, read back off its own URL, so going back returns to
+ * the tab, filters, sort, and page the reader left rather than the scanner's overview.
+ */
+export function scannerReturnParams(searchParams: Record<string, unknown>): Record<string, string> {
+    const params: Record<string, string> = {}
+    // `tab` and `q` (the Search tab's query) sit alongside the observations table's own params.
+    for (const key of ['tab', 'q', ...OBSERVATION_LIST_URL_PARAM_KEYS]) {
+        const value = searchParams[key]
+        // The router coerces a numeric param (`page=2`) to a number, so both types arrive here.
+        if (typeof value === 'number' || (typeof value === 'string' && value)) {
+            params[key] = String(value)
+        }
+    }
+    return params
 }
 
 /** The crumb the observation page's back button returns to. */
-export function observationParentBreadcrumb(observation: ReplayObservationApi): Breadcrumb {
+export function observationParentBreadcrumb(
+    observation: ReplayObservationApi,
+    returnParams: Record<string, string | number> = {}
+): Breadcrumb {
     if (hasScannerPage(observation)) {
-        return scannerBreadcrumb(observation.scanner_id, scannerLabel(observation))
+        return scannerBreadcrumb(observation.scanner_id, scannerLabel(observation), returnParams)
     }
     return {
         key: `recording-${observation.session_id}`,
@@ -182,7 +207,9 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                     actions.loadObservationSuccess(response)
                     // Point the breadcrumb at whatever owns this observation, so "back" returns there
                     // instead of the vision home.
-                    replayObservationSceneLogic().actions.setParentBreadcrumb(observationParentBreadcrumb(response))
+                    replayObservationSceneLogic().actions.setParentBreadcrumb(
+                        observationParentBreadcrumb(response, scannerReturnParams(router.values.searchParams))
+                    )
                 } catch (error: any) {
                     // Only toast the initial load — background poll retries would otherwise spam one toast per tick.
                     if (!values.observation) {
@@ -212,7 +239,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                 if (!observation) {
                     return
                 }
-                router.actions.push(observationParentUrl(observation))
+                router.actions.push(observationParentUrl(observation, scannerReturnParams(router.values.searchParams)))
             },
 
             // When the stream reports the observation has settled, reload once to render the final result.

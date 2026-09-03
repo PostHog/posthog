@@ -90,4 +90,26 @@ describe('replayObservationLogic', () => {
             logic.unmount()
         }
     })
+
+    // Back used to drop the reader on the scanner overview, losing the filtered list they opened the
+    // observation from. The list view rides along in the observation URL, so back can restore it.
+    it('back returns to the filtered observations list the reader came from', async () => {
+        router.actions.push('/replay-vision/observation/obs-1', {
+            tab: 'observations',
+            verdict: 'yes',
+            sort: 'score',
+            page: 2,
+        })
+        const logic = replayObservationLogic({ id: 'obs-1' })
+        logic.mount()
+        try {
+            await expectLogic(logic).toDispatchActions(['loadObservationSuccess'])
+            const { breadcrumbs } = sceneLogic.values
+            expect(breadcrumbs[breadcrumbs.length - 2].path).toBe(
+                '/replay-vision/scanner-9?tab=observations&page=2&sort=score&verdict=yes'
+            )
+        } finally {
+            logic.unmount()
+        }
+    })
 })

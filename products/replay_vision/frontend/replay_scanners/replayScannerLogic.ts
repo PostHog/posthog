@@ -73,6 +73,7 @@ import {
     reconcileVariantKey,
 } from './experimentTargeting'
 import { consumeGoalDraftIntent } from './goalDraftIntent'
+import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
     SCANNER_EDITOR_STEPS,
@@ -87,6 +88,7 @@ import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats
 import { findScannerTemplate, newScanner } from './scannerTemplates'
 import {
     MAX_CREDIT_LIMIT,
+    OBSERVATION_LIST_URL_PARAM_KEYS,
     SamplingMode,
     ScannerConfig,
     defaultScannerName,
@@ -112,6 +114,8 @@ const OBSERVATION_TRIGGERED_BY_VALUES: readonly ObservationTriggeredByValue[] = 
 const OBSERVATION_VERDICT_VALUES: readonly ObservationVerdictValue[] = ['yes', 'no', 'inconclusive']
 
 export const OBSERVATIONS_PAGE_SIZE = 50
+/** Newest first: the sort the table falls back to, and the one the URL leaves out. */
+const DEFAULT_OBSERVATIONS_SORT: ObservationsSorting = { columnKey: 'created_at', order: -1 }
 // Past this many rows the clipboard is the wrong tool.
 const COPY_ALL_OBSERVATIONS_LIMIT = 500
 
@@ -690,6 +694,7 @@ export interface replayScannerLogicMeta {
             observationBackfillFilter: string | null
         ) => boolean
         observationDetailLinkParams: (
+            observationsPage: number,
             observationStatusFilter: ObservationStatusEnumApi[],
             observationTriggeredByFilter: ObservationTriggerEnumApi[],
             observationVerdictFilter: ObservationVerdictValue[],
@@ -1356,9 +1361,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 dateTo !== null ||
                 backfillFilter !== null,
         ],
-        // Carried into observation detail links so server-computed prev/next neighbors honor the table's filters + sort.
+        // Carried into observation detail links so server-computed prev/next neighbors honor the table's
+        // filters + sort, and so the observation page can send the reader back to this exact view.
         observationDetailLinkParams: [
             (s) => [
+                s.observationsPage,
                 s.observationStatusFilter,
                 s.observationTriggeredByFilter,
                 s.observationVerdictFilter,
@@ -1373,6 +1380,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 s.scanner,
             ],
             (
+                observationsPage: number,
                 observationStatusFilter: ObservationStatusValue[],
                 observationTriggeredByFilter: ObservationTriggeredByValue[],
                 observationVerdictFilter: ObservationVerdictValue[],
@@ -1385,21 +1393,35 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 observationBackfillFilter: string | null,
                 observationsSort: ObservationsSorting | null,
                 scanner: ReplayScanner | null
-            ): Record<string, string | number> =>
-                buildObservationListParams({
-                    observationStatusFilter,
-                    observationTriggeredByFilter,
-                    observationVerdictFilter,
-                    observationTagFilter,
-                    observationMinScoreFilter,
-                    observationMaxScoreFilter,
-                    observationSubjectFilter,
-                    observationDateFrom,
-                    observationDateTo,
-                    observationBackfillFilter,
-                    observationsSort,
-                    scanner,
-                }) as Record<string, string | number>,
+            ): Record<string, string | number> => {
+                const params: Record<string, string | number> = {
+                    ...buildObservationListParams({
+                        observationStatusFilter,
+                        observationTriggeredByFilter,
+                        observationVerdictFilter,
+                        observationTagFilter,
+                        observationMinScoreFilter,
+                        observationMaxScoreFilter,
+                        observationSubjectFilter,
+                        observationDateFrom,
+                        observationDateTo,
+                        observationBackfillFilter,
+                        observationsSort,
+                        scanner,
+                    }),
+                    // The table lives on this tab, and `order_by` is an API key the list URL can't read,
+                    // so the return trip needs the tab and the table's own sort and page keys too.
+                    tab: ReplayScannerTab.Observations,
+                }
+                const sort = serializeSortParam(observationsSort, DEFAULT_OBSERVATIONS_SORT)
+                if (sort) {
+                    params.sort = sort
+                }
+                if (observationsPage > 1) {
+                    params.page = observationsPage
+                }
+                return params
+            },
         ],
         // Tag options for the observations-list Tag filter pill. Wrapped in an inline arrow with an
         // explicit return type so kea-typegen can infer it (it can't from bare function references).
@@ -2113,14 +2135,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     actionToUrl(({ values }) => {
         const buildSearchParams = (): Record<string, string | undefined> => {
             const next = { ...router.values.searchParams } as Record<string, string | undefined>
-            for (const key of TABLE_URL_PARAM_KEYS) {
+            for (const key of OBSERVATION_LIST_URL_PARAM_KEYS) {
                 delete next[key]
             }
             if (values.observationsPage > 1) {
                 next.page = String(values.observationsPage)
             }
             const sort = values.observationsSort
-            next.sort = serializeSortParam(sort, { columnKey: 'created_at', order: -1 })
+            next.sort = serializeSortParam(sort, DEFAULT_OBSERVATIONS_SORT)
             Object.assign(next, observationFilterParams(values))
             return next
         }
@@ -2155,7 +2177,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         [urls.replayVision(props.id)]: (_, searchParams) => {
             const pageRaw = Number(searchParams.page ?? 1)
             const page = Number.isFinite(pageRaw) ? Math.max(1, pageRaw) : 1
-            const sort = parseSortParam(searchParams.sort) ?? { columnKey: 'created_at', order: -1 }
+            const sort = parseSortParam(searchParams.sort) ?? DEFAULT_OBSERVATIONS_SORT
             const status = parseCsvParam<ObservationStatusValue>(searchParams.status, OBSERVATION_STATUS_VALUES)
             const triggeredBy = parseCsvParam<ObservationTriggeredByValue>(
                 searchParams.triggered_by,
@@ -2249,24 +2271,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         }
     }),
 ])
-
-const TABLE_URL_PARAM_KEYS = [
-    'page',
-    'sort',
-    'status',
-    'triggered_by',
-    'verdict',
-    'tags',
-    'min_score',
-    'max_score',
-    'recording_subject',
-    'date_from',
-    'date_to',
-    'backfill_id',
-] as const
-
-/** Observation-filter params the scanner page reads from the URL; links into the Observations tab build from these keys. */
-export type ObservationsUrlParams = Partial<Record<(typeof TABLE_URL_PARAM_KEYS)[number], string>>
 
 /** The step URLs of a scanner's editor wizard. */
 function scannerEditorPaths(scannerId: string): string[] {
