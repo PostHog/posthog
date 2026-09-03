@@ -60,6 +60,7 @@ describe('dashboardSavedViewsLogic', () => {
 
         const logic = dashboardSavedViewsLogic({ teamId: 1 })
         logic.mount()
+        logic.actions.ensureSavedViewsLoaded()
 
         await expectLogic(logic)
             .toFinishAllListeners()
@@ -94,7 +95,7 @@ describe('dashboardSavedViewsLogic', () => {
         logic.unmount()
     })
 
-    it('loads saved views when the feature flag becomes enabled', async () => {
+    it('does not load saved views until the picker opens', async () => {
         featureFlagLogic.actions.setFeatureFlags([], {})
         dashboardSavedViewsList.mockImplementation(async () => page([], null))
         const logic = dashboardSavedViewsLogic({ teamId: 1 })
@@ -103,6 +104,26 @@ describe('dashboardSavedViewsLogic', () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_SAVED_VIEWS]: true })
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ dashboardSavedViewsEnabled: true })
+        expect(dashboardSavedViewsList).not.toHaveBeenCalled()
+
+        logic.actions.ensureSavedViewsLoaded()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ savedViewsLoaded: true })
+        expect(dashboardSavedViewsList).toHaveBeenCalledTimes(2)
+
+        logic.unmount()
+    })
+
+    it('does not reload saved views when the picker opens again', async () => {
+        dashboardSavedViewsList.mockImplementation(async () => page([], null))
+        const logic = dashboardSavedViewsLogic({ teamId: 1 })
+        logic.mount()
+
+        logic.actions.ensureSavedViewsLoaded()
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ savedViewsLoaded: true })
+        logic.actions.ensureSavedViewsLoaded()
+        await expectLogic(logic).toFinishAllListeners()
+
         expect(dashboardSavedViewsList).toHaveBeenCalledTimes(2)
 
         logic.unmount()
@@ -133,6 +154,7 @@ describe('dashboardSavedViewsLogic', () => {
         })
         const logic = dashboardSavedViewsLogic({ teamId: 1 })
         logic.mount()
+        logic.actions.ensureSavedViewsLoaded()
         await expectLogic(logic).toFinishAllListeners()
 
         logic.actions.loadMoreSavedViewsFailure('Could not load more saved views', new ApiError(undefined, 403))
@@ -151,6 +173,7 @@ describe('dashboardSavedViewsLogic', () => {
         dashboardSavedViewsList.mockImplementation(async () => page([], null))
         const logic = dashboardSavedViewsLogic({ teamId: 1 })
         logic.mount()
+        logic.actions.ensureSavedViewsLoaded()
         await expectLogic(logic).toFinishAllListeners()
         dashboardsLogic.actions.setFilters({ pinned: true, tags: ['product'] })
         logic.actions.setActiveSavedViewId('private-1')
@@ -174,6 +197,7 @@ describe('dashboardSavedViewsLogic', () => {
         dashboardsLogic.actions.setFilters({ pinned: true })
         const logic = dashboardSavedViewsLogic({ teamId: 1 })
         logic.mount()
+        logic.actions.ensureSavedViewsLoaded()
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ activeSavedViewId: 'private-1' })
 

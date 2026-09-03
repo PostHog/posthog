@@ -30,6 +30,7 @@ export interface SavedDashboardViewsPickerProps {
     onSelectView: (view: DashboardListSavedView) => void
     onManageViews: () => void
     onLoadMore: (scope: DashboardSavedViewScope) => void
+    onOpen: () => void
     onRetryLoad: () => void
 }
 
@@ -51,6 +52,7 @@ export function SavedDashboardViewsPicker({
     onSelectView,
     onManageViews,
     onLoadMore,
+    onOpen,
     onRetryLoad,
 }: SavedDashboardViewsPickerProps): JSX.Element {
     const [scope, setScope] = useState<DashboardSavedViewScope>(activeSavedView?.scope ?? 'private')
@@ -230,6 +232,9 @@ export function SavedDashboardViewsPicker({
                 onClick={() => {
                     if (!visible && activeSavedView) {
                         setScope(activeSavedView.scope ?? 'team')
+                    }
+                    if (!visible) {
+                        onOpen()
                     }
                     setVisible(!visible)
                 }}

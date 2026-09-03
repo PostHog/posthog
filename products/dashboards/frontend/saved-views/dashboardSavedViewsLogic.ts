@@ -1,5 +1,5 @@
 import { deepEqual as isEqual } from 'fast-equals'
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
@@ -47,6 +47,7 @@ export interface dashboardSavedViewsLogicValues {
     savedViewsAvailable: boolean
     savedViewsLoadError: boolean
     savedViewsLoadMoreFailed: boolean
+    savedViewsLoaded: boolean
     savedViewsLoading: boolean
     savedViewsNextCursors: DashboardSavedViewCursors
 }
@@ -69,6 +70,9 @@ export interface dashboardSavedViewsLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
+    ensureSavedViewsLoaded: () => {
+        value: true
+    }
     loadMoreSavedViews: (scope: DashboardSavedViewScope) => {
         scope: DashboardSavedViewScope
     }
@@ -166,6 +170,7 @@ export const dashboardSavedViewsLogic = kea<dashboardSavedViewsLogicType>([
         actions: [featureFlagLogic, ['setFeatureFlags'], dashboardsLogic, ['setCurrentTab', 'setFilters', 'setSearch']],
     })),
     actions({
+        ensureSavedViewsLoaded: true,
         loadSavedViews: true,
         loadSavedViewsSuccess: (pages: DashboardSavedViewsPage[]) => ({ pages }),
         loadSavedViewsFailure: (message: string, errorObject: unknown) => ({ message, errorObject }),
@@ -220,6 +225,12 @@ export const dashboardSavedViewsLogic = kea<dashboardSavedViewsLogicType>([
                 loadSavedViewsSuccess: () => false,
             },
         ],
+        savedViewsLoaded: [
+            false,
+            {
+                loadSavedViewsSuccess: () => true,
+            },
+        ],
         savedViewsLoadMoreFailed: [
             false,
             {
@@ -264,6 +275,11 @@ export const dashboardSavedViewsLogic = kea<dashboardSavedViewsLogicType>([
         ],
     })),
     listeners(({ actions, props, values }) => ({
+        ensureSavedViewsLoaded: () => {
+            if (!values.savedViewsLoaded && !values.savedViewsLoading) {
+                actions.loadSavedViews()
+            }
+        },
         loadSavedViewsSuccess: ({ pages }) => {
             const views = pages.flatMap((page) => page.views)
             if (values.activeSavedViewId && views.some((view) => view.id === values.activeSavedViewId)) {
@@ -284,12 +300,11 @@ export const dashboardSavedViewsLogic = kea<dashboardSavedViewsLogicType>([
             }
         },
         setFeatureFlags: () => {
-            if (values.dashboardSavedViewsEnabled && !values.savedViewsLoading) {
+            if (values.dashboardSavedViewsEnabled) {
                 if (values.currentTab === DashboardsTab.Pinned) {
                     actions.setCurrentTab(DashboardsTab.All)
                     actions.setFilters({ pinned: true })
                 }
-                actions.loadSavedViews()
             }
         },
         loadSavedViews: async (_, breakpoint) => {
@@ -334,9 +349,4 @@ export const dashboardSavedViewsLogic = kea<dashboardSavedViewsLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values }) => {
-        if (values.dashboardSavedViewsEnabled) {
-            actions.loadSavedViews()
-        }
-    }),
 ])

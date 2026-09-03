@@ -127,6 +127,7 @@ export function DashboardSavedViews(): JSX.Element | null {
     } = useValues(savedViewsLogic)
     const {
         loadSavedViews,
+        ensureSavedViewsLoaded,
         loadMoreSavedViews,
         loadMoreSavedViewsSuccess,
         savedViewCreated,
@@ -418,6 +419,7 @@ export function DashboardSavedViews(): JSX.Element | null {
             }}
             onManageViews={manageSavedViews}
             onLoadMore={loadMoreSavedViews}
+            onOpen={ensureSavedViewsLoaded}
             onRetryLoad={loadSavedViews}
         />
     )
