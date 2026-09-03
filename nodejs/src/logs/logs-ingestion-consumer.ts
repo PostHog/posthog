@@ -35,7 +35,7 @@ import {
     bufferProcessingMode,
     processLogMessageBuffer,
 } from './log-record-avro'
-import type { CompiledMetricRule } from './metrics-rules/compile-metric-rules'
+import type { CompiledMetricRule, MetricRuleSource } from './metrics-rules/compile-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
@@ -339,6 +339,11 @@ export class LogsIngestionConsumer {
     // Billing identity for quota enforcement and usage metering; overridden by subclasses (e.g. traces).
     protected quotaResource: QuotaResource = 'logs_mb_ingested'
     protected appSource = 'logs'
+    // Record source this consumer tallies metric rules for. `appSource` is the
+    // billing/telemetry identity ('logs' | 'traces'); metric rules are tagged with the
+    // record source ('logs' | 'spans') instead, so map between the two explicitly
+    // rather than comparing across vocabularies. TracesIngestionConsumer overrides to 'spans'.
+    protected metricRuleSource: MetricRuleSource = 'logs'
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
@@ -807,7 +812,7 @@ export class LogsIngestionConsumer {
                 const all = await this.deps.metricRulesCache!.getCompiledRules(message.teamId)
                 // Each consumer tallies only its own record source: the logs consumer runs
                 // `logs` rules, the traces consumer runs `spans` rules.
-                rules = all.filter((r) => r.source === this.appSource)
+                rules = all.filter((r) => r.source === this.metricRuleSource)
             } catch (error) {
                 // Fail open: metric rules are a purely additive side feature, so a rules-fetch
                 // failure (e.g. a Postgres blip) must never DLQ or block the log records —

@@ -183,8 +183,9 @@ export function getDefaultTracesIngestionConsumerConfig(): TracesIngestionConsum
         TRACES_LIMITER_TTL_SECONDS: 60 * 60 * 24,
         TRACES_LIMITER_TEAM_BUCKET_SIZE_KB: '',
         TRACES_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
-        // Span metric rules default off everywhere until explicitly enabled per team.
-        TRACES_METRICS_RULES_ENABLED_TEAMS: '',
+        // Mirror the logs default: enabled for all teams on the dev stack so a span rule
+        // works out of the box locally, off in prod until explicitly enabled per team.
+        TRACES_METRICS_RULES_ENABLED_TEAMS: isProdEnv() ? '' : '*',
         TRACES_METRICS_RULES_KILLSWITCH: false,
         TRACES_METRICS_RULES_EXPORT_URL: '',
         // Overlapping fields with CommonConfig, included for standalone usage

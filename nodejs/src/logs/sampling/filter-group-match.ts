@@ -103,15 +103,20 @@ function lookupRecordValue(filter: PropertyFilterLeaf, record: LogRecord): strin
         return record.body ?? undefined
     }
 
-    // Span top-level keys (traces consumer decodes spans through the same Avro path,
-    // so these arrive on the record). Resolved before the attribute-type branches so a
-    // `span_attribute`-typed filter on `status_code` / `name` reads the column, not a map.
-    if (key === 'status_code') {
-        const code = (record as { status_code?: number | null }).status_code
-        return code == null ? undefined : String(code)
-    }
-    if (key === 'name') {
-        return (record as { name?: string | null }).name ?? undefined
+    // Span top-level keys (traces consumer decodes spans through the same Avro path, so
+    // these arrive on the record). Restricted to `span_attribute`-typed filters: a
+    // `log_attribute` filter named `status_code` / `name` must keep resolving through the
+    // attribute map, or an existing log drop/sampling rule would read the absent span
+    // column and silently stop matching. Falls back to the attribute map for spans whose
+    // column is unset, mirroring the service_name / severity_text handling above.
+    if (filter.type === PROPERTY_FILTER_TYPE_SPAN_ATTRIBUTE) {
+        if (key === 'status_code') {
+            const code = (record as { status_code?: number | null }).status_code
+            return code == null ? decodedAttr(record.attributes, key) : String(code)
+        }
+        if (key === 'name') {
+            return (record as { name?: string | null }).name ?? decodedAttr(record.attributes, key)
+        }
     }
 
     if (filter.type === PROPERTY_FILTER_TYPE_LOG_RESOURCE_ATTRIBUTE) {

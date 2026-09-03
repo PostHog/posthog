@@ -1,5 +1,6 @@
 import { parseFilterGroup } from '../sampling/compile-rules'
 import type { FilterGroupNode } from '../sampling/filter-group-match'
+import { SPAN_VALUE_DURATION_MS } from './tally'
 
 /** Mirrors `MAX_METRIC_RULE_GROUP_BY_KEYS` in `products/logs/backend/models.py`. */
 export const MAX_GROUP_BY_KEYS = 5
@@ -9,6 +10,9 @@ export type MetricRuleSource = 'logs' | 'spans'
 
 /** Top-level keys usable as span group-by dimensions (log-only keys like severity_text excluded). */
 export const SPAN_GROUP_BY_TOP_LEVEL_KEYS = new Set(['service_name', 'name', 'status_code'])
+
+/** Top-level keys usable as log group-by dimensions (span-only keys like name/status_code excluded). */
+export const LOG_GROUP_BY_TOP_LEVEL_KEYS = new Set(['service_name', 'severity_text', 'event_name'])
 
 /** Raw row shape from `logs_logsmetricrule` (see `MetricRulesCache.fetchRules`). */
 export type MetricRuleRow = {
@@ -54,6 +58,8 @@ export function compileMetricRules(rows: MetricRuleRow[]): CompiledMetricRule[] 
         const groupBy = Array.isArray(row.group_by)
             ? row.group_by.filter((k): k is string => typeof k === 'string' && k !== '').slice(0, MAX_GROUP_BY_KEYS)
             : []
+        const valueAttribute =
+            typeof row.value_attribute === 'string' && row.value_attribute !== '' ? row.value_attribute : null
         if (source === 'spans') {
             // Fail closed: a span rule carrying a log-only top-level key would silently emit
             // empty-label series, so drop the rule instead of tallying garbage.
@@ -66,14 +72,33 @@ export function compileMetricRules(rows: MetricRuleRow[]): CompiledMetricRule[] 
             if (hasLogOnlyKey) {
                 continue
             }
+        } else {
+            // Mirror for log rules: span-only top-level keys (`name`, `status_code`) have no
+            // log column, so a log rule grouping by them would collapse every record onto an
+            // empty-label series. Attribute-map keys stay valid for either source.
+            const hasSpanOnlyKey = groupBy.some(
+                (k) =>
+                    !LOG_GROUP_BY_TOP_LEVEL_KEYS.has(k) &&
+                    !k.startsWith('attributes.') &&
+                    !k.startsWith('resource_attributes.')
+            )
+            if (hasSpanOnlyKey) {
+                continue
+            }
+            // `duration_ms` is a span pseudo-key (end_time - timestamp); a log record has no
+            // end_time, so the serializer rejects it — but anything written without the
+            // serializer (data migration, fixture) would otherwise take the span branch in
+            // tally. Skip it here too, matching the group-by handling.
+            if (valueAttribute === SPAN_VALUE_DURATION_MS) {
+                continue
+            }
         }
         out.push({
             id: row.id,
             metricName: row.metric_name,
             source,
             filterGroup,
-            valueAttribute:
-                typeof row.value_attribute === 'string' && row.value_attribute !== '' ? row.value_attribute : null,
+            valueAttribute,
             groupBy,
         })
     }

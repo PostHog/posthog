@@ -182,6 +182,48 @@ describe('matchFilterGroup', () => {
             const g = group({ values: [{ key: 'http.route', operator: 'exact', value: '/healthz' }] })
             expect(matchFilterGroup(g, baseRecord())).toBe(false)
         })
+
+        // Regression for the span top-level branches in lookupRecordValue: they must be
+        // gated on `span_attribute` so an existing `log_attribute` rule keyed `status_code`
+        // / `name` keeps resolving through the attribute map instead of reading the absent
+        // span column and silently stopping.
+        it('log_attribute status_code reads the attribute map, not the absent span column', () => {
+            const g = group({ values: [{ key: 'status_code', type: 'log_attribute', operator: 'exact', value: '500' }] })
+            expect(matchFilterGroup(g, baseRecord({ attributes: { status_code: '500' } }))).toBe(true)
+            expect(matchFilterGroup(g, baseRecord({ attributes: { status_code: '200' } }))).toBe(false)
+        })
+        it('log_attribute name reads the attribute map, not the absent span column', () => {
+            const g = group({ values: [{ key: 'name', type: 'log_attribute', operator: 'exact', value: 'api' }] })
+            expect(matchFilterGroup(g, baseRecord({ attributes: { name: 'api' } }))).toBe(true)
+            expect(matchFilterGroup(g, baseRecord({ attributes: { name: 'other' } }))).toBe(false)
+        })
+        it('span_attribute status_code reads the span column', () => {
+            const g = group({ values: [{ key: 'status_code', type: 'span_attribute', operator: 'exact', value: '2' }] })
+            const span = baseRecord({ attributes: { status_code: '9' } }) as LogRecord & { status_code: number }
+            span.status_code = 2
+            expect(matchFilterGroup(g, span)).toBe(true)
+            const okSpan = baseRecord({}) as LogRecord & { status_code: number }
+            okSpan.status_code = 1
+            expect(matchFilterGroup(g, okSpan)).toBe(false)
+        })
+        it('span_attribute status_code falls back to the attribute map when the column is unset', () => {
+            const g = group({ values: [{ key: 'status_code', type: 'span_attribute', operator: 'exact', value: '2' }] })
+            // Span record whose status_code column is unset but the attribute is present.
+            expect(matchFilterGroup(g, baseRecord({ attributes: { status_code: '2' } }))).toBe(true)
+        })
+        it('span_attribute name reads the span column', () => {
+            const g = group({ values: [{ key: 'name', type: 'span_attribute', operator: 'exact', value: 'GET /x' }] })
+            const span = baseRecord({}) as LogRecord & { name: string }
+            span.name = 'GET /x'
+            expect(matchFilterGroup(g, span)).toBe(true)
+            const other = baseRecord({}) as LogRecord & { name: string }
+            other.name = 'POST /y'
+            expect(matchFilterGroup(g, other)).toBe(false)
+        })
+        it('span_attribute name falls back to the attribute map when the column is unset', () => {
+            const g = group({ values: [{ key: 'name', type: 'span_attribute', operator: 'exact', value: 'GET /x' }] })
+            expect(matchFilterGroup(g, baseRecord({ attributes: { name: 'GET /x' } }))).toBe(true)
+        })
     })
 
     describe('wire-encoded attribute values', () => {
