@@ -2,12 +2,13 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
+import { ExperimentMetricForm } from 'scenes/experiments/ExperimentMetricForm'
+import { exposureCriteriaModalLogic } from 'scenes/experiments/ExperimentView/exposureCriteriaModalLogic'
+import { resolvedExposureEvent } from 'scenes/experiments/exposureContract'
+
 import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
-import { ExperimentMetricForm } from '../ExperimentMetricForm'
-import { exposureCriteriaModalLogic } from '../ExperimentView/exposureCriteriaModalLogic'
-import { resolvedExposureEvent } from '../exposureContract'
 import { type MetricContext, experimentMetricModalLogic } from './experimentMetricModalLogic'
 
 export function ExperimentMetricModal({

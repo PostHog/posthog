@@ -8,6 +8,8 @@ import { urls } from 'scenes/urls'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
 
+import { MetricContext } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+
 import { MetricConversionWindow } from '../ExperimentForm/MetricsPanel/MetricConversionWindow'
 import { MetricEventDetails } from '../ExperimentForm/MetricsPanel/MetricEventDetails'
 import { MetricGoal } from '../ExperimentForm/MetricsPanel/MetricGoal'
@@ -15,7 +17,6 @@ import { MetricOutlierHandling } from '../ExperimentForm/MetricsPanel/MetricOutl
 import { MetricStepOrder } from '../ExperimentForm/MetricsPanel/MetricStepOrder'
 import { MetricTypeTag } from '../MetricsView/shared/MetricTypeTag'
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
-import { MetricContext } from './experimentMetricModalLogic'
 import { sharedMetricDetailsModalLogic } from './sharedMetricDetailsModalLogic'
 
 function MetricSummary({ metric }: { metric: ExperimentMetric }): JSX.Element | null {
