@@ -1,6 +1,8 @@
 import {
   buildPriorityFilterParam,
   buildSuggestedReviewerFilterParam,
+  INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
+  INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
 } from "@posthog/core/inbox/reportFiltering";
 import {
   INBOX_SCOPE_FOR_YOU,
@@ -12,55 +14,74 @@ import { useInboxReports } from "@posthog/ui/features/inbox/hooks/useInboxReport
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 
-const EMPTY_FILTER_ARRAY: never[] = [];
-
 /**
- * The navigation badge needs only the ready-report count. Keeping it separate
- * from `useInboxSectionCounts` avoids polling the other two section counts on
- * every route.
+ * The navigation badge counts the active report groups selected in the Inbox.
+ * Keeping it separate from `useInboxSectionCounts` avoids polling terminal
+ * section counts on every route.
  */
-export function useInboxDecisionCount(options?: {
-  enabled?: boolean;
-  ignoreFilters?: boolean;
-}): number {
+export function useInboxDecisionCount(options?: { enabled?: boolean }): number {
   const enabled = options?.enabled ?? true;
-  const ignoreFilters = options?.ignoreFilters ?? false;
   const scope = useInboxReviewerScopeStore((state) => state.scope);
-  const sourceProductFilter = useInboxSignalsFilterStore((state) =>
-    ignoreFilters ? EMPTY_FILTER_ARRAY : state.sourceProductFilter,
+  const priorityFilter = useInboxSignalsFilterStore(
+    (state) => state.priorityFilter,
   );
-  const priorityFilter = useInboxSignalsFilterStore((state) =>
-    ignoreFilters ? EMPTY_FILTER_ARRAY : state.priorityFilter,
+  const reportStateFilter = useInboxSignalsFilterStore(
+    (state) => state.reportStateFilter,
   );
+  const showAllStates = reportStateFilter.length === 0;
+  const showReviewAndMerge =
+    showAllStates || reportStateFilter.includes("review_and_merge");
+  const showNeedsDecision =
+    showAllStates || reportStateFilter.includes("needs_decision");
+  const shouldCount = enabled && (showReviewAndMerge || showNeedsDecision);
   const isForYou = scope === INBOX_SCOPE_FOR_YOU;
   const teammateUuid = parseTeammateInboxScope(scope);
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({
     client,
-    enabled: enabled && isForYou && teammateUuid === null,
+    enabled: shouldCount && isForYou && teammateUuid === null,
   });
   const reviewerUuid =
     teammateUuid ?? (isForYou ? (currentUser?.uuid ?? null) : null);
   const scopeReady = !isForYou || reviewerUuid !== null;
-  const query = useInboxReports(
+  const sharedFilters = {
+    priority: buildPriorityFilterParam(priorityFilter),
+    suggested_reviewers: reviewerUuid
+      ? buildSuggestedReviewerFilterParam([reviewerUuid])
+      : undefined,
+    count_only: true,
+  };
+  const queryOptions = {
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+  };
+  const reviewAndMergeQuery = useInboxReports(
     {
+      ...sharedFilters,
       status: "ready",
-      source_product:
-        sourceProductFilter.length > 0
-          ? sourceProductFilter.join(",")
-          : undefined,
-      priority: buildPriorityFilterParam(priorityFilter),
-      suggested_reviewers: reviewerUuid
-        ? buildSuggestedReviewerFilterParam([reviewerUuid])
-        : undefined,
-      count_only: true,
+      has_implementation_pr: true,
     },
     {
-      enabled: enabled && scopeReady,
-      refetchInterval: 60_000,
-      refetchIntervalInBackground: false,
+      ...queryOptions,
+      enabled: shouldCount && showReviewAndMerge && scopeReady,
+    },
+  );
+  const needsDecisionQuery = useInboxReports(
+    {
+      ...sharedFilters,
+      status: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
+      actionability: INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
+      has_implementation_pr: false,
+    },
+    {
+      ...queryOptions,
+      enabled: shouldCount && showNeedsDecision && scopeReady,
     },
   );
 
-  return enabled ? (query.data?.count ?? 0) : 0;
+  if (!shouldCount) return 0;
+  return (
+    (reviewAndMergeQuery.data?.count ?? 0) +
+    (needsDecisionQuery.data?.count ?? 0)
+  );
 }

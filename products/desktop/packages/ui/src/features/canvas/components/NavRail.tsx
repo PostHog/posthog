@@ -213,7 +213,6 @@ function NavRailImpl() {
   const inboxVisible = destinations.some(({ pane }) => pane === "inbox");
   const inboxDecisionCount = useInboxDecisionCount({
     enabled: inboxVisible,
-    ignoreFilters: true,
   });
   const { unreadCount: unseenActivity } = useTaskActivity({
     enabled: mentionsEnabled,
