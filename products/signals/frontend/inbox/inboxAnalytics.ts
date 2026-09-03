@@ -173,6 +173,7 @@ export type ScoutActionType =
     | 'copy_finding_link'
     | 'open_task_run'
     | 'open_linked_report'
+    | 'open_create_modal'
     | 'create_scout'
     | 'delete_scout'
     | 'open_memory'
