@@ -6,7 +6,6 @@ import { PluginEvent, Properties } from '~/plugin-scaffold'
 import {
     CostModelResult,
     CostModelSource,
-    applyServiceTierModelName,
     findCostFromModel,
     getNewModelName,
     requireSpecialCost,
@@ -279,8 +278,6 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
     if (requireSpecialCost(parsedModel)) {
         parsedModel = getNewModelName(parsedModel, event.properties['$ai_input_tokens'])
     }
-
-    parsedModel = applyServiceTierModelName(parsedModel, event.properties['$ai_service_tier'])
 
     const costResult: CostModelResult | undefined = findCostFromModel(parsedModel, event.properties)
 

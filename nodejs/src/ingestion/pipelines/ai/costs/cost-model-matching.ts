@@ -3,7 +3,7 @@ import { Properties } from '~/plugin-scaffold'
 
 import { resolveModelCostForProvider, resolveProviderAliases } from './provider-matching'
 import { manualCostsByModel, openRouterCostsByModel } from './providers'
-import type { ModelCostRow, ResolvedModelCost } from './providers/types'
+import type { ModelCostByProvider, ModelCostRow, ResolvedModelCost } from './providers/types'
 
 // Work around for new gemini models that require special cost calculations
 const SPECIAL_COST_MODELS = ['gemini-2.5-pro-preview']
@@ -71,17 +71,43 @@ const resolveBedrockInferenceProfileProvider = (
     return regionalProviders.length === 1 ? regionalProviders[0] : provider
 }
 
+/**
+ * The OpenRouter sync lands service-tier pricing as `<provider>-flex` cost keys on the base
+ * model row, so a flex event resolves that key first and falls back to the provider's standard
+ * rates when the model has no flex pricing. Other service_tier values ("auto", "default",
+ * "priority"/"fast") have no dedicated keys and price as standard.
+ */
+const resolveTieredModelCost = (
+    providerCosts: ModelCostByProvider,
+    provider: string | undefined,
+    serviceTier: unknown,
+    model: string
+): ResolvedModelCost | undefined => {
+    if (serviceTier === 'flex' && provider) {
+        const flexKey = `${resolveProviderAliases(provider)}-flex`
+        const flexCost = providerCosts[flexKey]
+
+        if (flexCost) {
+            return { model, provider: flexKey, cost: flexCost }
+        }
+    }
+
+    return resolveModelCostForProvider(providerCosts, provider, model)
+}
+
 export const findCostFromModel = (model: string, properties: Properties): CostModelResult | undefined => {
     const providerProperty: unknown = properties['$ai_provider']
+    const serviceTier: unknown = properties['$ai_service_tier']
 
     const provider: string | undefined = providerProperty ? String(providerProperty).toLowerCase() : undefined
 
     const manualMatch: ModelCostRow | undefined = findManualCost(model)
 
     const resolvedManualMatch: ResolvedModelCost | undefined = manualMatch
-        ? resolveModelCostForProvider(
+        ? resolveTieredModelCost(
               manualMatch.cost,
               resolveBedrockInferenceProfileProvider(model, manualMatch.cost, provider),
+              serviceTier,
               manualMatch.model
           )
         : undefined
@@ -93,9 +119,10 @@ export const findCostFromModel = (model: string, properties: Properties): CostMo
     const openRouterMatch: ModelCostRow | undefined = searchModelInCosts(model, openRouterCostsByModel)
 
     const resolvedOpenRouterMatch: ResolvedModelCost | undefined = openRouterMatch
-        ? resolveModelCostForProvider(
+        ? resolveTieredModelCost(
               openRouterMatch.cost,
               resolveBedrockInferenceProfileProvider(model, openRouterMatch.cost, provider),
+              serviceTier,
               openRouterMatch.model
           )
         : undefined
@@ -190,20 +217,6 @@ export const requireSpecialCost = (aiModel: string): boolean => {
     const lowerAiModel = aiModel.toLowerCase()
 
     return SPECIAL_COST_MODELS.some((model) => lowerAiModel.includes(model.toLowerCase()))
-}
-
-/**
- * OpenAI's flex service tier bills the same call at its own (currently half) rates, stored as
- * `<model>:flex` rows. When no flex row exists, the longest-contained-name match falls back to
- * the standard row, so an unknown tier can never break pricing. Other service_tier values
- * ("auto", "default", "priority"/"fast") have no dedicated rows yet and price as standard.
- */
-export function applyServiceTierModelName(model: string, serviceTier: unknown): string {
-    if (serviceTier === 'flex') {
-        return `${model}:flex`
-    }
-
-    return model
 }
 
 export function getNewModelName(model: string, inputTokens: unknown): string {
