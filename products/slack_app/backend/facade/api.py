@@ -13,8 +13,13 @@ without breaking their callers.
 
 from __future__ import annotations
 
+from posthog.helpers.slack_scopes import has_scopes
+from posthog.models.integration import Integration
+
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
+
+_SLACK_CANVAS_FILE_ADAPTER_SCOPES = frozenset({"canvases:write", "files:write"})
 
 
 def invalidate_slack_integration_auth_state(integration_id: int) -> None:
@@ -35,3 +40,9 @@ def slack_channel_is_approved(slack_workspace_id: str, slack_channel_id: str) ->
     flag Slack puts on the event envelope and skip this lookup when it is false.
     """
     return SlackChannel.approval_granted(slack_workspace_id, slack_channel_id)
+
+
+def slack_artifact_delivery_state_updates(integration: Integration) -> dict[str, str | bool]:
+    """State that tells a task agent which Slack artifact adapters can deliver."""
+    mode = "canvas_file" if has_scopes(integration, _SLACK_CANVAS_FILE_ADAPTER_SCOPES) else "message"
+    return {"slack_artifact_delivery": mode, "slack_chart_delivery": True}
