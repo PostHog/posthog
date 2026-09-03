@@ -1,4 +1,5 @@
 import type { LocalTool, LocalToolCtx, LocalToolGateMeta } from "./registry";
+import { canvasV2Tools } from "./tools/canvas-v2";
 import { cloneRepoTool } from "./tools/clone-repo";
 import { finishTool } from "./tools/finish";
 import { ghStackTool } from "./tools/gh-stack";
@@ -36,6 +37,7 @@ export const LOCAL_TOOLS: LocalTool[] = [
   finishTool,
   listAgentsTool,
   sendAgentMessageTool,
+  ...canvasV2Tools,
 ];
 
 /** Tools whose gate passes for the given context — the set to actually expose. */

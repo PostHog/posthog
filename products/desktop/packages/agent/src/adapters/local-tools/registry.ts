@@ -21,6 +21,8 @@ export interface LocalToolCtx {
    * back to origin/HEAD detection when unset.
    */
   baseBranch?: string;
+  /** Canvases v2 board this session edits; the canvas tools read its cache file. */
+  canvasBoardId?: string;
   /**
    * Marks this run terminal and lets the workflow tear the sandbox down. Set by
    * the adapter for cloud runs that own a sandbox; absent for local sessions.
@@ -40,6 +42,8 @@ export interface LocalToolGateMeta {
   channelMode?: boolean;
   /** Spoken narration is on for this session: enables the speak tool. */
   spokenNarration?: boolean;
+  /** Canvases v2 board this session edits: enables the canvas_* tools. */
+  canvasBoardId?: string;
   /**
    * Unattended run (no human driving turns): enables the `finish` tool so the
    * agent can end its own run. False/undefined for interactive runs, which a

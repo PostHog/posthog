@@ -504,6 +504,8 @@ export interface SessionServiceDeps {
     claudeModelAccess?: ModelAccess;
   };
   usageLimit: { show: (...args: any[]) => any };
+  /** Canvases v2 board a task's session edits, when the person linked one. */
+  canvasBoardIdForTask?: (taskId: string) => string | undefined;
   readonly addDirectoryDialog: { open: boolean };
   taskViewedApi: { markActivity(taskId: string): void };
   queryClient: {
@@ -2306,6 +2308,7 @@ export class SessionService {
         codexModelAccess,
         claudeModelAccess: settingsClaudeModelAccess,
         spokenNarration: spokenNarrationEnabled === true,
+        canvasBoardId: this.d.canvasBoardIdForTask?.(taskId),
         bedrockGatewayVariant,
         apiHost: auth.apiHost,
         projectId: auth.projectId,
@@ -2678,6 +2681,7 @@ export class SessionService {
       customInstructions: startCustomInstructions || undefined,
       rtkEnabled: rtkEnabledLocal,
       spokenNarration: spokenNarrationEnabled === true,
+      canvasBoardId: this.d.canvasBoardIdForTask?.(taskId),
       bedrockGatewayVariant,
       effort: effortLevelSchema.safeParse(reasoningLevel).success
         ? (reasoningLevel as EffortLevel)

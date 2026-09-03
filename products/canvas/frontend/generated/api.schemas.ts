@@ -8,6 +8,295 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * A board as listed, without its contents.
+ */
+export interface CanvasBoardSummaryApi {
+    /** Id of the board. */
+    readonly id: string
+    /** Display name of the board. */
+    readonly name: string
+    /** When the board was created. */
+    readonly created_at: string
+    /** When the board or its log last changed. */
+    readonly updated_at: string
+    /** Seq of the newest op in the board's log. */
+    readonly head_seq: number
+    /** Number of fragments in the stored snapshot. */
+    readonly fragment_count: number
+}
+
+export interface PaginatedCanvasBoardSummaryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CanvasBoardSummaryApi[]
+}
+
+/**
+ * Payload for creating or renaming a board.
+ */
+export interface CanvasBoardWriteApi {
+    /**
+     * Display name of the board.
+     * @maxLength 120
+     */
+    name: string
+}
+
+export type CanvasBoardApiSnapshotFragmentsItem = { [key: string]: unknown }
+
+export type CanvasBoardApiSnapshotState = { [key: string]: unknown }
+
+/**
+ * Newest folded board the server holds.
+ */
+export type CanvasBoardApiSnapshot = {
+    readonly schemaVersion: number
+    readonly fragments: CanvasBoardApiSnapshotFragmentsItem[]
+    readonly state: CanvasBoardApiSnapshotState
+}
+
+/**
+ * * `user` - User
+ * * `agent` - Agent
+ */
+export type CanvasBoardActorKindEnumApi = (typeof CanvasBoardActorKindEnumApi)[keyof typeof CanvasBoardActorKindEnumApi]
+
+export const CanvasBoardActorKindEnumApi = {
+    User: 'user',
+    Agent: 'agent',
+} as const
+
+/**
+ * The person who created a board.
+ */
+export interface CanvasBoardCreatorApi {
+    /** Always user for a creator.
+     *
+     * * `user` - User
+     * * `agent` - Agent */
+    kind: CanvasBoardActorKindEnumApi
+    /**
+     * Id of the user, or null when the account is gone.
+     * @nullable
+     */
+    user_id: number | null
+    /**
+     * First name of the user, else their email.
+     * @nullable
+     */
+    user_name: string | null
+}
+
+/**
+ * Who recorded an op: the signed-in user, or an agent acting for them.
+ */
+export interface CanvasBoardActorApi {
+    /** Always user for a creator.
+     *
+     * * `user` - User
+     * * `agent` - Agent */
+    kind: CanvasBoardActorKindEnumApi
+    /**
+     * Id of the user, or null when the account is gone.
+     * @nullable
+     */
+    user_id: number | null
+    /**
+     * First name of the user, else their email.
+     * @nullable
+     */
+    user_name: string | null
+    /**
+     * Id of the agent task that made the change, or null.
+     * @nullable
+     */
+    task_id: string | null
+}
+
+export type CanvasBoardLogEntryApiOpType =
+    (typeof CanvasBoardLogEntryApiOpType)[keyof typeof CanvasBoardLogEntryApiOpType]
+
+export const CanvasBoardLogEntryApiOpType = {
+    AddFragment: 'add_fragment',
+    UpdateFragment: 'update_fragment',
+    RemoveFragment: 'remove_fragment',
+    BringToFront: 'bring_to_front',
+    SetState: 'set_state',
+    Restore: 'restore',
+} as const
+
+/**
+ * The op itself.
+ */
+export type CanvasBoardLogEntryApiOp = {
+    readonly type: CanvasBoardLogEntryApiOpType
+    [key: string]: unknown
+}
+
+/**
+ * One recorded op on a board.
+ */
+export interface CanvasBoardLogEntryApi {
+    /** Position in the board's log, starting at 1. */
+    readonly seq: number
+    /** Id the client chose for the op. */
+    readonly op_id: string
+    /** Who recorded the op. */
+    readonly actor: CanvasBoardActorApi
+    /** When the server recorded the op. */
+    readonly created_at: string
+    /** The op itself. */
+    readonly op: CanvasBoardLogEntryApiOp
+}
+
+/**
+ * A board with its stored snapshot and the ops recorded after it.
+ */
+export interface CanvasBoardApi {
+    /** Id of the board. */
+    readonly id: string
+    /** Display name of the board. */
+    readonly name: string
+    /** When the board was created. */
+    readonly created_at: string
+    /** When the board or its log last changed. */
+    readonly updated_at: string
+    /** Who created the board, or null. */
+    readonly created_by: CanvasBoardCreatorApi | null
+    /** Seq of the newest op in the board's log. */
+    readonly head_seq: number
+    /** Newest folded board the server holds. */
+    readonly snapshot: CanvasBoardApiSnapshot
+    /** Seq the snapshot reflects. */
+    readonly snapshot_seq: number
+    /** Ops with seq greater than snapshot_seq, ascending, at most 2000. Page with ops/ for the rest. */
+    readonly ops_after_snapshot: readonly CanvasBoardLogEntryApi[]
+}
+
+/**
+ * Payload for creating or renaming a board.
+ */
+export interface PatchedCanvasBoardWriteApi {
+    /**
+     * Display name of the board.
+     * @maxLength 120
+     */
+    name?: string
+}
+
+/**
+ * One page of a board's log.
+ */
+export interface CanvasBoardOpsPageApi {
+    /** Ops in ascending seq order. */
+    results: CanvasBoardLogEntryApi[]
+    /** Seq of the newest op in the board's log. */
+    head_seq: number
+}
+
+/**
+ * Folded board at base_seq plus these ops, or null to send none.
+ * @nullable
+ */
+export type CanvasBoardAppendOpsApiSnapshot = {
+    schemaVersion: number
+    fragments: { [key: string]: unknown }[]
+    state: { [key: string]: unknown }
+} | null
+
+export type CanvasBoardOpDraftApiOpType = (typeof CanvasBoardOpDraftApiOpType)[keyof typeof CanvasBoardOpDraftApiOpType]
+
+export const CanvasBoardOpDraftApiOpType = {
+    AddFragment: 'add_fragment',
+    UpdateFragment: 'update_fragment',
+    RemoveFragment: 'remove_fragment',
+    BringToFront: 'bring_to_front',
+    SetState: 'set_state',
+    Restore: 'restore',
+} as const
+
+/**
+ * The op. Capped at 256 KB serialized.
+ */
+export type CanvasBoardOpDraftApiOp = {
+    type: CanvasBoardOpDraftApiOpType
+    [key: string]: unknown
+}
+
+/**
+ * One op the client wants recorded.
+ */
+export interface CanvasBoardOpDraftApi {
+    /**
+     * Client-chosen id, unique per board. Resending the same id records nothing new.
+     * @maxLength 64
+     */
+    op_id: string
+    /** The op. Capped at 256 KB serialized. */
+    op: CanvasBoardOpDraftApiOp
+}
+
+/**
+ * Who the client says is making the change. The user is always the caller.
+ */
+export interface CanvasBoardActorInputApi {
+    /** user for a direct edit, agent for a change made by an agent.
+     *
+     * * `user` - User
+     * * `agent` - Agent */
+    kind: CanvasBoardActorKindEnumApi
+    /**
+     * Id of the agent task making the change, if any.
+     * @maxLength 64
+     * @nullable
+     */
+    task_id?: string | null
+}
+
+/**
+ * Payload for appending ops to a board's log, with an optional checkpoint snapshot.
+ */
+export interface CanvasBoardAppendOpsApi {
+    /** Ops to record, in order. May be empty to send only a snapshot. */
+    ops: CanvasBoardOpDraftApi[]
+    /** Who is making the change. */
+    actor: CanvasBoardActorInputApi
+    /**
+     * head_seq the client had folded up to. The snapshot is stored only when it matches.
+     * @minimum 0
+     */
+    base_seq: number
+    /**
+     * Folded board at base_seq plus these ops, or null to send none.
+     * @nullable
+     */
+    snapshot?: CanvasBoardAppendOpsApiSnapshot
+}
+
+/**
+ * Where one submitted op landed in the log.
+ */
+export interface CanvasBoardAppendedOpApi {
+    /** The op_id the client sent. */
+    op_id: string
+    /** Seq assigned to the op, or its existing seq when already recorded. */
+    seq: number
+}
+
+/**
+ * Result of appending ops.
+ */
+export interface CanvasBoardAppendResultApi {
+    /** One entry per submitted op, in order. */
+    results: CanvasBoardAppendedOpApi[]
+    /** Seq of the newest op after this append. */
+    head_seq: number
+}
+
+/**
  * * `freeform` - freeform
  * * `grid` - grid
  * * `component` - component
@@ -1397,6 +1686,31 @@ export interface CanvasActionDefinitionApi {
 export interface CanvasActionsResponseApi {
     /** Registered verbs, sorted by name. */
     actions: CanvasActionDefinitionApi[]
+}
+
+export type CanvasBoardsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CanvasBoardsOpsRetrieveParams = {
+    /**
+     * Page size, at most 1000. Defaults to 500.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Return ops with seq greater than this. Defaults to 0.
+     * @minimum 0
+     */
+    since?: number
 }
 
 export type CanvasesListParams = {

@@ -1,0 +1,135 @@
+// Line chart of one event per day, from a HogQL group by day over the shared
+// date range. Change EVENT and LABEL for a different series.
+import { ph, useSharedState } from "@posthog/canvas-sdk";
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Skeleton,
+} from "@posthog/quill";
+import { useEffect, useState } from "react";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+
+const LABEL = "Pageviews per day";
+const EVENT = "$pageview";
+const DEFAULT_RANGE = { date_from: "-7d", date_to: null };
+const UNITS = { h: "HOUR", d: "DAY", w: "WEEK", m: "MONTH" };
+
+// Turns a PostHog relative date such as "-7d" into a HogQL time bound.
+function sinceClause(range) {
+  const match = /^-(\d+)([hdwm])$/.exec(range?.date_from ?? "-7d");
+  if (!match) {
+    return "now() - INTERVAL 7 DAY";
+  }
+  return `now() - INTERVAL ${Number(match[1])} ${UNITS[match[2]] ?? "DAY"}`;
+}
+
+export default function TrendChart({ label = LABEL, event = EVENT }) {
+  const [range] = useSharedState("dateRange", DEFAULT_RANGE);
+  const [state, setState] = useState({ loading: true, error: null, rows: [] });
+  const [nonce, setNonce] = useState(0);
+  const since = sinceClause(range);
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ loading: true, error: null, rows: [] });
+    ph.query(
+      `SELECT toStartOfDay(timestamp) AS day, count() AS value
+       FROM events
+       WHERE event = '${event}' AND timestamp >= ${since} AND timestamp < now()
+       GROUP BY day
+       ORDER BY day`,
+    )
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        const rows = (result?.results ?? []).map((row) => ({
+          day: String(row?.[0] ?? "").slice(0, 10),
+          value: Number(row?.[1] ?? 0),
+        }));
+        setState({ loading: false, error: null, rows });
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        setState({
+          loading: false,
+          error: String(error?.message ?? error),
+          rows: [],
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [event, since, nonce]);
+
+  const empty = !state.loading && !state.error && state.rows.length === 0;
+
+  return (
+    <Card size="sm" className="flex h-full flex-col">
+      <CardHeader>
+        <CardTitle>{label}</CardTitle>
+      </CardHeader>
+      <CardContent className="min-h-0 flex-1">
+        {state.loading ? <Skeleton className="h-full w-full" /> : null}
+        {state.error ? (
+          <div className="flex flex-col items-start gap-2">
+            <p className="text-sm text-destructive-foreground">
+              This chart did not load. {state.error}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setNonce((value) => value + 1)}
+            >
+              Try again
+            </Button>
+          </div>
+        ) : null}
+        {empty ? (
+          <p className="text-sm text-muted-foreground">
+            No events in this date range.
+          </p>
+        ) : null}
+        {!state.loading && !state.error && state.rows.length > 0 ? (
+          <div className="h-full w-full">
+            <ResponsiveContainer>
+              <LineChart data={state.rows}>
+                <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="day"
+                  stroke="var(--muted-foreground)"
+                  tick={{ fontSize: 11 }}
+                />
+                <YAxis
+                  stroke="var(--muted-foreground)"
+                  tick={{ fontSize: 11 }}
+                />
+                <Tooltip />
+                <Line
+                  type="monotone"
+                  dataKey="value"
+                  stroke="var(--primary)"
+                  strokeWidth={2}
+                  dot={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}

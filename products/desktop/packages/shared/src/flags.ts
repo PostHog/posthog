@@ -117,3 +117,8 @@ export const CUSTOM_IMAGES_FEATURE_FLAG =
 export const PI_HARNESS_FLAG = featureFlagKeys.PI_HARNESS_FLAG;
 export const TWIG_CLOUD_MODE_FLAG = featureFlagKeys.TWIG_CLOUD_MODE_FLAG;
 export const USER_SPEND_LIMIT_FLAG = featureFlagKeys.USER_SPEND_LIMIT_FLAG;
+/**
+ * Gates Canvases v2: the rail destination, the board list and the board
+ * itself. Dev builds default it on (see useCanvasesV2Flag).
+ */
+export const CANVASES_V2_FLAG = "posthog-desktop-canvases-v2";

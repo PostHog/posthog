@@ -1,0 +1,50 @@
+// Date range control for the board. It writes the shared "dateRange" key, and
+// every data fragment on the board reads that key and queries again.
+import { useSharedState } from "@posthog/canvas-sdk";
+import {
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@posthog/quill";
+
+const DEFAULT_RANGE = { date_from: "-7d", date_to: null };
+
+const PRESETS = [
+  { value: "-24h", label: "Last 24 hours" },
+  { value: "-7d", label: "Last 7 days" },
+  { value: "-30d", label: "Last 30 days" },
+  { value: "-90d", label: "Last 90 days" },
+];
+
+export default function DateRangePicker() {
+  const [range, setRange] = useSharedState("dateRange", DEFAULT_RANGE);
+  const known = PRESETS.some((preset) => preset.value === range?.date_from);
+  const current = known ? range.date_from : DEFAULT_RANGE.date_from;
+
+  return (
+    <div className="flex h-full flex-col justify-center gap-2 p-4">
+      <Label>Date range</Label>
+      <Select
+        items={PRESETS}
+        value={current}
+        onValueChange={(value) =>
+          setRange({ date_from: String(value), date_to: null })
+        }
+      >
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {PRESETS.map((preset) => (
+            <SelectItem key={preset.value} value={preset.value}>
+              {preset.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}

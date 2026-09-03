@@ -265,6 +265,8 @@ export type NewSessionMeta = {
    * emits always (consumers gate playback), local stays silent.
    */
   spokenNarration?: boolean;
+  /** Canvases v2 board this session edits. Enables the canvas_* local tools. */
+  canvasBoardId?: string;
   /**
    * Matched `bedrock-llm-gateway` variant at session start. `test` serves the
    * session from Bedrock through the gateway. Only the desktop resolves this,

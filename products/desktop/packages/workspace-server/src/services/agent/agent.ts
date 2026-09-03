@@ -326,6 +326,8 @@ interface SessionConfig {
   rtkEnabled?: boolean;
   /** The user's spoken-narration setting at session start. */
   spokenNarration?: boolean;
+  /** Canvases v2 board this session edits; enables the canvas_* tools. */
+  canvasBoardId?: string;
   /** Matched `bedrock-llm-gateway` variant at session start. */
   bedrockGatewayVariant?: BedrockGatewayVariant;
 }
@@ -1199,6 +1201,9 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
               ...(config.spokenNarration !== undefined && {
                 spokenNarration: config.spokenNarration,
               }),
+              ...(config.canvasBoardId !== undefined && {
+                canvasBoardId: config.canvasBoardId,
+              }),
               ...(config.bedrockGatewayVariant !== undefined && {
                 bedrockGatewayVariant: config.bedrockGatewayVariant,
               }),
@@ -1288,6 +1293,9 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
             ...(config.spokenNarration !== undefined && {
               spokenNarration: config.spokenNarration,
             }),
+            ...(config.canvasBoardId !== undefined && {
+              canvasBoardId: config.canvasBoardId,
+            }),
             ...(config.bedrockGatewayVariant !== undefined && {
               bedrockGatewayVariant: config.bedrockGatewayVariant,
             }),
@@ -1322,6 +1330,9 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
             ...(channelMode && { channelMode }),
             ...(config.spokenNarration !== undefined && {
               spokenNarration: config.spokenNarration,
+            }),
+            ...(config.canvasBoardId !== undefined && {
+              canvasBoardId: config.canvasBoardId,
             }),
             ...(config.bedrockGatewayVariant !== undefined && {
               bedrockGatewayVariant: config.bedrockGatewayVariant,
@@ -2354,6 +2365,8 @@ For git operations while detached:
       rtkEnabled: "rtkEnabled" in params ? params.rtkEnabled : undefined,
       spokenNarration:
         "spokenNarration" in params ? params.spokenNarration : undefined,
+      canvasBoardId:
+        "canvasBoardId" in params ? params.canvasBoardId : undefined,
       bedrockGatewayVariant:
         "bedrockGatewayVariant" in params
           ? params.bedrockGatewayVariant

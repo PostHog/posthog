@@ -1,0 +1,125 @@
+// A saved PostHog insight, loaded by its short id. The short id is in shared
+// state under STORAGE_KEY, so all collaborators see the same insight. For a
+// second insight fragment on the same board, change STORAGE_KEY.
+import { ph, useSharedState } from "@posthog/canvas-sdk";
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Heading,
+  Input,
+  Label,
+  SkeletonText,
+} from "@posthog/quill";
+import { useEffect, useState } from "react";
+
+const STORAGE_KEY = "insight:shortId";
+const DEFAULT_RANGE = { date_from: "-7d", date_to: null };
+
+// Trends results are series objects. SQL results are rows of cells.
+function readTotal(result) {
+  const first = result?.results?.[0];
+  if (first && typeof first === "object" && !Array.isArray(first)) {
+    const total = first.aggregated_value ?? first.count;
+    return total == null ? null : Number(total);
+  }
+  if (Array.isArray(first)) {
+    return Number(first[0] ?? 0);
+  }
+  return null;
+}
+
+export default function SavedInsight({ storageKey = STORAGE_KEY }) {
+  const [stored, setStored] = useSharedState(storageKey, "");
+  const shortId = typeof stored === "string" ? stored.trim() : "";
+  const [range] = useSharedState("dateRange", DEFAULT_RANGE);
+  const [draft, setDraft] = useState(shortId);
+  const [state, setState] = useState({
+    loading: false,
+    error: null,
+    total: null,
+  });
+  const dateFrom = range?.date_from ?? DEFAULT_RANGE.date_from;
+  const dateTo = range?.date_to ?? null;
+
+  useEffect(() => {
+    setDraft(shortId);
+  }, [shortId]);
+
+  useEffect(() => {
+    if (!shortId) {
+      setState({ loading: false, error: null, total: null });
+      return;
+    }
+    let cancelled = false;
+    setState({ loading: true, error: null, total: null });
+    ph.loadInsight(shortId, { dateRange: { date_from: dateFrom, date_to: dateTo } })
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        setState({ loading: false, error: null, total: readTotal(result) });
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        setState({
+          loading: false,
+          error: String(error?.message ?? error),
+          total: null,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [shortId, dateFrom, dateTo]);
+
+  const hasNumber = !state.loading && !state.error && state.total != null;
+
+  return (
+    <Card size="sm" className="h-full">
+      <CardHeader>
+        <CardTitle>Saved insight</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <Label>Insight short id</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder="For example aB3dEf9"
+              />
+              <Button variant="outline" onClick={() => setStored(draft.trim())}>
+                Load
+              </Button>
+            </div>
+          </div>
+          {!shortId ? (
+            <p className="text-sm text-muted-foreground">
+              Enter the short id of a saved insight to show its number.
+            </p>
+          ) : null}
+          {state.loading ? <SkeletonText lines={1} className="text-3xl" /> : null}
+          {state.error ? (
+            <p className="text-sm text-destructive-foreground">
+              This insight did not load. {state.error}
+            </p>
+          ) : null}
+          {hasNumber ? (
+            <Heading size="2xl">{Number(state.total).toLocaleString()}</Heading>
+          ) : null}
+          {!state.loading && !state.error && shortId && state.total == null ? (
+            <p className="text-sm text-muted-foreground">
+              This insight has no single number to show.
+            </p>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

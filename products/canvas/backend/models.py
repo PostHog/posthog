@@ -270,3 +270,55 @@ class CanvasState(TeamScopedRootMixin, UUIDModel):
                 name="canvas_state_shared_key",
             ),
         ]
+
+
+class CanvasBoard(TeamScopedRootMixin, UUIDModel):
+    """An infinite board of fragments edited by many people and agents at once.
+
+    The board is an append-only log of ``CanvasBoardOp`` rows. ``snapshot`` is
+    the newest folded state a client checkpointed and ``snapshot_seq`` the log
+    position it reflects; clients fold the ops after that position themselves.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    name = models.CharField(max_length=120)
+    created_by = models.ForeignKey(
+        "posthog.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", db_constraint=False
+    )
+    snapshot = models.JSONField(default=dict)
+    snapshot_seq = models.IntegerField(default=0)
+    head_seq = models.IntegerField(default=0)
+    deleted = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_canvas_board"
+
+
+class CanvasBoardOp(TeamScopedRootMixin, UUIDModel):
+    """One entry in a board's log. ``op_id`` is the client's id, so a retried append is a no-op."""
+
+    ACTOR_KIND_USER = "user"
+    ACTOR_KIND_AGENT = "agent"
+    ACTOR_KINDS = [ACTOR_KIND_USER, ACTOR_KIND_AGENT]
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    board = models.ForeignKey(CanvasBoard, on_delete=models.CASCADE, related_name="ops")
+    seq = models.IntegerField()
+    op_id = models.CharField(max_length=64)
+    actor_kind = models.CharField(max_length=16)
+    actor_user = models.ForeignKey(
+        "posthog.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", db_constraint=False
+    )
+    actor_task_id = models.CharField(max_length=64, null=True, blank=True)
+    op = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_canvas_board_op"
+        constraints = [
+            models.UniqueConstraint(fields=["board", "seq"], name="canvas_board_op_unique_seq"),
+            models.UniqueConstraint(fields=["board", "op_id"], name="canvas_board_op_unique_op_id"),
+        ]
+        indexes = [models.Index(fields=["board", "seq"], name="canvas_board_op_board_seq")]

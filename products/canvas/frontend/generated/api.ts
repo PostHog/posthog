@@ -15,6 +15,13 @@ import type {
     CanvasAgentRequestApi,
     CanvasAgentRequestResultApi,
     CanvasApi,
+    CanvasBoardApi,
+    CanvasBoardAppendOpsApi,
+    CanvasBoardAppendResultApi,
+    CanvasBoardOpsPageApi,
+    CanvasBoardWriteApi,
+    CanvasBoardsListParams,
+    CanvasBoardsOpsRetrieveParams,
     CanvasBuildActionApi,
     CanvasBuildApi,
     CanvasBuildsResponseApi,
@@ -48,11 +55,172 @@ import type {
     CanvasesSourceRetrieveParams,
     CanvasesStateRetrieveParams,
     CanvasesVersionsRetrieveParams,
+    PaginatedCanvasBoardSummaryListApi,
     PaginatedCanvasDraftListApi,
     PaginatedCanvasListApi,
     PaginatedCanvasVersionListApi,
+    PatchedCanvasBoardWriteApi,
     PatchedCanvasUpdateApi,
 } from './api.schemas'
+
+export const getCanvasBoardsListUrl = (projectId: string, params?: CanvasBoardsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvas_boards/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvas_boards/`
+}
+
+/**
+ * Canvases v2 boards: shared infinite boards recorded as an append-only op log.
+ */
+export const canvasBoardsList = async (
+    projectId: string,
+    params?: CanvasBoardsListParams,
+    options?: RequestInit
+): Promise<PaginatedCanvasBoardSummaryListApi> => {
+    return apiMutator<PaginatedCanvasBoardSummaryListApi>(getCanvasBoardsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasBoardsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/canvas_boards/`
+}
+
+/**
+ * Canvases v2 boards: shared infinite boards recorded as an append-only op log.
+ */
+export const canvasBoardsCreate = async (
+    projectId: string,
+    canvasBoardWriteApi: CanvasBoardWriteApi,
+    options?: RequestInit
+): Promise<CanvasBoardApi> => {
+    return apiMutator<CanvasBoardApi>(getCanvasBoardsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasBoardWriteApi),
+    })
+}
+
+export const getCanvasBoardsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvas_boards/${id}/`
+}
+
+/**
+ * Canvases v2 boards: shared infinite boards recorded as an append-only op log.
+ */
+export const canvasBoardsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CanvasBoardApi> => {
+    return apiMutator<CanvasBoardApi>(getCanvasBoardsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasBoardsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvas_boards/${id}/`
+}
+
+/**
+ * Canvases v2 boards: shared infinite boards recorded as an append-only op log.
+ */
+export const canvasBoardsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedCanvasBoardWriteApi?: PatchedCanvasBoardWriteApi,
+    options?: RequestInit
+): Promise<CanvasBoardApi> => {
+    return apiMutator<CanvasBoardApi>(getCanvasBoardsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedCanvasBoardWriteApi),
+    })
+}
+
+export const getCanvasBoardsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvas_boards/${id}/`
+}
+
+/**
+ * Canvases v2 boards: shared infinite boards recorded as an append-only op log.
+ */
+export const canvasBoardsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getCanvasBoardsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getCanvasBoardsOpsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: CanvasBoardsOpsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvas_boards/${id}/ops/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvas_boards/${id}/ops/`
+}
+
+/**
+ * Page through a board's log from a known seq.
+ */
+export const canvasBoardsOpsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: CanvasBoardsOpsRetrieveParams,
+    options?: RequestInit
+): Promise<CanvasBoardOpsPageApi> => {
+    return apiMutator<CanvasBoardOpsPageApi>(getCanvasBoardsOpsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasBoardsOpsAppendUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvas_boards/${id}/ops/`
+}
+
+/**
+ * Record ops on a board's log. Resent op_ids are skipped and reported with their existing seq.
+ */
+export const canvasBoardsOpsAppend = async (
+    projectId: string,
+    id: string,
+    canvasBoardAppendOpsApi: CanvasBoardAppendOpsApi,
+    options?: RequestInit
+): Promise<CanvasBoardAppendResultApi> => {
+    return apiMutator<CanvasBoardAppendResultApi>(getCanvasBoardsOpsAppendUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasBoardAppendOpsApi),
+    })
+}
 
 export const getCanvasesListUrl = (projectId: string, params?: CanvasesListParams) => {
     const normalizedParams = new URLSearchParams()

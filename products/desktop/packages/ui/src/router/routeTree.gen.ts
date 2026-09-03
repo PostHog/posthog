@@ -13,6 +13,7 @@ import { Route as UsageRouteImport } from './routes/usage'
 import { Route as PrRouteImport } from './routes/pr'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as ContextRouteImport } from './routes/context'
+import { Route as CanvasesV2RouteImport } from './routes/canvases-v2'
 import { Route as ArchivedRouteImport } from './routes/archived'
 import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as ShellRouteImport } from './routes/_shell'
@@ -20,6 +21,7 @@ import { Route as WebsiteIndexRouteImport } from './routes/website.index'
 import { Route as LoopsIndexRouteImport } from './routes/loops/index'
 import { Route as InboxIndexRouteImport } from './routes/inbox/index'
 import { Route as CodeIndexRouteImport } from './routes/code.index'
+import { Route as CanvasesV2IndexRouteImport } from './routes/canvases-v2/index'
 import { Route as AgentsIndexRouteImport } from './routes/agents/index'
 import { Route as ShellIndexRouteImport } from './routes/_shell/index'
 import { Route as WebsiteSplatRouteImport } from './routes/website.$'
@@ -33,6 +35,7 @@ import { Route as InboxDismissedRouteImport } from './routes/inbox/dismissed'
 import { Route as InboxAgentsRouteImport } from './routes/inbox/agents'
 import { Route as FoldersFolderIdRouteImport } from './routes/folders/$folderId'
 import { Route as CodeSplatRouteImport } from './routes/code.$'
+import { Route as CanvasesV2BoardIdRouteImport } from './routes/canvases-v2/$boardId'
 import { Route as AgentsScoutsRouteImport } from './routes/agents/scouts'
 import { Route as ShellSkillsRouteImport } from './routes/_shell/skills'
 import { Route as ShellNewRouteImport } from './routes/_shell/new'
@@ -93,6 +96,11 @@ const ContextRoute = ContextRouteImport.update({
   path: '/context',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CanvasesV2Route = CanvasesV2RouteImport.update({
+  id: '/canvases-v2',
+  path: '/canvases-v2',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ArchivedRoute = ArchivedRouteImport.update({
   id: '/archived',
   path: '/archived',
@@ -126,6 +134,11 @@ const CodeIndexRoute = CodeIndexRouteImport.update({
   id: '/code/',
   path: '/code/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const CanvasesV2IndexRoute = CanvasesV2IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => CanvasesV2Route,
 } as any)
 const AgentsIndexRoute = AgentsIndexRouteImport.update({
   id: '/',
@@ -191,6 +204,11 @@ const CodeSplatRoute = CodeSplatRouteImport.update({
   id: '/code/$',
   path: '/code/$',
   getParentRoute: () => rootRouteImport,
+} as any)
+const CanvasesV2BoardIdRoute = CanvasesV2BoardIdRouteImport.update({
+  id: '/$boardId',
+  path: '/$boardId',
+  getParentRoute: () => CanvasesV2Route,
 } as any)
 const AgentsScoutsRoute = AgentsScoutsRouteImport.update({
   id: '/scouts',
@@ -402,6 +420,7 @@ export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
   '/agents': typeof AgentsRouteWithChildren
   '/archived': typeof ArchivedRoute
+  '/canvases-v2': typeof CanvasesV2RouteWithChildren
   '/context': typeof ContextRoute
   '/inbox': typeof InboxRouteWithChildren
   '/pr': typeof PrRoute
@@ -413,6 +432,7 @@ export interface FileRoutesByFullPath {
   '/new': typeof ShellNewRoute
   '/skills': typeof ShellSkillsRoute
   '/agents/scouts': typeof AgentsScoutsRouteWithChildren
+  '/canvases-v2/$boardId': typeof CanvasesV2BoardIdRoute
   '/code/$': typeof CodeSplatRoute
   '/folders/$folderId': typeof FoldersFolderIdRoute
   '/inbox/agents': typeof InboxAgentsRoute
@@ -425,6 +445,7 @@ export interface FileRoutesByFullPath {
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/website/$': typeof WebsiteSplatRoute
   '/agents/': typeof AgentsIndexRoute
+  '/canvases-v2/': typeof CanvasesV2IndexRoute
   '/code/': typeof CodeIndexRoute
   '/inbox/': typeof InboxIndexRoute
   '/loops/': typeof LoopsIndexRoute
@@ -473,6 +494,7 @@ export interface FileRoutesByTo {
   '/mcp-servers': typeof ShellMcpServersRoute
   '/new': typeof ShellNewRoute
   '/skills': typeof ShellSkillsRoute
+  '/canvases-v2/$boardId': typeof CanvasesV2BoardIdRoute
   '/code/$': typeof CodeSplatRoute
   '/folders/$folderId': typeof FoldersFolderIdRoute
   '/inbox/agents': typeof InboxAgentsRoute
@@ -481,6 +503,7 @@ export interface FileRoutesByTo {
   '/website/$': typeof WebsiteSplatRoute
   '/': typeof ShellIndexRoute
   '/agents': typeof AgentsIndexRoute
+  '/canvases-v2': typeof CanvasesV2IndexRoute
   '/code': typeof CodeIndexRoute
   '/inbox': typeof InboxIndexRoute
   '/loops': typeof LoopsIndexRoute
@@ -522,6 +545,7 @@ export interface FileRoutesById {
   '/_shell': typeof ShellRouteWithChildren
   '/agents': typeof AgentsRouteWithChildren
   '/archived': typeof ArchivedRoute
+  '/canvases-v2': typeof CanvasesV2RouteWithChildren
   '/context': typeof ContextRoute
   '/inbox': typeof InboxRouteWithChildren
   '/pr': typeof PrRoute
@@ -533,6 +557,7 @@ export interface FileRoutesById {
   '/_shell/new': typeof ShellNewRoute
   '/_shell/skills': typeof ShellSkillsRoute
   '/agents/scouts': typeof AgentsScoutsRouteWithChildren
+  '/canvases-v2/$boardId': typeof CanvasesV2BoardIdRoute
   '/code/$': typeof CodeSplatRoute
   '/folders/$folderId': typeof FoldersFolderIdRoute
   '/inbox/agents': typeof InboxAgentsRoute
@@ -546,6 +571,7 @@ export interface FileRoutesById {
   '/website/$': typeof WebsiteSplatRoute
   '/_shell/': typeof ShellIndexRoute
   '/agents/': typeof AgentsIndexRoute
+  '/canvases-v2/': typeof CanvasesV2IndexRoute
   '/code/': typeof CodeIndexRoute
   '/inbox/': typeof InboxIndexRoute
   '/loops/': typeof LoopsIndexRoute
@@ -589,6 +615,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agents'
     | '/archived'
+    | '/canvases-v2'
     | '/context'
     | '/inbox'
     | '/pr'
@@ -600,6 +627,7 @@ export interface FileRouteTypes {
     | '/new'
     | '/skills'
     | '/agents/scouts'
+    | '/canvases-v2/$boardId'
     | '/code/$'
     | '/folders/$folderId'
     | '/inbox/agents'
@@ -612,6 +640,7 @@ export interface FileRouteTypes {
     | '/tasks/$taskId'
     | '/website/$'
     | '/agents/'
+    | '/canvases-v2/'
     | '/code/'
     | '/inbox/'
     | '/loops/'
@@ -660,6 +689,7 @@ export interface FileRouteTypes {
     | '/mcp-servers'
     | '/new'
     | '/skills'
+    | '/canvases-v2/$boardId'
     | '/code/$'
     | '/folders/$folderId'
     | '/inbox/agents'
@@ -668,6 +698,7 @@ export interface FileRouteTypes {
     | '/website/$'
     | '/'
     | '/agents'
+    | '/canvases-v2'
     | '/code'
     | '/inbox'
     | '/loops'
@@ -708,6 +739,7 @@ export interface FileRouteTypes {
     | '/_shell'
     | '/agents'
     | '/archived'
+    | '/canvases-v2'
     | '/context'
     | '/inbox'
     | '/pr'
@@ -719,6 +751,7 @@ export interface FileRouteTypes {
     | '/_shell/new'
     | '/_shell/skills'
     | '/agents/scouts'
+    | '/canvases-v2/$boardId'
     | '/code/$'
     | '/folders/$folderId'
     | '/inbox/agents'
@@ -732,6 +765,7 @@ export interface FileRouteTypes {
     | '/website/$'
     | '/_shell/'
     | '/agents/'
+    | '/canvases-v2/'
     | '/code/'
     | '/inbox/'
     | '/loops/'
@@ -774,6 +808,7 @@ export interface RootRouteChildren {
   ShellRoute: typeof ShellRouteWithChildren
   AgentsRoute: typeof AgentsRouteWithChildren
   ArchivedRoute: typeof ArchivedRoute
+  CanvasesV2Route: typeof CanvasesV2RouteWithChildren
   ContextRoute: typeof ContextRoute
   InboxRoute: typeof InboxRouteWithChildren
   PrRoute: typeof PrRoute
@@ -818,6 +853,13 @@ declare module '@tanstack/react-router' {
       path: '/context'
       fullPath: '/context'
       preLoaderRoute: typeof ContextRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/canvases-v2': {
+      id: '/canvases-v2'
+      path: '/canvases-v2'
+      fullPath: '/canvases-v2'
+      preLoaderRoute: typeof CanvasesV2RouteImport
       parentRoute: typeof rootRouteImport
     }
     '/archived': {
@@ -868,6 +910,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/code/'
       preLoaderRoute: typeof CodeIndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/canvases-v2/': {
+      id: '/canvases-v2/'
+      path: '/'
+      fullPath: '/canvases-v2/'
+      preLoaderRoute: typeof CanvasesV2IndexRouteImport
+      parentRoute: typeof CanvasesV2Route
     }
     '/agents/': {
       id: '/agents/'
@@ -959,6 +1008,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/code/$'
       preLoaderRoute: typeof CodeSplatRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/canvases-v2/$boardId': {
+      id: '/canvases-v2/$boardId'
+      path: '/$boardId'
+      fullPath: '/canvases-v2/$boardId'
+      preLoaderRoute: typeof CanvasesV2BoardIdRouteImport
+      parentRoute: typeof CanvasesV2Route
     }
     '/agents/scouts': {
       id: '/agents/scouts'
@@ -1336,6 +1392,20 @@ const AgentsRouteChildren: AgentsRouteChildren = {
 const AgentsRouteWithChildren =
   AgentsRoute._addFileChildren(AgentsRouteChildren)
 
+interface CanvasesV2RouteChildren {
+  CanvasesV2BoardIdRoute: typeof CanvasesV2BoardIdRoute
+  CanvasesV2IndexRoute: typeof CanvasesV2IndexRoute
+}
+
+const CanvasesV2RouteChildren: CanvasesV2RouteChildren = {
+  CanvasesV2BoardIdRoute: CanvasesV2BoardIdRoute,
+  CanvasesV2IndexRoute: CanvasesV2IndexRoute,
+}
+
+const CanvasesV2RouteWithChildren = CanvasesV2Route._addFileChildren(
+  CanvasesV2RouteChildren,
+)
+
 interface InboxDismissedRouteChildren {
   InboxDismissedReportIdRoute: typeof InboxDismissedReportIdRoute
   InboxDismissedIndexRoute: typeof InboxDismissedIndexRoute
@@ -1430,6 +1500,7 @@ const rootRouteChildren: RootRouteChildren = {
   ShellRoute: ShellRouteWithChildren,
   AgentsRoute: AgentsRouteWithChildren,
   ArchivedRoute: ArchivedRoute,
+  CanvasesV2Route: CanvasesV2RouteWithChildren,
   ContextRoute: ContextRoute,
   InboxRoute: InboxRouteWithChildren,
   PrRoute: PrRoute,

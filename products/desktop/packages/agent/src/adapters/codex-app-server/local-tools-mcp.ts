@@ -81,6 +81,7 @@ export function buildLocalToolsServer(
     taskId: resolveTaskId(meta),
     taskRunId: meta?.taskRunId,
     baseBranch: meta?.baseBranch,
+    canvasBoardId: meta?.canvasBoardId,
   };
   const tools = enabledLocalTools(toolCtx, meta);
   if (tools.length === 0) {

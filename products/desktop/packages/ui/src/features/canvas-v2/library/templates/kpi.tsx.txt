@@ -1,0 +1,95 @@
+// One number, counted with HogQL over the shared date range. Change LABEL and
+// EVENT for a different metric.
+import { ph, useSharedState } from "@posthog/canvas-sdk";
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Heading,
+  SkeletonText,
+} from "@posthog/quill";
+import { useEffect, useState } from "react";
+
+const LABEL = "Pageviews";
+const EVENT = "$pageview";
+const DEFAULT_RANGE = { date_from: "-7d", date_to: null };
+const UNITS = { h: "HOUR", d: "DAY", w: "WEEK", m: "MONTH" };
+
+// Turns a PostHog relative date such as "-7d" into a HogQL time bound.
+function sinceClause(range) {
+  const match = /^-(\d+)([hdwm])$/.exec(range?.date_from ?? "-7d");
+  if (!match) {
+    return "now() - INTERVAL 7 DAY";
+  }
+  return `now() - INTERVAL ${Number(match[1])} ${UNITS[match[2]] ?? "DAY"}`;
+}
+
+export default function Kpi({ label = LABEL, event = EVENT }) {
+  const [range] = useSharedState("dateRange", DEFAULT_RANGE);
+  const [state, setState] = useState({
+    loading: true,
+    error: null,
+    value: null,
+  });
+  const [nonce, setNonce] = useState(0);
+  const since = sinceClause(range);
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ loading: true, error: null, value: null });
+    ph.query(
+      `SELECT count() FROM events WHERE event = '${event}' AND timestamp >= ${since} AND timestamp < now()`,
+    )
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        const rows = result?.results ?? [];
+        const cell = rows[0]?.[0];
+        setState({ loading: false, error: null, value: Number(cell ?? 0) });
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        setState({
+          loading: false,
+          error: String(error?.message ?? error),
+          value: null,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [event, since, nonce]);
+
+  return (
+    <Card size="sm" className="h-full">
+      <CardHeader>
+        <CardTitle>{label}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {state.loading ? <SkeletonText lines={1} className="text-3xl" /> : null}
+        {state.error ? (
+          <div className="flex flex-col items-start gap-2">
+            <p className="text-sm text-destructive-foreground">
+              This number did not load. {state.error}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setNonce((value) => value + 1)}
+            >
+              Try again
+            </Button>
+          </div>
+        ) : null}
+        {!state.loading && !state.error ? (
+          <Heading size="2xl">{Number(state.value).toLocaleString()}</Heading>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}

@@ -1,0 +1,176 @@
+// HogQL query and its result table. The text "{since}" in the query becomes
+// the start of the shared date range, so the query follows the board.
+import { ph, useSharedState } from "@posthog/canvas-sdk";
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Textarea,
+} from "@posthog/quill";
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
+import { useEffect, useMemo, useState } from "react";
+
+const DEFAULT_RANGE = { date_from: "-7d", date_to: null };
+const UNITS = { h: "HOUR", d: "DAY", w: "WEEK", m: "MONTH" };
+
+const DEFAULT_QUERY = `SELECT event, count() AS events, count(DISTINCT distinct_id) AS people
+FROM events
+WHERE timestamp >= {since} AND timestamp < now()
+GROUP BY event
+ORDER BY events DESC
+LIMIT 20`;
+
+// Turns a PostHog relative date such as "-7d" into a HogQL time bound.
+function sinceClause(range) {
+  const match = /^-(\d+)([hdwm])$/.exec(range?.date_from ?? "-7d");
+  if (!match) {
+    return "now() - INTERVAL 7 DAY";
+  }
+  return `now() - INTERVAL ${Number(match[1])} ${UNITS[match[2]] ?? "DAY"}`;
+}
+
+export default function SqlTable() {
+  const [range] = useSharedState("dateRange", DEFAULT_RANGE);
+  const [query, setQuery] = useState(DEFAULT_QUERY);
+  const [runs, setRuns] = useState(0);
+  const [state, setState] = useState({
+    loading: true,
+    error: null,
+    columns: [],
+    rows: [],
+  });
+  const since = sinceClause(range);
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ loading: true, error: null, columns: [], rows: [] });
+    ph.query(query.split("{since}").join(since))
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        setState({
+          loading: false,
+          error: null,
+          columns: result?.columns ?? [],
+          rows: result?.results ?? [],
+        });
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        setState({
+          loading: false,
+          error: String(error?.message ?? error),
+          columns: [],
+          rows: [],
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // The query text runs on demand, so it is not a dependency here.
+  }, [since, runs]);
+
+  const columns = useMemo(
+    () =>
+      (state.columns ?? []).map((name, index) => ({
+        id: String(index),
+        header: String(name),
+        accessorFn: (row) => row?.[index],
+      })),
+    [state.columns],
+  );
+
+  const table = useReactTable({
+    data: state.rows,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+  });
+
+  const empty = !state.loading && !state.error && state.rows.length === 0;
+
+  return (
+    <Card size="sm" className="flex h-full flex-col">
+      <CardHeader>
+        <CardTitle>HogQL query</CardTitle>
+      </CardHeader>
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-3">
+        <Textarea
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          className="h-28 w-full resize-none font-mono text-xs"
+        />
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={state.loading}
+            onClick={() => setRuns((value) => value + 1)}
+          >
+            Run
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            {state.rows.length} rows
+          </span>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto">
+          {state.loading ? <Skeleton className="h-24 w-full" /> : null}
+          {state.error ? (
+            <p className="text-sm text-destructive-foreground">
+              This query did not run. {state.error}
+            </p>
+          ) : null}
+          {empty ? (
+            <p className="text-sm text-muted-foreground">
+              The query returned no rows.
+            </p>
+          ) : null}
+          {!state.loading && !state.error && state.rows.length > 0 ? (
+            <Table>
+              <TableHeader>
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <TableRow key={headerGroup.id}>
+                    {headerGroup.headers.map((header) => (
+                      <TableHead key={header.id}>
+                        {flexRender(
+                          header.column.columnDef.header,
+                          header.getContext(),
+                        )}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableHeader>
+              <TableBody>
+                {table.getRowModel().rows.map((row) => (
+                  <TableRow key={row.id}>
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id}>
+                        {String(cell.getValue() ?? "")}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

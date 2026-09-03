@@ -10,6 +10,94 @@
 import * as zod from 'zod'
 
 /**
+ * Canvases v2 boards: shared infinite boards recorded as an append-only op log.
+ */
+export const canvasBoardsCreateBodyNameMax = 120
+
+export const CanvasBoardsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().max(canvasBoardsCreateBodyNameMax).describe('Display name of the board.'),
+    })
+    .describe('Payload for creating or renaming a board.')
+
+/**
+ * Canvases v2 boards: shared infinite boards recorded as an append-only op log.
+ */
+export const canvasBoardsPartialUpdateBodyNameMax = 120
+
+export const CanvasBoardsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().max(canvasBoardsPartialUpdateBodyNameMax).optional().describe('Display name of the board.'),
+    })
+    .describe('Payload for creating or renaming a board.')
+
+/**
+ * Record ops on a board's log. Resent op_ids are skipped and reported with their existing seq.
+ */
+export const canvasBoardsOpsAppendBodyOpsItemOpIdMax = 64
+
+export const canvasBoardsOpsAppendBodyActorOneTaskIdMax = 64
+
+export const canvasBoardsOpsAppendBodyBaseSeqMin = 0
+
+export const CanvasBoardsOpsAppendBody = /* @__PURE__ */ zod
+    .object({
+        ops: zod
+            .array(
+                zod
+                    .object({
+                        op_id: zod
+                            .string()
+                            .max(canvasBoardsOpsAppendBodyOpsItemOpIdMax)
+                            .describe('Client-chosen id, unique per board. Resending the same id records nothing new.'),
+                        op: zod
+                            .object({
+                                type: zod.enum([
+                                    'add_fragment',
+                                    'update_fragment',
+                                    'remove_fragment',
+                                    'bring_to_front',
+                                    'set_state',
+                                    'restore',
+                                ]),
+                            })
+                            .describe('The op. Capped at 256 KB serialized.'),
+                    })
+                    .describe('One op the client wants recorded.')
+            )
+            .describe('Ops to record, in order. May be empty to send only a snapshot.'),
+        actor: zod
+            .object({
+                kind: zod
+                    .enum(['user', 'agent'])
+                    .describe('\* `user` - User\n\* `agent` - Agent')
+                    .describe(
+                        'user for a direct edit, agent for a change made by an agent.\n\n\* `user` - User\n\* `agent` - Agent'
+                    ),
+                task_id: zod
+                    .string()
+                    .max(canvasBoardsOpsAppendBodyActorOneTaskIdMax)
+                    .nullish()
+                    .describe('Id of the agent task making the change, if any.'),
+            })
+            .describe('Who the client says is making the change. The user is always the caller.')
+            .describe('Who is making the change.'),
+        base_seq: zod
+            .number()
+            .min(canvasBoardsOpsAppendBodyBaseSeqMin)
+            .describe('head_seq the client had folded up to. The snapshot is stored only when it matches.'),
+        snapshot: zod
+            .object({
+                schemaVersion: zod.number(),
+                fragments: zod.array(zod.record(zod.string(), zod.unknown())),
+                state: zod.record(zod.string(), zod.unknown()),
+            })
+            .nullish()
+            .describe('Folded board at base_seq plus these ops, or null to send none.'),
+    })
+    .describe("Payload for appending ops to a board's log, with an optional checkpoint snapshot.")
+
+/**
  * Create a new, empty canvas in a channel; give it source by publishing a project.
  */
 export const canvasesCreateBodyNameMax = 400

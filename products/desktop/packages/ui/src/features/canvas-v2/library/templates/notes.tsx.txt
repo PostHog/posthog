@@ -1,0 +1,47 @@
+// Markdown notes. The text is in shared state under STORAGE_KEY, so all
+// collaborators read and write the same notes. For a second notes fragment on
+// the same board, change STORAGE_KEY to a different value.
+import { useSharedState } from "@posthog/canvas-sdk";
+import { Button, Textarea } from "@posthog/quill";
+import { useState } from "react";
+import Markdown from "react-markdown";
+
+const STORAGE_KEY = "notes:text";
+
+export default function Notes({ storageKey = STORAGE_KEY }) {
+  const [stored, setStored] = useSharedState(storageKey, "");
+  const text = typeof stored === "string" ? stored : "";
+  const [editing, setEditing] = useState(false);
+
+  return (
+    <div className="flex h-full flex-col gap-2 overflow-auto p-4">
+      <div className="flex justify-end">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setEditing((value) => !value)}
+        >
+          {editing ? "Done" : "Edit"}
+        </Button>
+      </div>
+      {editing ? (
+        <Textarea
+          value={text}
+          onChange={(event) => setStored(event.target.value)}
+          placeholder="Write notes in markdown"
+          className="min-h-0 w-full flex-1 resize-none"
+        />
+      ) : null}
+      {!editing && text ? (
+        <div className="flex flex-col gap-2 text-sm leading-relaxed text-foreground">
+          <Markdown>{text}</Markdown>
+        </div>
+      ) : null}
+      {!editing && !text ? (
+        <p className="text-sm text-muted-foreground">
+          No notes yet. Select Edit to write some.
+        </p>
+      ) : null}
+    </div>
+  );
+}

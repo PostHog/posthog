@@ -1,0 +1,97 @@
+// Shared checklist. The items are in shared state under STORAGE_KEY, so all
+// collaborators see the same list. For a second checklist on the same board,
+// change STORAGE_KEY to a different value, such as "checklist:launch".
+import { useSharedState } from "@posthog/canvas-sdk";
+import {
+  Button,
+  Checkbox,
+  Heading,
+  Input,
+  Label,
+  Text,
+} from "@posthog/quill";
+import { useState } from "react";
+
+const STORAGE_KEY = "checklist:items";
+const TITLE = "Checklist";
+
+export default function Checklist({ storageKey = STORAGE_KEY, title = TITLE }) {
+  const [stored, setStored] = useSharedState(storageKey, []);
+  const items = Array.isArray(stored) ? stored : [];
+  const [draft, setDraft] = useState("");
+  const done = items.filter((item) => item?.done).length;
+
+  const addItem = () => {
+    const label = draft.trim();
+    if (!label) {
+      return;
+    }
+    const id = `item-${Date.now()}`;
+    setStored([...items, { id, label, done: false }]);
+    setDraft("");
+  };
+
+  const toggleItem = (id, checked) => {
+    setStored(
+      items.map((item) =>
+        item?.id === id ? { ...item, done: Boolean(checked) } : item,
+      ),
+    );
+  };
+
+  const removeItem = (id) => {
+    setStored(items.filter((item) => item?.id !== id));
+  };
+
+  return (
+    <div className="flex h-full flex-col gap-3 overflow-auto p-4">
+      <div className="flex items-baseline justify-between gap-2">
+        <Heading size="lg">{title}</Heading>
+        <Text className="text-muted-foreground">
+          {done} of {items.length} done
+        </Text>
+      </div>
+      <div className="flex items-center gap-2">
+        <Input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              addItem();
+            }
+          }}
+          placeholder="Add an item"
+        />
+        <Button variant="outline" onClick={addItem}>
+          Add
+        </Button>
+      </div>
+      {items.length === 0 ? (
+        <Text className="text-muted-foreground">
+          No items yet. Add the first one above.
+        </Text>
+      ) : null}
+      <div className="flex flex-col gap-2">
+        {items.map((item) => (
+          <div key={item?.id} className="flex items-center gap-2">
+            <Checkbox
+              id={item?.id}
+              checked={Boolean(item?.done)}
+              onCheckedChange={(checked) => toggleItem(item?.id, checked)}
+            />
+            <Label htmlFor={item?.id} className="flex-1">
+              {String(item?.label ?? "")}
+            </Label>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => removeItem(item?.id)}
+            >
+              Remove
+            </Button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

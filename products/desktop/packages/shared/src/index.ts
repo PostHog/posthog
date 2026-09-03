@@ -54,6 +54,7 @@ export {
 } from "./browser-tabs-schemas";
 export * from "./canvas-contracts";
 export * from "./canvas-platform";
+export * from "./canvas-v2";
 export type { CloudRunSource, PrAuthorshipMode } from "./cloud";
 export {
   deserializeCloudPrompt,

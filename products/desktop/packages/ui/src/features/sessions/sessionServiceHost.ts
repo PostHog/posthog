@@ -1,4 +1,5 @@
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
+import { boardIdForTask } from "@posthog/core/canvas-v2/boardTaskLinks";
 import { getIsOnline } from "@posthog/core/connectivity/connectivityStore";
 import {
   AGENT_SESSION_NOTIFIER,
@@ -182,6 +183,7 @@ function buildSessionServiceDeps(): SessionServiceDeps {
     usageLimit: {
       show: (...args) => useUsageLimitStore.getState().show(...args),
     },
+    canvasBoardIdForTask: boardIdForTask,
     get addDirectoryDialog() {
       return { open: useAddDirectoryDialogStore.getState().open };
     },

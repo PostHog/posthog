@@ -1,0 +1,136 @@
+// Bar chart of the top pages, from a HogQL group by over the shared date
+// range. Change EVENT, DIMENSION, and LIMIT for a different breakdown.
+import { ph, useSharedState } from "@posthog/canvas-sdk";
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Skeleton,
+} from "@posthog/quill";
+import { useEffect, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+
+const LABEL = "Top pages";
+const EVENT = "$pageview";
+const DIMENSION = "properties.$pathname";
+const LIMIT = 10;
+const DEFAULT_RANGE = { date_from: "-7d", date_to: null };
+const UNITS = { h: "HOUR", d: "DAY", w: "WEEK", m: "MONTH" };
+
+// Turns a PostHog relative date such as "-7d" into a HogQL time bound.
+function sinceClause(range) {
+  const match = /^-(\d+)([hdwm])$/.exec(range?.date_from ?? "-7d");
+  if (!match) {
+    return "now() - INTERVAL 7 DAY";
+  }
+  return `now() - INTERVAL ${Number(match[1])} ${UNITS[match[2]] ?? "DAY"}`;
+}
+
+export default function BreakdownBarChart({ label = LABEL }) {
+  const [range] = useSharedState("dateRange", DEFAULT_RANGE);
+  const [state, setState] = useState({ loading: true, error: null, rows: [] });
+  const [nonce, setNonce] = useState(0);
+  const since = sinceClause(range);
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ loading: true, error: null, rows: [] });
+    ph.query(
+      `SELECT ${DIMENSION} AS name, count() AS value
+       FROM events
+       WHERE event = '${EVENT}' AND timestamp >= ${since} AND timestamp < now()
+       GROUP BY name
+       ORDER BY value DESC
+       LIMIT ${LIMIT}`,
+    )
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        const rows = (result?.results ?? []).map((row) => ({
+          name: String(row?.[0] ?? "unknown"),
+          value: Number(row?.[1] ?? 0),
+        }));
+        setState({ loading: false, error: null, rows });
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        setState({
+          loading: false,
+          error: String(error?.message ?? error),
+          rows: [],
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [since, nonce]);
+
+  const empty = !state.loading && !state.error && state.rows.length === 0;
+
+  return (
+    <Card size="sm" className="flex h-full flex-col">
+      <CardHeader>
+        <CardTitle>{label}</CardTitle>
+      </CardHeader>
+      <CardContent className="min-h-0 flex-1">
+        {state.loading ? <Skeleton className="h-full w-full" /> : null}
+        {state.error ? (
+          <div className="flex flex-col items-start gap-2">
+            <p className="text-sm text-destructive-foreground">
+              This chart did not load. {state.error}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setNonce((value) => value + 1)}
+            >
+              Try again
+            </Button>
+          </div>
+        ) : null}
+        {empty ? (
+          <p className="text-sm text-muted-foreground">
+            No events in this date range.
+          </p>
+        ) : null}
+        {!state.loading && !state.error && state.rows.length > 0 ? (
+          <div className="h-full w-full">
+            <ResponsiveContainer>
+              <BarChart data={state.rows}>
+                <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="name"
+                  stroke="var(--muted-foreground)"
+                  tick={{ fontSize: 11 }}
+                  interval={0}
+                  angle={-30}
+                  textAnchor="end"
+                  height={60}
+                />
+                <YAxis
+                  stroke="var(--muted-foreground)"
+                  tick={{ fontSize: 11 }}
+                />
+                <Tooltip />
+                <Bar dataKey="value" fill="var(--primary)" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}

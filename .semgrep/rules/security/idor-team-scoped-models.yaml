@@ -95,6 +95,8 @@ rules:
                               |BriefConfig
                               |ButtonTile
                               |Canvas
+                              |CanvasBoard
+                              |CanvasBoardOp
                               |CanvasBuild
                               |CanvasHomePreference
                               |CanvasSourceVersion
@@ -499,6 +501,8 @@ rules:
                         |BriefConfig
                         |ButtonTile
                         |Canvas
+                        |CanvasBoard
+                        |CanvasBoardOp
                         |CanvasBuild
                         |CanvasHomePreference
                         |CanvasSourceVersion

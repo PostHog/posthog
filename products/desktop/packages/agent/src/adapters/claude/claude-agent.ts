@@ -85,6 +85,7 @@ import { LOCAL_TOOLS_MCP_NAME, type LocalToolCtx } from "../local-tools";
 import { visiblePromptBlocks } from "../prompt-blocks";
 import {
   resolveBedrockGatewayVariant,
+  resolveCanvasBoardId,
   resolveSpokenNarration,
   resolveTaskId,
 } from "../session-meta";
@@ -2737,6 +2738,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         : undefined;
     const endRunWhenDone = meta?.endRunWhenDone === true;
     const spokenNarration = resolveSpokenNarration(meta);
+    const canvasBoardId = resolveCanvasBoardId(meta);
     const bedrockGatewayVariant = resolveBedrockGatewayVariant(meta);
     const requestFinish = this.buildRequestFinish(taskId, meta?.taskRunId);
     const buildInProcessMcpServers = (): Record<
@@ -2750,12 +2752,14 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           taskId,
           taskRunId: meta?.taskRunId,
           baseBranch,
+          canvasBoardId,
           requestFinish,
         },
         {
           environment,
           channelMode,
           spokenNarration,
+          canvasBoardId,
           background: meta?.mode === "background",
           peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
           taskOriginProduct,

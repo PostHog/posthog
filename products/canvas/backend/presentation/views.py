@@ -10,13 +10,14 @@ from django.utils import timezone
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.event_usage import report_user_action
@@ -26,7 +27,7 @@ from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
-from products.canvas.backend import build_service, error_reports
+from products.canvas.backend import board_log, build_service, error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, canvas_actions_disabled
 from products.canvas.backend.capabilities import declared_actions, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
@@ -38,13 +39,28 @@ from products.canvas.backend.facade.api import (
     validate_layout,
     validate_layout_references,
 )
-from products.canvas.backend.models import Canvas, CanvasBuild, CanvasHomePreference, CanvasSourceVersion, CanvasState
+from products.canvas.backend.models import (
+    Canvas,
+    CanvasBoard,
+    CanvasBoardOp,
+    CanvasBuild,
+    CanvasHomePreference,
+    CanvasSourceVersion,
+    CanvasState,
+)
 from products.canvas.backend.presentation.serializers import (
     CanvasActionInvokeSerializer,
     CanvasActionResultSerializer,
     CanvasActionsResponseSerializer,
     CanvasAgentRequestResultSerializer,
     CanvasAgentRequestSerializer,
+    CanvasBoardAppendOpsSerializer,
+    CanvasBoardAppendResultSerializer,
+    CanvasBoardOpsPageSerializer,
+    CanvasBoardOpsQuerySerializer,
+    CanvasBoardSerializer,
+    CanvasBoardSummarySerializer,
+    CanvasBoardWriteSerializer,
     CanvasBuildActionSerializer,
     CanvasBuildSerializer,
     CanvasBuildsResponseSerializer,
@@ -1874,3 +1890,103 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return False
         application = access_token.application
         return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
+
+
+class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """Canvases v2 boards: shared infinite boards recorded as an append-only op log."""
+
+    scope_object = "canvas"
+    # unscoped() because a class attribute is built before any team context
+    # exists; safely_get_queryset applies the team filter explicitly.
+    queryset = CanvasBoard.objects.unscoped().select_related("created_by")
+    serializer_class = CanvasBoardSerializer
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    scope_object_read_actions = ["list", "retrieve", "ops"]
+    scope_object_write_actions = ["create", "partial_update", "destroy", "append_ops"]
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        return queryset.filter(team_id=self.team_id, deleted=False).order_by("-updated_at")
+
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        if self.action == "list":
+            return CanvasBoardSummarySerializer
+        return CanvasBoardSerializer
+
+    @extend_schema(request=CanvasBoardWriteSerializer, responses={201: CanvasBoardSerializer})
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        payload = CanvasBoardWriteSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        board = CanvasBoard.objects.create(
+            team_id=self.team_id,
+            name=payload.validated_data["name"],
+            created_by=self._request_user(),
+            snapshot={"schemaVersion": 1, "fragments": [], "state": {}},
+            snapshot_seq=0,
+            head_seq=0,
+        )
+        return Response(CanvasBoardSerializer(board).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=CanvasBoardWriteSerializer, responses={200: CanvasBoardSerializer})
+    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        board = self.get_object()
+        payload = CanvasBoardWriteSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        board.name = payload.validated_data["name"]
+        board.save(update_fields=["name", "updated_at"])
+        return Response(CanvasBoardSerializer(board).data)
+
+    def perform_destroy(self, instance: CanvasBoard) -> None:
+        instance.deleted = True
+        instance.save(update_fields=["deleted", "updated_at"])
+
+    @validated_request(
+        query_serializer=CanvasBoardOpsQuerySerializer,
+        responses={200: OpenApiResponse(response=CanvasBoardOpsPageSerializer)},
+        operation_id="canvas_boards_ops_retrieve",
+    )
+    @action(methods=["GET"], detail=True)
+    def ops(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """Page through a board's log from a known seq."""
+        board = self.get_object()
+        since = request.validated_query_data["since"]
+        limit = request.validated_query_data["limit"]
+        rows = list(
+            CanvasBoardOp.objects.for_team(self.team_id)
+            .filter(board=board, seq__gt=since)
+            .select_related("actor_user")
+            .order_by("seq")[:limit]
+        )
+        return Response(CanvasBoardOpsPageSerializer(instance={"results": rows, "head_seq": board.head_seq}).data)
+
+    @validated_request(
+        CanvasBoardAppendOpsSerializer,
+        responses={
+            200: OpenApiResponse(response=CanvasBoardAppendResultSerializer),
+            400: OpenApiResponse(
+                description="An op is not a JSON object, has an unknown type, or is over the size cap."
+            ),
+        },
+        operation_id="canvas_boards_ops_append",
+    )
+    @ops.mapping.post
+    def append_ops(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """Record ops on a board's log. Resent op_ids are skipped and reported with their existing seq."""
+        board = self.get_object()
+        data = request.validated_data
+        try:
+            rows = board_log.append_ops(
+                board,
+                data["ops"],
+                data["actor"]["kind"],
+                data["actor"].get("task_id"),
+                self._request_user(),
+                data["base_seq"],
+                data.get("snapshot"),
+            )
+        except board_log.InvalidBoardOpError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(CanvasBoardAppendResultSerializer(instance={"results": rows, "head_seq": board.head_seq}).data)
+
+    def _request_user(self) -> User | None:
+        user = self.request.user
+        return user if isinstance(user, User) else None

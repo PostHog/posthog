@@ -1,0 +1,17 @@
+// One large heading, to give a group of fragments a name. Change TITLE and
+// SUBTITLE. An empty SUBTITLE shows no second line.
+import { Heading, Text } from "@posthog/quill";
+
+const TITLE = "Board title";
+const SUBTITLE = "";
+
+export default function BoardHeading({ title = TITLE, subtitle = SUBTITLE }) {
+  return (
+    <div className="flex h-full flex-col justify-center gap-1 p-4">
+      <Heading size="2xl">{title}</Heading>
+      {subtitle ? (
+        <Text className="text-muted-foreground">{subtitle}</Text>
+      ) : null}
+    </div>
+  );
+}

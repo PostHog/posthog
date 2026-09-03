@@ -79,6 +79,11 @@ export const startSessionInput = z.object({
    */
   spokenNarration: z.boolean().optional(),
   /**
+   * Canvases v2 board this session edits. Enables the agent's canvas_* local
+   * tools. Only the desktop sets it, for sessions started from a board.
+   */
+  canvasBoardId: z.string().optional(),
+  /**
    * Matched variant of the `bedrock-llm-gateway` flag. `test` serves this
    * session from Bedrock via the gateway; `control` keeps Anthropic. Absent
    * (headless runs, unresolved flags) leaves the gateway on its default.
@@ -237,6 +242,8 @@ export const reconnectSessionInput = z.object({
   rtkEnabled: z.boolean().optional(),
   /** See startSessionInput.spokenNarration. */
   spokenNarration: z.boolean().optional(),
+  /** See startSessionInput.canvasBoardId. */
+  canvasBoardId: z.string().optional(),
   /** See startSessionInput.bedrockGatewayVariant. */
   bedrockGatewayVariant: z.enum(BEDROCK_GATEWAY_VARIANTS).optional(),
 });

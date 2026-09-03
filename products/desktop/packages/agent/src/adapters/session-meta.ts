@@ -38,6 +38,23 @@ export function resolveSpokenNarration(
   return meta?.spokenNarration === true;
 }
 
+/** Minimal shape needed to resolve the Canvases v2 board id from meta. */
+interface CanvasBoardIdSource {
+  canvasBoardId?: string;
+}
+
+/**
+ * Only the desktop links a session to a board, so every other caller leaves
+ * this unset and the canvas tools never load. Shared by the Claude and Codex
+ * adapters.
+ */
+export function resolveCanvasBoardId(
+  meta: CanvasBoardIdSource | undefined,
+): string | undefined {
+  const value = meta?.canvasBoardId;
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
 /** Minimal shape needed to resolve the Bedrock gateway variant from meta. */
 interface BedrockGatewayVariantSource {
   bedrockGatewayVariant?: BedrockGatewayVariant;

@@ -1,6 +1,8 @@
+import { isCanvasV2ToolCall } from "@posthog/core/canvas-v2/toolCalls";
 import { isShowActionsCall } from "@posthog/core/sessions/showActions";
 import { useServiceOptional } from "@posthog/di/react";
 import { readAgentToolName, readMcpToolName } from "@posthog/shared";
+import { CanvasV2ToolRow } from "@posthog/ui/features/canvas-v2/components/CanvasV2ToolRow";
 import { DeleteToolView } from "@posthog/ui/features/sessions/components/session-update/DeleteToolView";
 import { EditToolView } from "@posthog/ui/features/sessions/components/session-update/EditToolView";
 import { ExecuteToolView } from "@posthog/ui/features/sessions/components/session-update/ExecuteToolView";
@@ -84,6 +86,15 @@ export function ToolCallBlock({
   // call takes the row instead of a tool header the user would have to expand.
   // A denied, failed, or cancelled call falls through to the standard view,
   // which shows why it failed rather than live buttons the block never stopped.
+  // A board tool call is one small line: the board itself shows the change.
+  if (isCanvasV2ToolCall(toolCall._meta) && isComplete) {
+    return (
+      <div className={chatChrome ? "my-1" : "my-1 pl-3"}>
+        <CanvasV2ToolRow {...props} />
+      </div>
+    );
+  }
+
   if (isShowActionsCall(toolCall._meta) && isComplete) {
     return (
       <div className={chatChrome ? "my-1" : "my-1 pl-3"}>

@@ -19,6 +19,7 @@ import {
   AUTH_TOKEN_OVERRIDE,
 } from "@posthog/core/auth/identifiers";
 import { canvasCoreModule } from "@posthog/core/canvas/canvas.module";
+import { canvasV2CoreModule } from "@posthog/core/canvas-v2/canvasV2.module";
 import { cloudTaskModule } from "@posthog/core/cloud-task/cloud-task.module";
 import {
   CLOUD_TASK_AUTH,
@@ -163,6 +164,7 @@ import {
 import { authProxyModule } from "@posthog/workspace-server/services/auth-proxy/auth-proxy.module";
 import { AUTH_PROXY_AUTH } from "@posthog/workspace-server/services/auth-proxy/identifiers";
 import { browserTabsModule } from "@posthog/workspace-server/services/browser-tabs/browser-tabs.module";
+import { canvasV2CacheModule } from "@posthog/workspace-server/services/canvas-v2-cache/canvas-v2-cache.module";
 import { claudeCliSessionsModule } from "@posthog/workspace-server/services/claude-cli-sessions/claude-cli-sessions.module";
 import { ConnectivityService } from "@posthog/workspace-server/services/connectivity/service";
 import { enrichmentModule } from "@posthog/workspace-server/services/enrichment/enrichment.module";
@@ -628,6 +630,7 @@ container.load(skillsModule);
 container.load(skillsMarketplaceModule);
 container.load(releaseFeedModule);
 container.load(localMcpModule);
+container.load(canvasV2CacheModule);
 container.load(mcpRelayModule);
 // Core's cloud-task service executes MCP relay requests through this seam;
 // the workspace relay service satisfies the core executor interface
@@ -795,6 +798,7 @@ container.bind(MAIN_MISSION_CONTROL_SERVICE).to(MissionControlService);
 // live in @posthog/core (bound via canvasCoreModule) and resolve through
 // ctx.container in the host-router routers.
 container.load(canvasCoreModule);
+container.load(canvasV2CoreModule);
 container.load(quickAskCoreModule);
 // Chromium's network stack, not Node's undici: it honors system proxies and
 // VPN routing, which undici intermittently fails against ("fetch failed").

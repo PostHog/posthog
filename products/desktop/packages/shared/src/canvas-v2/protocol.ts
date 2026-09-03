@@ -1,0 +1,134 @@
+import { z } from "zod";
+import { canvasV2FragmentSchema } from "./schemas";
+
+export const CANVAS_V2_CHANNEL = "posthog-canvas-v2";
+
+export const canvasV2ThemeSchema = z.enum(["light", "dark"]);
+export type CanvasV2Theme = z.infer<typeof canvasV2ThemeSchema>;
+
+export const canvasV2ViewportSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  zoom: z.number().min(0.05).max(8),
+});
+export type CanvasV2Viewport = z.infer<typeof canvasV2ViewportSchema>;
+
+export const CANVAS_V2_DATA_METHODS = [
+  "query",
+  "loadInsight",
+  "capture",
+  "run",
+  "stateGet",
+  "stateSet",
+  "stateList",
+  "actionInvoke",
+  "agentRequest",
+] as const;
+export type CanvasV2DataMethod = (typeof CANVAS_V2_DATA_METHODS)[number];
+
+const channel = z.literal(CANVAS_V2_CHANNEL);
+
+export const hostToBoardFrameMessageSchema = z.discriminatedUnion("type", [
+  z.object({
+    channel,
+    type: z.literal("init"),
+    theme: canvasV2ThemeSchema,
+    viewport: canvasV2ViewportSchema,
+    fragments: z.array(canvasV2FragmentSchema),
+    state: z.record(z.string(), z.unknown()),
+  }),
+  z.object({
+    channel,
+    type: z.literal("set-viewport"),
+    viewport: canvasV2ViewportSchema,
+  }),
+  z.object({
+    channel,
+    type: z.literal("upsert-fragment"),
+    fragment: canvasV2FragmentSchema,
+  }),
+  z.object({ channel, type: z.literal("remove-fragment"), id: z.string() }),
+  z.object({
+    channel,
+    type: z.literal("set-state"),
+    key: z.string(),
+    value: z.unknown(),
+  }),
+  z.object({
+    channel,
+    type: z.literal("set-theme"),
+    theme: canvasV2ThemeSchema,
+  }),
+  z.object({
+    channel,
+    type: z.literal("set-selection"),
+    id: z.string().nullable(),
+  }),
+  z.object({
+    channel,
+    type: z.literal("data-response"),
+    id: z.string(),
+    ok: z.boolean(),
+    result: z.unknown().optional(),
+    error: z.string().optional(),
+  }),
+]);
+export type HostToBoardFrameMessage = z.infer<
+  typeof hostToBoardFrameMessageSchema
+>;
+
+export const boardFrameToHostMessageSchema = z.discriminatedUnion("type", [
+  z.object({ channel, type: z.literal("ready") }),
+  z.object({ channel, type: z.literal("fragment-rendered"), id: z.string() }),
+  z.object({
+    channel,
+    type: z.literal("fragment-error"),
+    id: z.string(),
+    message: z.string().max(10_000),
+    stack: z.string().max(50_000).optional(),
+  }),
+  z.object({
+    channel,
+    type: z.literal("state-changed"),
+    key: z.string(),
+    value: z.unknown(),
+  }),
+  z.object({
+    channel,
+    type: z.literal("data-request"),
+    id: z.string().min(1).max(128),
+    method: z.enum(CANVAS_V2_DATA_METHODS),
+    payload: z.unknown(),
+  }),
+  z.object({
+    channel,
+    type: z.literal("wheel"),
+    deltaX: z.number(),
+    deltaY: z.number(),
+    ctrlKey: z.boolean(),
+    metaKey: z.boolean(),
+    clientX: z.number(),
+    clientY: z.number(),
+  }),
+  z.object({
+    channel,
+    type: z.literal("background-pointer"),
+    phase: z.enum(["down", "move", "up"]),
+    clientX: z.number(),
+    clientY: z.number(),
+    button: z.number(),
+  }),
+  z.object({
+    channel,
+    type: z.literal("fragment-pointer-down"),
+    id: z.string(),
+  }),
+  z.object({
+    channel,
+    type: z.literal("open-external"),
+    url: z.string().url(),
+  }),
+]);
+export type BoardFrameToHostMessage = z.infer<
+  typeof boardFrameToHostMessageSchema
+>;

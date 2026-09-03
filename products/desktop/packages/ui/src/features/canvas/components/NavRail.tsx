@@ -34,6 +34,7 @@ import {
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
+import { useCanvasesV2Flag } from "@posthog/ui/features/feature-flags/useCanvasesV2Flag";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
@@ -188,6 +189,7 @@ function NavRailImpl() {
   const homeEnabled = useFeatureFlag(DESKTOP_HOME_FLAG);
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   const contextEnabled = useContextLayerFlag();
+  const canvasesV2Enabled = useCanvasesV2Flag();
   const inboxAvailable = useInboxAvailable();
   const tabsEnabled = useSpacesTabs();
   const openBrowserTab = useOpenBrowserTab();
@@ -199,6 +201,7 @@ function NavRailImpl() {
   const hasSavedSearches = useProjectTaskFeeds().length > 0;
   const destinations = visibleRailDestinations({
     home: homeEnabled,
+    canvasesV2: canvasesV2Enabled,
     inbox: inboxAvailable,
     loops: loopsEnabled,
     context: contextEnabled,

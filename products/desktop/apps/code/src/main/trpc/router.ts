@@ -8,6 +8,8 @@ import { autoresearchRouter } from "@posthog/host-router/routers/autoresearch.ro
 import { browserTabsRouter } from "@posthog/host-router/routers/browser-tabs.router";
 import { canvasDataRouter } from "@posthog/host-router/routers/canvas-data.router";
 import { canvasTemplatesRouter } from "@posthog/host-router/routers/canvas-templates.router";
+import { canvasV2Router } from "@posthog/host-router/routers/canvas-v2.router";
+import { canvasV2CacheRouter } from "@posthog/host-router/routers/canvas-v2-cache.router";
 import { channelTasksRouter } from "@posthog/host-router/routers/channel-tasks.router";
 import { claudeCliSessionsRouter } from "@posthog/host-router/routers/claude-cli-sessions.router";
 import { cloudTaskRouter } from "@posthog/host-router/routers/cloud-task.router";
@@ -69,6 +71,8 @@ export const trpcRouter = router({
   browserTabs: browserTabsRouter,
   canvasData: canvasDataRouter,
   canvasTemplates: canvasTemplatesRouter,
+  canvasV2: canvasV2Router,
+  canvasV2Cache: canvasV2CacheRouter,
   channelTasks: channelTasksRouter,
   claudeCliSessions: claudeCliSessionsRouter,
   dashboards: dashboardsRouter,

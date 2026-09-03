@@ -285,6 +285,7 @@ export type SidebarNavItem =
   | "contexts"
   | "activity"
   | "canvases"
+  | "canvases_v2"
   | "configure"
   | "loops"
   | "more";

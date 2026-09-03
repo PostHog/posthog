@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import models
@@ -7,7 +7,9 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.models.user import User
 
+from products.canvas.backend.board_log import BOARD_OP_TYPES, MAX_BOARD_OP_BYTES
 from products.canvas.backend.contract import (
     GRID_COLUMN_CHOICES,
     MAX_COMPONENT_HEIGHT,
@@ -22,7 +24,7 @@ from products.canvas.backend.facade.api import (
     PLACEMENT_STATUSES,
     RESERVED_TEMPLATE_IDS,
 )
-from products.canvas.backend.models import Canvas, CanvasState
+from products.canvas.backend.models import Canvas, CanvasBoard, CanvasBoardOp, CanvasState
 
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
 # from the contract's total-source cap rather than restating the number.
@@ -1107,3 +1109,207 @@ class CanvasAgentRequestResultSerializer(serializers.Serializer):
         ),
     )
     task_id = serializers.UUIDField(help_text="Authoring task that received the request or report.")
+
+
+class CanvasBoardActorKind(models.TextChoices):
+    USER = "user", "User"
+    AGENT = "agent", "Agent"
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "required": ["type"],
+        "properties": {"type": {"type": "string", "enum": BOARD_OP_TYPES}},
+        "additionalProperties": True,
+    }
+)
+class CanvasBoardOpField(serializers.JSONField):
+    """A board op: a JSON object whose ``type`` names the change. The desktop validates the rest."""
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "required": ["schemaVersion", "fragments", "state"],
+        "properties": {
+            "schemaVersion": {"type": "integer"},
+            "fragments": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+            "state": {"type": "object", "additionalProperties": True},
+        },
+    }
+)
+class CanvasBoardSnapshotField(serializers.JSONField):
+    """A folded board: every fragment plus the shared state."""
+
+    def to_internal_value(self, data: Any) -> Any:
+        value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("A snapshot must be a JSON object.")
+        return value
+
+
+def board_actor_name(user: User | None) -> str | None:
+    if user is None:
+        return None
+    return user.first_name or user.email
+
+
+class CanvasBoardCreatorSerializer(serializers.Serializer):
+    """The person who created a board."""
+
+    kind = serializers.ChoiceField(choices=CanvasBoardActorKind.choices, help_text="Always user for a creator.")
+    user_id = serializers.IntegerField(allow_null=True, help_text="Id of the user, or null when the account is gone.")
+    user_name = serializers.CharField(allow_null=True, help_text="First name of the user, else their email.")
+
+
+class CanvasBoardActorSerializer(CanvasBoardCreatorSerializer):
+    """Who recorded an op: the signed-in user, or an agent acting for them."""
+
+    task_id = serializers.CharField(allow_null=True, help_text="Id of the agent task that made the change, or null.")
+
+
+class CanvasBoardLogEntrySerializer(serializers.Serializer):
+    """One recorded op on a board."""
+
+    seq = serializers.IntegerField(read_only=True, help_text="Position in the board's log, starting at 1.")
+    op_id = serializers.CharField(read_only=True, help_text="Id the client chose for the op.")
+    actor = serializers.SerializerMethodField(help_text="Who recorded the op.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the server recorded the op.")
+    op = CanvasBoardOpField(read_only=True, help_text="The op itself.")
+
+    @extend_schema_field(CanvasBoardActorSerializer)
+    def get_actor(self, entry: CanvasBoardOp) -> dict[str, Any]:
+        return {
+            "kind": entry.actor_kind,
+            "user_id": entry.actor_user_id,
+            "user_name": board_actor_name(entry.actor_user),
+            "task_id": entry.actor_task_id,
+        }
+
+
+class CanvasBoardSummarySerializer(serializers.Serializer):
+    """A board as listed, without its contents."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Id of the board.")
+    name = serializers.CharField(read_only=True, help_text="Display name of the board.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the board was created.")
+    updated_at = serializers.DateTimeField(read_only=True, help_text="When the board or its log last changed.")
+    head_seq = serializers.IntegerField(read_only=True, help_text="Seq of the newest op in the board's log.")
+    fragment_count = serializers.SerializerMethodField(help_text="Number of fragments in the stored snapshot.")
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_fragment_count(self, board: CanvasBoard) -> int:
+        fragments = board.snapshot.get("fragments", []) if isinstance(board.snapshot, dict) else []
+        return len(fragments)
+
+
+class CanvasBoardSerializer(serializers.Serializer):
+    """A board with its stored snapshot and the ops recorded after it."""
+
+    MAX_OPS_AFTER_SNAPSHOT = 2000
+
+    id = serializers.UUIDField(read_only=True, help_text="Id of the board.")
+    name = serializers.CharField(read_only=True, help_text="Display name of the board.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the board was created.")
+    updated_at = serializers.DateTimeField(read_only=True, help_text="When the board or its log last changed.")
+    created_by = serializers.SerializerMethodField(help_text="Who created the board, or null.")
+    head_seq = serializers.IntegerField(read_only=True, help_text="Seq of the newest op in the board's log.")
+    snapshot = CanvasBoardSnapshotField(read_only=True, help_text="Newest folded board the server holds.")
+    snapshot_seq = serializers.IntegerField(read_only=True, help_text="Seq the snapshot reflects.")
+    ops_after_snapshot = serializers.SerializerMethodField(
+        help_text="Ops with seq greater than snapshot_seq, ascending, at most 2000. Page with ops/ for the rest."
+    )
+
+    @extend_schema_field(CanvasBoardCreatorSerializer(allow_null=True))
+    def get_created_by(self, board: CanvasBoard) -> dict[str, Any] | None:
+        if board.created_by is None:
+            return None
+        return {
+            "kind": CanvasBoardActorKind.USER,
+            "user_id": board.created_by_id,
+            "user_name": board_actor_name(board.created_by),
+        }
+
+    @extend_schema_field(CanvasBoardLogEntrySerializer(many=True))
+    def get_ops_after_snapshot(self, board: CanvasBoard) -> list[dict[str, Any]]:
+        rows = (
+            CanvasBoardOp.objects.for_team(board.team_id)
+            .filter(board=board, seq__gt=board.snapshot_seq)
+            .select_related("actor_user")
+            .order_by("seq")[: self.MAX_OPS_AFTER_SNAPSHOT]
+        )
+        return cast(list[dict[str, Any]], CanvasBoardLogEntrySerializer(rows, many=True).data)
+
+
+class CanvasBoardWriteSerializer(serializers.Serializer):
+    """Payload for creating or renaming a board."""
+
+    name = serializers.CharField(max_length=120, help_text="Display name of the board.")
+
+
+class CanvasBoardOpsQuerySerializer(serializers.Serializer):
+    """Query parameters for paging a board's log."""
+
+    since = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Return ops with seq greater than this. Defaults to 0."
+    )
+    limit = serializers.IntegerField(
+        required=False, default=500, min_value=1, max_value=1000, help_text="Page size, at most 1000. Defaults to 500."
+    )
+
+
+class CanvasBoardOpsPageSerializer(serializers.Serializer):
+    """One page of a board's log."""
+
+    results = CanvasBoardLogEntrySerializer(many=True, help_text="Ops in ascending seq order.")
+    head_seq = serializers.IntegerField(help_text="Seq of the newest op in the board's log.")
+
+
+class CanvasBoardActorInputSerializer(serializers.Serializer):
+    """Who the client says is making the change. The user is always the caller."""
+
+    kind = serializers.ChoiceField(
+        choices=CanvasBoardActorKind.choices, help_text="user for a direct edit, agent for a change made by an agent."
+    )
+    task_id = serializers.CharField(
+        max_length=64, required=False, allow_null=True, help_text="Id of the agent task making the change, if any."
+    )
+
+
+class CanvasBoardOpDraftSerializer(serializers.Serializer):
+    """One op the client wants recorded."""
+
+    op_id = serializers.CharField(
+        max_length=64, help_text="Client-chosen id, unique per board. Resending the same id records nothing new."
+    )
+    op = CanvasBoardOpField(help_text=f"The op. Capped at {MAX_BOARD_OP_BYTES // 1024} KB serialized.")
+
+
+class CanvasBoardAppendOpsSerializer(serializers.Serializer):
+    """Payload for appending ops to a board's log, with an optional checkpoint snapshot."""
+
+    ops = CanvasBoardOpDraftSerializer(
+        many=True, allow_empty=True, help_text="Ops to record, in order. May be empty to send only a snapshot."
+    )
+    actor = CanvasBoardActorInputSerializer(help_text="Who is making the change.")
+    base_seq = serializers.IntegerField(
+        min_value=0, help_text="head_seq the client had folded up to. The snapshot is stored only when it matches."
+    )
+    snapshot = CanvasBoardSnapshotField(
+        required=False, allow_null=True, help_text="Folded board at base_seq plus these ops, or null to send none."
+    )
+
+
+class CanvasBoardAppendedOpSerializer(serializers.Serializer):
+    """Where one submitted op landed in the log."""
+
+    op_id = serializers.CharField(help_text="The op_id the client sent.")
+    seq = serializers.IntegerField(help_text="Seq assigned to the op, or its existing seq when already recorded.")
+
+
+class CanvasBoardAppendResultSerializer(serializers.Serializer):
+    """Result of appending ops."""
+
+    results = CanvasBoardAppendedOpSerializer(many=True, help_text="One entry per submitted op, in order.")
+    head_seq = serializers.IntegerField(help_text="Seq of the newest op after this append.")

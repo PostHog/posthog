@@ -13,6 +13,7 @@ export type NavRailPane =
   | "spaces"
   | "activity"
   | "canvases"
+  | "canvases-v2"
   | "inbox"
   | "command-center"
   | "loops"
@@ -31,6 +32,7 @@ export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
   spaces: "/spaces",
   activity: "/activity",
   canvases: "/canvases",
+  "canvases-v2": "/canvases-v2",
   inbox: "/inbox",
   "command-center": "/command-center",
   loops: "/loops",
@@ -44,6 +46,7 @@ const CLAIMED: readonly NavRailPane[] = [
   "home",
   "activity",
   "canvases",
+  "canvases-v2",
   "inbox",
   "command-center",
   "loops",
