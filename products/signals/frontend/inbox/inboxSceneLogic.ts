@@ -397,6 +397,9 @@ export interface inboxSceneLogicActions {
     setActiveTab: (tab: InboxTabKey) => {
         tab: InboxTabKey
     }
+    setActiveTabFromUrl: (tab: InboxTabKey) => {
+        tab: InboxTabKey
+    }
     setFindingsOpen: (open: boolean) => {
         open: boolean
     }
@@ -474,6 +477,11 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         // detail renders without a spinner while the authoritative fetch runs in the background.
         seedSelectedReport: (report: SignalReport | null) => ({ report }),
         setActiveTab: (tab: InboxTabKey) => ({ tab }),
+        // Reflect the tab a route already named into state without an `actionToUrl` echo, so a
+        // segment that resolved to the other layout's key (the `config`/`settings` aliases) does not
+        // rewrite the URL the visitor arrived on. `setActiveTab` is for tab changes that must drive
+        // the URL.
+        setActiveTabFromUrl: (tab: InboxTabKey) => ({ tab }),
         // Scout detail surface: selecting a scout opens its full-width detail over the list. An
         // optional finding id deep-links to one emitted finding within that scout (highlighted +
         // scrolled into view if it's still in the recent window).
@@ -585,6 +593,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             null as InboxTabKey | null,
             {
                 setActiveTab: (_, { tab }) => tab,
+                setActiveTabFromUrl: (_, { tab }) => tab,
             },
         ],
         selectedScoutSkillName: [
@@ -1101,7 +1110,15 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     return
                 }
                 if (isInboxTabKey(tab, values.isRedesign) && values.activeTab !== tab) {
-                    actions.setActiveTab(tab)
+                    // A settings segment (`config`/`settings`) resolves to the other layout's key, so
+                    // echoing that tab back to the URL would rewrite the segment the visitor arrived on
+                    // and leave a dead Back entry. Reflect it into state instead. Every other segment
+                    // already equals its tab, so `setActiveTab` leaves the URL in place there.
+                    if (tab === segment) {
+                        actions.setActiveTab(tab)
+                    } else {
+                        actions.setActiveTabFromUrl(tab)
+                    }
                 }
                 closeAllSurfaces()
             },

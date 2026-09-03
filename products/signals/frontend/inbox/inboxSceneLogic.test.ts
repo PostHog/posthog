@@ -136,7 +136,6 @@ describe('inboxSceneLogic routing', () => {
     it.each<[string, string, string]>([
         ['/inbox/pulls', urls.inbox('reports'), 'reports'],
         ['/inbox/archived', urls.inbox('reports'), 'reports'],
-        ['/inbox/config', urls.inbox('settings'), 'settings'],
         ['/inbox/runs', urls.inboxRuns(), 'scouts'],
         ['/inbox/pulls/report-1', urls.inboxReport('reports', 'report-1'), 'reports'],
     ])('under the redesign %s lands on %s', (path, expectedPath, expectedTab) => {
@@ -147,7 +146,6 @@ describe('inboxSceneLogic routing', () => {
     })
 
     it.each<[string, string, string]>([
-        ['/inbox/settings', urls.inbox('config'), 'config'],
         ['/inbox/scouts/runs', urls.inbox('runs'), 'runs'],
         ['/inbox/reports/triage', urls.inbox('reports'), 'reports'],
         ['/inbox/pulls', urls.inbox('pulls'), 'pulls'],
@@ -215,16 +213,18 @@ describe('inboxSceneLogic routing', () => {
     })
 
     // `/inbox/config` and `/inbox/settings` name one surface, one segment per layout. Both stay live
-    // under both layouts, so a link written under either one opens the settings surface.
+    // under both layouts, so a link written under either one opens the settings surface and stays on
+    // the segment it arrived on — resolving the alias must not rewrite the URL to the other segment.
     it.each<[string, boolean, string]>([
         ['/inbox/config', true, 'settings'],
         ['/inbox/config', false, 'config'],
         ['/inbox/settings', true, 'settings'],
         ['/inbox/settings', false, 'config'],
-    ])('%s opens the settings surface for redesign=%p', (path, redesign, expectedTab) => {
+    ])('%s opens the settings surface for redesign=%p and holds the URL', (path, redesign, expectedTab) => {
         mountWithRedesign(redesign)
         router.actions.push(path)
         expect(logic.values.activeTab).toBe(expectedTab)
+        expect(router.values.location.pathname.endsWith(path)).toBe(true)
     })
 
     // The flag answers from local storage before the server answers it, and posthog-js can resolve it
