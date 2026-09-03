@@ -81,8 +81,17 @@ class TestOpeningBrief(SimpleTestCase):
         assert "Summarize what the company does" not in joined
         assert any("what are they working on right now" in line for line in brief)
 
-    @parameterized.expand([("no_domain", None), ("not_configured", "not_configured"), ("busy", "busy")])
-    def test_the_no_research_brief_asks_about_their_work_once(self, _name: str, outcome: str | None) -> None:
+    @parameterized.expand(
+        [
+            ("no_domain", None),
+            ("not_configured", "not_configured"),
+            ("busy", "busy"),
+            ("unreachable", "unreachable"),
+        ]
+    )
+    def test_a_brief_without_a_company_summary_asks_about_their_work_once(
+        self, _name: str, outcome: str | None
+    ) -> None:
         research = DomainResearch(outcome=outcome, url="northwind.example") if outcome else None  # type: ignore[arg-type]
         brief = build_opening_brief(_setup_facts(research=research))
 
