@@ -49,7 +49,7 @@ class TestImpactApi(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
 
     @classmethod
-    def setUpTestData(cls):
+    def setUpTestData(cls) -> None:
         super().setUpTestData()
         rows = [
             _log_row(cls.team.id, "checkout started", attributes={"sessionId": "s1", "posthogDistinctId": "u1"}),
@@ -66,10 +66,10 @@ class TestImpactApi(ClickhouseTestMixin, APIBaseTest):
             {sql}
         """)
 
-    def _impact(self, query_params, expected_status=status.HTTP_200_OK):
+    def _impact(self, query_params: dict) -> dict:
         response = self.client.post(f"/api/projects/{self.team.id}/logs/impact", data={"query": query_params})
-        self.assertEqual(response.status_code, expected_status)
-        return response.json() if expected_status == status.HTTP_200_OK else response
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()
 
     @parameterized.expand(
         [
@@ -82,18 +82,23 @@ class TestImpactApi(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     @freeze_time("2025-12-18T12:00:00Z")
-    def test_impact_counts_identity_coverage(self, _name, date_range, expected):
+    def test_impact_counts_identity_coverage(self, _name: str, date_range: dict, expected: dict) -> None:
         self.assertEqual(self._impact({"dateRange": date_range}), expected)
 
     @freeze_time("2025-12-18T12:00:00Z")
-    def test_impact_applies_filters(self):
+    def test_impact_accepts_null_filter_lists(self) -> None:
+        response = self._impact({"dateRange": _FIXTURE_WINDOW, "severityLevels": None, "serviceNames": None})
+        self.assertEqual(response["total"], 6)
+
+    @freeze_time("2025-12-18T12:00:00Z")
+    def test_impact_applies_filters(self) -> None:
         # The only error-severity row carries no identity attributes, so every
         # identity count must drop to zero with it.
         response = self._impact({"dateRange": _FIXTURE_WINDOW, "severityLevels": ["error"]})
         self.assertEqual(response, {**_ZERO_IMPACT, "total": 1})
 
     @freeze_time("2025-12-18T12:00:00Z")
-    def test_impact_counts_team_configured_session_keys(self):
+    def test_impact_counts_team_configured_session_keys(self) -> None:
         TeamLogsConfig.objects.update_or_create(
             team=self.team, defaults={"logs_session_id_attribute_keys": ["my_session"]}
         )
@@ -101,6 +106,6 @@ class TestImpactApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["logsWithSessionId"], 5)
         self.assertEqual(response["sessions"], 4)
 
-    def test_impact_rejects_non_object_query(self):
+    def test_impact_rejects_non_object_query(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/logs/impact", data={"query": "not-an-object"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
