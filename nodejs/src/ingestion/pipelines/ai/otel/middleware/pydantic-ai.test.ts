@@ -240,14 +240,17 @@ describe('pydantic-ai middleware', () => {
         })
     })
 
-    describe('$ai_span with tool data', () => {
-        it('maps tool_arguments and tool_response to state properties', () => {
+    describe.each([
+        ['instrumentation v2 keys', 'tool_arguments', 'tool_response'],
+        ['instrumentation v3+ keys', 'gen_ai.tool.call.arguments', 'gen_ai.tool.call.result'],
+    ])('$ai_span with tool data (%s)', (_label, argumentsKey, resultKey) => {
+        it('maps tool arguments and result to state properties', () => {
             const toolArgs = { latitude: 45.5, longitude: -73.5 }
             const event = createEvent('$ai_span', {
                 $ai_parent_id: 'parent-1',
                 'logfire.msg': 'running tool: get_weather',
-                tool_arguments: JSON.stringify(toolArgs),
-                tool_response: 'Sunny, 25°C',
+                [argumentsKey]: JSON.stringify(toolArgs),
+                [resultKey]: 'Sunny, 25°C',
                 'gen_ai.tool.name': 'get_weather',
                 'gen_ai.tool.call.id': 'call-123',
                 'logfire.json_schema': '{}',
@@ -257,20 +260,20 @@ describe('pydantic-ai middleware', () => {
             expect(event.properties!['$ai_input_state']).toEqual(toolArgs)
             expect(event.properties!['$ai_output_state']).toBe('Sunny, 25°C')
             expect(event.properties!['$ai_span_name']).toBe('get_weather')
-            expect(event.properties!['tool_arguments']).toBeUndefined()
-            expect(event.properties!['tool_response']).toBeUndefined()
+            expect(event.properties![argumentsKey]).toBeUndefined()
+            expect(event.properties![resultKey]).toBeUndefined()
             expect(event.properties!['gen_ai.tool.name']).toBeUndefined()
             expect(event.properties!['gen_ai.tool.call.id']).toBeUndefined()
             expect(event.properties!['logfire.msg']).toBeUndefined()
             expect(event.properties!['logfire.json_schema']).toBeUndefined()
         })
 
-        it('parses tool_response JSON string into object for $ai_output_state', () => {
+        it('parses a JSON string result into an object for $ai_output_state', () => {
             const toolResponse = { temperature: 25, unit: 'celsius', condition: 'sunny' }
             const event = createEvent('$ai_span', {
                 $ai_parent_id: 'parent-1',
                 'logfire.msg': 'running tool: get_weather',
-                tool_response: JSON.stringify(toolResponse),
+                [resultKey]: JSON.stringify(toolResponse),
                 'gen_ai.tool.name': 'get_weather',
             })
             convertOtelEvent(event)
@@ -278,33 +281,48 @@ describe('pydantic-ai middleware', () => {
             expect(event.properties!['$ai_output_state']).toEqual(toolResponse)
         })
 
-        it('keeps tool_response as plain string when not valid JSON', () => {
+        it('keeps a plain-text result as a string', () => {
             const event = createEvent('$ai_span', {
                 $ai_parent_id: 'parent-1',
                 'logfire.msg': 'running tool: get_weather',
-                tool_response: 'Sunny, 25°C',
+                [resultKey]: 'Sunny, 25°C',
             })
             convertOtelEvent(event)
 
             expect(event.properties!['$ai_output_state']).toBe('Sunny, 25°C')
         })
 
-        it('keeps tool_arguments as string when JSON parsing fails', () => {
+        it.each([
+            ['number', '42'],
+            ['boolean', 'true'],
+            ['null', 'null'],
+        ])('keeps a %s result as a string, which the conversation view can render', (_label, value) => {
+            const event = createEvent('$ai_span', {
+                $ai_parent_id: 'parent-1',
+                'logfire.msg': 'running tool: roll_die',
+                [resultKey]: value,
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_output_state']).toBe(value)
+        })
+
+        it('keeps tool arguments as a string when JSON parsing fails', () => {
             const event = createEvent('$ai_span', {
                 $ai_parent_id: 'parent-1',
                 'logfire.msg': 'tool run',
-                tool_arguments: 'not json',
+                [argumentsKey]: 'not json',
             })
             convertOtelEvent(event)
             expect(event.properties!['$ai_input_state']).toBe('not json')
         })
 
-        it('passes through already-parsed tool_arguments', () => {
+        it('passes through already-parsed tool arguments', () => {
             const toolArgs = { key: 'value' }
             const event = createEvent('$ai_span', {
                 $ai_parent_id: 'parent-1',
                 'logfire.msg': 'tool run',
-                tool_arguments: toolArgs,
+                [argumentsKey]: toolArgs,
             })
             convertOtelEvent(event)
             expect(event.properties!['$ai_input_state']).toEqual(toolArgs)
