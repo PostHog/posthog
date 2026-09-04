@@ -5,6 +5,7 @@ from clickhouse_driver.errors import ServerException
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import (
     CH_TRANSIENT_ERRORS,
+    CHQueryErrorSyntaxError,
     QueryErrorCategory,
     classify_query_error,
     clickhouse_error_type,
@@ -261,3 +262,15 @@ def test_memory_limit_wraps_by_which_ceiling_was_hit(message, expected_per_query
     if is_cluster:
         assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
         assert classify_query_error(wrapped) == QueryErrorCategory.RATE_LIMITED
+
+
+@pytest.mark.django_db
+def test_syntax_error_keeps_the_sql_clickhouse_rejected():
+    query = "SELECT = %(value)s FROM numbers(1)"
+
+    with pytest.raises(CHQueryErrorSyntaxError) as ctx:
+        sync_execute(query, {"value": "a user value"})
+
+    # The placeholder stays unsubstituted: the printer output is what has to be read back, and the
+    # values it stands for do not belong in a log line.
+    assert ctx.value.generated_sql == query
