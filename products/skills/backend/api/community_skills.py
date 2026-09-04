@@ -329,17 +329,9 @@ class CommunitySkillViewSet(
         except CommunitySkillInvalidPayloadError as err:
             return Response({"detail": err.detail}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(
-            {
-                "slug": rendered.slug,
-                "kind": rendered.kind,
-                "name": rendered.name,
-                "description": rendered.description,
-                "body": rendered.body,
-                "scout_config": rendered.scout_config,
-                "variable_bindings": rendered.variable_bindings,
-            }
-        )
+        # Serialized rather than hand-assembled so the wire shape can't drift from the schema the
+        # generated frontend types and MCP tools are built from.
+        return Response(cast(dict[str, Any], CommunitySkillRenderResponseSerializer(rendered).data))
 
     @extend_schema(request=None, responses={200: CommunitySkillVoteResponseSerializer})
     @action(methods=["POST"], detail=True)

@@ -119,19 +119,59 @@ function openTemplateDialog(
     })
 }
 
-function CommunitySkillCard({ skill }: { skill: CommunitySkillListApi }): JSX.Element {
-    const { installingSlugs, settingUpSlugs, votingSlugs } = useValues(communitySkillsLogic)
-    const { installSkill, setUpScout, toggleVote } = useActions(communitySkillsLogic)
+/**
+ * Install for a skill, and the scout form for a scout. A scout runs on a schedule under privileged
+ * scopes, so it is never copied into the project as a plain skill.
+ */
+function CommunitySkillAction({ skill }: { skill: CommunitySkillListApi }): JSX.Element {
+    const { installingSlugs, settingUpSlugs } = useValues(communitySkillsLogic)
+    const { installSkill, setUpScout } = useActions(communitySkillsLogic)
     const isScout = skill.kind === CommunitySkillKindEnumApi.Scout
     const busy = isScout ? !!settingUpSlugs[skill.slug] : !!installingSlugs[skill.slug]
-    const voting = !!votingSlugs[skill.slug]
-    const sourceUrl = skill.github_url ? githubSourceUrl(skill.github_url) : null
     const templateVariables = skill.template_variables ?? []
     const isTemplate = templateVariables.length > 0
-    // A scout goes to the scout form, where a person reviews its schedule and creates it. Only a
-    // skill is copied straight into the project.
+
     const start = (slug: string, values?: Record<string, string>): void =>
         isScout ? setUpScout(slug, values) : installSkill(slug, undefined, values)
+
+    return (
+        <LemonButton
+            size="small"
+            type="primary"
+            loading={busy}
+            disabledReason={busy ? (isScout ? 'Opening the scout form…' : 'Installing…') : undefined}
+            onClick={() => (isTemplate ? openTemplateDialog(skill, templateVariables, start) : start(skill.slug))}
+        >
+            {`${isScout ? 'Set up scout' : 'Install'}${isTemplate ? '…' : ''}`}
+        </LemonButton>
+    )
+}
+
+function CommunitySkillVoteButton({ skill }: { skill: CommunitySkillListApi }): JSX.Element {
+    const { votingSlugs } = useValues(communitySkillsLogic)
+    const { toggleVote } = useActions(communitySkillsLogic)
+    const voting = !!votingSlugs[skill.slug]
+
+    return (
+        <LemonButton
+            size="small"
+            type="tertiary"
+            icon={<IconThumbsUp />}
+            active={skill.has_voted}
+            loading={voting}
+            disabledReason={voting ? 'Saving your vote…' : undefined}
+            onClick={() => toggleVote(skill.slug)}
+            tooltip={skill.has_voted ? 'Remove your vote' : 'Upvote this skill'}
+        >
+            {skill.vote_count}
+        </LemonButton>
+    )
+}
+
+function CommunitySkillCard({ skill }: { skill: CommunitySkillListApi }): JSX.Element {
+    const isScout = skill.kind === CommunitySkillKindEnumApi.Scout
+    const sourceUrl = skill.github_url ? githubSourceUrl(skill.github_url) : null
+    const isTemplate = (skill.template_variables ?? []).length > 0
 
     return (
         <div className="flex flex-col gap-2 border rounded p-4 bg-bg-light h-full">
@@ -162,29 +202,8 @@ function CommunitySkillCard({ skill }: { skill: CommunitySkillListApi }): JSX.El
                     ) : null}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                    <LemonButton
-                        size="small"
-                        type="tertiary"
-                        icon={<IconThumbsUp />}
-                        active={skill.has_voted}
-                        loading={voting}
-                        disabledReason={voting ? 'Saving your vote…' : undefined}
-                        onClick={() => toggleVote(skill.slug)}
-                        tooltip={skill.has_voted ? 'Remove your vote' : 'Upvote this skill'}
-                    >
-                        {skill.vote_count}
-                    </LemonButton>
-                    <LemonButton
-                        size="small"
-                        type="primary"
-                        loading={busy}
-                        disabledReason={busy ? (isScout ? 'Opening the scout form…' : 'Installing…') : undefined}
-                        onClick={() =>
-                            isTemplate ? openTemplateDialog(skill, templateVariables, start) : start(skill.slug)
-                        }
-                    >
-                        {`${isScout ? 'Set up scout' : 'Install'}${isTemplate ? '…' : ''}`}
-                    </LemonButton>
+                    <CommunitySkillVoteButton skill={skill} />
+                    <CommunitySkillAction skill={skill} />
                 </div>
             </div>
         </div>

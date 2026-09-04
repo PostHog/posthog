@@ -44,47 +44,71 @@ export function encodeScoutCreateTemplate(template: ScoutTemplatePayload): strin
     return base64Encode(JSON.stringify(template)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
+/** The cadence, or undefined when the link gave none the create form would accept. */
+function cleanInterval(value: unknown): number | undefined {
+    if (typeof value !== 'number' || !Number.isInteger(value)) {
+        return undefined
+    }
+    return value >= MIN_RUN_INTERVAL_MINUTES && value <= MAX_RUN_INTERVAL_MINUTES ? value : undefined
+}
+
+function cleanCron(value: unknown): string | undefined {
+    if (typeof value !== 'string') {
+        return undefined
+    }
+    const schedule = value.trim()
+    if (schedule.length > MAX_CRON_SCHEDULE_LENGTH) {
+        return undefined
+    }
+    return schedule.split(/\s+/).length === CRON_FIELD_COUNT ? schedule : undefined
+}
+
+function cleanTags(value: unknown): string[] | undefined {
+    if (!Array.isArray(value) || !value.every((tag) => typeof tag === 'string')) {
+        return undefined
+    }
+    // Normalized here rather than trusted: the tag editor writes normalized tags, so an
+    // unnormalized one from a link would be an entry the user cannot reproduce by typing it.
+    const tags = normalizeScoutTags(value as string[]).slice(0, MAX_SCOUT_TAGS)
+    return tags.length > 0 ? tags : undefined
+}
+
 /** Keep the prefillable settings, dropping any field that isn't one or isn't in range. */
 function cleanConfig(raw: unknown): ScoutTemplateConfig | null {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
         return null
     }
     const { run_interval_minutes, run_cron_schedule, emit, tags } = raw as Record<string, unknown>
-    const config: ScoutTemplateConfig = {}
-
-    if (
-        typeof run_interval_minutes === 'number' &&
-        Number.isInteger(run_interval_minutes) &&
-        run_interval_minutes >= MIN_RUN_INTERVAL_MINUTES &&
-        run_interval_minutes <= MAX_RUN_INTERVAL_MINUTES
-    ) {
-        config.run_interval_minutes = run_interval_minutes
+    const config: ScoutTemplateConfig = {
+        ...defined('run_interval_minutes', cleanInterval(run_interval_minutes)),
+        ...defined('run_cron_schedule', cleanCron(run_cron_schedule)),
+        ...defined('emit', typeof emit === 'boolean' ? emit : undefined),
+        ...defined('tags', cleanTags(tags)),
     }
-    if (
-        typeof run_cron_schedule === 'string' &&
-        run_cron_schedule.trim().length <= MAX_CRON_SCHEDULE_LENGTH &&
-        run_cron_schedule.trim().split(/\s+/).length === CRON_FIELD_COUNT
-    ) {
-        config.run_cron_schedule = run_cron_schedule.trim()
-    }
-    if (typeof emit === 'boolean') {
-        config.emit = emit
-    }
-    if (Array.isArray(tags) && tags.every((tag) => typeof tag === 'string')) {
-        // Normalized here rather than trusted: the tag editor writes normalized tags, so an
-        // unnormalized one from a link would be an entry the user cannot reproduce by typing it.
-        config.tags = normalizeScoutTags(tags as string[]).slice(0, MAX_SCOUT_TAGS)
-    }
-
     return Object.keys(config).length > 0 ? config : null
 }
 
-/** Decodes a `#createScout=` value into modal initial values. Null means ignore the fragment. */
-export function decodeScoutCreateTemplate(raw: unknown): ScoutCreateInitialValues | null {
+/** `{ key: value }` when the cleaner kept the value, and nothing when it dropped it. */
+function defined<K extends string, V>(key: K, value: V | undefined): Partial<Record<K, V>> {
+    return value === undefined ? {} : ({ [key]: value } as Record<K, V>)
+}
+
+/** The skill name a link asked for, prefixed if it needs it, or empty when it isn't usable. */
+function cleanScoutName(value: unknown): string {
+    const name = typeof value === 'string' ? value.trim() : ''
+    if (!name) {
+        return ''
+    }
+    const prefixed = name.startsWith(SIGNALS_SCOUT_SKILL_PREFIX) ? name : `${SIGNALS_SCOUT_SKILL_PREFIX}${name}`
+    // Invalid name: drop it so the form's default prefix stands rather than the link failing.
+    return validateSkillName(prefixed) ? '' : prefixed
+}
+
+/** The decoded payload object, or null when the value isn't one. */
+function parsePayload(raw: unknown): Record<string, unknown> | null {
     if (typeof raw !== 'string' || raw.length === 0 || raw.length > MAX_ENCODED_LENGTH) {
         return null
     }
-
     let parsed: unknown
     try {
         // Accept both base64 alphabets and missing padding, like the desktop deep-link decoder.
@@ -94,12 +118,20 @@ export function decodeScoutCreateTemplate(raw: unknown): ScoutCreateInitialValue
     } catch {
         return null
     }
-
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
         return null
     }
+    return parsed as Record<string, unknown>
+}
 
-    const { name, description, body, config } = parsed as Record<string, unknown>
+/** Decodes a `#createScout=` value into modal initial values. Null means ignore the fragment. */
+export function decodeScoutCreateTemplate(raw: unknown): ScoutCreateInitialValues | null {
+    const parsed = parsePayload(raw)
+    if (!parsed) {
+        return null
+    }
+
+    const { name, description, body, config } = parsed
     const cleanDescription =
         typeof description === 'string' ? description.trim().slice(0, SKILL_DESCRIPTION_MAX_LENGTH) : ''
     const cleanBody = typeof body === 'string' ? body.trim().slice(0, MAX_BODY_LENGTH) : ''
@@ -109,21 +141,10 @@ export function decodeScoutCreateTemplate(raw: unknown): ScoutCreateInitialValue
         return null
     }
 
-    let cleanName = typeof name === 'string' ? name.trim() : ''
-    if (cleanName && !cleanName.startsWith(SIGNALS_SCOUT_SKILL_PREFIX)) {
-        cleanName = `${SIGNALS_SCOUT_SKILL_PREFIX}${cleanName}`
-    }
-    if (cleanName && validateSkillName(cleanName)) {
-        // Invalid name: drop it so the form's default prefix stands rather than the link failing.
-        cleanName = ''
-    }
-
-    const cleanedConfig = cleanConfig(config)
-
     return {
-        ...(cleanName ? { name: cleanName } : {}),
-        ...(cleanDescription ? { description: cleanDescription } : {}),
-        ...(cleanBody ? { body: cleanBody } : {}),
-        ...(cleanedConfig ? { config: cleanedConfig } : {}),
+        ...defined('name', cleanScoutName(name) || undefined),
+        ...defined('description', cleanDescription || undefined),
+        ...defined('body', cleanBody || undefined),
+        ...defined('config', cleanConfig(config) ?? undefined),
     }
 }
