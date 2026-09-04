@@ -88,6 +88,17 @@ class TestMigrateToMostSpecificAccess(BaseUserAccessControlTest):
         }
         assert "would be migrated" in out.getvalue()
 
+    def test_object_rules_the_preview_cannot_evaluate_stay_on_legacy(self) -> None:
+        # Nothing backs the account resource, so the preview cannot evaluate its object rows
+        # and an empty preview proves nothing for this organization
+        team = self.unchanged_organization.teams.get()
+        AccessControl.objects.create(team=team, resource="account", resource_id="1", access_level="none")
+        out = StringIO()
+        call_command("migrate_to_most_specific_access", stdout=out)
+
+        assert self._resolution_flags()["Unchanged org"] is False
+        assert f"{self.unchanged_organization.id}\tUnchanged org" in out.getvalue().split("could not be evaluated")[1]
+
     def test_rules_written_after_the_classification_block_the_switch(self) -> None:
         candidates = find_organizations_to_migrate()
         team = self.unchanged_organization.teams.get()
