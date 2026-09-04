@@ -31,6 +31,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { formatBucketLabel } from 'lib/utils/timeBuckets'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 

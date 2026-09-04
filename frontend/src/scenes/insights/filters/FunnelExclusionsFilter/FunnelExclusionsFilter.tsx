@@ -4,7 +4,7 @@ import { useRef } from 'react'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 

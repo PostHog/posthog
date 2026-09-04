@@ -12,9 +12,14 @@ import { SpacePreviewContent, type SpacePreviewPayload } from "./SpacePreview";
  */
 function CardFrame({
   people,
+  liveUuids,
   total,
   ...payload
-}: SpacePreviewPayload & { people: UserBasic[]; total: number | null }) {
+}: SpacePreviewPayload & {
+  people: UserBasic[];
+  liveUuids?: string[];
+  total: number | null;
+}) {
   return (
     <div className="p-4">
       <Card
@@ -24,6 +29,7 @@ function CardFrame({
         <SpacePreviewContent
           payload={payload}
           people={people}
+          liveUuids={liveUuids ? new Set(liveUuids) : undefined}
           total={total}
           onAction={() => {}}
         />
@@ -94,6 +100,11 @@ type Story = StoryObj<typeof meta>;
 
 /** Nothing owed: the gutter stays empty and the card is who and what. */
 export const Quiet: Story = {};
+
+/** Two people working right now — their faces wear a pulsing live dot. */
+export const LiveNow: Story = {
+  args: { liveUuids: ["user-2", "user-3"] },
+};
 
 /** Both dots the row can show, spelled out. */
 export const WantsYou: Story = {
