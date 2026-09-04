@@ -493,8 +493,6 @@ tools:
             typed output destinations such as Slack (a channel to post into, or users to DM directly). Repeating the
             same definition is safe and applies any supplied config fields. Reusing the name for a different definition
             returns a conflict.
-        # Provenance for the scouts tab's suggestion strip. No tool here reads a suggestion batch,
-        # so an agent has no id to pass and the field would only be noise in the schema.
         exclude_params:
             - suggestion_id
         confirmed_action:
