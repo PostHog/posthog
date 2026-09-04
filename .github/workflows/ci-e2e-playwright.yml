@@ -136,7 +136,10 @@ jobs:
                       shouldRun:
                         # Any change that could affect E2E behavior triggers a run.
                         - playwright/**
-                        - 'products/*/frontend/e2e/**'
+                        # The whole product frontend, not only the specs it owns: it compiles
+                        # into the same bundle the suite drives. tools/playwright_area_map.json
+                        # narrows the run from here.
+                        - 'products/*/frontend/**'
                         - .github/workflows/ci-e2e-playwright.yml
                         - 'ee/**'
                         - 'posthog/!(temporal/**)/**'
