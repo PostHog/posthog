@@ -447,6 +447,32 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(logic.values.checkFormErrors.customSql).toEqual('Checking query...')
     })
 
+    it('saves a query nobody edited while Monaco validates the one it opened with', async () => {
+        // Monaco validates the query as soon as the editor mounts. That pass used to read as an
+        // edit awaiting validation, so Save did nothing at all for the first moment the modal was up.
+        ;(warehouseSavedQueriesChecksPartialUpdate as jest.Mock).mockResolvedValue(buildCheck())
+        await mountLogic()
+        await openWith(
+            buildCheck({
+                check_type: CheckTypeEnumApi.CustomSql,
+                column_name: '',
+                config: { query: 'SELECT id FROM orders' },
+            }),
+            { description: 'Every order keeps a positive id' }
+        )
+
+        logic.actions.setCustomSqlValidationLoading(true)
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(warehouseSavedQueriesChecksPartialUpdate).toHaveBeenCalledWith(
+            '1',
+            'view-1',
+            'check-1',
+            expect.objectContaining({ description: 'Every order keeps a positive id' })
+        )
+    })
+
     it('keeps a Monaco error until an edited query receives a new validation result', async () => {
         await mountLogic()
         await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT * FROM orders' })
