@@ -197,7 +197,8 @@ class TaxonomyAgentToolkit:
         )
 
         qs = (
-            EnterprisePropertyDefinition.objects.filter(team=self._team, type=property_type, name__in=names)
+            EnterprisePropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=self._team.project_id, type=property_type, name__in=names)
             .exclude(description__isnull=True)
             .exclude(description="")
         )

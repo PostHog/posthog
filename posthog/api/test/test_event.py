@@ -24,7 +24,7 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Element, Organization, PropertyDefinition, User
+from posthog.models import Element, Organization, PropertyDefinition, Team, User
 from posthog.models.event.legacy_events_query import _execute_events_list_query
 from posthog.test.persons import create_person
 from posthog.test.test_journeys import journeys_for
@@ -585,6 +585,32 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         visible_keys = [resp["name"] for resp in visible_response["results"]]
         assert "should_appear" in visible_keys
         assert "also_visible" in visible_keys
+
+    def test_event_property_values_hidden_by_a_definition_of_another_team_in_the_project(self):
+        _create_event(
+            distinct_id="bla",
+            event="test event",
+            team=self.team,
+            properties={"hidden_prop": "should_not_appear"},
+        )
+        flush_persons_and_events()
+
+        try:
+            from ee.models.property_definition import EnterprisePropertyDefinition
+        except ImportError:
+            self.skipTest("Enterprise features not available")
+
+        other_team = Team.objects.create(organization=self.organization, project=self.project)
+        EnterprisePropertyDefinition.objects.create(
+            team=other_team,
+            project=self.project,
+            name="hidden_prop",
+            type=PropertyDefinition.Type.EVENT,
+            hidden=True,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=hidden_prop").json()
+        assert response["results"] == []
 
     def test_property_values_with_property_filters(self):
         with freeze_time("2020-01-20 20:00:00"):

@@ -35,7 +35,11 @@ from posthog.taxonomy.property_access import restricted_property_names
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
 from products.actions.backend.models.action import Action
-from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.event_definitions.backend.models.property_definition import (
+    PropertyDefinition,
+    PropertyType,
+    effective_project_id_expr,
+)
 
 from ee.hogai.chat_agent.taxonomy.format import (
     enrich_props_with_descriptions,
@@ -231,7 +235,8 @@ class TaxonomyAgentToolkit:
         )
 
         qs = (
-            EnterprisePropertyDefinition.objects.filter(team=self._team, type=property_type, name__in=names)
+            EnterprisePropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=self._team.project_id, type=property_type, name__in=names)
             .exclude(description__isnull=True)
             .exclude(description="")
         )
