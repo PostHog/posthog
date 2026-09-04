@@ -17,7 +17,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
-from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_breakdown_attribution_query_context import (
