@@ -64,8 +64,8 @@
             "description": "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
         },
         "model": {
-            "description": "Concrete model to use for this scanner.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.7-flash` - Gemini 3.7 Flash",
-            "enum": ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.7-flash"],
+            "description": "Concrete model to use for this scanner.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+            "enum": ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.8-flash"],
             "type": "string"
         },
         "name": {

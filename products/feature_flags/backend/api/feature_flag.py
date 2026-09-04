@@ -6,7 +6,7 @@ import json
 import math
 import logging
 import functools
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, NoReturn, Optional, cast
@@ -39,7 +39,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.flags_service import RETRYABLE_FLAGS_SERVICE_EXCEPTIONS, get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.tagged_item import (
+    TaggedItemSerializerMixin,
+    TaggedItemViewSetMixin,
+    current_tag_names,
+    normalize_tag_names,
+    resolve_bulk_tags,
+)
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, ServiceRequest, action
 from posthog.auth import (
     IDJagAccessTokenAuthentication,
@@ -116,6 +122,7 @@ from products.feature_flags.backend.flag_status import (
 from products.feature_flags.backend.local_evaluation import _get_flag_properties_from_filters
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
+from products.feature_flags.backend.models.team_feature_flag_policy_config import team_requires_flag_tags
 from products.feature_flags.backend.session_recording_links import (
     REPLAY_LINKED_FLAG_DELETE_ERROR,
     replay_linked_flag_ids,
@@ -453,6 +460,15 @@ FEATURE_FLAG_CREATION_CONTEXT_CHOICES = (
     "web_experiments",
     "product_tours",
 )
+
+# A flag created to back one of these objects never passes through a form with a tag input, so the
+# team's "require tags" setting would dead-end those flows rather than get anything tagged. The
+# caller declares its own creation_context, so this exempts flows rather than enforcing anything on
+# them - the setting is bookkeeping, not an access boundary.
+TAG_REQUIREMENT_EXEMPT_CREATION_CONTEXTS = frozenset(FEATURE_FLAG_CREATION_CONTEXT_CHOICES) - {"feature_flags"}
+
+REQUIRE_TAGS_ON_CREATE_ERROR = "Add at least one tag. This project requires new feature flags to be tagged."
+REQUIRE_TAGS_ON_UPDATE_ERROR = "Keep at least one tag. This project requires feature flags to stay tagged."
 
 
 def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
@@ -1328,26 +1344,38 @@ class FeatureFlagSerializer(
         if not request:
             return attrs
 
-        # Survey flags are exempt from evaluation tag requirements
-        # They are created automatically by the survey system and don't need manual tagging
+        # Note: for creation_context, we use initial_data since it's metadata not part of the model
         creation_context = self.initial_data.get("creation_context") if hasattr(self, "initial_data") else None
-        if creation_context == "surveys":
-            return attrs
 
-        # Get the team to check if evaluation contexts are required
         # The context uses a lambda for lazy evaluation
         get_team = self.context.get("get_team")
         if not get_team:
             return attrs
 
         team = get_team()
-        if not team or not team.require_evaluation_contexts:
+        if not team:
             return attrs
+
+        self._validate_evaluation_contexts_requirement(attrs, request, team, creation_context)
+        self._validate_tags_requirement(attrs, team, creation_context)
+
+        return attrs
+
+    def _validate_evaluation_contexts_requirement(
+        self, attrs: dict, request: Any, team: Team, creation_context: str | None
+    ) -> None:
+        """Enforce the team's "require evaluation contexts" setting."""
+        # Survey flags are exempt from evaluation tag requirements
+        # They are created automatically by the survey system and don't need manual tagging
+        if creation_context == "surveys":
+            return
+
+        if not team.require_evaluation_contexts:
+            return
 
         if not self._is_evaluation_contexts_feature_enabled():
-            return attrs
+            return
 
-        # Note: for creation_context, we use initial_data since it's metadata not part of the model
         evaluation_contexts = attrs.get("evaluation_contexts")
 
         if request.method == "POST":
@@ -1373,7 +1401,32 @@ class FeatureFlagSerializer(
                         "because this flag already has evaluation contexts and the team requires them."
                     )
 
-        return attrs
+    def _validate_tags_requirement(self, attrs: dict, team: Team, creation_context: str | None) -> None:
+        """Enforce the team's "require tags" setting."""
+        if creation_context in TAG_REQUIREMENT_EXEMPT_CREATION_CONTEXTS:
+            return
+
+        if not team_requires_flag_tags(team.id):
+            return
+
+        tags = attrs.get("tags")
+        named_tags = normalize_tag_names([tag for tag in tags or [] if isinstance(tag, str)])
+
+        # Branch on the instance rather than request.method. Products that write a flag as a side
+        # effect of their own request - launching an experiment, saving an early access feature,
+        # editing a product tour - drive this serializer with the real POST request that triggered
+        # them, and those updates carry no tags. Reading POST as "create" would reject them.
+        if self.instance is None:
+            if not named_tags:
+                raise serializers.ValidationError({"tags": REQUIRE_TAGS_ON_CREATE_ERROR})
+            return
+
+        # Only block emptying a flag that already has tags. Flags that predate the setting stay
+        # editable, so turning it on doesn't freeze the existing untagged ones. Normalize what the
+        # flag already carries too: a blank tag row is not a tag on the way in, so it must not read
+        # as one on the way out.
+        if tags is not None and not named_tags and normalize_tag_names(current_tag_names(self.instance)):
+            raise serializers.ValidationError({"tags": REQUIRE_TAGS_ON_UPDATE_ERROR})
 
     def _validate_device_bucketing_with_persist_auth(self, attrs):
         """Validate that persist across auth is not enabled with device ID bucketing"""
@@ -2604,6 +2657,21 @@ class EvaluationReasonsResponseSerializer(serializers.Serializer):
     pass
 
 
+class WholeNumberFloatField(serializers.FloatField):
+    """Keeps a fractional rollout, and leaves a whole one as the integer the API already sent.
+
+    A plain FloatField renders 40 as 40.0, which moves the documented type of a published
+    response from integer to number. FinitePercentageField normalizes the same data on the
+    write side for the same reason.
+    """
+
+    # DRF stubs type the base `Field.to_representation` as `-> str`, so a numeric return trips
+    # `[override]`. FloatField itself returns a float at runtime, so the narrower type is correct.
+    def to_representation(self, value: Any) -> int | float:  # type: ignore[override]
+        number = float(value)
+        return int(number) if number.is_integer() else number
+
+
 class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
     effectively_full_rollout = serializers.BooleanField(
         help_text=(
@@ -2617,16 +2685,18 @@ class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
     has_targeting_conditions = serializers.BooleanField(
         help_text=(
             "True if any release condition has property filters, i.e. the flag is conditionally targeted "
-            "rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the "
-            "targeted segment, not of the whole user base."
+            "rather than a blanket rollout. This says nothing about which condition produced "
+            "`max_rollout_percentage`: the two fields are computed independently over the whole condition "
+            "list."
         )
     )
-    max_rollout_percentage = serializers.IntegerField(
+    max_rollout_percentage = WholeNumberFloatField(
         allow_null=True,
         help_text=(
             "Highest rollout percentage (0-100) across the flag's release conditions, treating a missing "
-            "percentage as 100. Null when the flag has no release conditions. Interpret together with "
-            "`has_targeting_conditions`."
+            "percentage as 100. Null when the flag has no release conditions. The maximum can come from an "
+            "untargeted condition even when `has_targeting_conditions` is true, so it cannot be attributed "
+            "to a targeted condition or read as a share of a targeted segment."
         ),
     )
     is_multivariate = serializers.BooleanField(
@@ -2643,6 +2713,13 @@ class FeatureFlagStatusResponseSerializer(serializers.Serializer):
         )
     )
     reason = serializers.CharField(help_text="Human-readable explanation of the status")
+    reason_states_rollout = serializers.BooleanField(
+        help_text=(
+            "True when `reason` already describes the flag's rollout, which happens when the status was reached "
+            "from the configuration rather than from evaluation data. A caller that narrates the rollout "
+            "separately should stay quiet rather than repeat it."
+        )
+    )
     rollout = FeatureFlagRolloutSummarySerializer(
         help_text="Summary of the flag's rollout configuration, for determining whether it is fully rolled out."
     )
@@ -3155,6 +3232,27 @@ class FeatureFlagViewSet(
     # deleted=False filter in safely_get_queryset.
     queryset = FeatureFlag.objects_including_soft_deleted.all()
     serializer_class = FeatureFlagSerializer
+
+    def validate_bulk_tag_changes(self, objects: Sequence, tag_action: str, tags: list[str]) -> None:
+        """Stop a bulk edit from stripping the last tag off a flag when the project requires one.
+
+        Without this the flags list's bulk tag action defeats the setting in one click, since the
+        bulk path writes TaggedItem rows directly and never reaches FeatureFlagSerializer.
+        """
+        if tag_action == "add" or not objects:
+            return
+
+        if not team_requires_flag_tags(self.team_id):
+            return
+
+        normalized_tags = normalize_tag_names(tags)
+        # Normalize the resolved set: a flag left holding only a blank tag row keeps no real tag,
+        # so the edit has to be rejected the same way an empty result is.
+        if any(
+            not normalize_tag_names(resolve_bulk_tags(current_tag_names(flag), tag_action, normalized_tags))
+            for flag in objects
+        ):
+            raise serializers.ValidationError({"tags": REQUIRE_TAGS_ON_UPDATE_ERROR})
 
     @extend_schema(request=FeatureFlagCreateRequestSchemaSerializer)
     def create(self, request, *args, **kwargs):
@@ -4517,7 +4615,12 @@ class FeatureFlagViewSet(
         # Route through the declared serializer so it is the single source of truth for the
         # response shape and the dataclass cannot silently drift from the OpenAPI/MCP schema.
         response = FeatureFlagStatusResponseSerializer(
-            {"status": flag_status, "reason": reason, "rollout": asdict(rollout)}
+            {
+                "status": flag_status,
+                "reason": reason,
+                "reason_states_rollout": checker.reason_states_rollout,
+                "rollout": asdict(rollout),
+            }
         )
         return Response(response.data, status=status.HTTP_200_OK)
 

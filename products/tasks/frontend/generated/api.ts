@@ -784,7 +784,7 @@ export const getTaskChannelsListUrl = (projectId: string, params?: TaskChannelsL
 }
 
 /**
- * All live public channels plus the requester's personal #me channel when it exists, sorted by name. Listing does not provision; call provision_defaults to create the default channels.
+ * All live public channels plus the requester's personal #me channel when it exists, sorted by name. Listing does not provision; call provision_defaults to create the default channels. Send `limit` (with `offset`) for one page and a `count`/`next` envelope; without `limit` the response is the full array of channels.
  * @summary List channels
  */
 export const taskChannelsList = async (
@@ -2909,7 +2909,7 @@ export const getTasksSummariesCreateUrl = (projectId: string, params?: TasksSumm
 }
 
 /**
- * Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, `updated_at`, and the latest run's `status` and `environment`.
+ * Returns summary for the requested tasks, including the creator ID and the latest run's ID, status, and environment.
  * @summary Fetch task summaries by ID
  */
 export const tasksSummariesCreate = async (

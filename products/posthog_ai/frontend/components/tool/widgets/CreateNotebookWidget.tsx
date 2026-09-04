@@ -20,8 +20,9 @@ export interface NotebookExtraction {
 /**
  * Pulls the rendered fields out of a notebook tool's `rawOutput` — the REST notebook payload
  * (`short_id`, `title`, ProseMirror `content`, …) plus the MCP server's `_posthogUrl` enrichment.
- * `short_id` is required: outputs without it aren't a notebook payload and fall back to the
- * generic card.
+ * The markdown notebook tools return that same short id under `notebook_id` instead, so both
+ * spellings are accepted. An output carrying neither isn't a notebook payload and falls back to
+ * the generic card.
  */
 export function extractNotebook(message: ToolRendererProps['message']): NotebookExtraction | null {
     const output = parseToolOutputRecord(message)
@@ -29,14 +30,20 @@ export function extractNotebook(message: ToolRendererProps['message']): Notebook
         return null
     }
 
-    const { short_id, title, _posthogUrl } = output as { short_id?: unknown; title?: unknown; _posthogUrl?: unknown }
-    if (typeof short_id !== 'string') {
+    const { short_id, notebook_id, title, _posthogUrl } = output as {
+        short_id?: unknown
+        notebook_id?: unknown
+        title?: unknown
+        _posthogUrl?: unknown
+    }
+    const shortId = typeof short_id === 'string' ? short_id : typeof notebook_id === 'string' ? notebook_id : null
+    if (!shortId) {
         return null
     }
 
     const inputTitle = message.innerInput?.title
     return {
-        shortId: short_id,
+        shortId,
         title: typeof title === 'string' ? title : typeof inputTitle === 'string' ? inputTitle : undefined,
         url: typeof _posthogUrl === 'string' ? _posthogUrl : undefined,
     }

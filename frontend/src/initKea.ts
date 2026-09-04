@@ -38,6 +38,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'resolveFingerprint', // Retried while the error finishes ingesting; the fingerprint scene surfaces its own state
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
     'loadWaitlistResponsesCount', // Soft-fails to a dash on the features list when survey access is missing
+    'loadFeatureFlagStatus', // The flag page just hides its stale banner when the verdict can't be loaded
     'loadExistingSubscription', // Background eligibility check for the dashboard subscribe nudge
     'loadFreeTierSubscriptionCount', // Background free-tier limit check for the dashboard subscribe nudge
     'sendNudgeNotification', // Background delivery request for the dashboard subscribe nudge

@@ -64,7 +64,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 from products.exports.backend.temporal.subscriptions.types import (
     iter_exception_chain,
     safe_error_message,
-    undisclosed_query_error_type,
+    safe_query_error_details,
 )
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor, QueryStatusError
@@ -218,9 +218,9 @@ class QueryStepDiagnostic:
     hogql: str
     ok: bool
     error_type: Optional[str]
-    # Safe-to-surface failure reason; set only for query-structure errors (see _safe_error_message), else None.
     human_readable_error: Optional[str] = None
     chart_dropped_reason: Optional[ChartFailureReason] = None
+    error_code: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -654,9 +654,8 @@ async def _run_steps(
                     break
                 current_hogql = fixed
 
-        # type only — ClickHouse errors can echo team-scoped identifiers
         type_name = type(last_exc).__name__ if last_exc is not None else "UnknownError"
-        undisclosed_type = undisclosed_query_error_type(last_exc) if last_exc is not None else None
+        error_details = safe_query_error_details(last_exc) if last_exc is not None else None
         logger.warning(
             "ai_report.query_failed",
             trace_correlation_id=trace_correlation_id,
@@ -666,15 +665,18 @@ async def _run_steps(
         )
         if last_exc is not None:
             capture_exception(last_exc, {"trace_correlation_id": trace_correlation_id, "stage": "query"})
-        cause = "" if undisclosed_type is not None else f" ({type_name})"
+        # Safe query details belong in the owner-only diagnostics below. The rendered output is fed
+        # into synthesis and eventually delivered to recipients, who may not have query access.
+        cause = "" if error_details else f" ({type_name})"
         return StepOutcome(
             rendered=f"### {safe_description}\n\n_{QUERY_FAILED_PREFIX}{cause} — metric not computed, not empty data._",
             diagnostic=QueryStepDiagnostic(
                 description=safe_description,
                 hogql=window.render_window_filter(current_hogql),
                 ok=False,
-                error_type=undisclosed_type or type_name,
-                human_readable_error=safe_error_message(last_exc) if last_exc is not None else None,
+                error_type=type_name,
+                error_code=error_details["code"] if error_details else None,
+                human_readable_error=error_details["message"] if error_details else None,
             ),
             plan_invalidating_failure=had_plan_invalidating_failure,
         )

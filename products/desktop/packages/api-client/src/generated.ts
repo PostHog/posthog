@@ -4853,6 +4853,7 @@ export namespace Schemas {
         goalLines: Array<GoalLine> | null;
         heatmap: HeatmapSettings | null;
         leftYAxisSettings: YAxisSettings | null;
+        legendPosition: LegendPosition | null;
         pie: PieChartSettings | null;
         resultCustomizations: Record<string, ResultCustomizationByValue> | null;
         rightYAxisSettings: YAxisSettings | null;
@@ -6492,6 +6493,7 @@ export namespace Schemas {
         | "apns"
         | "postgresql"
         | "aws-s3"
+        | "aws-redshift"
         | "s3-compatible"
         | "snowflake"
         | "youtube-analytics";
@@ -11252,6 +11254,10 @@ export namespace Schemas {
      * * `Anvil` - Anvil
      * * `Coolify` - Coolify
      * * `SocialPilot` - SocialPilot
+     * * `Strato` - Strato
+     * * `Medusa` - Medusa
+     * * `Membrain` - Membrain
+     * * `RecallAI` - RecallAI
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -12578,7 +12584,11 @@ export namespace Schemas {
         | "Lovable"
         | "Anvil"
         | "Coolify"
-        | "SocialPilot";
+        | "SocialPilot"
+        | "Strato"
+        | "Medusa"
+        | "Membrain"
+        | "RecallAI";
     /**
      * * `web` - web
      * * `api` - api
@@ -13914,6 +13924,10 @@ export namespace Schemas {
          * * `Anvil` - Anvil
          * * `Coolify` - Coolify
          * * `SocialPilot` - SocialPilot
+         * * `Strato` - Strato
+         * * `Medusa` - Medusa
+         * * `Membrain` - Membrain
+         * * `RecallAI` - RecallAI
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -13929,6 +13943,7 @@ export namespace Schemas {
             | (ExternalDataSourceCreateCreatedViaEnum & unknown)
             | undefined;
         direct_query_enabled?: boolean | undefined;
+        destination_ids?: Array<string> | undefined;
     };
     export type ExternalDataSourceCreateResponse = {
         /**
@@ -16180,6 +16195,10 @@ export namespace Schemas {
      */
     export type TaskRunEnvironmentEnum = "local" | "cloud";
     export type TaskRunSummary = {
+        /**
+         * ID of the latest run.
+         */
+        id: string;
         status: TaskRunStatusEnum | NullEnum;
         environment: TaskRunEnvironmentEnum | NullEnum;
     };
@@ -16190,6 +16209,10 @@ export namespace Schemas {
         id: string;
         title: string;
         repository: string | null;
+        /**
+         * ID of the user who created the task, or null for system-created tasks.
+         */
+        created_by_id: number | null;
         created_at: string;
         updated_at: string;
         /**
@@ -18698,6 +18721,59 @@ export namespace Schemas {
         _create_in_folder?: string | undefined;
         form_content?: unknown | undefined;
     };
+    export type SurveySerializerCreateUpdateOnlySchema = {
+        id: string;
+        /**
+         * Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it.
+         */
+        name: string;
+        description?: string | undefined;
+        /**
+         * Survey type.
+         *
+         * * `popover` - popover
+         * * `widget` - widget
+         * * `external_survey` - external survey
+         * * `api` - api
+         */
+        type: SurveyTypeEnum;
+        schedule?: (SurveyScheduleEnum | NullEnum) | undefined;
+        linked_flag: MinimalFeatureFlag & unknown;
+        linked_flag_id?: (number | null) | undefined;
+        linked_insight_id?: (number | null) | undefined;
+        targeting_flag_id?: number | undefined;
+        targeting_flag: MinimalFeatureFlag & unknown;
+        internal_targeting_flag: MinimalFeatureFlag & unknown;
+        targeting_flag_filters?: (FeatureFlagFiltersSchema | null) | undefined;
+        remove_targeting_flag?: (boolean | null) | undefined;
+        questions?: (Array<SurveyQuestionInputSchema> | null) | undefined;
+        conditions?: (SurveyConditionsSchema | null) | undefined;
+        appearance?: (SurveyAppearanceSchema | null) | undefined;
+        created_at: string;
+        created_by: UserBasic & unknown;
+        start_date?: (string | null) | undefined;
+        end_date?: (string | null) | undefined;
+        archived?: boolean | undefined;
+        responses_limit?: (number | null) | undefined;
+        iteration_count?: (number | null) | undefined;
+        iteration_frequency_days?: (number | null) | undefined;
+        iteration_start_dates?: (Array<string | null> | null) | undefined;
+        current_iteration?: (number | null) | undefined;
+        current_iteration_start_date?: (string | null) | undefined;
+        response_sampling_start_date?: (string | null) | undefined;
+        response_sampling_interval_type?:
+            | (SurveySamplingIntervalTypeEnum | BlankEnum | NullEnum)
+            | undefined;
+        response_sampling_interval?: (number | null) | undefined;
+        response_sampling_limit?: (number | null) | undefined;
+        response_sampling_daily_limits?: unknown | undefined;
+        enable_partial_responses?: (boolean | null) | undefined;
+        enable_iframe_embedding?: (boolean | null) | undefined;
+        base_language?: string | undefined;
+        translations?: unknown | undefined;
+        _create_in_folder?: string | undefined;
+        form_content?: unknown | undefined;
+    };
     export type SurveyStatsResponse = {
         /**
          * The survey ID these stats belong to.
@@ -20215,9 +20291,9 @@ export namespace Endpoints {
         parameters: {
             path: { id: string; project_id: string };
 
-            body: Schemas.Survey;
+            body: Schemas.SurveySerializerCreateUpdateOnlySchema;
         };
-        responses: { 200: Schemas.Survey };
+        responses: { 200: Schemas.SurveySerializerCreateUpdateOnly };
     };
     export type patch_Surveys_partial_update = {
         method: "PATCH";
