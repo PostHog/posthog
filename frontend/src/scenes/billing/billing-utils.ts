@@ -812,12 +812,16 @@ export interface ProductUpgradePricing {
     flatRate: boolean
 }
 
-const unitPriceFormatter = new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 6,
-})
+// Rates arrive with as many as seven decimals, and the tier table a click away prints every one of
+// them, so the paywall keeps the decimals the payload sent rather than rounding to a fixed width.
+const unitPriceFormatter = (unitAmountUsd: string): Intl.NumberFormat =>
+    new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        // Intl refuses a maximum under the minimum, and refuses more than 20 decimals.
+        maximumFractionDigits: Math.min(20, Math.max(2, unitAmountUsd.split('.')[1]?.length ?? 0)),
+    })
 
 /**
  * The larger unit a product displays in, and how many internal units go into one of it.
@@ -835,7 +839,7 @@ const formatUnitPrice = (unitAmountUsd: string, product: BillingProductV2Type | 
     const price = parseFloat(unitAmountUsd)
     // Products that display in a larger unit (per GB instead of per MB) price in the small unit.
     const display = displayUnits(product)
-    return unitPriceFormatter.format(display ? price * display.divisor : price)
+    return unitPriceFormatter(unitAmountUsd).format(display ? price * display.divisor : price)
 }
 
 // The free plan carries no price at all, so the plan that quotes one is the plan to upgrade to.

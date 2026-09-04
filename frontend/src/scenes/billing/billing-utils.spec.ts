@@ -882,6 +882,16 @@ describe('getProductUpgradePricing', () => {
         )
     })
 
+    // Core products price per event to seven decimals, and the tier table the paywall links to
+    // prints all seven.
+    it('keeps every decimal of a seven-decimal rate', () => {
+        const productAnalytics = billingUnsubscribedJson.products.find(
+            (product) => product.type === 'product_analytics'
+        ) as unknown as BillingProductV2Type
+
+        expect(getProductUpgradePricing(productAnalytics)?.unitAmountUsd).toEqual('$0.0003068')
+    })
+
     it('returns null when the paid plan quotes no price', () => {
         const noPriceProduct = {
             ...surveys,
