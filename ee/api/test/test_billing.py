@@ -1305,7 +1305,10 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
 
     def test_scope_actions_are_read_only(self):
         self.assertEqual(BillingViewset.scope_object, "billing")
-        self.assertEqual(BillingViewset.scope_object_read_actions, ["list", "usage", "spend"])
+        self.assertEqual(
+            BillingViewset.scope_object_read_actions,
+            ["list", "usage", "spend", "usage_export", "spend_export", "usage_team_options"],
+        )
         self.assertEqual(BillingViewset.scope_object_write_actions, [])
 
     @patch("ee.billing.billing_manager.BillingManager.update_billing")
@@ -2052,6 +2055,38 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         response = self.client.get("/api/billing/usage/", {"start_date": "2026-08-01", "end_date": "2026-08-02"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["team_id_options"], [self.team.pk])
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_team_options")
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_csv")
+    def test_a_billing_read_token_reaches_the_export_and_the_options(self, mock_get_usage_csv, mock_get_team_options):
+        """The read actions are on the viewset's scope allowlist, so a personal API key with
+        billing:read is not turned away before the view runs."""
+        upstream = MagicMock()
+        upstream.iter_content.return_value = iter([b"Product,Project,Project ID,Total\n"])
+        upstream.headers = {"Content-Type": "text/csv"}
+        mock_get_usage_csv.return_value = upstream
+        mock_get_team_options.return_value = {"team_id_options": [self.team.pk]}
+        headers = self._personal_api_key_headers(["billing:read"])
+
+        export = self.client.get(
+            "/api/billing/usage/export/?start_date=2026-08-01&end_date=2026-08-02",
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+        options = self.client.get("/api/billing/usage/team_options/", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"])
+
+        self.assertEqual(export.status_code, status.HTTP_200_OK)
+        self.assertEqual(options.status_code, status.HTTP_200_OK)
+        self.assertEqual(options.json(), {"team_id_options": [self.team.pk]})
+
+    @parameterized.expand([("usage",), ("spend",)])
+    def test_a_paged_response_keeps_next_and_total_count(self, endpoint: str):
+        with patch(f"ee.billing.billing_manager.BillingManager.get_{endpoint}_data") as mock_fetch:
+            mock_fetch.return_value = {"results": [], "next": "abc", "total_count": 48000}
+            response = self.client.get(f"/api/billing/{endpoint}/?start_date=2026-08-01&page_size=100")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["next"], "abc")
+        self.assertEqual(response.json()["total_count"], 48000)
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_csv")
     @patch("ee.api.billing.posthog_feature_flag_enabled")

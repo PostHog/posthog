@@ -483,6 +483,7 @@ class BillingTimeSeriesResponseSerializer(serializers.Serializer):
     results = BillingTimeSeriesPointSerializer(many=True)
     team_id_options = serializers.ListField(child=serializers.IntegerField(), required=False)
     next = serializers.CharField(required=False, allow_blank=True)
+    total_count = serializers.IntegerField(required=False)
 
 
 class BillingTeamOptionsResponseSerializer(serializers.Serializer):
@@ -630,7 +631,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     param_derived_from_user_current_team = "team_id"
 
     scope_object = "billing"
-    scope_object_read_actions = ["list", "usage", "spend"]
+    scope_object_read_actions = ["list", "usage", "spend", "usage_export", "spend_export", "usage_team_options"]
     scope_object_write_actions: list[str] = []
     # OpenAPI skips root-router viewsets that derive their team from the current user.
     # Billing opts in so generated clients and MCP scaffolding include these read actions.
@@ -1184,10 +1185,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
         # The same narrowing as the interactive endpoints: a member who can only see some projects
-        # must not export the others. Then one step further, since export access is set per
-        # project like the page's button: the file carries only the projects the person may
-        # export, and none of them is a refusal. An admin or owner has export access everywhere,
-        # which is the case where nothing is scoped.
+        # must not export the others. Export access is set per project too, like the page's
+        # button, so the file carries only the projects the person may export. A member who may
+        # export none of them gets a 403. An admin or owner has export access everywhere, which
+        # is the case where nothing is scoped.
         scoped_team_ids = self._scoped_team_ids_for_usage_spend_request(request, organization, params_to_pass)
         if scoped_team_ids is not None:
             scoped_team_ids = self._exportable_team_ids(request, organization, scoped_team_ids)
@@ -1207,8 +1208,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._raise_billing_error(e, organization)
         lines = _rewrite_csv_labels(upstream.iter_content(chunk_size=8192), teams_map)
         accepts_gzip = "gzip" in request.META.get("HTTP_ACCEPT_ENCODING", "").lower()
-        # Every database read is done by now, and the body does none, so the request's
-        # connection is released before the download starts rather than held for its length.
+        # Every database read is done by now and the body does none, so the request's
+        # connection is released before the download starts.
         response = streaming_response(
             _stream_chunks(upstream, _gzip_stream(lines) if accepts_gzip else lines),
             content_type=upstream.headers.get("Content-Type", "text/csv"),

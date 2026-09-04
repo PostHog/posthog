@@ -305,7 +305,7 @@ export function BillingSpendView(): JSX.Element {
                 )}
                 {showEmptyState && (
                     <BillingEmptyState
-                        heading="We couldn't find any usage data for your current query."
+                        heading="We couldn't find any spend data for your current query."
                         detail="Try adjusting the filters. If you think something is wrong, contact us!"
                     />
                 )}
