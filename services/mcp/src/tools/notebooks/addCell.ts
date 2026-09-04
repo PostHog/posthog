@@ -249,7 +249,10 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
         )
     const tag = buildCellTag(tagName, { nodeId, title, code: params.code, returnVariable: dataframeName })
 
-    const { markdown } = await applyMarkdownEdit(context, params.notebook_id, (current) =>
+    // The save response carries the notebook as it stood when the save committed, so it holds a
+    // variable edit that landed after the read above. The run binds those values to stay in step
+    // with what the notebook now declares.
+    const { notebook, markdown } = await applyMarkdownEdit(context, params.notebook_id, (current) =>
         insertBlock(current, tag, params.after_node_id)
     )
     const run = await runAndWriteBack(
@@ -260,7 +263,7 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
         params.code!,
         dataframeName,
         parseCellTags(markdown),
-        initial.notebook.variables
+        notebook.variables
     )
     return wrapRunResultAsInformational({ node_id: nodeId, dataframe_name: dataframeName, run })
 }

@@ -17,6 +17,8 @@ interface MockState {
     markdown: string
     version: number
     variables: any[]
+    // Another client's variable edit, applied when the next save commits.
+    variablesOnSave?: any[]
     saveBodies: any[]
     runBodies: any[]
     runStatusResponses: any[]
@@ -67,7 +69,17 @@ function createMockContext(state: MockState): Context {
             state.saveBodies.push(opts.body)
             state.markdown = opts.body.content.content[0].attrs.markdown
             state.version += 1
-            return { short_id: 'aBcD1234', content: opts.body.content, version: state.version }
+            if (state.variablesOnSave) {
+                state.variables = state.variablesOnSave
+                state.variablesOnSave = undefined
+            }
+            // The real endpoint answers an accepted save with the full notebook, variables included.
+            return {
+                short_id: 'aBcD1234',
+                content: opts.body.content,
+                version: state.version,
+                variables: state.variables,
+            }
         }
         if (opts.method === 'POST' && path.endsWith('/notebooks/')) {
             state.createBodies.push(opts.body)
@@ -430,6 +442,35 @@ describe('notebook cell tools', () => {
         expect(writtenBack).toContain('runId="run-1"')
         expect(writtenBack).not.toContain('runId="old"')
     })
+
+    it.each([
+        {
+            label: 'add cell',
+            markdown: '# Doc\n',
+            run: (context: Context) =>
+                addCellHandler(context, { notebook_id: 'aBcD1234', cell_type: 'sql', code: 'select {country}' }),
+        },
+        {
+            label: 'update cell',
+            markdown: '# Doc\n\n<SQLV2 nodeId="target" code="select 1" returnVariable="df" />\n',
+            run: (context: Context) =>
+                updateCellHandler(context, { notebook_id: 'aBcD1234', node_id: 'target', code: 'select {country}' }),
+        },
+    ] as { label: string; markdown: string; run: (context: Context) => Promise<unknown> }[])(
+        '$label binds the variables the save returned, not the ones read before it',
+        async ({ markdown, run }) => {
+            const before = { name: 'country', type: 'string', value: 'US' }
+            const after = { name: 'country', type: 'string', value: 'DE' }
+            const state = makeState(markdown, [before])
+            state.variablesOnSave = [after]
+            state.runStatusResponses.push(DONE_STATUS)
+            const context = createMockContext(state)
+
+            await run(context)
+
+            expect(state.runBodies[0].variables).toEqual([after])
+        }
+    )
 
     it('set variables replaces the list and reports the cells that read a changed one', async () => {
         const state = makeState(
