@@ -35,8 +35,6 @@ describe("AgentMessage", () => {
     render(<AgentMessage content="See `src/app/AgentMessage.tsx:12` here." />);
 
     const chip = screen.getByText("AgentMessage.tsx:12");
-    // Chromium drops <button> text from document selections, so a native
-    // <button> chip would vanish from text copied out of chat output.
     expect(chip.closest("button")).toBeNull();
     expect(chip.tagName).toBe("SPAN");
   });

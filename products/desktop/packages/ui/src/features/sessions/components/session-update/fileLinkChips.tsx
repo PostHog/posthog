@@ -65,9 +65,6 @@ export function InlineFileLink({
 
   const tooltipText = resolvedPath ?? text;
 
-  // A <span>, not a <button>: Chromium leaves <button> text out of document
-  // selections, so copying chat output that contains these chips dropped every
-  // file reference from the pasted text.
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLSpanElement>) => {
       if (event.key === "Enter" || event.key === " ") {
