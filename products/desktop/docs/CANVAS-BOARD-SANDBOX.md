@@ -20,6 +20,11 @@ it in a `<webview>` with its own `canvas-board` partition. That gives the board:
 The board reaches PostHog only over the message bridge: the frame asks, the host
 decides, the host answers. The frame never holds a token.
 
+The board API uses the existing canvas access checks. Interactive users can edit
+shared boards. Task tokens can read visible boards but can write only boards
+created by their authenticated user. A task token can create or move a board
+only in its task's space. The task header must match the token's task binding.
+
 ## The layers, strongest first
 
 1. **The session and the request rule.** Page code cannot reach either.

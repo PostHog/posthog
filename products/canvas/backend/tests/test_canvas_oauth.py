@@ -6,11 +6,13 @@ from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.scoping import team_scope
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.models import Canvas, CanvasBoard
 from products.tasks.backend.models import Channel, Task
 
 
@@ -43,6 +45,89 @@ class TestCanvasOAuthAccess(APIBaseTest):
             sandbox_task_id=sandbox_task_id,
         )
         return token.token
+
+    @parameterized.expand(
+        [
+            ("interactive", False, False, True, False, 200, 200),
+            ("bound_owner", True, True, True, True, 200, 200),
+            ("bound_other_owner", True, True, True, False, 200, 404),
+            ("wrong_header", True, True, False, True, 404, 404),
+            ("unbound", False, True, True, True, 404, 404),
+        ]
+    )
+    def test_board_token_access(
+        self,
+        _name: str,
+        bound: bool,
+        server_token: bool,
+        valid_header: bool,
+        owned: bool,
+        read_status: int,
+        write_status: int,
+    ) -> None:
+        channel = Channel.objects.for_team(self.team.id).create(team=self.team, name="general")
+        task = Task.objects.create(team=self.team, channel=channel, created_by=self.user, title="Update board")
+        board = CanvasBoard.objects.for_team(self.team.id).create(
+            team=self.team,
+            channel=channel,
+            name="Board",
+            records_seq=0,
+            created_by=self.user if owned else self._create_user("another-author@example.com"),
+        )
+        token = self._bearer(
+            "canvas:read canvas:write" + (" internal_run:read" if server_token else ""),
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            sandbox_task_id=task.id if bound else None,
+        )
+        self.client.logout()
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+            HTTP_X_POSTHOG_TASK_ID=str(task.id if valid_header else uuid4()),
+        )
+        url = f"/api/projects/{self.team.id}/canvas_boards/{board.id}/"
+        assert self.client.get(url).status_code == read_status
+        response = self.client.post(
+            f"{url}ops/",
+            {
+                "ops": [{"op_id": "edit", "op": {"type": "set_state", "key": "note", "value": "new"}}],
+                "actor": {"kind": "agent", "task_id": str(task.id)},
+                "base_seq": 0,
+            },
+            format="json",
+        )
+        assert response.status_code == write_status
+        board.refresh_from_db()
+        assert board.head_seq == (1 if write_status == 200 else 0)
+
+    @parameterized.expand([("task_space", True, 201), ("other_space", False, 403)])
+    def test_board_sandbox_creation_and_move_stay_in_task_space(
+        self,
+        _name: str,
+        same_space: bool,
+        create_status: int,
+    ) -> None:
+        channel = Channel.objects.for_team(self.team.id).create(team=self.team, name="task space")
+        target = (
+            channel if same_space else Channel.objects.for_team(self.team.id).create(team=self.team, name="other space")
+        )
+        task = Task.objects.create(team=self.team, channel=channel, created_by=self.user, title="Create board")
+        board = CanvasBoard.objects.for_team(self.team.id).create(
+            team=self.team,
+            channel=channel,
+            name="Board",
+            created_by=self.user,
+            records_seq=0,
+        )
+        token = self._bearer("canvas:read canvas:write", client_id=ARRAY_APP_CLIENT_ID_DEV, sandbox_task_id=task.id)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}", HTTP_X_POSTHOG_TASK_ID=str(task.id))
+        url = f"/api/projects/{self.team.id}/canvas_boards/"
+        response = self.client.post(url, {"channel_id": str(target.id), "name": "New board"}, format="json")
+        assert response.status_code == create_status
+        response = self.client.patch(f"{url}{board.id}/", {"channel_id": str(target.id)}, format="json")
+        assert response.status_code == (200 if same_space else 403)
+        board.refresh_from_db()
+        assert board.channel_id == channel.id
 
     def _list_canvases(self, scope: str, client_id: str | None = None):
         with team_scope(self.team.id):
