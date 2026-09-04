@@ -41,7 +41,7 @@ class Migration(migrations.Migration):
                 (
                     "content",
                     models.JSONField(
-                        help_text="The proposed change as a partial workflow content snapshot — only the fields it changes (actions, edges, trigger, conversion, exit_condition, variables). Approving merges it over the live content to build the staged draft."
+                        help_text="The proposed change as a partial workflow content snapshot — only the fields it changes (actions, edges, trigger, conversion, exit_condition, variables), and within `actions` only the steps it changes, each carrying its `id`. Approving merges it over the live content to build the staged draft."
                     ),
                 ),
                 (
@@ -60,7 +60,7 @@ class Migration(migrations.Migration):
                 (
                     "base_version",
                     models.IntegerField(
-                        help_text="Live workflow version this was authored against. Drives a staleness warning, not a block."
+                        help_text="Live workflow version this was authored against. Approving compares the steps this changes against that version to tell whether somebody else already changed them."
                     ),
                 ),
                 (
