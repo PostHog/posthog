@@ -6,12 +6,10 @@ import { parse as parseYaml } from 'yaml'
 
 import { GENERATED_TOOLS } from '@/tools/generated/signals'
 
-// The Inbox list operation once carried a second tool with its own hand-written
-// input schema, so the same call had two spellings: `priorities` against
-// `priority`, `scouts` against `scout`. One tool now owns the operation, and its
-// description tells agents to page the actionable view with the caller's
-// priority preference. These tests keep both parts true.
-describe('inbox-reports-list is the only tool on the reports list operation', () => {
+// A second tool on the same operation gives each filter two spellings, so an
+// agent that reads one tool's description cannot call the other. Keep one tool
+// on the operation, and keep the parameters that description names.
+describe('inbox-reports-list owns the Inbox reports list operation', () => {
     const config = parseYaml(
         fs.readFileSync(path.resolve(__dirname, '../../../../products/signals/mcp/tools.yaml'), 'utf-8')
     ) as { tools: Record<string, { operation?: string; enabled?: boolean }> }
