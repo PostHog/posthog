@@ -527,13 +527,8 @@ class TestBasetenExclusiveModelGateWiring:
 
         with (
             patch(
-                "llm_gateway.dependencies.resolve_plan_and_quota",
-                AsyncMock(
-                    return_value=(
-                        MagicMock(),
-                        QuotaResourceStatus(limited=False, code_usage_billing_active=False),
-                    )
-                ),
+                "llm_gateway.dependencies.resolve_quota",
+                AsyncMock(return_value=QuotaResourceStatus(limited=False, code_usage_billing_active=False)),
             ),
             patch("llm_gateway.dependencies.ensure_costs_fresh"),
             patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=flag_result)),
