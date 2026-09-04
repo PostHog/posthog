@@ -1,18 +1,54 @@
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
+from rest_framework.exceptions import ValidationError
 
+from posthog.interval_specs import UnsupportedIntervalError, get_trunc_func
 from posthog.models.filters import AnyFilter
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.team import Team
-from posthog.queries.util import TIME_IN_SECONDS, get_start_of_interval_sql
+from posthog.models.team.team import WeekStartDay
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
+
+TIME_IN_SECONDS: dict[str, Any] = {
+    "hour": 3600,
+    "day": 3600 * 24,
+    "week": 3600 * 24 * 7,
+    "month": 3600 * 24 * 30,  # TODO: Let's get rid of this lie! Months are not all 30 days long
+}
+
+
+def get_trunc_func_ch(period: Optional[str]) -> str:
+    try:
+        return get_trunc_func(period)
+    except UnsupportedIntervalError:
+        raise ValidationError(f"Period {period} is unsupported.")
+
+
+def get_start_of_interval_sql(
+    interval: str,
+    *,
+    team: Team,
+    source: str = "timestamp",
+    ensure_datetime: bool = False,
+) -> str:
+    trunc_func = get_trunc_func_ch(interval)
+    if source.startswith("%(") and source.endswith(")s"):
+        source = f"toDateTime({source}, %(timezone)s)"
+    elif "%(timezone)s" not in source:
+        source = f"toTimeZone(toDateTime({source}, 'UTC'), %(timezone)s)"
+    trunc_func_args = [source]
+    if trunc_func == "toStartOfWeek":
+        trunc_func_args.append((WeekStartDay(team.week_start_day or 0)).clickhouse_mode)
+    interval_sql = f"{trunc_func}({', '.join(trunc_func_args)})"
+    # For larger intervals dates are returned instead of datetimes, and we always want datetimes for comparisons
+    return f"toDateTime({interval_sql}, %(timezone)s)" if ensure_datetime else interval_sql
 
 
 class QueryDateRange:
