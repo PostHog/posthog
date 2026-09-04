@@ -86,7 +86,7 @@ from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_sour
 from posthog.models import Team
 from posthog.models.filters import Filter
 from posthog.models.integration import Integration
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import get_authenticator_scopes, posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
@@ -170,6 +170,7 @@ from products.workflows.backend.services.timing_reschedule import (
     get_timing_reschedule_action_ids,
 )
 from products.workflows.backend.services.wait_clock_conditions import find_clock_function
+from products.workflows.backend.services.warehouse_trigger_access import WarehouseTriggerAccess
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
@@ -3114,6 +3115,25 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                     else:
                         event_serializer.is_valid(raise_exception=True)
                         event_config["filters"] = event_serializer.validated_data
+
+        trigger = data["trigger"]
+        if trigger.get("type") in DATA_WAREHOUSE_TRIGGER_TYPES and status != HogFlow.State.ARCHIVED:
+            table_name = trigger.get("table_name")
+            if isinstance(table_name, str) and table_name:
+                request = self.context.get("request")
+                if request is not None:
+                    resource = "warehouse_table" if trigger["type"] == "data-warehouse-table" else "warehouse_view"
+                    scopes = get_authenticator_scopes(request.successful_authenticator)
+                    if scopes is not None and not set(scopes).intersection(
+                        {"*", f"{resource}:read", f"{resource}:write"}
+                    ):
+                        raise exceptions.PermissionDenied(f"API key missing required scope '{resource}:read'")
+                if request is not None and not WarehouseTriggerAccess(self.context["get_team"]()).can_read(
+                    request.user, trigger["type"], table_name
+                ):
+                    raise exceptions.PermissionDenied(
+                        "You cannot read this warehouse table or view. Choose one you can access."
+                    )
 
         return data
 
