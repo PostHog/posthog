@@ -922,8 +922,8 @@ describe('infiniteListLogic', () => {
         const EXCLUDED_EVENT = '$exception'
 
         it.each([
-            [EXCLUDED_EVENT, false],
-            ['checkout_started', true],
+            [EXCLUDED_EVENT, null],
+            ['checkout_started', 'event'],
         ])('searching %p offers the option: %p', async (query, expected) => {
             const listLogic = infiniteListLogic({
                 taxonomicFilterLogicKey: `excluded-events-${query}`,
@@ -939,7 +939,78 @@ describe('infiniteListLogic', () => {
                 listLogic.actions.setSearchQuery(query)
             })
                 .toFinishAllListeners()
-                .toMatchValues({ showNonCapturedEventOption: expected })
+                .toMatchValues({ nonCapturedKind: expected })
+        })
+
+        it('commits the typed key when the "not seen yet" row is selected with Enter', async () => {
+            const listLogic = logicWith({
+                taxonomicFilterLogicKey: 'non-captured-enter',
+                listGroupType: TaxonomicFilterGroupType.EventProperties,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+                allowNonCapturedProperties: true,
+            })
+
+            await expectLogic(listLogic, () => {
+                listLogic.actions.setSearchQuery('never_sent_property')
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ nonCapturedKind: 'property' })
+
+            // The row is the only one on the list, so arrowing stays on it instead of
+            // landing on NaN.
+            await expectLogic(listLogic, () => {
+                listLogic.actions.moveDown()
+            }).toMatchValues({ index: 0 })
+
+            await expectLogic(listLogic, () => {
+                listLogic.actions.selectSelected()
+            }).toDispatchActions([
+                (action) =>
+                    action.type === listLogic.actionTypes.selectItem &&
+                    action.payload.value === 'never_sent_property' &&
+                    action.payload.item?.isNonCaptured === true,
+            ])
+        })
+
+        it('leaves a matching keyword shortcut in place instead of offering the row', async () => {
+            const listLogic = logicWith({
+                taxonomicFilterLogicKey: 'non-captured-shortcut',
+                listGroupType: TaxonomicFilterGroupType.EventProperties,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+                allowNonCapturedProperties: true,
+                enableKeywordShortcuts: true,
+            })
+
+            // No mock property definition matches "submit", so the shortcut is the only result.
+            await expectLogic(listLogic, () => {
+                listLogic.actions.setSearchQuery('submit')
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ nonCapturedKind: null })
+
+            expect(listLogic.values.results.map((item: any) => item.name)).toEqual(['Submit (event type)'])
+            expect(listLogic.values.rowCount).toBe(1)
+        })
+
+        // A picker scoped to an event shows an expand row when the key exists on other events.
+        // That row is the only way to reach those definitions, so the offer must not replace it.
+        it.each([
+            ['browser_no_dollar', true, null],
+            ['never_sent_property', false, 'property'],
+        ])('searching %p with an event scope: expandable %p, offers %p', async (query, expandable, expected) => {
+            const listLogic = logicWith({
+                taxonomicFilterLogicKey: `non-captured-scoped-${query}`,
+                listGroupType: TaxonomicFilterGroupType.EventProperties,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+                eventNames: ['$pageview'],
+                allowNonCapturedProperties: true,
+            })
+
+            await expectLogic(listLogic, () => {
+                listLogic.actions.setSearchQuery(query as string)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ isExpandable: expandable, nonCapturedKind: expected })
         })
     })
 

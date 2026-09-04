@@ -36,7 +36,6 @@ import {
     QuickFilterItem,
     SelectingKeyOnly,
     SkeletonItem,
-    isQuickFilterItem,
     isSkeletonItem,
     ListFuse,
     ListStorage,
@@ -58,6 +57,7 @@ import {
     recentSourceKey,
 } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
 import { floatToFront } from 'lib/components/TaxonomicFilter/utils/floatToFront'
+import { NonCapturedKind, nonCapturedKindForGroup } from 'lib/components/TaxonomicFilter/utils/nonCapturedOption'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
 import {
     filterPinnedForContext,
@@ -269,6 +269,7 @@ export interface infiniteListLogicValues {
     pinnedFilterItems: TaxonomicDefinitionTypes[] // taxonomicFilterPinnedPropertiesLogic
     currentTeamId: number | null // teamLogic
     allowNonCapturedEvents: boolean
+    allowNonCapturedProperties: boolean
     contextFilteredPinnedItems: TaxonomicDefinitionTypes[]
     contextFilteredRecentItems: TaxonomicDefinitionTypes[]
     dedupedTopMatches: (SkeletonItem | TaxonomicDefinitionTypes)[]
@@ -314,6 +315,7 @@ export interface infiniteListLogicValues {
     listGroupType: TaxonomicFilterGroupType
     localItems: ListStorage
     minSearchQueryLength: any
+    navigableRowCount: number
     needsMoreSearchCharacters: boolean
     pinnedRowIndex: number | null
     propertyAllowList: string[] | undefined
@@ -337,7 +339,7 @@ export interface infiniteListLogicValues {
     showEmptyState: boolean
     showErrorState: boolean
     showLoadingState: boolean
-    showNonCapturedEventOption: boolean
+    nonCapturedKind: NonCapturedKind | null
     showPopover: boolean
     showSuggestedFiltersEmptyState: boolean
     soleGroupHasGetValue: boolean
@@ -532,6 +534,7 @@ export interface infiniteListLogicMeta {
             taxonomicGroups: TaxonomicFilterGroup[]
         ) => boolean
         allowNonCapturedEvents: (arg: any) => boolean
+        allowNonCapturedProperties: (arg: any) => boolean
         isLocalDataLoading: (arg: any) => boolean
         isLoading: (remoteItemsLoading: boolean) => boolean
         group: (
@@ -558,14 +561,17 @@ export interface infiniteListLogicMeta {
             searchQuery: string,
             remoteFetchFailed: string | null
         ) => boolean
-        showNonCapturedEventOption: (
+        nonCapturedKind: (
             allowNonCapturedEvents: boolean,
+            allowNonCapturedProperties: boolean,
             listGroupType: TaxonomicFilterGroupType,
             searchQuery: string,
             isLoading: boolean,
             results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
-            excludedProperties: string[] | undefined
-        ) => boolean
+            excludedProperties: string[] | undefined,
+            propertyAllowList: string[] | undefined,
+            isExpandable: boolean
+        ) => NonCapturedKind | null
         suggestedFiltersSettling: (
             isSuggestedFilters: boolean,
             anyGroupLoading: boolean,
@@ -584,7 +590,7 @@ export interface infiniteListLogicMeta {
             suggestedFiltersSettling: boolean,
             searchQuery: string,
             hasRemoteDataSource: boolean,
-            showNonCapturedEventOption: boolean,
+            nonCapturedKind: NonCapturedKind | null,
             needsMoreSearchCharacters: boolean,
             remoteResultsAreFresh: boolean,
             showErrorState: boolean
@@ -720,6 +726,7 @@ export interface infiniteListLogicMeta {
         ) => number
         totalExtraCount: (isExpandable: boolean, hasRenderFunction: boolean) => number
         totalListCount: (totalResultCount: number, totalExtraCount: number) => number
+        navigableRowCount: (totalListCount: number, nonCapturedKind: NonCapturedKind | null) => number
         expandedCount: (
             items:
                 | {
@@ -768,7 +775,7 @@ export interface infiniteListLogicMeta {
             results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
         ) => boolean
         rowCount: (
-            showNonCapturedEventOption: boolean,
+            nonCapturedKind: NonCapturedKind | null,
             results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
             isLoading: boolean,
             totalListCount: number,
@@ -1179,6 +1186,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
         ],
+        allowNonCapturedProperties: [
+            () => [(_, props) => props.allowNonCapturedProperties],
+            (allowNonCapturedProperties: boolean | undefined) => allowNonCapturedProperties ?? false,
+        ],
         isLocalDataLoading: [
             (selectors) => [
                 (state, props: InfiniteListLogicProps) => {
@@ -1262,45 +1273,48 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return isLocalOnly || currentQueryFailed || currentQuerySettled
             },
         ],
-        showNonCapturedEventOption: [
+        nonCapturedKind: [
             (s) => [
                 s.allowNonCapturedEvents,
+                s.allowNonCapturedProperties,
                 s.listGroupType,
                 s.searchQuery,
                 s.isLoading,
                 s.results,
                 s.excludedProperties,
+                s.propertyAllowList,
+                s.isExpandable,
             ],
             (
                 allowNonCapturedEvents: boolean,
+                allowNonCapturedProperties: boolean,
                 listGroupType: TaxonomicFilterGroupType,
                 searchQuery: string,
                 isLoading: boolean,
                 results: TaxonomicDefinitionTypes[],
-                excludedProperties: string[] | undefined
-            ): boolean => {
-                if (!allowNonCapturedEvents) {
-                    return false
-                }
-                if (
-                    listGroupType !== TaxonomicFilterGroupType.CustomEvents &&
-                    listGroupType !== TaxonomicFilterGroupType.Events
-                ) {
-                    return false
+                excludedProperties: string[] | undefined,
+                propertyAllowList: string[] | undefined,
+                isExpandable: boolean
+            ): NonCapturedKind | null => {
+                const kind = nonCapturedKindForGroup(listGroupType, allowNonCapturedEvents, allowNonCapturedProperties)
+                if (!kind) {
+                    return null
                 }
                 const trimmedSearch = searchQuery.trim()
                 if (trimmedSearch.length === 0 || isLoading) {
-                    return false
+                    return null
                 }
-                // Offering an excluded name would let it be selected as a non-captured event,
-                // committing the value the exclusion forbids.
-                if (excludedProperties?.includes(trimmedSearch)) {
-                    return false
+                // Offering an excluded name would let it be selected as a non-captured key,
+                // committing the value the exclusion forbids. An allowlist is a closed set, so it
+                // forbids every other key.
+                if (excludedProperties?.includes(trimmedSearch) || propertyAllowList) {
+                    return null
                 }
-                // Keyword-shortcut QuickFilterItems don't represent captured events — ignore them
-                // when deciding whether to show the "not seen yet" escape hatch.
-                const realResults = results.filter((item) => !isQuickFilterItem(item))
-                return realResults.length === 0
+                // Any row at all suppresses the offer. The offer row replaces the list instead of
+                // joining it, so it would hide that row while Enter still commits it. Keyword
+                // shortcuts count, and so does the expand row, which says the scoped search found
+                // nothing but the project has matches on other events.
+                return results.length === 0 && !isExpandable ? kind : null
             },
         ],
         // True while the aggregated SuggestedFilters ("All") tab is still catching up to the current
@@ -1340,7 +1354,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.suggestedFiltersSettling,
                 s.searchQuery,
                 s.hasRemoteDataSource,
-                s.showNonCapturedEventOption,
+                s.nonCapturedKind,
                 s.needsMoreSearchCharacters,
                 s.remoteResultsAreFresh,
                 s.showErrorState,
@@ -1351,7 +1365,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 suggestedFiltersSettling: boolean,
                 searchQuery: string,
                 hasRemoteDataSource: boolean,
-                showNonCapturedEventOption: boolean,
+                nonCapturedKind: NonCapturedKind | null,
                 needsMoreSearchCharacters: boolean,
                 remoteResultsAreFresh: boolean,
                 showErrorState: boolean
@@ -1366,7 +1380,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     // `suggestedFiltersSettling`).
                     !suggestedFiltersSettling &&
                     (!!searchQuery || !hasRemoteDataSource) &&
-                    !showNonCapturedEventOption) ||
+                    !nonCapturedKind) ||
                 needsMoreSearchCharacters,
         ],
         showLoadingState: [
@@ -1980,6 +1994,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (s) => [s.totalResultCount, s.totalExtraCount],
             (totalResultCount: number, totalExtraCount: number) => totalResultCount + totalExtraCount,
         ],
+        // How many rows the arrow keys can land on. The synthetic "not seen yet" row is the only
+        // row when it shows, and it is absent from `totalListCount`, which would leave the
+        // modulus in `moveUp`/`moveDown` dividing by zero.
+        navigableRowCount: [
+            (s) => [s.totalListCount, s.nonCapturedKind],
+            (totalListCount: number, nonCapturedKind: NonCapturedKind | null): number =>
+                nonCapturedKind ? 1 : totalListCount,
+        ],
         expandedCount: [
             (s) => [s.items],
             (
@@ -2037,21 +2059,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             ): boolean => isSuggestedFilters && !trimmedSearchQuery && results.length > 0,
         ],
         rowCount: [
-            (s) => [
-                s.showNonCapturedEventOption,
-                s.results,
-                s.isLoading,
-                s.totalListCount,
-                s.showSuggestedFiltersEmptyState,
-            ],
+            (s) => [s.nonCapturedKind, s.results, s.isLoading, s.totalListCount, s.showSuggestedFiltersEmptyState],
             (
-                showNonCapturedEventOption: boolean,
+                nonCapturedKind: NonCapturedKind | null,
                 results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
                 isLoading: boolean,
                 totalListCount: number,
                 showSuggestedFiltersEmptyState: boolean
             ): number =>
-                showNonCapturedEventOption
+                nonCapturedKind
                     ? 1
                     : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0) +
                       (showSuggestedFiltersEmptyState ? 1 : 0),
@@ -2207,12 +2223,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             actions.setIndex(rowIndex)
         },
         moveUp: () => {
-            const { index, totalListCount } = values
-            actions.setIndex((index - 1 + totalListCount) % totalListCount)
+            const { index, navigableRowCount } = values
+            actions.setIndex((index - 1 + navigableRowCount) % navigableRowCount)
         },
         moveDown: () => {
-            const { index, totalListCount } = values
-            actions.setIndex((index + 1) % totalListCount)
+            const { index, navigableRowCount } = values
+            actions.setIndex((index + 1) % navigableRowCount)
         },
         selectSelected: () => {
             if (values.isExpandableButtonSelected) {
@@ -2220,6 +2236,19 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             } else {
                 const selectedItem = values.selectedItem
                 const itemGroup = getItemGroup(selectedItem, values.taxonomicGroups, values.group)
+
+                // The "not seen yet" row is synthetic, so it never lands in `results` and
+                // `selectedItem` stays undefined. Commit the typed key, as clicking the row does.
+                if (!selectedItem && values.nonCapturedKind && itemGroup) {
+                    actions.selectItem(
+                        itemGroup,
+                        values.trimmedSearchQuery,
+                        { name: values.trimmedSearchQuery, isNonCaptured: true },
+                        { position: 0 }
+                    )
+                    return
+                }
+
                 const isDisabledItem = selectedItem && itemGroup?.getIsDisabled?.(selectedItem)
 
                 if (!isDisabledItem && itemGroup) {

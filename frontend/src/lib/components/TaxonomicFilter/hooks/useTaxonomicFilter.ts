@@ -89,6 +89,7 @@ export interface UseTaxonomicFilterOptions {
     showNumericalPropsOnly?: boolean
     minSearchQueryLength?: number
     allowNonCapturedEvents?: boolean
+    allowNonCapturedProperties?: boolean
     enableKeywordShortcuts?: boolean
     selectFirstItem?: boolean
     autoSelectItem?: boolean
@@ -290,6 +291,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         showNumericalPropsOnly,
         minSearchQueryLength,
         allowNonCapturedEvents,
+        allowNonCapturedProperties,
         enableKeywordShortcuts,
         selectFirstItem,
         autoSelectItem,
@@ -530,6 +532,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             hideBehavioralCohorts,
             minSearchQueryLength,
             allowNonCapturedEvents,
+            allowNonCapturedProperties,
             enableKeywordShortcuts,
             selectFirstItem,
             autoSelectItem,
@@ -553,6 +556,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             hideBehavioralCohorts,
             minSearchQueryLength,
             allowNonCapturedEvents,
+            allowNonCapturedProperties,
             enableKeywordShortcuts,
             selectFirstItem,
             autoSelectItem,

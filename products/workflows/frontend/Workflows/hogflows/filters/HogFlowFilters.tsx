@@ -124,6 +124,7 @@ export function HogFlowEventFilters({
             }}
             buttonCopy={buttonCopy ?? 'Add filter'}
             allowNonCapturedEvents
+            allowNonCapturedProperties
             hogQLGlobals={sampleGlobals}
             operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
         />
@@ -201,6 +202,9 @@ export function HogFlowPropertyFilters({
                 after: '-30d',
             }}
             hogQLGlobals={sampleGlobals}
+            // A workflow is often built before the events it reacts to arrive, so let the author
+            // filter on a property key the project has not sent yet.
+            allowNonCapturedProperties
             operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
             propertyAllowList={propertyAllowList}
             propertyDefinitionsOverride={propertyDefinitionsOverride}

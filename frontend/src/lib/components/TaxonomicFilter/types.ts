@@ -152,6 +152,8 @@ export interface TaxonomicFilterProps {
     initialSearchQuery?: string
     /** Allow users to select events that haven't been captured yet (default: false) */
     allowNonCapturedEvents?: boolean
+    /** Allow users to select event, person and group properties that haven't been captured yet (default: false) */
+    allowNonCapturedProperties?: boolean
     hogQLGlobals?: Record<string, any>
     /** When true, the SQL expression tab shows a hint about using `AS column_name`
      * or `-- column_name` to get a readable breakdown label. Only shown for long expressions. */

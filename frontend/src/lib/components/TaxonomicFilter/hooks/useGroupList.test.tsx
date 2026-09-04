@@ -349,24 +349,59 @@ describe('useGroupList', () => {
         })
 
         // Transformation filters exclude `$exception` while allowing uncaptured events, so an excluded
-        // name must never be offered as "not seen yet".
+        // name must never be offered as "not seen yet". A group with an allowlist is a closed set,
+        // and a fixed-schema group cannot gain a typed key either.
         it.each([
-            ['unseen', true],
-            ['$exception', false],
-        ])('allowNonCapturedEvents offers %p when nothing matches: %p', async (query, expected) => {
+            ['events, unseen name', TaxonomicFilterGroupType.Events, 'unseen', {}, 'event'],
+            ['events, excluded name', TaxonomicFilterGroupType.Events, '$exception', {}, null],
+            ['event properties', TaxonomicFilterGroupType.EventProperties, 'plan_tier', {}, 'property'],
+            ['person properties', TaxonomicFilterGroupType.PersonProperties, 'plan_tier', {}, 'property'],
+            ['event metadata', TaxonomicFilterGroupType.EventMetadata, 'plan_tier', {}, null],
+            [
+                'allowlisted properties',
+                TaxonomicFilterGroupType.EventProperties,
+                'plan_tier',
+                { propertyAllowList: ['country'] },
+                null,
+            ],
+        ])('%s offers the "not seen yet" row: %p', async (_name, groupType, query, groupOverrides, expected) => {
             apiGet.mockResolvedValueOnce({ results: [], count: 0 })
             const group = makeGroup({
-                type: TaxonomicFilterGroupType.Events,
+                type: groupType,
                 endpoint: 'api/projects/1/event_definitions',
                 excludedProperties: ['$exception'],
+                ...groupOverrides,
             })
             const { result } = renderHook(() =>
-                useGroupList({ group, searchQuery: query, allowNonCapturedEvents: true })
+                useGroupList({
+                    group,
+                    searchQuery: query,
+                    allowNonCapturedEvents: true,
+                    allowNonCapturedProperties: true,
+                })
             )
             await waitFor(() => expect(result.current.isLoading).toBe(false))
-            expect(result.current.showNonCapturedEventOption).toBe(expected)
+            expect(result.current.nonCapturedKind).toBe(expected)
             // No rebuild renderer draws the offer row yet, so the empty state is what a person sees.
             expect(result.current.showEmptyState).toBe(!expected)
+        })
+
+        it('offers no row while the list can still expand to matches on other events', async () => {
+            // Scoped request first, then the unscoped count that makes the list expandable.
+            apiGet.mockResolvedValueOnce({ results: [], count: 0 })
+            apiGet.mockResolvedValueOnce({ results: [{ name: 'plan_tier' }], count: 1 })
+            const group = makeGroup({
+                type: TaxonomicFilterGroupType.EventProperties,
+                endpoint: 'api/projects/1/property_definitions',
+                scopedEndpoint: 'api/projects/1/property_definitions?filter_by_event_names=true',
+            })
+            const { result } = renderHook(() =>
+                useGroupList({ group, searchQuery: 'plan_tier', allowNonCapturedProperties: true })
+            )
+
+            await waitFor(() => expect(result.current.isLoading).toBe(false))
+            expect(result.current.isExpandable).toBe(true)
+            expect(result.current.nonCapturedKind).toBeNull()
         })
     })
 })
