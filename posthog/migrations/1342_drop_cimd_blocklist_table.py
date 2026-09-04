@@ -7,9 +7,12 @@ class Migration(migrations.Migration):
     dependencies = [("posthog", "1341_organization_uses_most_specific_access_resolution")]
 
     operations = [
-        # Safe only once 1334's state-only removal has rolled out everywhere; no reverse_sql,
-        # since a no-op reversal would leave Django's state claiming a table that is gone.
+        # Safe only once 1334's state-only removal has rolled out everywhere. reverse_sql is a
+        # no-op rather than absent: BaseTestMigrations (posthog/test/base.py) reverses the whole
+        # chain to reach an arbitrary earlier migration in tests, and an irreversible operation
+        # here breaks every such test that walks history past this point.
         migrations.RunSQL(
             sql="DROP TABLE IF EXISTS posthog_cimdblocklistentry;",
+            reverse_sql=migrations.RunSQL.noop,
         ),
     ]
