@@ -3726,7 +3726,7 @@ class TestHogFlowAPI(APIBaseTest):
             mock_blast_radius.return_value = BlastRadiusResult(affected=88000, total=120000)
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
-                {"filters": {"properties": []}, "sends_email": True},
+                {"filters": {"properties": []}, "sends_email": True, "previews_batch_dispatch": True},
             )
 
         assert response.status_code == 200, response.json()
@@ -3737,6 +3737,23 @@ class TestHogFlowAPI(APIBaseTest):
         assert properties["sends_email"] is True
         assert properties["batch_audience_limit"] == 5000
         assert properties["email_sending_tier_max_batch_audience"] == 100
+
+    @patch("products.workflows.backend.api.hog_flow.report_user_action")
+    def test_audience_preview_is_not_reported_for_a_branch_condition_estimate(self, mock_report):
+        # The same endpoint sizes conditional-branch conditions, which match arbitrary person
+        # subsets no send is measured against. Recording them would count projects against the caps
+        # that never dispatch a batch, in the direction that overstates enforcement risk.
+        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_blast_radius:
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_blast_radius.return_value = BlastRadiusResult(affected=88000, total=120000)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert [c for c in mock_report.call_args_list if c.args[1] == "hog_flow_batch_audience_previewed"] == []
 
     def test_programmatic_schedule_on_schedule_trigger_needs_no_audience_token(self):
         hog_flow, _ = self._create_hog_flow_with_action(

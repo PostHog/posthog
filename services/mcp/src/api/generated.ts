@@ -14165,6 +14165,8 @@ export namespace Schemas {
       dedupe_key?: DedupeKeyEnum | null;
       /** Whether the workflow contains an email step. The tiered audience limit only applies to email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true. */
       sends_email?: boolean;
+      /** Whether this preview sizes a batch dispatch. The same count also estimates conditional-branch conditions, which no send is measured against, so only a caller that sets this is recorded as a batch audience preview. Does not change the response. */
+      previews_batch_dispatch?: boolean;
     }
 
     /**

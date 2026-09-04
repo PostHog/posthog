@@ -32,7 +32,9 @@ function ConditionAudienceEstimate({
     index: number
     filters: ConditionFilters
 }): JSX.Element | null {
-    // Counting persons, not sends, so this deliberately skips the email dedup the batch trigger applies.
+    // Counting persons, not sends, so this deliberately skips the email dedup the batch trigger
+    // applies, and leaves previewsBatchDispatch unset so the count is not recorded as a batch
+    // audience preview.
     const { blastRadius, blastRadiusLoading, blastRadiusError } = useValues(
         batchTriggerLogic({
             id: `${actionId}-condition-${index}`,

@@ -935,6 +935,12 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
         help_text="Whether the workflow contains an email step. The tiered audience limit only applies to "
         "email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true.",
     )
+    previews_batch_dispatch = serializers.BooleanField(
+        default=False,
+        help_text="Whether this preview sizes a batch dispatch. The same count also estimates "
+        "conditional-branch conditions, which no send is measured against, so only a caller that "
+        "sets this is recorded as a batch audience preview. Does not change the response.",
+    )
 
 
 class BlastRadiusSerializer(serializers.Serializer):
@@ -4048,13 +4054,19 @@ class HogFlowViewSet(
             ac_resource_type=self.scope_object,
         )
 
-    def _report_audience_preview(self, audience_size: int, *, sends_email: bool) -> None:
+    def _report_audience_preview(self, audience_size: int, *, sends_email: bool, previews_batch_dispatch: bool) -> None:
         """
         Record the audience a batch send is sized against, next to the caps it will meet.
 
         This is the only point that knows both numbers: the dispatch stops resolving at the cap, so
         a truncated run cannot say how large its audience really was.
+
+        The same count also estimates conditional-branch conditions, which match arbitrary person
+        subsets no send is measured against. Recording those would count projects against the caps
+        that never dispatch a batch at all, so only a caller sizing a dispatch is recorded.
         """
+        if not previews_batch_dispatch:
+            return
         try:
             report_user_action(
                 self.request.user,
@@ -4908,7 +4920,11 @@ class HogFlowViewSet(
             if not self.user_access_control.check_access_level_for_resource("account", "viewer"):
                 raise exceptions.PermissionDenied("You do not have access to customer analytics accounts.")
             affected = get_account_audience_count(self.team, filters)
-            self._report_audience_preview(affected, sends_email=params["sends_email"])
+            self._report_audience_preview(
+                affected,
+                sends_email=params["sends_email"],
+                previews_batch_dispatch=params["previews_batch_dispatch"],
+            )
             return Response(
                 BlastRadiusSerializer(
                     {
@@ -4938,7 +4954,11 @@ class HogFlowViewSet(
         else:
             blast_radius = get_user_blast_radius(self.team, filters, group_type_index)
 
-        self._report_audience_preview(blast_radius.affected, sends_email=params["sends_email"])
+        self._report_audience_preview(
+            blast_radius.affected,
+            sends_email=params["sends_email"],
+            previews_batch_dispatch=params["previews_batch_dispatch"],
+        )
         return Response(
             BlastRadiusSerializer(
                 {
