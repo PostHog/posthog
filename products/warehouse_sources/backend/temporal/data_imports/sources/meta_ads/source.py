@@ -173,6 +173,9 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
         }
 
     def get_auth_errors(self) -> set[str]:
+        # `meta_ads._raise_meta_api_error` keeps `META_AUTH_ERROR_MESSAGE` off a permission failure
+        # that names a scope the OAuth consent never requests, so nothing here can label a working
+        # account as expired for a failure that reconnecting cannot repair.
         return {
             META_TOKEN_REFRESH_ERROR_MESSAGE,
             META_AUTH_ERROR_MESSAGE,
