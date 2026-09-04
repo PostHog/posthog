@@ -228,11 +228,14 @@ async function executeQuery<N extends DataNode>(
     try {
         statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
     } catch (e: any) {
-        // The server no longer knows about this query. Polling pauses while the tab is in the
-        // background, and the timeout only counts time the tab was visible, so a background tab
-        // waits indefinitely instead of giving up. The server is less patient: it forgets a query
-        // after 20 minutes. Come back to the tab after that and the poll asks about a query the
-        // server has dropped, even though it most likely finished and cached its result.
+        // The server no longer knows about this query.
+        //
+        // The browser stops polling while the tab is in the background, and the clock it uses to
+        // give up on a slow query stops with it. The server's clock does not: it drops a query a
+        // fixed time after that query was submitted, whatever the tab is doing. So a tab left in
+        // the background long enough comes back, resumes polling, and asks about a query the
+        // server has already forgotten, even though the query itself most likely finished and
+        // cached its result.
         //
         // So run it again, once. force_async becomes async, so the retry reads that cached result
         // instead of recomputing every tile that comes back from a background tab. The original
