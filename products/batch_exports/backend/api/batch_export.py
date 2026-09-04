@@ -1138,6 +1138,9 @@ def is_local_dev_or_test() -> bool:
     return settings.DEBUG or settings.TEST
 
 
+INVALID_HOST_MESSAGE = "Invalid host. Enter a hostname or IP address without credentials, scheme, or path."
+
+
 def resolve_and_validate_host(host: str) -> None:
     """Ensure provided host resolves to a non-internal IP."""
     if host == "localhost" and is_local_dev_or_test():
@@ -1699,7 +1702,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 try:
                     resolve_and_validate_host(host)
                 except ValueError:
-                    raise serializers.ValidationError(f"Invalid host: '{host}'")
+                    raise serializers.ValidationError(INVALID_HOST_MESSAGE)
 
         return destination_attrs
 

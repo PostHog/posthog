@@ -11,8 +11,11 @@ import {
   type AgentToolCallStatus,
   createPiToolCallRecord,
   isPiToolName,
+  mcpToolKey,
   type PiToolName,
+  posthogToolMeta,
 } from "@posthog/shared";
+import { z } from "zod";
 import { bashTranslator } from "./tools/bashTranslator";
 import { editTranslator } from "./tools/editTranslator";
 import { findTranslator } from "./tools/findTranslator";
@@ -41,6 +44,12 @@ interface PiToolExecutionResult {
   content: ToolResultMessage["content"];
   details?: unknown;
 }
+
+const mcpToolDetailsSchema = z.object({
+  posthog: z.object({
+    mcp: z.object({ server: z.string().min(1), tool: z.string().min(1) }),
+  }),
+});
 
 function toGenericToolContent(
   resultContent: ToolResultMessage["content"],
@@ -220,7 +229,7 @@ export function createPiMessageTranslator(): PiMessageTranslator {
     const toolCall: Extract<
       AgentConversationEvent,
       { type: "tool_call_updated" }
-    >["toolCall"] = {
+    >["toolCall"] & { _meta?: ReturnType<typeof posthogToolMeta> } = {
       id: toolCallId,
       status,
       rawOutput: result.content,
@@ -228,6 +237,12 @@ export function createPiMessageTranslator(): PiMessageTranslator {
 
     if (result.details !== undefined) {
       toolCall.details = result.details;
+    }
+
+    const mcpDetails = mcpToolDetailsSchema.safeParse(result.details);
+    if (mcpDetails.success) {
+      const mcp = mcpDetails.data.posthog.mcp;
+      toolCall._meta = posthogToolMeta({ toolName: mcpToolKey(mcp), mcp });
     }
 
     const translator = isPiToolName(toolName)

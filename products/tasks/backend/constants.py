@@ -40,6 +40,8 @@ TASK_ANALYSIS_INSIGHTS_STATE_KEY = "task_analysis_insights"
 # Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
 PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
+# The skills-store stubs the sandbox agent writes into its skill roots at session start.
+STORE_SKILLS_STATE_KEY = "store_skills"
 SAME_RUN_RESUME_STATE_KEY = "same_run_resume"
 SAME_RUN_RESUME_IDLE_STATE_KEY = "same_run_resume_idle"
 _LEGACY_SAME_RUN_RESUME_STATE_KEY = "handoff_resumed"
@@ -526,6 +528,8 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "AI_GATEWAY_URL",
         "AI_GATEWAY_PRODUCTS",
         "AI_GATEWAY_TOKEN",
+        "AI_GATEWAY_PRODUCT",
+        "AI_GATEWAY_AI_STAGE",
         "POSTHOG_RESUME_RUN_ID",
         "POSTHOG_AGENT_OTEL_LOGS_URL",
         "POSTHOG_AGENT_OTEL_LOGS_TOKEN",

@@ -28,7 +28,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 ## What the linters already enforce
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
-Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, required-check gate hygiene, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
+Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
 Third-party action digests are bumped by Renovate.
 
 ## The dispatch budget (500 runs / 10s / repo)
@@ -65,6 +65,12 @@ GitHub caps _workflow-run dispatch_ at 500 runs per 10s per repo; overflow fails
   Heavy matrices (`ci-backend`, `ci-nodejs`) do exactly this — deliberate.
 - Delete dead dispatchers outright.
   A disabled-but-still-triggered workflow keeps dispatching no-op runs against the cap — remove the trigger, don't just disable it.
+- **A filter has to cover what the job actually compiles, not just where the code lives.**
+  A build that reaches out of its own tree — through a tsconfig `paths` alias, a workspace dependency, a generated file — breaks when a filter lists only the service directory.
+  The PR touching the imported tree skips the job, the merge-queue run skips it too, and the break lands on master, where it then fails every later PR whose diff does match.
+  Cover the _enclosing directory_, not the imported file: the module drags its own relative imports along.
+  When the imported tree is busy, give it a second filter output and gate only the jobs it can actually break, rather than widening the one that also fires an expensive suite.
+  `WF009` derives the MCP filters' required trees from the MCP sources and fails when one is uncovered; a build with the same shape wants the same treatment.
 
 ## Concurrency
 

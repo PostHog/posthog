@@ -1213,6 +1213,49 @@ def team_api_test_factory():
 
             assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+        @parameterized.expand(
+            [
+                ("substring", {"key": "$raw_user_agent", "pattern": "AcmeBot", "matcher": "contains"}, True),
+                ("regex", {"key": "$raw_user_agent", "pattern": "AcmeBot/[0-9]+", "matcher": "regex"}, True),
+                ("ip range", {"key": "$ip", "pattern": "192.0.2.0/24", "matcher": "cidr"}, True),
+                ("another property", {"key": "$lib", "pattern": "posthog-python", "matcher": "contains"}, True),
+                ("empty pattern", {"key": "$raw_user_agent", "pattern": "", "matcher": "contains"}, False),
+                ("lookahead", {"key": "$raw_user_agent", "pattern": "Acme(?=Bot)", "matcher": "regex"}, False),
+                ("unparsable regex", {"key": "$raw_user_agent", "pattern": "Acme(", "matcher": "regex"}, False),
+                ("unusable ip range", {"key": "$ip", "pattern": "not-an-ip", "matcher": "cidr"}, False),
+                # A range can only ever match an IP, so pairing it with a user agent is a mistake.
+                (
+                    "range on a user agent",
+                    {"key": "$raw_user_agent", "pattern": "192.0.2.0/24", "matcher": "cidr"},
+                    False,
+                ),
+                (
+                    "unsupported property",
+                    {"key": "$some_other_property", "pattern": "acme", "matcher": "contains"},
+                    False,
+                ),
+            ]
+        )
+        def test_modifiers_customBotDefinitions_validation(
+            self, _name: str, definition: dict, should_succeed: bool
+        ) -> None:
+            # A rule that cannot run would break every query that reads $virt_is_bot for this
+            # project, so it has to be rejected on save rather than dropped at query time.
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {
+                    "modifiers": {
+                        "customBotDefinitions": [{"id": "1", "name": "Acme scraper", **definition}],
+                    }
+                },
+            )
+
+            if should_succeed:
+                assert response.status_code == status.HTTP_200_OK, response.json()
+                assert response.json()["modifiers"]["customBotDefinitions"][0]["pattern"] == definition["pattern"]
+            else:
+                assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
         @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
         def test_can_add_product_intent(self, mock_report_user_action: MagicMock) -> None:

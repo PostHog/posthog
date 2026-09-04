@@ -1212,6 +1212,20 @@
             "readOnlyHint": true
         }
     },
+    "canvas-move": {
+        "description": "Move a canvas to a visible destination space. The canvas and its full version history stay intact, but any pin in the current space is cleared. Only the canvas creator can move it. A sandbox task can move a canvas only within its own space; an attempted cross-space move returns 403.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Move canvas",
+        "title": "Move canvas",
+        "required_scopes": ["canvas:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "canvas-promote-create": {
         "description": "Make a draft version (staged with canvas-draft-create) the canvas's live head. A draft whose build is already ready goes live immediately with no rebuild; otherwise a fresh build is queued. Pass `expected_current_version_id` — the live `current_version_id` from canvas-source-retrieve — so a concurrent change is rejected with 409 version_conflict instead of overwritten. A 429 means the team's build capacity is exhausted; wait and retry. Returns the now-live build. This is the only way a draft reaches the head: revert does not act on drafts.",
         "category": "Canvas",
@@ -1671,7 +1685,7 @@
         "feature_flag_behavior": "disable"
     },
     "channel-list": {
-        "description": "List the project's channels (public channels plus the requester's personal #me channel). Use this to resolve a channel id from its name before creating or listing canvases or reading instructions.",
+        "description": "List the project's channels (public channels plus the requester's personal #me channel). Use this to resolve a channel id from its name before creating or listing canvases or reading instructions. A project can hold hundreds of channels, so pass `limit` (with `offset`) to read one page: the paged response carries `count` and `next`, and without `limit` you get every channel in one array.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "List channels",
@@ -2627,6 +2641,34 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "data-catalog-metric-delete-execute": {
+        "description": "Step 2 of 2 for delete metric. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Delete a canonical metric by name. The metric leaves the catalog and its name becomes available again, so a later metric can claim it, and anything that referenced the old name (saved SQL, run URLs, earlier tool results) stops resolving. Deleting an approved metric throws away a human-vouched definition. Ask the user before calling this, and prefer data-catalog-metric-update when the metric is merely wrong, stale, or badly named - delete only when the metric should not exist at all. The MCP workflow requires the user to reply with the literal word 'confirm' before execution.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Delete a catalog metric (execute)",
+        "title": "Delete a catalog metric (execute)",
+        "required_scopes": ["data_catalog:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "data-catalog-metric-delete-prepare": {
+        "description": "Step 1 of 2 for delete metric. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Delete a canonical metric by name. The metric leaves the catalog and its name becomes available again, so a later metric can claim it, and anything that referenced the old name (saved SQL, run URLs, earlier tool results) stops resolving. Deleting an approved metric throws away a human-vouched definition. Ask the user before calling this, and prefer data-catalog-metric-update when the metric is merely wrong, stale, or badly named - delete only when the metric should not exist at all. The MCP workflow requires the user to reply with the literal word 'confirm' before execution.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Delete a catalog metric (prepare)",
+        "title": "Delete a catalog metric (prepare)",
+        "required_scopes": ["data_catalog:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "data-catalog-metric-run": {
@@ -7949,8 +7991,23 @@
         "feature_flag": "metrics",
         "system_prompt_hint": "Discover which server/infrastructure metrics exist before querying them"
     },
+    "notebooks-compute-options": {
+        "description": "The rates a notebook's sandbox is priced at, the sized presets a user can pick from, and the cpu_cores and memory_gb values notebooks-configure-compute accepts. The rates are the same for every notebook in the region, so fetch this once per session rather than per notebook. Use it to quote a price before you start or resize a sandbox: a shape costs cpu_cores x cpu_rate_per_core_hour + memory_gb x memory_rate_per_gb_hour per hour, rounded to four decimal places, and each preset carries that total as hourly_price.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Get notebook compute options",
+        "title": "Get notebook compute options",
+        "required_scopes": ["notebook:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "revamped-py-notebooks"
+    },
     "notebooks-configure-compute": {
-        "description": "Set the notebook's sandbox kernel resources (cpu_cores, memory_gb from supported options; idle_timeout_seconds). Config applies when a sandbox is provisioned — the response's restart_required is true when a kernel is already active, meaning it keeps its current resources until restarted (restarting loses materialized dataframes, so prefer configuring before the first Python cell runs).",
+        "description": "Set the notebook's sandbox kernel resources (cpu_cores, memory_gb from supported options; idle_timeout_seconds). Changing cpu_cores or memory_gb restarts a running kernel so the new size takes effect, and the response's restarted says whether that happened. A restart discards every materialized dataframe, so cells that referenced one must run again — prefer sizing the sandbox before the first Python cell runs, and tell the user what a mid-analysis resize will cost them. Changing only idle_timeout_seconds never restarts; restart_required then reports that a live kernel will not pick it up until it restarts on its own. The user pays for the sandbox for as long as it runs, so tell them the response's hourly_price in dollars whenever you set or change the size. That price always describes the sandbox actually serving the notebook, so if a restart failed it is the old one still running, not the size you just set. notebooks-compute-options lists the presets and the values this tool accepts.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Configure notebook compute",
@@ -7995,7 +8052,7 @@
         }
     },
     "notebooks-get": {
-        "description": "The full notebook view: title, markdown source, and every cell with its code, dataframe name, depends_on/dependents edges, and derived status — 'stale' means re-running the cell now would execute different code than its last completed run (the cell or an upstream changed), so its displayed result is outdated. Use this to read or orient in a notebook, find which cells need re-running after edits, and decide re-run order (walk stale cells in dependency order with notebooks-update-cell, omitting code). Legacy rich-text notebooks return their raw document in content instead of markdown.",
+        "description": "The full notebook view: title, markdown source, and every cell with its code, dataframe name, depends_on/dependents edges, and derived status — 'stale' means re-running the cell now would execute different code than its last completed run (the cell or an upstream changed), so its displayed result is outdated. Use this to read or orient in a notebook, find which cells need re-running after edits, and decide re-run order (walk stale cells in dependency order with notebooks-update-cell, omitting code). Legacy rich-text notebooks return their raw document in content instead of markdown. When you do not have the notebook's short_id, find it with notebooks-list.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Get notebook",
@@ -8024,7 +8081,7 @@
         }
     },
     "notebooks-list-frames": {
-        "description": "The dataframes and DuckDB tables the notebook's kernel currently holds — what a SQL or Python cell can reference by name — with column names/types and row counts, plus the kernel's live status and compute config. Frames are empty unless the kernel is running (SQL-only notebooks never start one; frames appear after Python/DuckDB cells run). To probe deeper than the schema, run a SELECT in a cell.",
+        "description": "The dataframes and DuckDB tables the notebook's kernel currently holds — what a SQL or Python cell can reference by name — with column names/types and row counts, plus the kernel's live status and compute config. Frames are empty unless the kernel is running (SQL-only notebooks never start one; frames appear after Python/DuckDB cells run). To probe deeper than the schema, run a SELECT in a cell. Only a modal backend is charged: hourly_price is calculated for a local docker kernel too, so quote it to the user only when backend is modal.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "List notebook dataframes",
@@ -8055,7 +8112,7 @@
         "feature_flag_behavior": "disable"
     },
     "notebooks-retrieve": {
-        "description": "Get a notebook's raw record by short_id: title, content (markdown or legacy ProseMirror JSON), version, and creation/modification metadata. Use this when you need the raw content or the current version number — required by notebooks-partial-update for optimistic concurrency. For the analysis-oriented view of a markdown notebook — every cell with its code, dataframe name, dependency edges, and stale status — use notebooks-get instead (exposed only when the revamped Python notebooks flag is enabled).",
+        "description": "Get a notebook's raw record by short_id: title, content (markdown or legacy ProseMirror JSON), version, and creation/modification metadata. Use this when you need the raw content or the current version number — required by notebooks-partial-update for optimistic concurrency. For the analysis-oriented view of a markdown notebook — every cell with its code, dataframe name, dependency edges, and stale status — use notebooks-get instead (exposed only when the revamped Python notebooks flag is enabled). When you do not have the notebook's short_id, find it with notebooks-list; searching by title is what its search parameter is for.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Get notebook",
@@ -11882,7 +11939,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-snapshot-history-list": {
-        "description": "List recent change history for a snapshot `identifier` across previous runs in the same repo. Useful for diagnosing flaky snapshots — if the same identifier flips between changed and clean across runs, it is a candidate for tolerated hashes or quarantine. Requires `identifier` query parameter.",
+        "description": "List recent change history for one snapshot across previous runs in the same repo. Useful for diagnosing flaky snapshots — if the same identifier flips between changed and clean across runs, it is a candidate for tolerated hashes or quarantine. Both parameters are required, and one snapshot from `visual-review-runs-snapshots-list` gives you both: pass its `run_id` as `id`, and its `identifier` as `identifier`. Passing the snapshot's own `id` as `id` does not work, and neither parameter can be left out.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Snapshot change history",
@@ -11927,7 +11984,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-tolerated-hashes-list": {
-        "description": "List known tolerated alternate hashes for a snapshot `identifier` in the run's repo. Tolerated hashes catalog acceptable rendering variants (e.g. anti-aliasing noise) so future runs don't flag them as changes. Requires `identifier` query parameter.",
+        "description": "List known tolerated alternate hashes for one snapshot in the run's repo. Tolerated hashes catalog acceptable rendering variants (e.g. anti-aliasing noise) so future runs don't flag them as changes. This covers a single snapshot, not the whole run or repo. Both parameters are required, and one snapshot from `visual-review-runs-snapshots-list` gives you both: pass its `run_id` as `id`, and its `identifier` as `identifier`.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List tolerated hashes",
