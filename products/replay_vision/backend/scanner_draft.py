@@ -20,7 +20,7 @@ from django.db.models import Q
 
 import structlog
 import posthoganalytics
-from google.genai.types import GenerateContentConfig, GenerateContentResponse
+from google.genai.types import FinishReason, GenerateContentConfig, GenerateContentResponse
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
@@ -73,8 +73,10 @@ _SCALE_MAX_ALLOWED = 100
 _SCALE_SPAN_ALLOWED = 100
 # CoreMemory.text is model-capped at 10k chars; cap lower to keep the one-shot draft prompt lean.
 _MAX_BUSINESS_CONTEXT_CHARS = 5_000
-# Well above the largest plausible draft (a full config is a few hundred tokens); only caps runaway output.
-_MAX_OUTPUT_TOKENS = 4096
+# Thinking tokens are drawn from this same budget, and a vague goal ("help") makes the model
+# deliberate far longer than it writes: at 4096 the JSON was being cut off mid-object after only
+# ~150 tokens of answer. The draft itself is a few hundred tokens, so this only caps runaway output.
+_MAX_OUTPUT_TOKENS = 16384
 # Bounds on assembled context so a scanner-heavy team can't blow up the prompt.
 _MAX_EXISTING_SCANNERS = 15
 _SCANNER_GIST_CHARS = 200
@@ -525,6 +527,14 @@ def draft_scanner_from_goal(
     return _finalize(parsed, allowed_screens=taxonomy.screens, allowed_events=taxonomy.events, team_id=team.id)
 
 
+def _hit_output_cap(response: GenerateContentResponse) -> bool:
+    """Whether the model stopped because it ran out of output budget, leaving the JSON unfinished."""
+    for candidate in response.candidates or []:
+        if candidate.finish_reason == FinishReason.MAX_TOKENS:
+            return True
+    return False
+
+
 def _generate(
     *,
     user_content: str,
@@ -582,6 +592,11 @@ def _generate(
             logger.exception("replay_vision.scanner_draft.generate_failed", team_id=team_id)
             raise DraftError("model_call_failed") from e
 
+    if _hit_output_cap(response):
+        # Truncated JSON parses as invalid, but the cause is our budget rather than the model
+        # writing nonsense — keep the two apart so a recurrence is recognizable.
+        logger.warning("replay_vision.scanner_draft.output_truncated", team_id=team_id, feature=feature)
+        raise DraftError("output_truncated")
     if not response.text:
         raise DraftError("empty_response")
     try:
