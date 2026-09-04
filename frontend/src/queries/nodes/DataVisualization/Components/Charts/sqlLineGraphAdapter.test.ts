@@ -377,7 +377,17 @@ describe('sqlLineGraphAdapter', () => {
 
         it('keys breakdown series by breakdown value', () => {
             const [series] = buildSeries([breakdownSeries('chrome', [1])], ChartDisplayType.ActionsLineGraph)
-            expect(series.key).toBe('chrome')
+            expect(series.key).toBe('chrome-0')
+        })
+
+        it('gives every series its own key when a breakdown value repeats across y-columns', () => {
+            const browsers = ['chrome', 'safari', 'firefox', 'edge', 'opera', 'brave']
+            const yData = [
+                ...browsers.map((browser) => breakdownSeries(browser, [1])),
+                ...browsers.map((browser) => breakdownSeries(browser, [2])),
+            ]
+            const keys = buildSeries(yData, ChartDisplayType.ActionsStackedBar).map((s) => s.key)
+            expect(new Set(keys).size).toBe(yData.length)
         })
 
         it('honors a custom display label, falling back to the column name', () => {
@@ -453,7 +463,7 @@ describe('sqlLineGraphAdapter', () => {
             [
                 'breakdown trend lines keyed by breakdown value',
                 [breakdownSeries('chrome', [1], { display: { trendLine: true } })],
-                [{ seriesKey: 'chrome', kind: 'linear' }],
+                [{ seriesKey: 'chrome-0', kind: 'linear' }],
             ],
         ])('builds %s', (_name, ySeriesData, expected) => {
             expect(buildTrendLineConfigs(ySeriesData)).toEqual(expected)
@@ -468,8 +478,8 @@ describe('sqlLineGraphAdapter', () => {
             const seriesKeys = buildSeries(yData, ChartDisplayType.ActionsLineGraph).map((s) => s.key)
             const trendLineKeys = buildTrendLineConfigs(yData).map((t) => t.seriesKey)
             // Both derive from getSeriesKey on the same array, so the trend lines are the opt-in subset.
-            expect(seriesKeys).toEqual(['a-0', 'b-1', 'chrome'])
-            expect(trendLineKeys).toEqual(['b-1', 'chrome'])
+            expect(seriesKeys).toEqual(['a-0', 'b-1', 'chrome-2'])
+            expect(trendLineKeys).toEqual(['b-1', 'chrome-2'])
         })
 
         it('uses array-position indexing, so keys stay aligned with buildSeries however the cap slices', () => {

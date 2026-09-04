@@ -86,8 +86,12 @@ export function hasMixedSeriesTypes(yData: SqlLineYSeries[], visualizationType: 
 const getSeriesLabel = (series: SqlLineYSeries): string =>
     series.settings?.display?.label || ('name' in series ? series.name : series.column.name)
 
+/** Keys must stay unique. A breakdown value repeats once per y-column: a `views` column and a
+ *  `clicks` column broken down by browser each give a `Chrome` series. Quill keys its stacked bands
+ *  by series key, so two series with the same key merge into one band. The merged series then
+ *  disappear from the bars and from the stacked total. */
 const getSeriesKey = (series: SqlLineYSeries, index: number): string =>
-    'breakdownValue' in series ? series.breakdownValue : `${series.column.name}-${index}`
+    `${'breakdownValue' in series ? series.breakdownValue : series.column.name}-${index}`
 
 /** Shares {@link getSeriesKey} with {@link buildSeries} so each trend line's `seriesKey` matches its source series. */
 export function buildTrendLineConfigs(ySeriesData: SqlLineYSeries[] | null | undefined): TrendLineConfig[] {
