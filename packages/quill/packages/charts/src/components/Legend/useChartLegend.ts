@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 
+import { useNarrowContainer } from '../../core/hooks/useNarrowContainer'
 import type { ChartLegendConfig, ChartTheme, Series } from '../../core/types'
 import type { LegendItem, LegendItemClickModifiers } from './Legend'
 import { legendItemsFromSeries } from './legendItemsFromSeries'
@@ -53,12 +54,20 @@ export interface ChartLegendRenderProps {
     show: boolean
     items: LegendItem[]
     position: NonNullable<ChartLegendConfig['position']>
+    /** Set when `narrowSideLegendBelow` has moved a side legend below the plot. */
+    effectivePosition?: NonNullable<ChartLegendConfig['position']>
     align: ChartLegendConfig['align']
     gap: ChartLegendConfig['gap']
     onItemClick?: (key: string, modifiers: LegendItemClickModifiers) => void
     hiddenKeys: string[]
     renderItem?: (defaultNode: ReactNode, item: LegendItem) => ReactNode
+    /** Attach to the wrapper when `narrowSideLegendBelow` is set — its width drives the move. */
+    wrapperRef?: React.RefObject<HTMLDivElement>
 }
+
+/** Container width below which an opted-in side legend moves below the plot. A right legend at
+ *  the 45% cap would leave the plot under ~220px there — too thin to read. */
+export const NARROW_SIDE_LEGEND_THRESHOLD_PX = 400
 
 export interface ChartLegendState<Meta> {
     /** Series with toggled-off entries marked excluded — feed this into the chart's renderer. */
@@ -162,6 +171,16 @@ export function useChartLegend<Meta>(
         [canIsolate, toggle, isolate]
     )
 
+    // A side legend at the 45%-of-width cap squeezes the plot hard once the chart sits in a narrow
+    // container (a dashboard tile). Opted-in charts move it below the plot there and restore the
+    // configured position when the container is wide again.
+    const narrowBelow = config?.narrowSideLegendBelow
+    const narrowThreshold = typeof narrowBelow === 'number' ? narrowBelow : NARROW_SIDE_LEGEND_THRESHOLD_PX
+    const position = config?.position ?? 'bottom'
+    const canMoveBelow = !!narrowBelow && (position === 'left' || position === 'right')
+    const { ref: wrapperRef, isNarrow } = useNarrowContainer(narrowThreshold)
+    const effectivePosition = canMoveBelow && isNarrow ? 'bottom' : undefined
+
     const consumerRenderItem = config?.renderItem
     const renderItem = useMemo(() => {
         if (!consumerRenderItem) {
@@ -186,12 +205,14 @@ export function useChartLegend<Meta>(
         legendProps: {
             show: config?.show ?? false,
             items: derivedItems,
-            position: config?.position ?? 'bottom',
+            position,
+            effectivePosition,
             align: config?.align,
             gap: config?.gap,
             onItemClick: interactive ? handleItemClick : undefined,
             hiddenKeys,
             renderItem,
+            wrapperRef: canMoveBelow ? wrapperRef : undefined,
         },
     }
 }

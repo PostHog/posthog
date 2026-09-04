@@ -334,6 +334,11 @@ export interface ChartLegendConfig {
     show?: boolean
     /** Where the legend sits relative to the plot. Default 'bottom'. */
     position?: 'top' | 'bottom' | 'left' | 'right'
+    /** Move a left/right legend below the plot when the chart container is narrow (a dashboard
+     *  tile rather than a full insight page), so it can't claim nearly half the width and squeeze
+     *  the plot. The configured `position` takes effect again once the container is wide enough.
+     *  `true` uses the default threshold; pass a number of px to tune it. Default false. */
+    narrowSideLegendBelow?: boolean | number
     /** Legend alignment along its axis. Default 'center'. */
     align?: 'start' | 'center' | 'end'
     /** Gap in px between the legend and the plot. */

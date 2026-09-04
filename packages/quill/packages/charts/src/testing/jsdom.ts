@@ -31,8 +31,9 @@ export function clientForIndex(index: number, totalLabels: number): { clientX: n
 
 /** Mock ResizeObserver and getBoundingClientRect so hog-charts components
  *  render with real dimensions in jsdom. Call in beforeEach, and call the
- *  returned cleanup function in afterEach. */
-export function setupJsdom(): () => void {
+ *  returned cleanup function in afterEach. Pass `rect` to make containers
+ *  report a different size (e.g. a narrow one for layout tests). */
+export function setupJsdom(rect: DOMRect = mockRect): () => void {
     if (typeof global.ResizeObserver === 'undefined') {
         global.ResizeObserver = class {
             observe(): void {}
@@ -40,7 +41,7 @@ export function setupJsdom(): () => void {
             disconnect(): void {}
         } as unknown as typeof ResizeObserver
     }
-    const spy = jest.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(mockRect)
+    const spy = jest.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(rect)
     return () => spy.mockRestore()
 }
 

@@ -166,7 +166,12 @@ function PieChartInner<Meta = unknown>({
 
     const showTooltip = tooltipConfig?.enabled !== false
 
-    const { visibleSeries, legendProps } = useChartLegend(series, theme, legend)
+    const { visibleSeries, legendProps } = useChartLegend(series, theme, {
+        // A pie reads worst when the plot loses width, so it is the chart that opts in to moving a
+        // side legend below the plot in narrow containers (e.g. dashboard tiles).
+        narrowSideLegendBelow: true,
+        ...legend,
+    })
 
     const buildLayout = useCallback<RadialLayoutBuilder<Meta>>(
         (resolvedSeries, dimensions) =>
@@ -246,8 +251,10 @@ function PieChartInner<Meta = unknown>({
         [tooltip, valueFormatter, isPercent]
     )
 
+    const { wrapperRef, ...chartLegendProps } = legendProps
+
     return (
-        <ChartLegend {...legendProps} legendDataAttr="hog-chart-pie-legend">
+        <ChartLegend ref={wrapperRef} {...chartLegendProps} legendDataAttr="hog-chart-pie-legend">
             <RadialChart<Meta>
                 series={visibleSeries}
                 theme={theme}

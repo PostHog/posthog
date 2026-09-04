@@ -8,6 +8,9 @@ export interface ChartLegendProps {
     show?: boolean
     items: LegendItem[]
     position?: 'top' | 'bottom' | 'left' | 'right'
+    /** Position to lay out at instead of `position` — e.g. a chart moving a side legend below the
+     *  plot because the container got narrow. The rows re-orient to match. */
+    effectivePosition?: 'top' | 'bottom' | 'left' | 'right'
     align?: 'start' | 'center' | 'end'
     gap?: number
     onItemClick?: LegendProps['onItemClick']
@@ -20,27 +23,33 @@ export interface ChartLegendProps {
     children: React.ReactNode
 }
 
-export function ChartLegend({
-    show = true,
-    items,
-    position = 'top',
-    align = 'center',
-    gap,
-    onItemClick,
-    hiddenKeys,
-    className,
-    renderItem,
-    legendDataAttr,
-    children,
-}: ChartLegendProps): React.ReactElement {
+export const ChartLegend = React.forwardRef<HTMLDivElement, ChartLegendProps>(function ChartLegend(
+    {
+        show = true,
+        items,
+        position = 'top',
+        effectivePosition,
+        align = 'center',
+        gap,
+        onItemClick,
+        hiddenKeys,
+        className,
+        renderItem,
+        legendDataAttr,
+        children,
+    },
+    ref
+): React.ReactElement {
     if (!show || items.length === 0) {
         return <>{children}</>
     }
-    const orientation = position === 'left' || position === 'right' ? 'vertical' : 'horizontal'
+    const resolved = effectivePosition ?? position
+    const orientation = resolved === 'left' || resolved === 'right' ? 'vertical' : 'horizontal'
     // Bakes `flex-1 min-h-0` so consumers in a flex-col parent don't have to remember it.
     const wrapperClassName = `flex-1 min-h-0 ${className ?? ''}`.trim()
     return (
         <ChartLegendLayout
+            ref={ref}
             legend={
                 <Legend
                     items={items}
@@ -53,6 +62,7 @@ export function ChartLegend({
                 />
             }
             position={position}
+            effectivePosition={effectivePosition}
             align={align}
             gap={gap}
             className={wrapperClassName}
@@ -60,4 +70,4 @@ export function ChartLegend({
             {children}
         </ChartLegendLayout>
     )
-}
+})

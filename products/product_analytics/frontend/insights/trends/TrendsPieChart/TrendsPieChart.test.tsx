@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, screen, waitFor } from '@testing-library/react'
 
-import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { mockRect, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, legend, personsModal, renderInsight } from '~/test/insight-testing'
@@ -12,7 +12,7 @@ let cleanupJsdom: () => void
 let cleanupRaf: () => void
 
 beforeEach(() => {
-    cleanupJsdom = setupJsdom()
+    cleanupJsdom = setupJsdom(NARROW_RECT)
     cleanupRaf = setupSyncRaf()
 })
 
@@ -27,6 +27,31 @@ function sliceLabels(): string[] {
     return Array.from(document.querySelectorAll('[data-attr="hog-chart-pie-slice-label"]')).map(
         (el) => el.textContent ?? ''
     )
+}
+
+// The default 800px-wide mock rect is "wide"; this one puts containers below the side-legend
+// threshold so tests cover the narrow dashboard-tile layout.
+const NARROW_RECT = { ...mockRect, width: 300 } as DOMRect
+
+// jsdom's ResizeObserver stub never fires its callback, so layout hooks that wait on an entry
+// would never resolve. Replace it with one that delivers a contentRect entry for the observed
+// element immediately.
+function setupResizeObserverRect(rect: DOMRect): () => void {
+    const Original = global.ResizeObserver
+    global.ResizeObserver = class {
+        constructor(callback: ResizeObserverCallback) {
+            setTimeout(
+                () => callback([{ contentRect: rect } as ResizeObserverEntry], this as unknown as ResizeObserver),
+                0
+            )
+        }
+        observe(): void {}
+        unobserve(): void {}
+        disconnect(): void {}
+    } as unknown as typeof ResizeObserver
+    return () => {
+        global.ResizeObserver = Original
+    }
 }
 
 // Napped × hedgehog fixture: Spike 11, Thistle 4, Bramble 2, Prickles 2, Conker 0.
@@ -117,6 +142,38 @@ describe('TrendsPieChart (ActionsPie)', () => {
                 b.className.includes('opacity-40')
             )
             expect(dimmed.map((b) => b.textContent)).toEqual(['Spike'])
+        })
+
+        // The chart wrapper's grandparent is the ChartLegendLayout root (its parent is the
+        // layout's chart slot); its flex direction says whether the legend sits beside the
+        // pie (row) or below it (column).
+        const legendLayout = (container: HTMLElement): HTMLElement | null =>
+            container.querySelector<HTMLElement>('[data-attr="trend-pie-graph"]')?.parentElement?.parentElement ?? null
+
+        it('moves the default right legend below the pie in a narrow container', async () => {
+            const restoreObserver = setupResizeObserverRect(NARROW_RECT)
+            try {
+                const { container } = renderInsight({ query: pieByHedgehog({ showLegend: true }) })
+                await screen.findByLabelText(/pie chart with/i, undefined, { timeout: 5000 })
+                await waitFor(() => {
+                    expect(legendLayout(container)).toHaveClass('flex-col')
+                })
+            } finally {
+                restoreObserver()
+            }
+        })
+
+        it('keeps the default right legend beside the pie in a wide container', async () => {
+            const restoreObserver = setupResizeObserverRect(mockRect)
+            try {
+                const { container } = renderInsight({ query: pieByHedgehog({ showLegend: true }) })
+                await screen.findByLabelText(/pie chart with/i, undefined, { timeout: 5000 })
+                await waitFor(() => {
+                    expect(legendLayout(container)).toHaveClass('flex-row')
+                })
+            } finally {
+                restoreObserver()
+            }
         })
     })
 })

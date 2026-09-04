@@ -3,7 +3,12 @@ import React from 'react'
 
 export interface ChartLegendLayoutProps {
     legend: React.ReactNode
+    /** Position the caller asked for. An `effectivePosition` pointing elsewhere wins, so the
+     *  consumer's choice stays recoverable once whatever overrode it (e.g. a narrow container)
+     *  goes away. */
     position?: 'top' | 'bottom' | 'left' | 'right'
+    /** Position to actually lay out at — overrides `position`. */
+    effectivePosition?: 'top' | 'bottom' | 'left' | 'right'
     align?: 'start' | 'center' | 'end'
     gap?: number
     className?: string
@@ -17,17 +22,13 @@ const ALIGN_CLASS = {
     end: 'items-end',
 } as const
 
-export function ChartLegendLayout({
-    legend,
-    position = 'top',
-    align = 'center',
-    gap = 8,
-    className,
-    dataAttr,
-    children,
-}: ChartLegendLayoutProps): React.ReactElement {
-    const isRow = position === 'left' || position === 'right'
-    const legendFirst = position === 'top' || position === 'left'
+export const ChartLegendLayout = React.forwardRef<HTMLDivElement, ChartLegendLayoutProps>(function ChartLegendLayout(
+    { legend, position = 'top', effectivePosition, align = 'center', gap = 8, className, dataAttr, children },
+    ref
+): React.ReactElement {
+    const resolved = effectivePosition ?? position
+    const isRow = resolved === 'left' || resolved === 'right'
+    const legendFirst = resolved === 'top' || resolved === 'left'
     // Side legends stretch to the chart height — a % max-height no-ops without an explicit ancestor height,
     // which top/bottom's max-h-[40%] still needs. Their width caps at 45% of the chart but never more than
     // 240px, so one long label can't squeeze the plot on a wide chart. `justify-center-safe` keeps short
@@ -43,6 +44,7 @@ export function ChartLegendLayout({
     const chartSlot = <div className="flex flex-col flex-1 min-w-0 min-h-0 self-stretch">{children}</div>
     return (
         <div
+            ref={ref}
             className={`flex min-w-0 min-h-0 ${isRow ? 'flex-row' : 'flex-col'} ${ALIGN_CLASS[align]} ${className ?? ''}`}
             style={{ gap }}
             data-attr={dataAttr}
@@ -51,4 +53,4 @@ export function ChartLegendLayout({
             {legendFirst ? chartSlot : legendSlot}
         </div>
     )
-}
+})

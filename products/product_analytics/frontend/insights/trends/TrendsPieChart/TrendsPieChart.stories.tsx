@@ -15,6 +15,30 @@ import { ChartDisplayType, type InsightLogicProps, type InsightShortId } from '~
 
 import { TrendsPieChart } from './TrendsPieChart'
 
+// Legend stories need enough slices for the legend to claim real space; the base fixture has
+// three, so pad it with invented breakdown values.
+const manySliceResult = (trendsPieBreakdownFixture as any).result.flatMap((item: any, index: number) =>
+    [0, 1, 2].map((copy) => ({
+        ...item,
+        label: `$pageview - ${item.breakdown_value ?? index}-v${copy}`,
+        breakdown_value: `${item.breakdown_value ?? index}-v${copy}`,
+        aggregated_value: Math.round(item.aggregated_value / (copy + 2)),
+    }))
+)
+
+// No insight sets an explicit legendPosition, so the in-app default is the right-hand side.
+const trendsPieBreakdownWithLegendFixture = {
+    ...trendsPieBreakdownFixture,
+    result: manySliceResult,
+    query: {
+        ...trendsPieBreakdownFixture.query,
+        source: {
+            ...trendsPieBreakdownFixture.query.source,
+            trendsFilter: { ...trendsPieBreakdownFixture.query.source.trendsFilter, showLegend: true },
+        },
+    },
+}
+
 type Story = StoryObj<{}>
 
 const meta: Meta = {
@@ -46,6 +70,15 @@ function Stage({ children }: { children: React.ReactNode }): JSX.Element {
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div style={{ height: 360, width: 720, display: 'flex', flexDirection: 'column' }}>{children}</div>
+    )
+}
+
+// Dashboard-tile width — below the side-legend threshold, so a legend pinned to the side moves
+// below the pie instead of splitting the tile with it.
+function NarrowStage({ children }: { children: React.ReactNode }): JSX.Element {
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ height: 360, width: 300, display: 'flex', flexDirection: 'column' }}>{children}</div>
     )
 }
 
@@ -137,4 +170,15 @@ export const BreakdownWithValueAndPercentage: Story = {
             showValuesOnSeries: true,
             showPercentStackView: true,
         }),
+}
+
+// The dashboard-tile case: the side legend would take close to half this width, so it renders
+// below the pie instead.
+export const LegendOnNarrowTile: Story = {
+    render: () => renderTrendsPieChart(trendsPieBreakdownWithLegendFixture, NarrowStage),
+}
+
+// On a wide surface the same insight keeps the legend at its configured right-hand side.
+export const LegendOnWideSurface: Story = {
+    render: () => renderTrendsPieChart(trendsPieBreakdownWithLegendFixture),
 }
