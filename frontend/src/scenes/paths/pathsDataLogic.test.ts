@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { buildFunnelEventsFromPathNode, pathsDataLogic } from 'scenes/paths/pathsDataLogic'
+import { buildFunnelEventsFromPathNode, buildPaths, pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { examples } from '~/queries/examples'
@@ -48,6 +48,37 @@ describe('pathsDataLogic', () => {
                     TaxonomicFilterGroupType.Wildcards,
                 ],
             })
+    })
+})
+
+describe('buildPaths', () => {
+    it('builds nodes and links from valid paths links', () => {
+        const results = [
+            { source: '1_a', target: '2_b', value: 5, average_conversion_time: 10 },
+            { source: '2_b', target: '3_c', value: 3, average_conversion_time: 20 },
+        ]
+
+        expect(buildPaths(results)).toEqual({
+            nodes: [{ name: '1_a' }, { name: '2_b' }, { name: '3_c' }],
+            links: results,
+        })
+    })
+
+    // A stale result array from another query type can reach this selector paired with a paths
+    // query. Such a row has no string source/target, and letting it through builds an undefined
+    // node that later throws in renderPaths and blanks the whole insight scene.
+    it('drops rows without string source and target', () => {
+        const valid = { source: '1_a', target: '2_b', value: 5, average_conversion_time: 10 }
+        const results = [valid, { value: 7 }, { source: 1, target: 2 }] as any
+
+        expect(buildPaths(results)).toEqual({
+            nodes: [{ name: '1_a' }, { name: '2_b' }],
+            links: [valid],
+        })
+    })
+
+    it('returns empty nodes when nothing is renderable', () => {
+        expect(buildPaths([{ value: 7 }] as any)).toEqual({ nodes: [], links: [] })
     })
 })
 

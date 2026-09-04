@@ -188,6 +188,9 @@ export function renderPaths(
     }
 
     const maxLayer = paths.links.reduce((prev, curr) => {
+        if (typeof curr.target !== 'string') {
+            return prev
+        }
         return Math.max(prev, Number(curr.target.match(/[^_]*/)))
     }, 0)
 
