@@ -173,6 +173,9 @@ tools:
     vision-observations-search-suggestions-retrieve:
         operation: vision_observations_search_suggestions_retrieve
         enabled: false
+    vision-observations-search-viewed-create:
+        operation: vision_observations_search_viewed_create
+        enabled: false
     vision-quota-retrieve:
         operation: environment_vision_quota_retrieve
         enabled: true
