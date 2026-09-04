@@ -11,9 +11,9 @@ from rest_framework.response import Response
 
 from posthog.schema import EventsNode, TrendsQuery
 
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
-from posthog.errors import CHQueryErrorNoCommonType
+from posthog.errors import CHQueryErrorIllegalTypeOfArgument, CHQueryErrorNoCommonType, CHQueryErrorUnknownTable
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.logic.execution import EndpointExecutionService
@@ -186,6 +186,86 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("Query execution failed.", detail)
         if forbidden_detail:
             self.assertNotIn(forbidden_detail, detail)
+
+    @parameterized.expand(
+        [
+            ("exposed_hogql_error", ExposedHogQLError("Unknown field: bad"), False),
+            ("clickhouse_query_error", CHQueryErrorIllegalTypeOfArgument("bad argument", code=43), False),
+            ("resolution_error", ResolutionError("Unable to resolve field"), False),
+            ("internal_fault", RuntimeError("synthetic failure"), True),
+        ]
+    )
+    def test_customer_query_errors_are_not_captured_as_posthog_exceptions(
+        self, _name: str, error: Exception, expect_capture: bool
+    ):
+        # Mocking process_query_model exercises the endpoint-layer capture gate only. The shared
+        # query runner it wraps is a separate boundary that captures ERROR-category classes
+        # (ResolutionError, HogVMException) upstream, so for those this gate only avoids a duplicate
+        # capture here — an issue is still filed by the runner.
+        endpoint = create_endpoint_with_version(
+            name=f"{_name}_capture",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        with (
+            mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error),
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal"),
+        ):
+            self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json")
+
+        self.assertEqual(mock_capture.called, expect_capture)
+
+    @parameterized.expand(
+        [
+            ("inline_succeeds", True),
+            ("inline_also_user_errors", False),
+        ]
+    )
+    def test_materialized_user_safe_error_captured_only_when_inline_confirms_our_fault(
+        self, _name: str, inline_succeeds: bool
+    ):
+        endpoint = create_endpoint_with_version(
+            name=f"mat_fallback_{_name}",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        # A dropped or drifted materialized table raises a user-safe class from our rewritten SQL.
+        materialized_error = CHQueryErrorUnknownTable("Table does not exist", code=60)
+        inline_kwargs = (
+            {"return_value": Response({})}
+            if inline_succeeds
+            else {"side_effect": ExposedHogQLError("Unknown field: bad")}
+        )
+
+        with (
+            mock.patch.object(EndpointExecutionService, "should_use_materialized_table", return_value=True),
+            mock.patch.object(
+                EndpointExecutionService, "_execute_materialized_endpoint", side_effect=materialized_error
+            ),
+            mock.patch.object(EndpointExecutionService, "_execute_inline_endpoint", **inline_kwargs),
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal"),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        if inline_succeeds:
+            # Inline succeeded with the customer's query, so the materialized failure was our fault.
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            mock_capture.assert_called_once()
+            self.assertTrue(mock_capture.call_args[0][1]["materialized"])
+        else:
+            # Both paths failed on a customer query error, so nothing is captured as our exception.
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+            mock_capture.assert_not_called()
 
     def test_hogql_endpoint_executes_with_variable_override(self):
         endpoint = create_endpoint_with_version(

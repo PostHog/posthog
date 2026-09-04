@@ -102,14 +102,16 @@ def _validate_query_access(
     user: User,
 ) -> None:
     """Resolve the query under the author's access control; raise if it hits a denied table/view."""
-    resolvable_ast: ast.Expr = ast_node
-    if query.variables:
-        # Substitute {variables.x} so the AST resolves (endpoints allow variables; views don't).
-        # Missing definitions were already caught by validate_variable_placeholders above.
-        resolvable_ast = replace_variables(ast_node, list(query.variables.values()), team)
-
     context = HogQLContext(team_id=team.pk, user=user, enable_select_queries=True)
     try:
+        resolvable_ast: ast.Expr = ast_node
+        if query.variables:
+            # Substitute {variables.x} so the AST resolves (endpoints allow variables; views don't).
+            # Missing definitions were already caught by validate_variable_placeholders above.
+            # Inside the try so a variable error (e.g. a single-select list in an array function)
+            # surfaces as a field-level 400, not an uncaught 500 captured as our exception.
+            resolvable_ast = replace_variables(ast_node, list(query.variables.values()), team)
+
         # Using prepare_ast_for_printing instead of prepare_and_print_ast
         # because table/view access is enforced during resolution
         prepare_ast_for_printing(node=resolvable_ast, context=context, dialect="clickhouse")

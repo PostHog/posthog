@@ -300,6 +300,54 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
         self.assertIn("Variable ID(s) not found", response.json()["detail"])
 
+    def test_cannot_create_endpoint_with_single_select_list_variable_in_array_function(self):
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Plan", code_name="plan", type=InsightVariable.Type.LIST, is_multi=False
+        )
+        variable_id = str(variable.id)
+        data = {
+            "name": "test_query",
+            "query": {
+                "kind": "HogQLQuery",
+                "query": "SELECT has({variables.plan}, 'enterprise') FROM events",
+                "variables": {
+                    variable_id: {"variableId": variable_id, "code_name": "plan", "value": "enterprise"},
+                },
+            },
+        }
+
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertIn("plan", response.json()["detail"])
+
+    def test_cannot_update_endpoint_with_single_select_list_variable_in_array_function(self):
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Plan", code_name="plan", type=InsightVariable.Type.LIST, is_multi=False
+        )
+        variable_id = str(variable.id)
+        create_data = {
+            "name": "test_query",
+            "query": {"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+        }
+        self.client.post(f"/api/environments/{self.team.id}/endpoints/", create_data, format="json")
+
+        update_data = {
+            "query": {
+                "kind": "HogQLQuery",
+                "query": "SELECT has({variables.plan}, 'enterprise') FROM events",
+                "variables": {
+                    variable_id: {"variableId": variable_id, "code_name": "plan", "value": "enterprise"},
+                },
+            },
+        }
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/test_query/", update_data, format="json"
+        )
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertIn("plan", response.json()["detail"])
+
     def test_create_insight_endpoint(self):
         data = {
             "name": "test_insight_query",

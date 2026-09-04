@@ -126,8 +126,27 @@ _QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
 _QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (*_QUERY_PERFORMANCE_ERRORS, ClickHouseAtCapacity)
 
 
+# Classes execute() answers with a 400 and counts as status="user_error", so the endpoint layer
+# skips capture for them. Two tiers reach this gate. ExposedHogQLError and user-safe
+# ExposedCHQueryError also classify as USER_ERROR in the shared query runner, which never captures
+# them — so skipping here keeps a broken customer query out of our error tracking entirely.
+# ResolutionError and HogVMException classify as ERROR in that runner and are captured there before
+# they reach this gate, so skipping here only avoids a second, duplicate capture at the endpoint
+# boundary; removing that upstream capture would need a change to the shared classifier.
+_USER_QUERY_ERRORS: tuple[type[Exception], ...] = (
+    ExposedHogQLError,
+    ExposedCHQueryError,
+    ResolutionError,
+    HogVMException,
+)
+
+
 def _is_query_guardrail_error(error: BaseException) -> bool:
     return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
+
+
+def _is_user_query_error(error: BaseException) -> bool:
+    return isinstance(error, _USER_QUERY_ERRORS)
 
 
 def _query_performance_code_and_detail(error: BaseException) -> tuple[str, str]:
@@ -522,6 +541,7 @@ class EndpointExecutionService(PydanticModelMixin):
         try:
             result: Response | None = None
             materialized_failed = False
+            materialized_error: Exception | None = None
             if use_materialized:
                 try:
                     result = self._execute_materialized_endpoint(
@@ -535,15 +555,17 @@ class EndpointExecutionService(PydanticModelMixin):
                     )
                 except ConcurrencyLimitExceeded:
                     raise
-                except Exception:
-                    # Already logged/captured/signaled inside the materialized path. Re-run
-                    # inline: only stamp materialized_fallback once inline succeeds, because
-                    # only an inline success proves the materialized table was the sole thing
-                    # broken. If inline also fails the request was never recoverable (a bad
-                    # query fails on both paths) — that's an inline failure, not a fallback.
+                except Exception as e:
+                    # Already logged/signaled inside the materialized path (and captured there
+                    # unless the class looked like a customer error). Re-run inline: only stamp
+                    # materialized_fallback once inline succeeds, because only an inline success
+                    # proves the materialized table was the sole thing broken. If inline also
+                    # fails the request was never recoverable (a bad query fails on both paths) —
+                    # that's an inline failure, not a fallback.
                     materialized_failed = True
                     execution_type = "inline"
                     result = None
+                    materialized_error = e
 
             if result is None:
                 result = self._execute_inline_endpoint(
@@ -557,6 +579,22 @@ class EndpointExecutionService(PydanticModelMixin):
                 )
                 if materialized_failed:
                     execution_type = "materialized_fallback"
+                    if materialized_error is not None and _is_user_query_error(materialized_error):
+                        # Inline succeeded with the customer's own query, so a user-safe error
+                        # from the materialized read came from our rewritten SQL (e.g. a dropped
+                        # or drifted materialized table), not the customer. The materialized path
+                        # skipped capture because the class looked like a customer error — capture
+                        # it now as our fault, which the inline success has just confirmed.
+                        capture_exception(
+                            materialized_error,
+                            {
+                                "product": Product.ENDPOINTS,
+                                "team_id": self.team.pk,
+                                "endpoint_name": endpoint.name,
+                                "materialized": True,
+                                "saved_query_id": version_obj.saved_query.id if version_obj.saved_query else None,
+                            },
+                        )
             # Query-only wall-clock, to compare fairly with the DuckLake shadow.
             _ch_query_ms = (time.monotonic() - _ch_query_start) * 1000
             execution_status = "success"
@@ -829,16 +867,17 @@ class EndpointExecutionService(PydanticModelMixin):
                 saved_query_id=saved_query.id if saved_query else None,
                 saved_query_status=saved_query.status if saved_query else None,
             )
-            capture_exception(
-                e,
-                {
-                    "product": Product.ENDPOINTS,
-                    "team_id": self.team.pk,
-                    "endpoint_name": endpoint.name,
-                    "materialized": True,
-                    "saved_query_id": saved_query.id if saved_query else None,
-                },
-            )
+            if not _is_user_query_error(e):
+                capture_exception(
+                    e,
+                    {
+                        "product": Product.ENDPOINTS,
+                        "team_id": self.team.pk,
+                        "endpoint_name": endpoint.name,
+                        "materialized": True,
+                        "saved_query_id": saved_query.id if saved_query else None,
+                    },
+                )
             _emit_endpoint_failure_signal(
                 self.team,
                 endpoint,
@@ -935,15 +974,16 @@ class EndpointExecutionService(PydanticModelMixin):
                 "Inline endpoint execution failed",
                 endpoint_name=endpoint.name,
             )
-            capture_exception(
-                e,
-                {
-                    "product": Product.ENDPOINTS,
-                    "team_id": self.team.pk,
-                    "materialized": False,
-                    "endpoint_name": endpoint.name,
-                },
-            )
+            if not _is_user_query_error(e):
+                capture_exception(
+                    e,
+                    {
+                        "product": Product.ENDPOINTS,
+                        "team_id": self.team.pk,
+                        "materialized": False,
+                        "endpoint_name": endpoint.name,
+                    },
+                )
             query_kind = strategy.query_kind if strategy else query.get("kind")
             _emit_endpoint_failure_signal(
                 self.team,
