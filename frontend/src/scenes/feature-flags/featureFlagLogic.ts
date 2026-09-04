@@ -576,6 +576,14 @@ async function copyNewFlagToAdditionalProjects(
         ),
     ].filter((part): part is string => part !== null)
 
+    eventUsageLogic.actions.reportFeatureFlagCreatedInAdditionalProjects(
+        targetProjectIds.length,
+        created.length,
+        overwritten.length,
+        pendingApproval.length,
+        hardFailures.length
+    )
+
     const level =
         aggregated.failed.length === 0 && overwritten.length === 0
             ? 'success'

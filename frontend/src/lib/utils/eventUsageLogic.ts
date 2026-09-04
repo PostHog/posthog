@@ -1498,6 +1498,19 @@ export interface eventUsageLogicActions {
     reportFeatureFlagCopySuccess: () => {
         value: true
     }
+    reportFeatureFlagCreatedInAdditionalProjects: (
+        targetCount: number,
+        createdCount: number,
+        overwrittenCount: number,
+        pendingApprovalCount: number,
+        failedCount: number
+    ) => {
+        createdCount: number
+        failedCount: number
+        overwrittenCount: number
+        pendingApprovalCount: number
+        targetCount: number
+    }
     reportFeatureFlagScheduleFailure: (error: any) => {
         error: any
     }
@@ -2892,6 +2905,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             projectCount,
             failedCount,
         }),
+        reportFeatureFlagCreatedInAdditionalProjects: (
+            targetCount: number,
+            createdCount: number,
+            overwrittenCount: number,
+            pendingApprovalCount: number,
+            failedCount: number
+        ) => ({ targetCount, createdCount, overwrittenCount, pendingApprovalCount, failedCount }),
         reportFeatureFlagsBulkArchived: (archivedCount: number, pendingApprovalCount: number, failedCount: number) => ({
             archivedCount,
             pendingApprovalCount,
@@ -4203,6 +4223,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('feature flags bulk copied', {
                 flag_count: flagCount,
                 project_count: projectCount,
+                failed_count: failedCount,
+            })
+        },
+        reportFeatureFlagCreatedInAdditionalProjects: ({
+            targetCount,
+            createdCount,
+            overwrittenCount,
+            pendingApprovalCount,
+            failedCount,
+        }) => {
+            posthog.capture('feature flag created in additional projects', {
+                target_count: targetCount,
+                created_count: createdCount,
+                overwritten_count: overwrittenCount,
+                pending_approval_count: pendingApprovalCount,
                 failed_count: failedCount,
             })
         },

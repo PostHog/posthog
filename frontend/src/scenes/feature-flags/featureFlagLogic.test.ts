@@ -1535,6 +1535,7 @@ describe('featureFlagLogic', () => {
 
         beforeEach(() => {
             copyRequests = []
+            eventUsageLogic.mount()
             newLogic = featureFlagLogic({ id: 'new' })
             newLogic.mount()
             // Named teams so the toasts resolve real project names instead of the "Project N" fallback
@@ -1550,6 +1551,7 @@ describe('featureFlagLogic', () => {
 
         afterEach(() => {
             newLogic.unmount()
+            eventUsageLogic.unmount()
         })
 
         it('copies the created flag to each selected project and reports where it landed', async () => {
@@ -1638,6 +1640,18 @@ describe('featureFlagLogic', () => {
             expect(lemonToast.warning).toHaveBeenCalledWith(
                 expect.stringContaining('an existing flag with this key was overwritten in Marketing')
             )
+            expect(capturesOf('feature flag created in additional projects')).toEqual([
+                [
+                    'feature flag created in additional projects',
+                    {
+                        target_count: 2,
+                        created_count: 1,
+                        overwritten_count: 1,
+                        pending_approval_count: 0,
+                        failed_count: 0,
+                    },
+                ],
+            ])
         })
 
         it('surfaces dependency warnings from an otherwise successful copy', async () => {
