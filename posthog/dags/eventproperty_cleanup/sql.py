@@ -61,19 +61,22 @@ WHERE coalesce(project_id, team_id) > %(lo)s
 ORDER BY team_id
 """
 
-# Mode 2a. Property names that exist only as non-event definitions in the project. Nested Loop
-# Anti Join on posthog_pro_project_3583d2_idx and posthog_propdef_proj_uniq.
-POLLUTION_CANDIDATE_NAMES = """
-SELECT DISTINCT pd.name
-FROM posthog_propertydefinition pd
-WHERE coalesce(pd.project_id, pd.team_id) = %(project_id)s
-  AND pd.type <> 1
-  AND NOT EXISTS (
-      SELECT 1 FROM posthog_propertydefinition e
-      WHERE coalesce(e.project_id, e.team_id) = %(project_id)s
-        AND e.name = pd.name
-        AND e.type = 1)
-ORDER BY pd.name
+# Mode 2a. Does this project own any property that exists only as a non-event definition? One row,
+# so it costs nothing to ask before walking a project's events. Never fetch the names themselves:
+# the worst project on prod-US holds 1,383,919 non-event definitions, and binding them into a
+# statement would be unbounded in both memory and statement size. The DELETE does not need them --
+# a property with no EVENT-type definition is exactly what its re-check already selects for.
+POLLUTION_PROJECT_HAS_CANDIDATES = """
+SELECT EXISTS (
+    SELECT 1
+    FROM posthog_propertydefinition pd
+    WHERE coalesce(pd.project_id, pd.team_id) = %(project_id)s
+      AND pd.type <> 1
+      AND NOT EXISTS (
+          SELECT 1 FROM posthog_propertydefinition e
+          WHERE coalesce(e.project_id, e.team_id) = %(project_id)s
+            AND e.name = pd.name
+            AND e.type = 1))
 """
 
 # Mode 2a. One page of a project's event names, read from the table being cleaned rather than from
@@ -89,19 +92,19 @@ ORDER BY event
 LIMIT %(limit)s
 """
 
-# Mode 2a. Deletes a page of events' polluted properties through the unique index, which covers all
-# three predicates. The re-check sits inside the ctid subquery on purpose: a property that gained an
-# EVENT-type definition since discovery is never selected, so every returned ctid is deletable and a
-# short batch still means the unit is exhausted. That invariant is what lets the run record a resume
-# point. Moving the re-check to the outer statement would delete fewer rows than it selected and
-# strand the rest.
+# Mode 2a. Deletes a page of events' polluted rows through the unique index, which covers the
+# project and event predicates; the re-check supplies the rest. It sits inside the ctid subquery on
+# purpose: a property that gained an EVENT-type definition since discovery is never selected, so
+# every returned ctid is deletable and a short batch still means the unit is exhausted. That
+# invariant is what lets the run record a resume point. Moving the re-check to the outer statement
+# would delete fewer rows than it selected and strand the rest.
+# Measured 16.9ms per batch on the largest project.
 POLLUTION_DELETE = """
 DELETE FROM posthog_eventproperty
 WHERE ctid = ANY(ARRAY(
         SELECT ep.ctid FROM posthog_eventproperty ep
         WHERE coalesce(ep.project_id, ep.team_id) = %(project_id)s
           AND ep.event = ANY(%(events)s)
-          AND ep.property = ANY(%(properties)s)
           AND NOT EXISTS (
               SELECT 1 FROM posthog_propertydefinition e
               WHERE coalesce(e.project_id, e.team_id) = %(project_id)s

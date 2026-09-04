@@ -12,7 +12,6 @@ import structlog
 
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.dataclasses import frozen
-from posthog.taxonomy.property_definition_api import is_query_canceled
 
 from . import sql
 from .config import EventPropertyCleanupConfig
@@ -117,23 +116,20 @@ class DjangoPostgresBackend:
 def sqlstate_of(exc: BaseException) -> str | None:
     """The SQLSTATE behind a Django error, looking through its cause the way the driver reports it.
 
-    `is_query_canceled` in `posthog/taxonomy/property_definition_api.py` is the canonical check for
-    one code; this needs the code itself, to tell a retryable class from a fatal one.
+    Deliberately not reusing `is_query_canceled` from `posthog/taxonomy/property_definition_api.py`,
+    which does the same lookup for one code. Importing it would put a DRF API module on this job's
+    import path and force every taxonomy change through Dagster CI to keep the path filter honest.
+    Three lines are cheaper than that coupling.
     """
-    if is_query_canceled(exc):
-        return QUERY_CANCELED
     cause = exc.__cause__ if isinstance(exc, DatabaseError) and exc.__cause__ else exc
     return getattr(cause, "pgcode", None) or getattr(cause, "sqlstate", None)
 
 
 def delete_statement(unit: WorkUnit, batch_size: int, retention_days: int | None) -> tuple[str, dict[str, Any]]:
     if unit.mode == "pollution":
-        if not unit.properties:
-            raise ValueError("pollution unit without properties")
         return sql.POLLUTION_DELETE, {
             "project_id": unit.project_id,
             "events": list(unit.key),
-            "properties": list(unit.properties),
             "batch": batch_size,
         }
     if unit.mode == "retention":

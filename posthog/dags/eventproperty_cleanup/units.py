@@ -29,14 +29,11 @@ class WorkUnit:
     key: str | tuple[str, ...]
     est_rows: int
     reason: str
-    # Pollution only: the polluted property names to remove from this unit's events.
-    properties: tuple[str, ...] = ()
 
     @property
     def label(self) -> str:
         key = self.key if isinstance(self.key, str) else f"{len(self.key)} events"
-        suffix = f" x {len(self.properties)} properties" if self.properties else ""
-        return f"{self.mode}:team={self.team_id}:{key}{suffix}"
+        return f"{self.mode}:team={self.team_id}:{key}"
 
 
 @frozen
@@ -141,9 +138,8 @@ def discover_pollution_units(
         start_after=resume.last_completed_team_id,
     ):
         for scope in eligible_team_scopes(cursor, config, team_ids, apply_paying_org_filter=False):
-            cursor.execute(sql.POLLUTION_CANDIDATE_NAMES, {"project_id": scope.project_id})
-            properties = tuple(row[0] for row in cursor.fetchall())
-            if not properties:
+            cursor.execute(sql.POLLUTION_PROJECT_HAS_CANDIDATES, {"project_id": scope.project_id})
+            if not cursor.fetchone()[0]:
                 continue
             after = resume.event_start_for(scope.project_id)
             while True:
@@ -164,8 +160,7 @@ def discover_pollution_units(
                     project_id=scope.project_id,
                     key=events,
                     est_rows=0,
-                    reason=f"{len(properties)} properties with only non-event definitions",
-                    properties=properties,
+                    reason="properties with only non-event definitions",
                 )
                 after = events[-1]
                 # Reached only after the unit above was deleted, so this page really is finished.

@@ -39,7 +39,7 @@ from .dormancy import (
     still_dormant,
     top_teams,
 )
-from .engine import DeleteEngine, DjangoPostgresBackend, UnitResult
+from .engine import DeleteEngine, DjangoPostgresBackend
 from .units import WorkUnit, discover_pollution_units, discover_retention_units
 
 logger = structlog.get_logger(__name__)
@@ -229,7 +229,9 @@ def run_units(
         metrics=None if config.dry_run else MetricsClient(cluster),
         metric_labels={"mode": mode, "region": _region()},
     )
-    results: list[UnitResult] = []
+    # Counters, not the UnitResults themselves: a full pass is hundreds of thousands of units and
+    # this op is meant to run for days, so nothing here may grow with the number of units done.
+    rows_deleted = batches = pauses = stopped_units = 0
     teams: set[int] = set()
     estimated = 0
     seen = 0
@@ -263,7 +265,10 @@ def run_units(
                     "rows_deleted_so_far": engine.rows_deleted_total,
                 },
             ) from exc
-        results.append(result)
+        rows_deleted += result.rows_deleted
+        batches += result.batches
+        pauses += result.pauses
+        stopped_units += 1 if result.stopped_reason else 0
         if result.stopped_reason in ("max_rows", "max_runtime"):
             stopped_reason = result.stopped_reason
             context.log.warning("stopping %s mode: %s", mode, stopped_reason)
@@ -274,12 +279,12 @@ def run_units(
         units=seen,
         teams=len(teams),
         estimated_rows=estimated,
-        rows_deleted=sum(r.rows_deleted for r in results),
-        batches=sum(r.batches for r in results),
-        pauses=sum(r.pauses for r in results),
+        rows_deleted=rows_deleted,
+        batches=batches,
+        pauses=pauses,
         vacuums=engine.vacuums,
         rows_since_vacuum=engine.rows_since_vacuum,
-        stopped_units=sum(1 for r in results if r.stopped_reason),
+        stopped_units=stopped_units,
         stopped_reason=stopped_reason or ("dry_run" if config.dry_run else None),
     )
     context.add_output_metadata(

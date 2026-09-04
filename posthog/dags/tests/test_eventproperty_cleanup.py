@@ -48,15 +48,7 @@ NOW = datetime(2026, 8, 27, tzinfo=UTC)
 REAL_NOW = datetime.now(UTC)
 HEALTHY = HealthProbe(dead_tuple_ratio=0.0, blocked_propdefs_backends=0)
 UNHEALTHY = HealthProbe(dead_tuple_ratio=0.5, blocked_propdefs_backends=0)
-POLLUTION_UNIT = WorkUnit(
-    mode="pollution",
-    team_id=1,
-    project_id=1,
-    key=("$pageview", "signup"),
-    est_rows=5,
-    reason="",
-    properties=("$initial_geoip_city_name",),
-)
+POLLUTION_UNIT = WorkUnit(mode="pollution", team_id=1, project_id=1, key=("$pageview", "signup"), est_rows=5, reason="")
 
 
 class FakePgError(Exception):
@@ -111,8 +103,10 @@ class TestDeleteEngine:
 
         assert (result.rows_deleted, result.batches, result.vacuums, result.stopped_reason) == (207, 3, 0, None)
         assert backend.vacuum_calls == []
-        assert backend.delete_calls[0]["properties"] == ["$initial_geoip_city_name"]
         assert backend.delete_calls[0]["events"] == ["$pageview", "signup"]
+        # No property list is bound: the worst project holds 1.38M non-event definitions, and the
+        # re-check inside the statement already selects exactly the polluted rows.
+        assert "properties" not in backend.delete_calls[0]
 
     def test_vacuums_once_when_row_budget_is_crossed(self):
         backend = FakeBackend([100, 100, 7])
@@ -358,10 +352,6 @@ class TestDeleteStatement:
                 "retention_without_its_window",
                 WorkUnit(mode="retention", team_id=1, project_id=1, key=("a",), est_rows=0, reason=""),
             ),
-            (
-                "pollution_without_properties",
-                WorkUnit(mode="pollution", team_id=1, project_id=1, key=("a",), est_rows=0, reason=""),
-            ),
         ]
     )
     def test_a_unit_missing_what_its_statement_binds_is_refused(self, _name: str, unit: WorkUnit):
@@ -501,7 +491,6 @@ class TestPredicatesAgainstPostgres:
 
         units = self.discover_pollution()
 
-        assert [u.properties for u in units] == [("$initial_geoip_city_name",)]
         assert sorted(units[0].key) == ["$pageview", "signup"]
         assert self.run_units(units) == 2
         assert self.rows() == {"$pageview:$browser"}
@@ -519,6 +508,28 @@ class TestPredicatesAgainstPostgres:
         assert [tuple(u.key) for u in units] == [("event_with_no_definition",)]
         assert self.run_units(units) == 1
         assert self.rows() == set()
+
+    def test_pollution_skips_a_project_with_nothing_polluted(self):
+        # The gate is one EXISTS row. Without it every project's events get walked for nothing.
+        self.add_propdef("$browser", PropertyDefinition.Type.EVENT)
+        self.add_propdef("$browser", PropertyDefinition.Type.PERSON)
+        self.add_row("$pageview", "$browser")
+
+        assert self.discover_pollution() == []
+        assert self.rows() == {"$pageview:$browser"}
+
+    def test_pollution_never_binds_a_property_list(self):
+        # A project can own over a million non-event definitions, so nothing may bind them all.
+        for i in range(30):
+            self.add_propdef(f"prop_{i:03d}", PropertyDefinition.Type.PERSON)
+            self.add_row("$pageview", f"prop_{i:03d}")
+
+        units = self.discover_pollution()
+
+        statement, params = delete_statement(units[0], 10, None)
+        assert "properties" not in params
+        assert set(params) == {"project_id", "events", "batch"}
+        assert self.run_units(units) == 30
 
     def test_pollution_events_are_paged_and_every_page_is_covered(self):
         # A project can hold more events than one page, and prod's largest holds so many that
@@ -543,7 +554,7 @@ class TestPredicatesAgainstPostgres:
         self.add_row("upgrade", "plan")
         self.add_row("upgrade", "keep")
         units = self.discover_pollution()
-        assert sorted(units[0].properties) == ["keep", "plan"]
+        assert len(units) == 1
 
         self.add_propdef("plan", PropertyDefinition.Type.EVENT)
 
@@ -595,7 +606,7 @@ class TestPredicatesAgainstPostgres:
             pollution = list(discover_pollution_units(cursor, config))
             retention = list(discover_retention_units(cursor, config))
 
-        assert [u.properties for u in pollution] == [("$initial_os",)]
+        assert len(pollution) == 1
         assert retention == []
 
     def test_dormant_delete_removes_the_tenants_rows(self):
