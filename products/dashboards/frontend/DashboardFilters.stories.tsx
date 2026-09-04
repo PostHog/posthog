@@ -1,26 +1,14 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
-import { router } from 'kea-router'
 
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { encodeURLFilters, SEARCH_PARAM_FILTERS_KEY } from 'scenes/dashboard/dashboardUtils'
 
 import { mswDecorator } from '~/mocks/browser'
-import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
-import { NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, DashboardMode, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
 
-type FilterBarState =
-    | 'saved'
-    | 'unsaved'
-    | 'url-overrides'
-    | 'layout'
-    | 'narrow'
-    | 'large'
-    | 'previewing'
-    | 'sql-overrides'
+type FilterBarState = 'saved' | 'unsaved' | 'narrow' | 'large' | 'previewing'
 
 const DASHBOARD_ID = 955
 
@@ -55,74 +43,13 @@ const largeDashboard: DashboardType<QueryBasedInsightModel> = {
     ),
 }
 
-const SQL_VARIABLE_IDS = ['organization', 'region', 'plan']
-
-const sqlVariablesDashboard: DashboardType<QueryBasedInsightModel> = {
-    ...dashboard,
-    tiles: [
-        {
-            id: 1,
-            layouts: {},
-            color: null,
-            insight: {
-                id: 1,
-                short_id: 'sql-variables',
-                name: 'SQL variable preview',
-                query: {
-                    kind: NodeKind.DataVisualizationNode,
-                    source: {
-                        kind: NodeKind.HogQLQuery,
-                        query: 'select {variables.organization}, {variables.region}, {variables.plan}',
-                        variables: Object.fromEntries(
-                            SQL_VARIABLE_IDS.map((variableId) => [variableId, { variableId, code_name: variableId }])
-                        ),
-                    },
-                    chartSettings: {},
-                    tableSettings: {},
-                },
-            } as unknown as QueryBasedInsightModel,
-        },
-    ],
-    persisted_variables: Object.fromEntries(
-        [
-            ['organization', 'example.com'],
-            ['region', 'North America'],
-            ['plan', 'enterprise'],
-        ].map(([variableId, value]) => [variableId, { variableId, code_name: variableId, value, isNull: false }])
-    ),
-}
-
 function DashboardFilterBarStory({ state }: { state: FilterBarState }): JSX.Element {
     let storyDashboard = dashboard
     if (state === 'large' || state === 'previewing') {
         storyDashboard = largeDashboard
     }
-    if (state === 'sql-overrides') {
-        storyDashboard = sqlVariablesDashboard
-    }
-    if (state === 'url-overrides') {
-        const filters = encodeURLFilters({ date_from: '-7d' })
-        router.actions.push(
-            `/dashboard/${DASHBOARD_ID}?${SEARCH_PARAM_FILTERS_KEY}=${filters[SEARCH_PARAM_FILTERS_KEY]}`
-        )
-    } else {
-        router.actions.push(`/dashboard/${DASHBOARD_ID}`)
-    }
     const logic = dashboardLogic({ id: DASHBOARD_ID, dashboard: storyDashboard })
     logic.mount()
-
-    if (state === 'sql-overrides') {
-        variableDataLogic.mount()
-        variableDataLogic.actions.loadVariablesSuccess(
-            SQL_VARIABLE_IDS.map((variableId) => ({
-                id: variableId,
-                name: `QA ${variableId}`,
-                code_name: variableId,
-                type: 'String',
-                default_value: '',
-            }))
-        )
-    }
 
     if (state === 'unsaved' || state === 'narrow' || state === 'large' || state === 'previewing') {
         logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
@@ -131,11 +58,6 @@ function DashboardFilterBarStory({ state }: { state: FilterBarState }): JSX.Elem
 
     if (state === 'previewing') {
         logic.actions.previewDashboardChanges()
-    }
-
-    if (state === 'layout') {
-        logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
-        logic.actions.setDates('-7d', null)
     }
 
     return (
@@ -179,14 +101,6 @@ export const UnsavedFilters: Story = {
     args: { state: 'unsaved' },
 }
 
-export const UrlOverridesAsUnsavedChanges: Story = {
-    args: { state: 'url-overrides' },
-}
-
-export const LayoutEditingWithUnsavedFilters: Story = {
-    args: { state: 'layout' },
-}
-
 export const NarrowUnsavedFilters: Story = {
     args: { state: 'narrow' },
 }
@@ -197,8 +111,4 @@ export const LargeDashboardUnsavedFilters: Story = {
 
 export const LargeDashboardPreviewingFilters: Story = {
     args: { state: 'previewing' },
-}
-
-export const SqlVariablesBeforeAdvancedOptions: Story = {
-    args: { state: 'sql-overrides' },
 }
