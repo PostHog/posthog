@@ -89,6 +89,47 @@ describe('buildWorkflowTree', () => {
         ])
     })
 
+    it('scopes a nested branch join to its own routes', () => {
+        const tree = buildWorkflowTree(
+            workflow(
+                [
+                    action('trigger', 'trigger'),
+                    action('outer', 'conditional_branch'),
+                    action('paid'),
+                    action('trial'),
+                    action('at-risk'),
+                    action('onboarding', 'conditional_branch'),
+                    action('guided'),
+                    action('self-serve'),
+                    action('shared'),
+                    action('exit', 'exit'),
+                ],
+                [
+                    edge('trigger', 'outer'),
+                    edge('outer', 'paid', 'branch', 0),
+                    edge('outer', 'trial', 'branch', 1),
+                    edge('outer', 'at-risk'),
+                    edge('paid', 'shared'),
+                    edge('trial', 'onboarding'),
+                    edge('at-risk', 'shared'),
+                    edge('onboarding', 'guided', 'branch', 0),
+                    edge('onboarding', 'self-serve', 'branch', 1),
+                    edge('onboarding', 'shared'),
+                    edge('guided', 'shared'),
+                    edge('self-serve', 'shared'),
+                    edge('shared', 'exit'),
+                ]
+            )
+        )
+
+        const onboarding = tree.nodes[1].branches[1].sequence.nodes.find((node) => node.action.id === 'onboarding')
+        expect(onboarding?.joinEdges).toEqual([
+            edge('guided', 'shared'),
+            edge('self-serve', 'shared'),
+            edge('onboarding', 'shared'),
+        ])
+    })
+
     it('moves a branching action with all of its paths', () => {
         const workflowWithJoin = workflow(
             [
