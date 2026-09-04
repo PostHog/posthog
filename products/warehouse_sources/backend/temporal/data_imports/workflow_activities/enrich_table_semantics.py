@@ -182,7 +182,7 @@ def build_bounded_enrichment_prompt(
     known_descriptions: dict[str, str],
     columns_needing_description: list[str],
     business_context: str,
-) -> str:
+) -> tuple[str, int]:
     """Build the prompt, trimming inputs so it can't exceed the model's context window.
 
     The business context (the team's core memory) is unbounded free text and is the usual culprit
@@ -230,7 +230,7 @@ def _generate_descriptions(
     business_context: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Call the LLM. Returns `(parsed_payload, usage)` — usage carries the model and token counts."""
-    prompt = build_bounded_enrichment_prompt(
+    prompt, max_output_tokens = build_bounded_enrichment_prompt(
         source_name=source_name,
         table_name=table_name,
         endpoint_name=endpoint_name,
@@ -249,6 +249,7 @@ def _generate_descriptions(
         prompt=prompt,
         model=ENRICHMENT_MODEL,
         client=client,
+        max_output_tokens=max_output_tokens,
     )
 
 

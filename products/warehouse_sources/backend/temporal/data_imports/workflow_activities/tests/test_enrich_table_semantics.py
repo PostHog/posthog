@@ -219,7 +219,7 @@ class TestBuildBoundedEnrichmentPrompt:
 
     def test_passes_through_when_within_budget(self):
         columns = self._columns(3)
-        prompt = build_bounded_enrichment_prompt(
+        prompt, _ = build_bounded_enrichment_prompt(
             source_name="Stripe",
             table_name="t",
             endpoint_name="Charge",
@@ -238,7 +238,7 @@ class TestBuildBoundedEnrichmentPrompt:
     def test_caps_oversized_business_context(self):
         # An unbounded core-memory dump is the usual cause of a 200k-token prompt — it must be truncated.
         huge_context = "x" * (MAX_BUSINESS_CONTEXT_CHARS * 5)
-        prompt = build_bounded_enrichment_prompt(
+        prompt, _ = build_bounded_enrichment_prompt(
             source_name="Stripe",
             table_name="t",
             endpoint_name="Charge",
@@ -259,7 +259,7 @@ class TestBuildBoundedEnrichmentPrompt:
         columns: list[dict[str, Any]] = [
             {"name": f"{long_name}_{i}", "data_type": "String", "is_nullable": False} for i in range(500)
         ]
-        prompt = build_bounded_enrichment_prompt(
+        prompt, _ = build_bounded_enrichment_prompt(
             source_name="Postgres",
             table_name="t",
             endpoint_name="",
@@ -286,7 +286,7 @@ class TestBuildBoundedEnrichmentPrompt:
             {"column": columns[0]["name"], "target_table": "kept_target", "target_column": "id"},
             {"column": columns[-1]["name"], "target_table": "dropped_target", "target_column": "id"},
         ]
-        prompt = build_bounded_enrichment_prompt(
+        prompt, _ = build_bounded_enrichment_prompt(
             source_name="Postgres",
             table_name="t",
             endpoint_name="",

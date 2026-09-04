@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from posthog.llm.gateway_client import team_trace_id
+from posthog.llm.gateway_client import team_distinct_id, team_trace_id
 from posthog.llm.semantic_enrichment import (
     MAX_COLUMNS_PER_TABLE,
     MAX_OUTPUT_TOKENS,
@@ -13,8 +13,10 @@ from posthog.llm.semantic_enrichment import (
     _ChatClient,
     _Completion,
     _MessagesClient,
+    bound_prompt_over_columns,
     build_enrichment_client,
     generate_json_completion,
+    projected_output_tokens,
 )
 
 AI_GATEWAY_URL = "https://ai-gateway.example/v1"
@@ -40,6 +42,9 @@ class TestBuildEnrichmentClient:
         }
         assert headers["X-PostHog-Product"] == "warehouse_semantic_enrichment"
         assert headers["X-PostHog-Trace-Id"] == team_trace_id(7)
+        # aig reads the capture identity from this header; the Messages `metadata.user_id` goes
+        # upstream to the provider instead, so without it the spend lands on the shared credential.
+        assert headers["X-PostHog-Distinct-Id"] == team_distinct_id(7)
 
     @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
     @patch("posthog.llm.semantic_enrichment.get_llm_client")
@@ -167,7 +172,9 @@ class TestGenerateJsonCompletion:
             parsed, usage = generate_json_completion(product="warehouse_semantic_enrichment", team_id=7, prompt="p")
 
         mock_build.assert_called_once_with("warehouse_semantic_enrichment", 7)
-        client.complete.assert_called_once_with(model="claude-haiku-4-5", prompt="p", temperature=0.2, team_id=7)
+        client.complete.assert_called_once_with(
+            model="claude-haiku-4-5", prompt="p", temperature=0.2, team_id=7, max_output_tokens=MAX_OUTPUT_TOKENS
+        )
         assert parsed == {"columns": {"a": "desc"}}
         assert usage["total_tokens"] == 12
 
@@ -325,3 +332,64 @@ class TestMessagesTextGuards:
             generate_json_completion(
                 product="warehouse_semantic_enrichment", team_id=7, prompt="p", client=_MessagesClient(sdk)
             )
+
+
+def _wide_names(count: int) -> list[str]:
+    """Distinct names at the 400-char annotation key limit, the width that outruns a flat ceiling."""
+    return [f"{i:04d}" + "c" * 396 for i in range(count)]
+
+
+class TestOutputCeilingSizing:
+    """The reply echoes every column name as a JSON key, so the ceiling has to follow the names."""
+
+    def _columns(self, names: list[str]) -> list[dict[str, str]]:
+        return [{"name": name} for name in names]
+
+    def test_long_names_need_more_than_short_ones_at_the_same_count(self):
+        short = projected_output_tokens(["a"] * 50)
+        long = projected_output_tokens(_wide_names(50))
+
+        assert long > short, "a ceiling that ignores name length truncates wide-named tables"
+
+    def test_a_full_width_table_of_long_names_outruns_the_cap(self):
+        """The case a flat ceiling gets wrong: the ask alone cannot fit, so every attempt truncates."""
+        assert projected_output_tokens(_wide_names(MAX_COLUMNS_PER_TABLE)) > MAX_OUTPUT_TOKENS
+
+    def test_bounding_drops_columns_until_the_reply_can_fit(self):
+        names = _wide_names(MAX_COLUMNS_PER_TABLE)
+        columns = self._columns(names)
+        asked: list[list[str]] = []
+
+        def builder(shown_columns, needing):
+            asked.append(needing)
+            return "prompt"
+
+        prompt, ceiling = bound_prompt_over_columns(builder, columns, names)
+
+        assert prompt == "prompt"
+        assert ceiling <= MAX_OUTPUT_TOKENS
+        assert len(asked[-1]) < MAX_COLUMNS_PER_TABLE, "the ask list has to shrink or the reply is cut off"
+        assert projected_output_tokens(asked[-1]) <= MAX_OUTPUT_TOKENS
+
+    def test_a_narrow_table_keeps_every_column_and_a_small_ceiling(self):
+        names = ["id", "email", "created_at"]
+        columns = self._columns(names)
+
+        prompt, ceiling = bound_prompt_over_columns(lambda shown, needing: "prompt", columns, names)
+
+        assert prompt == "prompt"
+        assert ceiling < MAX_OUTPUT_TOKENS, "a three-column table should not reserve the whole cap"
+
+    def test_the_sized_ceiling_reaches_the_request(self):
+        client = MagicMock()
+        client.messages.create.return_value = _messages_response('{"columns": {}}')
+
+        generate_json_completion(
+            product="warehouse_semantic_enrichment",
+            team_id=7,
+            prompt="p",
+            client=_MessagesClient(client),
+            max_output_tokens=2048,
+        )
+
+        assert client.messages.create.call_args.kwargs["max_tokens"] == 2048

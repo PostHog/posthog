@@ -274,8 +274,11 @@ def build_bounded_view_enrichment_prompt(
     known_descriptions: dict[str, str],
     columns_needing_description: list[str],
     business_context: str,
-) -> str:
-    """Build the view prompt, capping the unbounded free-text inputs and trimming columns to fit the window."""
+) -> tuple[str, int]:
+    """Build the view prompt, capping the unbounded free-text inputs and trimming columns to fit the window.
+
+    Returns `(prompt, output_ceiling)`; the ceiling is sized to the columns the prompt ends up asking about.
+    """
     business_context = business_context[:MAX_BUSINESS_CONTEXT_CHARS]
     if len(query_definition) > MAX_VIEW_DEFINITION_CHARS:
         # Signal the cut so the model treats the SQL as partial, not the whole definition.
@@ -370,7 +373,7 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
         lineage = _gather_lineage(team, saved_query, query_str)
         # Only sample a materialized view — running the raw view query for an unmaterialized one is unbounded.
         row_sample = _get_row_sample(saved_query) if (saved_query.table_id and saved_query.last_run_at) else []
-        prompt = build_bounded_view_enrichment_prompt(
+        prompt, max_output_tokens = build_bounded_view_enrichment_prompt(
             view_name=saved_query.name,
             query_definition=query_str,
             columns=columns,
@@ -383,7 +386,11 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
         log.info("view_enrichment.llm_call_started", columns_requested=len(columns_needing_description))
         try:
             generated, usage = generate_json_completion(
-                product=GATEWAY_PRODUCT, team_id=team_id, prompt=prompt, model=DEFAULT_ENRICHMENT_MODEL
+                product=GATEWAY_PRODUCT,
+                team_id=team_id,
+                prompt=prompt,
+                model=DEFAULT_ENRICHMENT_MODEL,
+                max_output_tokens=max_output_tokens,
             )
         except Exception as e:
             capture_exception(e)

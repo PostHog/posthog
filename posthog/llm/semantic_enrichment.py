@@ -14,14 +14,15 @@ takes the annotation model class and its owner fields as arguments so one code p
 
 import re
 import json
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable
+from math import ceil
 from typing import Any
 
 from django.utils import timezone
 
 import posthoganalytics
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import (
     Product,
@@ -33,9 +34,20 @@ from posthog.llm.gateway_client import (
 from posthog.models import Team
 
 DEFAULT_ENRICHMENT_MODEL = "claude-haiku-4-5"
-# Messages requires max_tokens. A full MAX_COLUMNS_PER_TABLE reply runs ~30 tokens per
-# `"name": "one sentence"` pair, so ~6k; the headroom absorbs verbose column names.
+# Messages requires max_tokens. The reply echoes every column name back as a JSON key before its
+# sentence, so what a table needs scales with its own name lengths rather than its column count: at
+# the 400-char annotation key limit, MAX_COLUMNS_PER_TABLE names alone outrun this ceiling. It is the
+# most we ask for; `bound_prompt_over_columns` drops tail columns until the projected reply fits.
 MAX_OUTPUT_TOKENS = 16384
+# Floor for the sized ceiling, so a narrow table still has room to answer.
+MIN_OUTPUT_TOKENS = 1024
+# What one `"name": "sentence"` pair costs beyond the name itself: the quotes, colon, comma and
+# newline, then a sentence of description.
+_JSON_PAIR_OVERHEAD_CHARS = 8
+_DESCRIPTION_BUDGET_CHARS = 240
+# Deliberately below the ~3.5 chars/token English average: under-reserving truncates the reply, while
+# over-reserving only leaves headroom unused.
+_CHARS_PER_OUTPUT_TOKEN = 3.0
 # Keep the prompt and response bounded — wide tables shouldn't blow up the context or the cost.
 MAX_COLUMNS_PER_TABLE = 200
 # The team's core memory is free-form and unbounded; a large dump alone can push the prompt past the
@@ -141,7 +153,7 @@ class TruncatedCompletionError(ValueError):
     """
 
 
-@dataclass(frozen=True)
+@frozen
 class _Completion:
     """One model reply, normalised across the two request shapes."""
 
@@ -158,10 +170,12 @@ class _MessagesClient:
     def __init__(self, client: Any) -> None:
         self._client = client
 
-    def complete(self, *, model: str, prompt: str, temperature: float, team_id: int) -> _Completion:
+    def complete(
+        self, *, model: str, prompt: str, temperature: float, team_id: int, max_output_tokens: int = MAX_OUTPUT_TOKENS
+    ) -> _Completion:
         response = self._client.messages.create(
             model=model,
-            max_tokens=MAX_OUTPUT_TOKENS,
+            max_tokens=max_output_tokens,
             messages=[{"role": "user", "content": prompt}],
             temperature=temperature,
             metadata={"user_id": team_distinct_id(team_id)},
@@ -173,7 +187,7 @@ class _MessagesClient:
             text=_messages_text(response),
             usage=_usage(model, prompt_tokens, completion_tokens),
             truncated=getattr(response, "stop_reason", None) == "max_tokens",
-            max_output_tokens=MAX_OUTPUT_TOKENS,
+            max_output_tokens=max_output_tokens,
         )
 
 
@@ -183,7 +197,12 @@ class _ChatClient:
     def __init__(self, client: Any) -> None:
         self._client = client
 
-    def complete(self, *, model: str, prompt: str, temperature: float, team_id: int) -> _Completion:
+    def complete(
+        self, *, model: str, prompt: str, temperature: float, team_id: int, max_output_tokens: int = MAX_OUTPUT_TOKENS
+    ) -> _Completion:
+        # No max_tokens: the Python gateway has always let the provider apply its own ceiling, and the
+        # bounded ask list already keeps the reply within one response. Accepted so both clients share
+        # one call signature.
         response = self._client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
@@ -231,7 +250,12 @@ def build_enrichment_client(product: Product, team_id: int) -> _MessagesClient |
     than falling back onto a route the product has never exercised.
     """
     if resolve_ai_gateway_config():
-        return _MessagesClient(build_anthropic_client(product, ai_product=product, team_id=team_id))
+        # distinct_id, not just the Messages `metadata.user_id`: that goes upstream to the provider,
+        # while aig reads the capture identity from the X-PostHog-Distinct-Id header this sets. Without
+        # it these generations land under the shared credential rather than the team.
+        return _MessagesClient(
+            build_anthropic_client(product, ai_product=product, team_id=team_id, distinct_id=team_distinct_id(team_id))
+        )
     return _ChatClient(get_llm_client(product=product, team_id=team_id))
 
 
@@ -243,6 +267,7 @@ def generate_json_completion(
     model: str = DEFAULT_ENRICHMENT_MODEL,
     temperature: float = 0.2,
     client: "_MessagesClient | _ChatClient | None" = None,
+    max_output_tokens: int = MAX_OUTPUT_TOKENS,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Call the LLM for a JSON reply. Returns `(parsed_payload, usage)` — usage carries model + tokens.
 
@@ -252,7 +277,9 @@ def generate_json_completion(
     """
     if client is None:
         client = build_enrichment_client(product, team_id)
-    completion = client.complete(model=model, prompt=prompt, temperature=temperature, team_id=team_id)
+    completion = client.complete(
+        model=model, prompt=prompt, temperature=temperature, team_id=team_id, max_output_tokens=max_output_tokens
+    )
     if completion.truncated:
         # Terminal even when the fragment parses: the view consumer stores its enrichment hash on
         # any non-exception return, so a partial column set latches and no later run retries.
@@ -266,27 +293,44 @@ def generate_json_completion(
     return parsed, completion.usage
 
 
+def projected_output_tokens(column_names: Iterable[str]) -> int:
+    """Tokens the JSON reply needs to answer for `column_names`.
+
+    Every column echoes its own name back as a key before its sentence, so a table of long names needs
+    a far larger ceiling than a table of short ones with the same column count.
+    """
+    chars = sum(len(name) + _JSON_PAIR_OVERHEAD_CHARS + _DESCRIPTION_BUDGET_CHARS for name in column_names)
+    # The enclosing braces, then the floor so a narrow table still has room to answer.
+    return max(MIN_OUTPUT_TOKENS, ceil((chars + 2) / _CHARS_PER_OUTPUT_TOKEN))
+
+
 def bound_prompt_over_columns(
     builder: Callable[[list[dict[str, Any]], list[str]], str],
     columns: list[dict[str, Any]],
     columns_needing_description: list[str],
     max_prompt_chars: int = MAX_PROMPT_CHARS,
-) -> str:
-    """Build a prompt via `builder`, dropping tail columns until it fits the context window.
+    max_output_tokens: int = MAX_OUTPUT_TOKENS,
+) -> tuple[str, int]:
+    """Build a prompt via `builder`, dropping tail columns until both the prompt and its reply fit.
+
+    Returns `(prompt, output_ceiling)`; the ceiling is sized to the columns the prompt ends up asking
+    about, for the caller to send as the request's output limit.
 
     `builder(shown_columns, columns_needing_description)` assembles the surface-specific prompt from a
     subset of columns; anything else it depends on (foreign keys, business context, …) is closed over
     by the caller and re-derived from `shown_columns` on each call so the prompt never references a
-    column it no longer lists. If the assembled prompt is still too long — a pathologically wide table,
-    say — columns are dropped from the tail until it fits. Skipped columns keep their place in the
-    idempotency snapshot, so a later pass enriches them.
+    column it no longer lists. Two bounds drop tail columns: an assembled prompt too long for the
+    context window, and an ask list whose reply could not fit under `max_output_tokens`. The second
+    bound otherwise truncates the reply on every attempt, so the table never gets past a partial result.
+    Skipped columns keep their place in the idempotency snapshot, so a later pass enriches them.
     """
     shown_columns = columns
     needing = columns_needing_description
     while True:
         prompt = builder(shown_columns, needing)
-        if len(prompt) <= max_prompt_chars or len(shown_columns) <= 1:
-            return prompt
+        needed_tokens = projected_output_tokens(needing)
+        if (len(prompt) <= max_prompt_chars and needed_tokens <= max_output_tokens) or len(shown_columns) <= 1:
+            return prompt, min(needed_tokens, max_output_tokens)
         # Drop ~10% of the tail columns and re-measure. Prune the ask list to the surviving columns too.
         cut = max(1, len(shown_columns) // 10)
         shown_columns = shown_columns[:-cut]

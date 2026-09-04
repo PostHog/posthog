@@ -243,7 +243,7 @@ class TestBuildViewEnrichmentPrompt:
     def test_bounded_prompt_drops_columns_when_oversized(self):
         long_name = "n" * 5_000
         columns = [{"name": f"{long_name}_{i}", "data_type": "String", "is_nullable": False} for i in range(500)]
-        prompt = build_bounded_view_enrichment_prompt(
+        prompt, _ = build_bounded_view_enrichment_prompt(
             view_name="v",
             query_definition="SELECT 1",
             columns=columns,
