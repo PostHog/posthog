@@ -151,6 +151,7 @@ export function defaultPermissionDecision(record: PermissionRequestRecord): Perm
  */
 const PERSIST_PROMPT_SUB_TOOLS = new Set([
     'dashboard-create',
+    'dashboard-create-tile',
     'dashboard-create-text-tile',
     'dashboard-tile-copy',
     'dashboard-widgets-batch-add',

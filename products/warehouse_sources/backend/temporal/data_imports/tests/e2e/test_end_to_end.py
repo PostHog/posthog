@@ -212,7 +212,13 @@ class _PostgresQueueReplay:
         batch_index: int,
         delta_table_ref: Any = None,
         destination_id: str | None = None,
+        *,
+        is_first_attempt: bool = False,
     ) -> bool:
+        # `is_first_attempt` is accepted for signature-compatibility with the real
+        # `is_batch_already_processed` (which callers invoke with it as a keyword),
+        # but this in-memory replay tracks "already processed" purely by which keys
+        # it has already seen, so it doesn't need to branch on it.
         # Keyed by destination as well, mirroring the real check: a batch the warehouse has
         # taken is not yet done for a destination that has not.
         key = (run_uuid, batch_index, destination_id)

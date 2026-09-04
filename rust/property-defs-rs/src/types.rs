@@ -1,5 +1,6 @@
 use std::{borrow::Cow, fmt, hash::Hash, str::FromStr, sync::LazyLock};
 
+use aho_corasick::AhoCorasick;
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -78,15 +79,14 @@ pub const SKIP_PROPERTIES: [&str; 9] = [
 // rare cases it arrives as a top-level event property, and carries little cardinality weight.
 pub const SKIP_EVENT_PROPERTY_PREFIXES: [&str; 2] = ["$feature/", "$feature_enrollment/"];
 
-const DATETIME_PROPERTY_NAME_KEYWORDS: [&str; 7] = [
-    "time",
-    "timestamp",
-    "date",
-    "_at",
-    "-at",
-    "createdat",
-    "updatedat",
-];
+// "timestamp" is deliberately absent: any key that contains it already contains "time".
+const DATETIME_PROPERTY_NAME_KEYWORDS: [&str; 6] =
+    ["time", "date", "_at", "-at", "createdat", "updatedat"];
+
+// One automaton pass over the key replaces a `str::contains` per keyword, which
+// paid a two-way searcher setup per call on a per-property hot path.
+static DATETIME_KEYWORD_MATCHER: LazyLock<AhoCorasick> =
+    LazyLock::new(|| AhoCorasick::new(DATETIME_PROPERTY_NAME_KEYWORDS).unwrap());
 
 // TRICKY: the pattern below is a best-effort attempt to classify likely DateTime properties by
 // a string prefix of their value. While this doesn't enforce compliance to standard formats,
@@ -330,6 +330,9 @@ impl Event {
         group_type: Option<GroupType>,
     ) {
         updates.reserve(set.len() * 2);
+        // The event name repeats in every EventProperty row pushed below, so
+        // sanitize it once instead of once per property.
+        let sanitized_event = sanitize_string(&self.event);
         for (key, value) in set {
             if SKIP_PROPERTIES.contains(&key.as_str()) && parent_type == PropertyParentType::Event {
                 continue;
@@ -366,7 +369,7 @@ impl Event {
                     updates.push(Update::EventProperty(EventProperty {
                         team_id: self.team_id,
                         project_id: self.project_id,
-                        event: sanitize_string(&self.event),
+                        event: sanitized_event.clone(),
                         property: sanitize_string(key),
                     }));
                 }
@@ -465,18 +468,13 @@ pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueTyp
 }
 
 fn detect_timestamp_property_by_key_and_value(key: &str, value: &Value) -> bool {
-    if DATETIME_PROPERTY_NAME_KEYWORDS
-        .iter()
-        .any(|kw| key.contains(*kw))
-    {
-        return match value {
-            Value::String(s) if is_likely_date_string(s) => true,
-            Value::Number(n) if is_likely_unix_timestamp(n) => true,
-            _ => false,
-        };
+    // Match on the value first: only strings and numbers can classify as
+    // timestamps, so other value types skip the key scan entirely.
+    match value {
+        Value::String(s) => DATETIME_KEYWORD_MATCHER.is_match(key) && is_likely_date_string(s),
+        Value::Number(n) => DATETIME_KEYWORD_MATCHER.is_match(key) && is_likely_unix_timestamp(n),
+        _ => false,
     }
-
-    false
 }
 
 fn is_likely_date_string(s: &str) -> bool {
@@ -610,7 +608,13 @@ fn will_fit_in_postgres_column(str: &str) -> bool {
 // This allocates, so only do it right when hitting the DB. We handle nulls
 // in strings just fine.
 pub fn sanitize_string(s: &str) -> String {
-    s.replace('\u{0000}', "\u{FFFD}")
+    // NUL bytes are effectively absent from real traffic, so gate the per-char
+    // replace walk behind a byte scan and take the straight copy otherwise.
+    if s.contains('\u{0000}') {
+        s.replace('\u{0000}', "\u{FFFD}")
+    } else {
+        s.to_owned()
+    }
 }
 
 #[cfg(test)]

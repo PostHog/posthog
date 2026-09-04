@@ -5,7 +5,7 @@ import { useMemo } from "react";
 const ARCHIVED_TASKS_PAGE_SIZE = 50;
 
 export interface ArchivedTaskSummaryPage {
-  results: Schemas.TaskSummary[];
+  results: Schemas.TaskSummaryDTO[];
   requested: number;
 }
 

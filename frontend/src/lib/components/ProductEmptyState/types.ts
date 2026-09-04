@@ -166,10 +166,21 @@ export interface SceneProductEmptyState {
      */
     featureFlag?: FeatureFlagKey
     /**
-     * Only gate these scene ids (`Scene` values), for scene modules that serve
-     * several scenes (tabs) where just one is the product being gated - e.g. the
-     * web analytics module, where only the web vitals tab has a setup state.
-     * Omit to gate every scene the module serves.
+     * Only gate these surfaces, for a scene module that serves more than one. Omit to gate
+     * every scene the module serves.
+     *
+     * A plain scene id covers that whole scene, which is all the web analytics module needs:
+     * its web vitals tab is a scene of its own. A scene that serves several tabs under ONE
+     * scene id needs the object form, because gating the scene would take the sibling tabs
+     * down with it - workflows serves channels, opt-outs, suppression, and reputation, which
+     * a person may well configure before a first workflow exists.
      */
-    scenes?: string[]
+    scenes?: GatedScene[]
 }
+
+/**
+ * A scene id, or a scene id narrowed to some of its tabs. `tabs` lists every value of the
+ * `tab` route param the gate covers, including `undefined` for the URL that carries no tab
+ * segment - `/workflows` and `/workflows/workflows` are the same tab.
+ */
+export type GatedScene = string | { scene: string; tabs: (string | undefined)[] }

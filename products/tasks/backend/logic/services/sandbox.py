@@ -641,7 +641,11 @@ class SandboxBase(ABC):
                 if isinstance(raw_phases, dict)
                 else {}
             )
-            for source, target in (("totalMs", "server_total"), ("httpReadyMs", "http_ready")):
+            for source, target in (
+                ("totalMs", "server_total"),
+                ("httpReadyMs", "http_ready"),
+                ("launcherToProcessMs", "launcher_to_process"),
+            ):
                 duration = boot.get(source) if isinstance(boot, dict) else None
                 if isinstance(duration, int | float) and not isinstance(duration, bool):
                     phases[target] = max(0, int(duration))

@@ -57,12 +57,14 @@ describe("useResolvedWorkspaceMode", () => {
     );
 
     expect(result.current.workspaceMode).toBe("local");
+    expect(result.current.isResolved).toBe(false);
 
     cloudState.enabled = true;
     cloudState.flagsLoaded = true;
     rerender(SETTLED);
 
     expect(result.current.workspaceMode).toBe("cloud");
+    expect(result.current.isResolved).toBe(true);
   });
 
   it.each([
@@ -159,10 +161,13 @@ describe("useResolvedWorkspaceMode", () => {
       useResolvedWorkspaceMode(SETTLED),
     );
 
+    expect(result.current.isResolved).toBe(false);
+
     settingsState._hasHydrated = true;
     rerender();
 
     expect(result.current.workspaceMode).toBe("local");
+    expect(result.current.isResolved).toBe(true);
   });
 
   it("pins cloud on a cloud-only host", () => {
@@ -172,5 +177,6 @@ describe("useResolvedWorkspaceMode", () => {
     const { result } = renderHook(() => useResolvedWorkspaceMode(SETTLED));
 
     expect(result.current.workspaceMode).toBe("cloud");
+    expect(result.current.isResolved).toBe(true);
   });
 });

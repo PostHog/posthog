@@ -1144,6 +1144,28 @@ CREATE TABLE posthog.logs_kafka_metrics_distributed (
   max_created_at SimpleAggregateFunction(max, DateTime64(9)),
   max_lag SimpleAggregateFunction(max, UInt64)
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs_kafka_metrics');
+CREATE TABLE posthog.logs_pattern_buckets (
+  team_id Int32,
+  time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
+  service_name LowCardinality(String),
+  namespace LowCardinality(String),
+  environment LowCardinality(String),
+  severity_text LowCardinality(String),
+  pattern_version UInt8,
+  pattern String,
+  log_count SimpleAggregateFunction(sum, UInt64)
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_pattern_buckets', '{replica}-{shard}') PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version) ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(42) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.logs_pattern_buckets_distributed (
+  team_id Int32,
+  time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
+  service_name LowCardinality(String),
+  namespace LowCardinality(String),
+  environment LowCardinality(String),
+  severity_text LowCardinality(String),
+  pattern_version UInt8,
+  pattern String,
+  log_count SimpleAggregateFunction(sum, UInt64)
+) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs_pattern_buckets');
 CREATE TABLE posthog.logs_volume_buckets (
   team_id Int32,
   time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
@@ -1752,7 +1774,7 @@ CREATE TABLE posthog.sharded_events (
   INDEX bloom_filter_$ai_experiment_id `mat_$ai_experiment_id` TYPE bloom_filter GRANULARITY 1,
   INDEX minmax_$ai_experiment_id `mat_$ai_experiment_id` TYPE minmax GRANULARITY 1,
   INDEX minmax_$session_id_uuid `$session_id_uuid` TYPE minmax GRANULARITY 1,
-  INDEX bloom_filter_$session_id nullIf(nullIf(`$session_id`, ''), 'null') TYPE bloom_filter GRANULARITY 1,
+  INDEX bloom_filter_$session_id `$session_id` TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX minmax_$group_0 `$group_0` TYPE minmax GRANULARITY 1,
   INDEX minmax_$group_1 `$group_1` TYPE minmax GRANULARITY 1,
   INDEX minmax_$group_2 `$group_2` TYPE minmax GRANULARITY 1,

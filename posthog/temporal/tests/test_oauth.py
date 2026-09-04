@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -15,14 +16,19 @@ from posthog.temporal.oauth import (
     MCP_WRITE_SCOPES,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     RESEARCH_WITHHELD_SCOPES,
+    SCOUT_GRANTABLE_WRITE_SCOPES,
     SCOUT_INTERNAL_SCOPES,
+    SCOUT_SCOPE_PRESETS,
     SCOUT_USER_WRITE_SCOPES,
     SCRATCHPAD_INTERNAL_SCOPES,
     McpScopePreset,
+    ScoutScopePosture,
+    ScoutScopePreset,
     create_oauth_access_token_for_user,
     create_wizard_oauth_access_token_for_user,
     has_write_scopes,
     resolve_scopes,
+    scout_scope_posture,
 )
 
 _WIZARD_CLIENT_ID = "wizard-test-client-id"
@@ -122,6 +128,92 @@ class TestResolveScopes(SimpleTestCase):
         for scope in INTERNAL_SCOPES:
             assert scope not in result
 
+    def test_scout_posture_adds_only_the_granted_write_scopes(self) -> None:
+        # The feature itself: a grant reaches the token, and only the granted scope does.
+        # A posture that resolved to the whole allowlist would hand every scout that holds one
+        # grant the other three.
+        result = resolve_scopes(scout_scope_posture("signals_scout", ["dashboard:write"]))
+        assert set(result) == set(resolve_scopes("signals_scout")) | {"dashboard:write"}
+        assert "insight:write" not in result
+
+    @parameterized.expand([(preset,) for preset in SCOUT_SCOPE_PRESETS])
+    def test_scout_posture_without_a_grant_matches_the_plain_preset(self, preset: ScoutScopePreset) -> None:
+        # The fixed posture has to survive the new branch whole. A composition that rebuilt the
+        # preset by hand would drop `signal_scout_internal:write`, the scratchpad scopes, or the
+        # report channel, and the scout would lose the tools it exists to call.
+        assert set(resolve_scopes(scout_scope_posture(preset))) == set(resolve_scopes(preset))
+
+    @parameterized.expand(
+        [
+            ("write_scope_outside_the_allowlist", "feature_flag:write"),
+            # The report channel is granted by the preset a scout's skill opted into, never by
+            # the per-scout field. A baseline scout must not reach emit_report through a grant.
+            ("internal_scope", "signal_scout_report:write"),
+            ("scope_that_does_not_exist", "not_a_real_object:write"),
+        ]
+    )
+    def test_scout_posture_drops_scopes_outside_the_grantable_allowlist(self, _name: str, ungrantable: str) -> None:
+        # Mint-time intersection. A config row written before the allowlist shrank, or edited
+        # outside the API, reaches this function unchanged, so this is the gate that binds.
+        posture: ScoutScopePosture = {
+            "preset": "signals_scout",
+            "extra_write_scopes": [ungrantable, "dashboard:write"],
+        }
+        result = resolve_scopes(posture)
+        assert set(result) == set(resolve_scopes("signals_scout")) | {"dashboard:write"}
+
+    @parameterized.expand(
+        [
+            # A non-scout preset carrying extras is the invariant this guards: a read-only task
+            # token must never carry a user-facing write scope, whatever the posture claims.
+            (
+                "non_scout_preset",
+                cast(ScoutScopePosture, {"preset": "full", "extra_write_scopes": ["dashboard:write"]}),
+            ),
+            ("missing_preset", cast(ScoutScopePosture, {"extra_write_scopes": ["dashboard:write"]})),
+        ]
+    )
+    def test_malformed_scout_posture_resolves_to_read_only(self, _name: str, posture: ScoutScopePosture) -> None:
+        result = resolve_scopes(posture)
+        assert set(result) == set(resolve_scopes("read_only"))
+        assert not has_write_scopes(posture)
+
+    @parameterized.expand(
+        [
+            ("grant_is_not_a_list", "dashboard:write", set()),
+            # An entry JSON allows but a set cannot hold. Building the set before filtering
+            # raises TypeError, which aborts the run instead of degrading to the ungranted
+            # posture the way a malformed grant is meant to.
+            ("entry_is_an_object", [{"scope": "dashboard:write"}], set()),
+            ("entry_is_a_list", [["insight:write"], "dashboard:write"], {"dashboard:write"}),
+        ]
+    )
+    def test_scout_posture_tolerates_malformed_grant_entries(
+        self, _name: str, raw: object, expected_extra: set[str]
+    ) -> None:
+        posture = cast(ScoutScopePosture, {"preset": "signals_scout", "extra_write_scopes": raw})
+        assert set(resolve_scopes(posture)) == set(resolve_scopes("signals_scout")) | expected_extra
+
+    def test_scout_scope_posture_drops_ungrantable_scopes(self) -> None:
+        # The build-time gate. What this returns is both the mint request and the record of
+        # what a run was dispatched with, so a builder that passed its input through would widen
+        # the token and describe it wrongly at the same time.
+        assert scout_scope_posture("signals_scout", ["dashboard:write", "feature_flag:write"]) == {
+            "preset": "signals_scout",
+            "extra_write_scopes": ["dashboard:write"],
+        }
+
+    def test_scout_posture_survives_a_json_round_trip(self) -> None:
+        # The posture is stored on a task's `pending_dispatch` JSON column and travels through
+        # Temporal payloads, so it has to resolve the same after `json.dumps` / `json.loads`.
+        posture = scout_scope_posture("signals_scout_reports", ["insight:write", "dashboard:write"])
+        assert resolve_scopes(json.loads(json.dumps(posture))) == resolve_scopes(posture)
+
+    def test_grantable_write_scopes_are_mcp_write_scopes(self) -> None:
+        # A typo or an internal scope in the allowlist would offer a person a switch that grants
+        # nothing, because the MCP server gates its tools on scopes it advertises.
+        assert SCOUT_GRANTABLE_WRITE_SCOPES <= set(MCP_WRITE_SCOPES)
+
     def test_custom_scopes(self) -> None:
         custom = ["feature_flag:read", "feature_flag:write"]
         result = resolve_scopes(custom)
@@ -178,6 +270,10 @@ class TestHasWriteScopes(SimpleTestCase):
             # scratchpad tools the postures exist to grant.
             ("signals_research_preset", "signals_research", True),
             ("signals_implementation_preset", "signals_implementation", True),
+            # Read-only mode has to stay off for a scout posture, or the MCP server strips the
+            # scout's own tools whether or not the scout holds a grant.
+            ("scout_posture_with_a_grant", {"preset": "signals_scout", "extra_write_scopes": ["alert:write"]}, True),
+            ("scout_posture_without_a_grant", {"preset": "signals_scout_reports", "extra_write_scopes": []}, True),
             ("custom_with_mcp_write", ["feature_flag:read", "feature_flag:write"], True),
             ("custom_read_only", ["feature_flag:read", "insight:read"], False),
             ("custom_with_non_mcp_write", ["task:write"], False),

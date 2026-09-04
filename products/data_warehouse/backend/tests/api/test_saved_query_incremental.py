@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.presentation.views.saved_query import (
@@ -139,13 +139,7 @@ class TestSavedQueryIncremental(APIBaseTest):
         saved_query.incremental_state = {"watermark": "2026-01-01T00:00:00+00:00", "definition_fingerprint": "abc"}
         saved_query.save(update_fields=["incremental_state"])
 
-        with (
-            patch("products.data_warehouse.backend.presentation.views.saved_query.trigger_saved_query_schedule"),
-            patch(
-                "products.data_modeling.backend.logic.node_materialization.is_saved_query_on_v2_schedule",
-                return_value=False,
-            ),
-        ):
+        with patch("products.data_modeling.backend.logic.node_materialization.sync_connect", return_value=AsyncMock()):
             response = self.client.post(self._url(f"{saved_query.id}/run/"), {"full_refresh": True})
 
         assert response.status_code == 200, response.json()
@@ -158,13 +152,7 @@ class TestSavedQueryIncremental(APIBaseTest):
         saved_query.incremental_state = {"watermark": "2026-01-01T00:00:00+00:00"}
         saved_query.save(update_fields=["incremental_state"])
 
-        with (
-            patch("products.data_warehouse.backend.presentation.views.saved_query.trigger_saved_query_schedule"),
-            patch(
-                "products.data_modeling.backend.logic.node_materialization.is_saved_query_on_v2_schedule",
-                return_value=False,
-            ),
-        ):
+        with patch("products.data_modeling.backend.logic.node_materialization.sync_connect", return_value=AsyncMock()):
             response = self.client.post(self._url(f"{saved_query.id}/run/"), {})
 
         assert response.status_code == 200, response.json()

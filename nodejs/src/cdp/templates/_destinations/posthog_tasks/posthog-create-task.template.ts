@@ -41,6 +41,10 @@ if (not empty(inputs.connectors)) {
   payload.connectors := inputs.connectors
 }
 
+if (not empty(inputs.skills)) {
+  payload.skills := inputs.skills
+}
+
 if (not empty(inputs.posthog_mcp_scopes)) {
   payload.posthog_mcp_scopes := inputs.posthog_mcp_scopes
 }
@@ -115,7 +119,16 @@ return response.body
             secret: false,
             required: false,
             description:
-                'Connectors from the MCP store the agent can use. Team-shared connections and the workflow creator’s own connections are available.',
+                'MCP servers the agent can use. Only servers shared with everyone in this project can be selected.',
+        },
+        {
+            key: 'skills',
+            type: 'task_skills',
+            label: 'Skills',
+            secret: false,
+            required: false,
+            description:
+                'Skills from your project’s skills store. The agent gets a short summary of each one and reads the full skill when it needs it. Always the latest saved version.',
         },
         {
             key: 'posthog_mcp_scopes',
