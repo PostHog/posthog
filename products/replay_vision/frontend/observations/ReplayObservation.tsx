@@ -11,6 +11,7 @@ import {
     IconExpand,
     IconGear,
     IconInfo,
+    IconPlayFilled,
     IconSparkles,
     IconThoughtBubble,
     IconVideoCamera,
@@ -322,23 +323,44 @@ export function ReplayObservationSceneComponent(): JSX.Element {
             />
 
             <LemonCard className="overflow-hidden p-0" hoverEffect={false}>
-                <div
-                    className="flex items-center gap-2 bg-surface-primary p-3 cursor-pointer hover:bg-surface-secondary"
-                    onClick={toggleRecordingExpanded}
-                >
-                    <LemonButton
-                        icon={recordingExpanded ? <IconCollapse /> : <IconExpand />}
-                        size="small"
-                        tooltip={recordingExpanded ? 'Collapse recording' : 'Expand recording'}
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            toggleRecordingExpanded()
-                        }}
+                {recordingExpanded ? (
+                    <div
+                        className="flex items-center gap-2 bg-surface-primary p-3 cursor-pointer hover:bg-surface-secondary"
+                        onClick={toggleRecordingExpanded}
+                    >
+                        <LemonButton
+                            icon={<IconCollapse />}
+                            size="small"
+                            tooltip="Collapse recording"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                toggleRecordingExpanded()
+                            }}
+                            data-attr="vision-observation-recording-toggle"
+                        />
+                        <IconVideoCamera className="text-muted-alt" />
+                        <h3 className="text-lg font-semibold m-0">Recording</h3>
+                    </div>
+                ) : (
+                    // Collapsed, this row is the only sign the page holds a video, so it reads as a poster:
+                    // a play target first, then what pressing it gets you.
+                    <button
+                        type="button"
+                        className="w-full flex items-center gap-3 p-4 text-left bg-surface-primary hover:bg-surface-secondary"
+                        onClick={toggleRecordingExpanded}
+                        aria-expanded={false}
                         data-attr="vision-observation-recording-toggle"
-                    />
-                    <IconVideoCamera className="text-muted-alt" />
-                    <h3 className="text-lg font-semibold m-0">Recording</h3>
-                </div>
+                    >
+                        <span className="flex items-center justify-center size-10 rounded-full bg-accent text-white shrink-0">
+                            <IconPlayFilled className="text-lg" />
+                        </span>
+                        <span className="flex-1 min-w-0">
+                            <h3 className="text-lg font-semibold m-0">Watch the recording</h3>
+                            <span className="text-sm text-muted">Play the session this observation was made from</span>
+                        </span>
+                        <IconExpand className="text-lg text-muted-alt shrink-0" />
+                    </button>
+                )}
                 {recordingExpanded && (
                     <div className="border-t border-border h-[calc(100vh-16rem)] min-h-[480px]">
                         <SessionRecordingPlayer
