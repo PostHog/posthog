@@ -18,15 +18,15 @@ export function MissingScopesHint({ fieldScopes }: { fieldScopes: FieldScopes })
 
     return (
         <p className="mb-0 text-warning">
-            Needs the <code>{missingScopes.join(' ')}</code> {missingScopes.length === 1 ? 'permission' : 'permissions'}
-            , which your {name} connection does not have.{' '}
+            Your {name} connection does not have the <code>{missingScopes.join(' ')}</code>{' '}
+            {missingScopes.length === 1 ? 'permission' : 'permissions'}, so this field has no effect.{' '}
             <Link
                 disableClientSideRouting
                 to={api.integrations.authorizeUrl({ kind: integration.kind, next: window.location.pathname })}
             >
                 Reconnect {name}
-            </Link>
-            , or clear this field.
+            </Link>{' '}
+            to grant it.
         </p>
     )
 }

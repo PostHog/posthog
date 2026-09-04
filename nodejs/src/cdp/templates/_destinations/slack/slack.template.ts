@@ -22,12 +22,17 @@ if (not empty(inputs.thread_ts)) {
   body['thread_ts'] := inputs.thread_ts;
 }
 
-// Only these two need chat:write.customize, so clearing them keeps the message inside chat:write.
-if (not empty(inputs.icon_emoji)) {
+// Slack refuses the whole message when these two are present without chat:write.customize, and both
+// carry a default, so drop them when the connection records a scope list that lacks it. An install
+// with no recorded scopes keeps its customization, matching what the config UI reports.
+let granted := replaceAll(inputs.slack_workspace.scope ?? '', ' ', '');
+let can_customize := empty(granted) or has(splitByString(',', granted), 'chat:write.customize');
+
+if (can_customize and not empty(inputs.icon_emoji)) {
   body['icon_emoji'] := inputs.icon_emoji;
 }
 
-if (not empty(inputs.username)) {
+if (can_customize and not empty(inputs.username)) {
   body['username'] := inputs.username;
 }
 
