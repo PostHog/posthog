@@ -66,8 +66,9 @@ def validate_saved_query_name(value):
         )
 
 
-class V1SchedulingPathReached(Exception):
-    """Raised when a saved query cannot be scheduled through v2."""
+class NoSchedulableDagError(Exception):
+    """Raised when no DAG can schedule a saved query: none is on v2, and there is no node to
+    bootstrap one from."""
 
 
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
@@ -287,7 +288,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     transaction.on_commit(self._start_immediate_materialization)
                 return
 
-            raise V1SchedulingPathReached(f"Saved query {self.id} has no v2 schedule")
+            raise NoSchedulableDagError(f"Saved query {self.id} has no DAG that can schedule it")
         except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
             # The query is fine — the requested frequency is not. Surface it to the caller
             # instead of silently disabling materialization.
