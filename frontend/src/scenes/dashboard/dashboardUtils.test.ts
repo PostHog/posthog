@@ -2,7 +2,7 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 
-import { BreakdownFilter } from '~/queries/schema/schema-general'
+import { BreakdownFilter, DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     DashboardPlacement,
@@ -15,6 +15,7 @@ import {
 } from '~/types'
 
 import {
+    dashboardSearchParamsFromOverrides,
     dashboardToSaveableTemplate,
     searchParamsWithUrlFilters,
     getDashboardTileDisplayName,
@@ -232,6 +233,36 @@ describe('parseURLFilters', () => {
         expect(parseURLFilters(searchParams)).toEqual({})
         consoleSpy.mockRestore()
     })
+})
+
+describe('dashboardSearchParamsFromOverrides', () => {
+    const variableId = '00000000-0000-0000-0000-00000000beef'
+    const cardNameVariable = (overrides: Partial<HogQLVariable>): Record<string, HogQLVariable> => ({
+        [variableId]: { variableId, code_name: 'card_name', ...overrides },
+    })
+
+    it.each<
+        [string, Record<string, HogQLVariable> | null, DashboardFilter | null, Record<string, any>, DashboardFilter]
+    >([
+        [
+            'a variable value',
+            cardNameVariable({ value: 'Polukranos, Unchained' }),
+            null,
+            { card_name: 'Polukranos, Unchained' },
+            {},
+        ],
+        ['a variable set to null', cardNameVariable({ value: 'ignored', isNull: true }), null, { card_name: null }, {}],
+        ['a filter override', null, { date_from: '-7d' }, {}, { date_from: '-7d' }],
+        ['nothing when there are no overrides', null, {}, {}, {}],
+    ])(
+        'carries %s back into the dashboard URL',
+        (_name, variablesOverride, filtersOverride, expectedVariables, expectedFilters) => {
+            const searchParams = dashboardSearchParamsFromOverrides(variablesOverride, filtersOverride)
+
+            expect(parseURLVariables(searchParams)).toEqual(expectedVariables)
+            expect(parseURLFilters(searchParams)).toEqual(expectedFilters)
+        }
+    )
 })
 
 describe('getInsightWithRetry', () => {
