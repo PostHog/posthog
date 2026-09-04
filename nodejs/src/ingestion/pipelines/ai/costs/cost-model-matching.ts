@@ -71,7 +71,7 @@ const resolveBedrockInferenceProfileProvider = (
     return regionalProviders.length === 1 ? regionalProviders[0] : provider
 }
 
-const aiProvider = (properties: Properties): string | undefined => {
+const getAiProvider = (properties: Properties): string | undefined => {
     const provider: unknown = properties['$ai_provider']
 
     return provider ? String(provider).toLowerCase() : undefined
@@ -79,7 +79,7 @@ const aiProvider = (properties: Properties): string | undefined => {
 
 // The tier the provider served, recorded by the SDK from the response. A requested tier can be
 // refused, so pricing never reads request-side properties.
-const servedServiceTier = (properties: Properties): unknown => {
+const getServedServiceTier = (properties: Properties): unknown => {
     const modelParameters: unknown = properties['$ai_model_parameters']
 
     return modelParameters && typeof modelParameters === 'object'
@@ -121,8 +121,8 @@ const resolveTieredModelCost = (
 }
 
 export const findCostFromModel = (model: string, properties: Properties): CostModelResult | undefined => {
-    const provider = aiProvider(properties)
-    const serviceTier = servedServiceTier(properties)
+    const provider = getAiProvider(properties)
+    const serviceTier = getServedServiceTier(properties)
 
     const manualMatch: ModelCostRow | undefined = findManualCost(model)
 
