@@ -32254,6 +32254,10 @@
                     },
                     "type": "array"
                 },
+                "sessionId": {
+                    "description": "Show logs for a given session ID",
+                    "type": "string"
+                },
                 "severityLevels": {
                     "items": {
                         "$ref": "#/definitions/LogSeverityLevel"
@@ -40209,6 +40213,7 @@
                 "llm_analytics",
                 "alerts",
                 "annotations",
+                "business_knowledge",
                 "cohorts",
                 "comments",
                 "conversations",
@@ -40247,11 +40252,15 @@
                 "pipeline_transformations",
                 "platform_and_support",
                 "posthog_ai_onboarding",
+                "posthog_desktop",
+                "posthog_github",
+                "posthog_slack",
                 "product_analytics",
                 "product_tours",
                 "pulse",
                 "revenue_analytics",
                 "review_hog",
+                "self_driving",
                 "session_replay",
                 "replay_vision",
                 "site_apps",

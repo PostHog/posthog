@@ -90,6 +90,7 @@ function rootDirectories(): string[] {
         '<rootDir>/../packages/quill/packages/charts/src',
         '<rootDir>/../packages/quill/packages/components/src',
         '<rootDir>/../packages/llm-normalizer/src',
+        '<rootDir>/../common/esbuilder',
     ]
 }
 

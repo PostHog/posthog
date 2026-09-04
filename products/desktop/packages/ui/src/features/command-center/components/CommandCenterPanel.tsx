@@ -13,7 +13,9 @@ import {
 import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { isBrainrotCell } from "@posthog/core/command-center/grid";
 import {
+  Button,
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -35,7 +37,13 @@ import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { secureRandomString } from "@posthog/ui/utils/random";
 import { Flex, Text } from "@radix-ui/themes";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useOptionalAuthenticatedClient } from "../../auth/authClient";
 import { useAuthStateValue } from "../../auth/store";
 import { useCurrentUser } from "../../auth/useCurrentUser";
@@ -127,7 +135,30 @@ function EnvironmentBadge({ mode }: { mode: WorkspaceMode | null }) {
   );
 }
 
-function EmptyCell({ cellIndex }: { cellIndex: number }) {
+export function CommandCenterEmptyCell({ action }: { action: ReactNode }) {
+  return (
+    <Empty className="h-full border-0 bg-gray-1">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Plus size={20} />
+        </EmptyMedia>
+        <EmptyTitle>Empty tile</EmptyTitle>
+        <EmptyDescription>
+          Drag a task from the sidebar, or add one.
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>{action}</EmptyContent>
+    </Empty>
+  );
+}
+
+function EmptyCell({
+  cellIndex,
+  replaceExisting,
+}: {
+  cellIndex: number;
+  replaceExisting: boolean;
+}) {
   const [selectorOpen, setSelectorOpen] = useState(false);
   // The command-center terminal is unavailable on cloud-only hosts.
   const { localWorkspaces } = useHostCapabilities();
@@ -171,8 +202,8 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
   );
 
   const handleNewTask = useCallback(() => {
-    if (sessionId) startCreating(cellIndex, sessionId);
-  }, [startCreating, cellIndex, sessionId]);
+    if (sessionId) startCreating(cellIndex, sessionId, replaceExisting);
+  }, [startCreating, cellIndex, sessionId, replaceExisting]);
 
   // Claiming the tile is what keeps the run in the grid: without it the task
   // exists but its session has nowhere to render.
@@ -236,6 +267,7 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
             sessionId={sessionId}
             onTaskCreated={handleTaskCreated}
             showNewTaskSuggestions={false}
+            allowNoRepo
           />
         </div>
       </div>
@@ -243,8 +275,8 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
   }
 
   return (
-    <div className="flex h-full items-center justify-center">
-      <div className="flex select-none flex-col items-center gap-2">
+    <CommandCenterEmptyCell
+      action={
         <TaskSelector
           cellIndex={cellIndex}
           open={selectorOpen}
@@ -253,20 +285,18 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
           onNewTerminal={localWorkspaces ? handleNewTerminal : undefined}
           onBrainrot={brainrotMode ? handleBrainrot : undefined}
         >
-          <button
+          <Button
             type="button"
             onClick={() => setSelectorOpen(true)}
-            className="flex items-center gap-1.5 rounded-md border border-gray-7 border-dashed px-3 py-1.5 text-[12px] text-gray-10 transition-colors hover:border-gray-9 hover:text-gray-12"
+            variant="outline"
+            size="default"
           >
             <Plus size={12} />
             Add task
-          </button>
+          </Button>
         </TaskSelector>
-        <QuillText className="text-[11px] text-gray-9">
-          or drag a task from the sidebar
-        </QuillText>
-      </div>
-    </div>
+      }
+    />
   );
 }
 
@@ -674,7 +704,12 @@ export function CommandCenterPanel({
   }
 
   if (!cell.taskId || !cell.task) {
-    return <EmptyCell cellIndex={cell.cellIndex} />;
+    return (
+      <EmptyCell
+        cellIndex={cell.cellIndex}
+        replaceExisting={cell.taskId !== null}
+      />
+    );
   }
 
   return (

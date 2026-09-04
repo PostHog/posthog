@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconEye, IconPlay } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -22,6 +22,7 @@ import { SessionRecordingType } from '~/types'
 
 import { ObservationStatusTag } from '../../components/ObservationCard'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
+import { recordingScanBlock } from '../../utils/scanEligibility'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { IN_PROGRESS_STATUSES, scannerRunTabLogic } from '../scannerRunTabLogic'
 
@@ -143,7 +144,28 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                 if (pendingId === recording.id) {
                     return <ObservationStatusTag status="running" errorReason={null} />
                 }
-                return <span className="text-muted italic">Not scanned</span>
+                // Skipped, not merely unscanned: this recording can't clear the scan-time gate, so the
+                // scheduled run passed it over and an on-demand scan would land on the same answer.
+                const scanBlock = recordingScanBlock(recording)
+                if (scanBlock) {
+                    return (
+                        <Tooltip
+                            title={
+                                <div className="flex flex-col gap-1">
+                                    <div>{scanBlock.label}</div>
+                                    <div className="text-xs opacity-80">{scanBlock.reason}</div>
+                                </div>
+                            }
+                        >
+                            <LemonTag type="muted">Skipped</LemonTag>
+                        </Tooltip>
+                    )
+                }
+                return (
+                    <Tooltip title="This scanner hasn't run on this recording yet. Scheduled runs only cover recordings that match the scanner's triggers and sampling, so scan it here to get a result now.">
+                        <span className="text-muted italic">Not scanned</span>
+                    </Tooltip>
+                )
             },
         },
         {
@@ -174,6 +196,9 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                         </LemonButton>
                     )
                 } else {
+                    // The gate would refuse this recording, so the button says why rather than spending
+                    // a scan that comes back ineligible.
+                    const scanBlock = recordingScanBlock(recording)
                     content = (
                         <LemonButton
                             fullWidth
@@ -183,6 +208,7 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                             icon={<IconPlay />}
                             disabledReason={
                                 editDisabledReason ??
+                                scanBlock?.reason ??
                                 (scanning
                                     ? 'Scan in progress…'
                                     : pendingId && pendingId !== recording.id
@@ -223,11 +249,15 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                 bulkSelection={{
                     noun: ['recording', 'recordings'],
                     // Only not-yet-scanned rows are selectable — a scanned or in-flight session has nothing
-                    // to (re)scan, matching the per-row button that swaps to "View observation".
-                    isRowSelectable: (recording) =>
-                        observationBySession[recording.id] || pendingId === recording.id
-                            ? { disabledReason: 'Already scanned' }
-                            : true,
+                    // to (re)scan, matching the per-row button that swaps to "View observation". Rows the
+                    // gate would refuse are out too, so a bulk run can't spend scans on them.
+                    isRowSelectable: (recording) => {
+                        if (observationBySession[recording.id] || pendingId === recording.id) {
+                            return { disabledReason: 'Already scanned' }
+                        }
+                        const scanBlock = recordingScanBlock(recording)
+                        return scanBlock ? { disabledReason: scanBlock.reason } : true
+                    },
                     renderActions: ({ selectedKeys, selectedCount, clearSelection }) => (
                         <LemonButton
                             type="primary"

@@ -20549,6 +20549,247 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export interface CustomerTaskAccount {
+      /** UUID of the linked account. */
+      readonly id: string;
+      /** Name of the linked account. */
+      readonly name: string;
+    }
+
+    /**
+     * * `open` - Open
+     * * `in_progress` - In progress
+     * * `completed` - Completed
+     * * `canceled` - Canceled
+     */
+    export type CustomerTaskStatusEnum = typeof CustomerTaskStatusEnum[keyof typeof CustomerTaskStatusEnum];
+
+
+    export const CustomerTaskStatusEnum = {
+      Open: 'open',
+      InProgress: 'in_progress',
+      Completed: 'completed',
+      Canceled: 'canceled',
+    } as const;
+
+    export interface CustomerTaskUser {
+      /** PostHog user ID. */
+      readonly id: number;
+      /** Email address of the user. */
+      readonly email: string;
+      /** First name of the user. */
+      readonly first_name: string;
+      /** Last name of the user. */
+      readonly last_name: string;
+    }
+
+    export interface CustomerTask {
+      /** UUID of the task. */
+      readonly id: string;
+      /** Linked account, if any. */
+      readonly account: CustomerTaskAccount | null;
+      /** Task name. */
+      readonly name: string;
+      /**
+         * Task description, if any.
+         * @nullable
+         */
+      readonly description: string | null;
+      /** Task lifecycle status.
+       *
+       * * `open` - Open
+       * * `in_progress` - In progress
+       * * `completed` - Completed
+       * * `canceled` - Canceled */
+      readonly status: CustomerTaskStatusEnum;
+      /** Assigned project member, if any. */
+      readonly assigned_to: CustomerTaskUser | null;
+      /**
+         * Task deadline, if any.
+         * @nullable
+         */
+      readonly due_at: string | null;
+      /**
+         * When the task was completed, if applicable.
+         * @nullable
+         */
+      readonly completed_at: string | null;
+      /** User credited with completion, if known. */
+      readonly completed_by: CustomerTaskUser | null;
+      /** User who created the task, if known. */
+      readonly created_by: CustomerTaskUser | null;
+      /**
+         * When the task was archived.
+         * @nullable
+         */
+      readonly archived_at: string | null;
+      /** When the task was created. */
+      readonly created_at: string;
+      /** When the task was last updated. */
+      readonly updated_at: string;
+      /** Whether the current user can edit this task. */
+      readonly can_edit: boolean;
+      /** Whether the current user can restore this task. */
+      readonly can_restore: boolean;
+    }
+
+    /**
+     * * `created` - Created
+     * * `updated` - Updated
+     * * `archived` - Archived
+     * * `restored` - Restored
+     */
+    export type CustomerTaskActivityTypeEnum = typeof CustomerTaskActivityTypeEnum[keyof typeof CustomerTaskActivityTypeEnum];
+
+
+    export const CustomerTaskActivityTypeEnum = {
+      Created: 'created',
+      Updated: 'updated',
+      Archived: 'archived',
+      Restored: 'restored',
+    } as const;
+
+    /**
+     * Value before the change.
+     */
+    export type CustomerTaskChangeBefore = string | number | boolean | { [key: string]: unknown } | null;
+
+    /**
+     * Value after the change.
+     */
+    export type CustomerTaskChangeAfter = string | number | boolean | { [key: string]: unknown } | null;
+
+    export interface CustomerTaskChange {
+      /** Semantic task field that changed. */
+      readonly field: string;
+      /** Value before the change. */
+      readonly before: CustomerTaskChangeBefore;
+      /** Value after the change. */
+      readonly after: CustomerTaskChangeAfter;
+    }
+
+    export interface CustomerTaskActivity {
+      /** UUID of the activity. */
+      readonly id: string;
+      /** Action that produced the activity.
+       *
+       * * `created` - Created
+       * * `updated` - Updated
+       * * `archived` - Archived
+       * * `restored` - Restored */
+      readonly activity_type: CustomerTaskActivityTypeEnum;
+      /** Semantic field changes in this action. */
+      readonly changes: readonly CustomerTaskChange[];
+      /** User who made the change, if known. */
+      readonly actor: CustomerTaskUser | null;
+      /** When the activity was recorded. */
+      readonly created_at: string;
+    }
+
+    export interface CustomerTaskActivityPage {
+      /** Total number of matching activities. */
+      readonly count: number;
+      /**
+         * URL of the next page, if available.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, if available.
+         * @nullable
+         */
+      readonly previous: string | null;
+      /** Activities in this page. */
+      readonly results: readonly CustomerTaskActivity[];
+    }
+
+    export interface CustomerTaskCreate {
+      /**
+         * UUID of a visible account, or null for an accountless task.
+         * @nullable
+         */
+      account_id?: string | null;
+      /**
+         * Task name.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Task description, or null to leave it empty.
+         * @nullable
+         */
+      description?: string | null;
+      /**
+         * PostHog user ID to assign, or null to leave unassigned.
+         * @nullable
+         */
+      assigned_to_id?: number | null;
+      /**
+         * ISO 8601 deadline, or null for no deadline.
+         * @nullable
+         */
+      due_at?: string | null;
+      /** Initial task status.
+       *
+       * * `open` - Open
+       * * `in_progress` - In progress
+       * * `completed` - Completed
+       * * `canceled` - Canceled */
+      status?: CustomerTaskStatusEnum;
+    }
+
+    export interface CustomerTaskPage {
+      /** Total number of matching tasks. */
+      readonly count: number;
+      /**
+         * URL of the next page, if available.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, if available.
+         * @nullable
+         */
+      readonly previous: string | null;
+      /** Tasks in this page. */
+      readonly results: readonly CustomerTask[];
+    }
+
+    export interface CustomerTaskUpdate {
+      /**
+         * UUID of a visible account, or null to remove the account link.
+         * @nullable
+         */
+      account_id?: string | null;
+      /**
+         * Replacement task name.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Replacement description, or null to clear it.
+         * @nullable
+         */
+      description?: string | null;
+      /**
+         * Replacement assignee ID, or null to unassign.
+         * @nullable
+         */
+      assigned_to_id?: number | null;
+      /**
+         * Replacement ISO 8601 deadline, or null to clear it.
+         * @nullable
+         */
+      due_at?: string | null;
+      /** Replacement task status.
+       *
+       * * `open` - Open
+       * * `in_progress` - In progress
+       * * `completed` - Completed
+       * * `canceled` - Canceled */
+      status?: CustomerTaskStatusEnum;
+    }
+
     export interface Dag {
       readonly id: string;
       /**
@@ -44249,6 +44490,8 @@ export namespace Schemas {
       response?: LogsQueryResponse | null;
       searchTerm?: string | null;
       serviceNames: string[];
+      /** Show logs for a given session ID */
+      sessionId?: string | null;
       severityLevels: LogSeverityLevel[];
       /** Field to break down sparkline data by (used only by sparkline endpoint) */
       sparklineBreakdownBy?: LogsSparklineBreakdownBy | null;
@@ -49297,6 +49540,8 @@ export namespace Schemas {
      * * `source` - source
      * * `trace_id` - trace_id
      * * `span_id` - span_id
+     * * `person` - person
+     * * `session` - session
      * * `pattern` - pattern
      * * `message` - message
      * * `custom` - custom
@@ -49310,6 +49555,8 @@ export namespace Schemas {
       Source: 'source',
       TraceId: 'trace_id',
       SpanId: 'span_id',
+      Person: 'person',
+      Session: 'session',
       Pattern: 'pattern',
       Message: 'message',
       Custom: 'custom',
@@ -49325,6 +49572,8 @@ export namespace Schemas {
        * * `source` - source
        * * `trace_id` - trace_id
        * * `span_id` - span_id
+       * * `person` - person
+       * * `session` - session
        * * `pattern` - pattern
        * * `message` - message
        * * `custom` - custom */
@@ -61390,6 +61639,41 @@ export namespace Schemas {
       readonly updated_at?: string | null;
     }
 
+    export interface PatchedCustomerTaskUpdate {
+      /**
+         * UUID of a visible account, or null to remove the account link.
+         * @nullable
+         */
+      account_id?: string | null;
+      /**
+         * Replacement task name.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * Replacement description, or null to clear it.
+         * @nullable
+         */
+      description?: string | null;
+      /**
+         * Replacement assignee ID, or null to unassign.
+         * @nullable
+         */
+      assigned_to_id?: number | null;
+      /**
+         * Replacement ISO 8601 deadline, or null to clear it.
+         * @nullable
+         */
+      due_at?: string | null;
+      /** Replacement task status.
+       *
+       * * `open` - Open
+       * * `in_progress` - In progress
+       * * `completed` - Completed
+       * * `canceled` - Canceled */
+      status?: CustomerTaskStatusEnum;
+    }
+
     export interface PatchedDAG {
       readonly id?: string;
       /**
@@ -71343,6 +71627,45 @@ export namespace Schemas {
      */
     export interface PullRequestChecksResponse {
       readonly checks: readonly PullRequestCheck[];
+    }
+
+    /**
+     * * `passing` - Passing
+     * * `failing` - Failing
+     * * `pending` - Pending
+     * * `none` - No checks
+     */
+    export type PullRequestCiStatusEnum = typeof PullRequestCiStatusEnum[keyof typeof PullRequestCiStatusEnum];
+
+
+    export const PullRequestCiStatusEnum = {
+      Passing: 'passing',
+      Failing: 'failing',
+      Pending: 'pending',
+      None: 'none',
+    } as const;
+
+    /**
+     * The CI rollup of one report's implementation pull request.
+     */
+    export interface PullRequestCiStatus {
+      /** Report whose implementation pull request this status describes. */
+      readonly report_id: string;
+      /** Rollup of the pull request's checks on its head commit: 'passing' (nothing failed), 'failing', 'pending' (checks are still running), or 'none' (the head commit has no checks).
+       *
+       * * `passing` - Passing
+       * * `failing` - Failing
+       * * `pending` - Pending
+       * * `none` - No checks */
+      readonly ci_status: PullRequestCiStatusEnum;
+    }
+
+    /**
+     * Response for the batch PR CI status endpoint, for painting CI state onto a list of reports.
+     */
+    export interface PullRequestCiStatusesResponse {
+      /** One entry per requested report whose CI state resolved. Reports without an open implementation pull request, and reports GitHub could not answer for, are left out. */
+      readonly statuses: readonly PullRequestCiStatus[];
     }
 
     /**
@@ -84622,6 +84945,11 @@ export namespace Schemas {
          * @nullable
          */
       channel?: string | null;
+      /**
+         * Question to forward to the signal report's scout when creating a discussion task. Send an empty string when there is no question. Omit only for older clients that embed the question in the task description. Not persisted on the task.
+         * @maxLength 4000
+         */
+      signal_report_discussion_question?: string;
       /** Text the server generates the title from instead of `description`. Lets a client whose `description` is only an attachment summary (e.g. pasted text stored as a file) supply the real content for naming, so `description` (the prompt passed to the agent) stays unchanged. Not persisted. */
       naming_source?: string;
       /**
@@ -89091,6 +89419,8 @@ export namespace Schemas {
       filterGroup?: _LogPropertyFilter[];
       /** Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
       personId?: string;
+      /** Scope counts to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+      sessionId?: string;
     }
 
     export interface _LogsFacetValuesRequest {
@@ -89151,6 +89481,10 @@ export namespace Schemas {
          * @maximum 500
          */
       limit?: number;
+      /** Scope grouping to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+      personId?: string;
+      /** Scope grouping to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+      sessionId?: string;
     }
 
     export interface _LogsGroupByGroup {
@@ -89193,6 +89527,10 @@ export namespace Schemas {
       searchTerm?: string;
       /** Property filters applied before mining. Same shape as the query-logs endpoint. */
       filterGroup?: _LogPropertyFilter[];
+      /** Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+      personId?: string;
+      /** Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+      sessionId?: string;
     }
 
     export interface _LogsPatternsDiffRequest {
@@ -89279,6 +89617,8 @@ export namespace Schemas {
       customColumns?: string[];
       /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
       personId?: string;
+      /** Scope results to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+      sessionId?: string;
     }
 
     export interface _LogsQueryRequest {
@@ -89413,6 +89753,8 @@ export namespace Schemas {
       sparklineRankBy?: SparklineRankByEnum;
       /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
       personId?: string;
+      /** Scope results to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+      sessionId?: string;
     }
 
     export interface _LogsSparklineBucket {
@@ -90581,7 +90923,7 @@ export namespace Schemas {
      */
     team_ids?: string | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -90611,7 +90953,7 @@ export namespace Schemas {
      */
     team_ids?: string | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -92899,6 +93241,102 @@ export namespace Schemas {
     limit?: number;
     /**
      * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CustomerTasksListParams = {
+    /**
+     * Filter by account UUID.
+     */
+    account_id?: string;
+    /**
+     * Which archive state to include.
+     *
+     * * `active` - active
+     * * `archived` - archived
+     * * `all` - all
+     * @minLength 1
+     */
+    archive_state?: CustomerTasksListArchiveState;
+    /**
+     * Filter by me, unassigned, or one user ID.
+     * @minLength 1
+     */
+    assigned_to?: string;
+    /**
+     * Inclusive lower deadline bound.
+     */
+    due_after?: string;
+    /**
+     * Exclusive upper deadline bound.
+     */
+    due_before?: string;
+    /**
+     * Filter tasks by whether a deadline exists.
+     */
+    has_due_at?: boolean;
+    /**
+     * Page size, from 1 to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Number of rows to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Sort by task name, status, assignee, deadline, last update, account, or creation time. Prefix with - for descending order.
+     *
+     * * `name` - name
+     * * `-name` - -name
+     * * `status` - status
+     * * `-status` - -status
+     * * `assigned_to` - assigned_to
+     * * `-assigned_to` - -assigned_to
+     * * `due_at` - due_at
+     * * `-due_at` - -due_at
+     * * `updated_at` - updated_at
+     * * `-updated_at` - -updated_at
+     * * `account` - account
+     * * `-account` - -account
+     * * `created_at` - created_at
+     * * `-created_at` - -created_at
+     * @minLength 1
+     */
+    ordering?: string;
+    /**
+     * Search task name and description.
+     */
+    search?: string;
+    /**
+     * Comma-separated task statuses.
+     * @minLength 1
+     */
+    statuses?: string;
+    };
+
+    export type CustomerTasksListArchiveState = typeof CustomerTasksListArchiveState[keyof typeof CustomerTasksListArchiveState];
+
+
+    export const CustomerTasksListArchiveState = {
+      Active: 'active',
+      Archived: 'archived',
+      All: 'all',
+    } as const;
+
+    export type CustomerTasksActivitiesListParams = {
+    /**
+     * Page size, from 1 to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Number of rows to skip.
+     * @minimum 0
      */
     offset?: number;
     };
@@ -99615,6 +100053,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type SignalsReportsPrCiStatusesParams = {
+    /**
+     * Comma-separated report UUIDs to resolve CI state for, at most 100 per request.
+     */
+    report_ids: string;
     };
 
     export type SignalsScoutConfigListParams = {
