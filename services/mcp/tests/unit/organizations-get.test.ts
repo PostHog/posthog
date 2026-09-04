@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { PostHogApiError } from '@/lib/errors'
 import getOrganizationsTool from '@/tools/organizations/getOrganizations'
 import type { Context } from '@/tools/types'
 
@@ -74,5 +75,33 @@ describe('organizations-get', () => {
         // Preserving the cause lets handleToolError classify the recoverable 4xx
         // and keep it out of exception tracking.
         expect(caught?.cause).toBe(apiError)
+    })
+
+    it('turns a 404 into a terminal, non-retryable message while staying a 404', async () => {
+        const apiError = new PostHogApiError({
+            status: 404,
+            statusText: 'Not Found',
+            body: '',
+            url: 'https://us.posthog.com/api/organizations/',
+            method: 'GET',
+        })
+        const list = vi.fn().mockResolvedValue({ success: false, error: apiError })
+
+        let caught: PostHogApiError | undefined
+        try {
+            await tool.handler(createMockContext(list), {})
+        } catch (e) {
+            caught = e as PostHogApiError
+        }
+
+        // Still a 404 so handleToolError classifies it as a recoverable 4xx and the
+        // analytics summary (rebuilt from status + method + path) is unchanged.
+        expect(caught).toBeInstanceOf(PostHogApiError)
+        expect(caught?.status).toBe(404)
+        // The agent-facing message names the cause and tells it not to retry, which
+        // is what the bare `HTTP 404` status failed to do.
+        expect(caught?.message).toMatch(/not a transient error/)
+        expect(caught?.message).toMatch(/region mismatch/)
+        expect(caught?.message).toMatch(/Do not retry/)
     })
 })
