@@ -43,10 +43,10 @@ export interface logsImpactLogicActions {
         errorObject?: any
     }
     loadImpactSuccess: (
-        impact: _LogsImpactResponseApi,
+        impact: _LogsImpactResponseApi | null,
         payload?: any
     ) => {
-        impact: _LogsImpactResponseApi
+        impact: _LogsImpactResponseApi | null
         payload?: any
     }
 }
