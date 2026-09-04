@@ -51,6 +51,7 @@ import { loadUserClaudeJsonMcpServers } from "./mcp-config";
 import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
 import { createRtkRewriteHook, resolveRtkPrefix } from "./rtk";
 import type { SettingsManager } from "./settings";
+import { buildTraceparentHookSettingsJson } from "./traceparent-hook";
 
 export interface ProcessSpawnedInfo {
   pid: number;
@@ -91,6 +92,7 @@ export interface BuildOptionsParams {
   systemPrompt?: Options["systemPrompt"];
   userProvidedOptions?: Options;
   sessionId: string;
+  taskId?: string;
   isResume: boolean;
   forkSession?: boolean;
   additionalDirectories?: string[];
@@ -119,6 +121,9 @@ export interface BuildOptionsParams {
   getCurrentModelId?: () => string | undefined;
   /** Explicit gateway config — prevents global process.env mutation. */
   gatewayEnv?: GatewayEnv;
+  /** Session's discriminator for the traceparent hook's stderr; the hook is
+   * skipped when absent (see session/traceparent-hook.ts). */
+  traceparentHookNonce?: string;
   machineAuth?: MachineClaudeAuth;
   /** Matched `bedrock-llm-gateway` variant; `test` serves this session from Bedrock. */
   bedrockGatewayVariant?: BedrockGatewayVariant;
@@ -177,7 +182,7 @@ function buildMcpServers(
 
 function buildEnvironment(
   gateway?: GatewayEnv,
-  sessionId?: string,
+  aiSessionId?: string,
   bedrockGatewayVariant?: BedrockGatewayVariant,
   contextWiki?: ContextWikiEnv,
   machineAuth?: MachineClaudeAuth,
@@ -208,7 +213,7 @@ function buildEnvironment(
   if (machineAuth) {
     applyMachineClaudeAuth(env, machineAuth);
   } else {
-    applyGatewayAuth(env, gateway, sessionId, bedrockGatewayVariant);
+    applyGatewayAuth(env, gateway, aiSessionId, bedrockGatewayVariant);
   }
   applyContextWikiEnv(env, contextWiki);
   return env;
@@ -217,7 +222,7 @@ function buildEnvironment(
 function applyGatewayAuth(
   env: Record<string, string>,
   gateway: GatewayEnv | undefined,
-  sessionId: string | undefined,
+  aiSessionId: string | undefined,
   bedrockGatewayVariant: BedrockGatewayVariant | undefined,
 ): void {
   // Custom HTTP headers reach the model only through the Claude CLI subprocess,
@@ -238,9 +243,9 @@ function applyGatewayAuth(
   if (projectId) {
     headerLines.push(buildPosthogProjectHeaderLines(Number(projectId)));
   }
-  if (sessionId) {
+  if (aiSessionId) {
     headerLines.push(
-      buildPosthogPropertyHeaderLines({ $ai_session_id: sessionId }),
+      buildPosthogPropertyHeaderLines({ $ai_session_id: aiSessionId }),
     );
   }
   // The two Bedrock headers are mutually exclusive at the gateway: it dispatches
@@ -529,6 +534,22 @@ function isLegacyJavaScriptClaudeExecutable(executablePath: string): boolean {
 export function buildSessionOptions(params: BuildOptionsParams): Options {
   ensureLocalSettings(params.cwd);
 
+  // Gateway sessions get the traceparent hook (see session/traceparent-hook.ts)
+  // so each turn's gateway trace id reaches the session as a `hook_response`.
+  // `--settings` is the one hook channel that needs no settingSources; skipped
+  // when the caller supplies its own settings (either the SDK `settings`
+  // option or a raw `extraArgs` flag — both reach the same CLI flag, and the
+  // SDK silently drops the extraArgs one on collision) rather than clobbering
+  // it. The hook command is POSIX shell, so Windows Desktop hosts skip it.
+  const traceparentHookSettings =
+    params.gatewayEnv?.anthropicBaseUrl &&
+    params.traceparentHookNonce &&
+    process.platform !== "win32" &&
+    params.userProvidedOptions?.settings === undefined &&
+    params.userProvidedOptions?.extraArgs?.settings === undefined
+      ? buildTraceparentHookSettingsJson(params.traceparentHookNonce)
+      : undefined;
+
   // Resolve which built-in tools to expose.
   // Explicit tools array from userProvidedOptions takes precedence.
   // disableBuiltInTools is a legacy shorthand for tools: [] — kept for
@@ -563,15 +584,23 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     extraArgs: {
       ...params.userProvidedOptions?.extraArgs,
       "replay-user-messages": "",
+      ...(traceparentHookSettings && { settings: traceparentHookSettings }),
     },
+    // Surfaces the traceparent hook's output as `hook_response` messages.
+    includeHookEvents:
+      params.userProvidedOptions?.includeHookEvents ??
+      traceparentHookSettings !== undefined,
     mcpServers: buildMcpServers(
       params.userProvidedOptions?.mcpServers,
       params.mcpServers,
       loadUserClaudeJsonMcpServers(params.cwd, params.logger),
     ),
+    // Feedback events stamp the task id as $ai_session_id, so generations
+    // carry the same id for LLMA to group a task's runs and ratings together.
+    // A session without a task keeps the agent session id.
     env: buildEnvironment(
       params.gatewayEnv,
-      params.sessionId,
+      params.taskId ?? params.sessionId,
       params.bedrockGatewayVariant,
       params.contextWiki,
       params.machineAuth,
