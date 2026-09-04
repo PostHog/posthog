@@ -9,7 +9,7 @@ name filter scans its whole date range, and one with no timestamp bound scans th
 import dataclasses
 from collections.abc import Callable, Iterable
 from enum import StrEnum
-from hashlib import sha1
+from hashlib import sha256
 from logging import getLogger
 from typing import TYPE_CHECKING
 
@@ -295,7 +295,7 @@ def events_seen_with_properties(team: "Team", property_names: Iterable[str]) -> 
     if not names:
         return {}
 
-    digest = sha1("\0".join(sorted(names)).encode()).hexdigest()
+    digest = sha256("\0".join(sorted(names)).encode()).hexdigest()
     cache_key = f"events_scan:events_with_properties:{team.project_id}:{digest}"
     cached = cache.get(cache_key)
     if cached is not None:
