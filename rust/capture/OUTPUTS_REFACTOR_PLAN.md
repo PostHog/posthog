@@ -2,15 +2,15 @@
 
 Working contract for implementation agents. Steps 1–8 have shipped; each remaining step is one commit in its own PR.
 
-**Retirement.** This doc dies when it schedules nothing and owns no unsequenced objective. Stage D closes the first objective (the manual fallback); the second (one produce surface) and third (automated fallback) are then sequenced in order by scheduling their steps, parity proofs intact. Whatever is still load-bearing at the end — the vocabulary rules, the ordering-vs-person-processing contract, the repartitioning design note — graduates into module docs or `v1/sinks/DESIGN.md` first, and only work serving no objective leaves as issues.
+**Retirement.** This doc dies when it schedules nothing and owns no unsequenced objective. Step 16 closes the first objective (the manual fallback); the second (one produce surface) and third (automated fallback) are then sequenced in order by scheduling their steps, parity proofs intact. Whatever is still load-bearing at the end — the vocabulary rules, the ordering-vs-person-processing contract, the repartitioning design note — graduates into module docs or `v1/sinks/DESIGN.md` first, and only work serving no objective leaves as issues.
 
 ## Motivation
 
 **Three objectives, one mechanism: an output owns the configuration it produces with.**
 
-**Objective 1 — ship a manual fallback.** If MSK degrades, capture-analytics must be able to produce to an alternative cluster — its brokers, its TLS, its own topic names — armed by one environment variable and a pod roll, and we must know the configuration is sound before any traffic moves. Running capture against a half-wired cluster is the risk this objective removes, and the boot-time checks that remove it (Steps 13 and 14) are only buildable once configuration is isolated per output (Step 9) and demanded per mode (Step 12): a single deployment-wide `KafkaConfig` with ten defaulted topic names is exactly what a startup check cannot verify, and a check that demands all ten rows on every pod can be armed nowhere. Stage D is its remaining work; Step 15 is the feature.
+**Objective 1 — ship a manual fallback.** If MSK degrades, capture-analytics must be able to produce to an alternative cluster — its brokers, its TLS, its own topic names — armed by one environment variable and a pod roll, and we must know the configuration is sound before any traffic moves. Running capture against a half-wired cluster is the risk this objective removes, and the boot-time checks that remove it (Steps 13 and 14) are only buildable once configuration is isolated per output (Step 9) and demanded per mode (Step 12): a single deployment-wide `KafkaConfig` with ten defaulted topic names is exactly what a startup check cannot verify, and a check that demands all ten rows on every pod can be armed nowhere. Steps 9–16 are its remaining work; Step 15 is the feature.
 
-**Objective 2 — one produce surface.** The v1 stack is live in production — capture-analytics runs its AI endpoint through it, capture-import runs on it wholesale — and it publishes through its own sinks, so a fallback wired into the outputs layer moves none of its traffic. Convergence is therefore coverage, not hygiene. Stage D already puts both stacks on one config model (Step 10); this objective finishes the job — one publish surface, per-event results, the legacy v1 sink stack deleted (Steps 17–20).
+**Objective 2 — one produce surface.** The v1 stack is live in production — capture-analytics runs its AI endpoint through it, capture-import runs on it wholesale — and it publishes through its own sinks, so a fallback wired into the outputs layer moves none of its traffic. Convergence is therefore coverage, not hygiene. Objective 1 already puts both stacks on one config model (Step 10); this objective finishes the job — one publish surface, per-event results, the legacy v1 sink stack deleted (Steps 17–20).
 
 **Objective 3 — prepare capture for an automated fallback.** The switch decision moves to a separate circuit-breaker service; how that service decides is not this plan's concern. Capture's side of the contract is narrow: submit producer health metrics, receive switch signals, and apply a signal at runtime through the failover output it already has — no redeploy. Consumers are out of scope throughout; this plan is capture prep. Sequenced last: an automatic switch that moves only half the produce paths would be worse than the manual one, so objective 2 comes first.
 
@@ -65,26 +65,26 @@ Steps 1–3 land together with this doc: the routing golden oracle, the pure `ro
 
 ## Objective 1 — ship a manual fallback
 
-### Stage A — oracle and groundwork (shipped)
+Steps 1–8, shipped, landed the structure this objective stands on. The remaining committed work is a mechanism, not a feature: an output owns the configuration it produces with. Once that holds, an emergency fallback to another cluster is *a configuration of an output's targets* rather than a code path — which is what the target architecture said all along.
 
-#### Step 1 · Consolidate the routing golden oracle
+Each step is small, ships green, and reverts by plain revert. Steps 9 and 10 put every output — v1's included — on one config model; Steps 11 and 12 make the reachable set a type; Steps 13 and 14 are the checks that type makes possible; Step 15 is the fallback itself; Step 16 removes what it replaces.
+
+### Step 1 · Consolidate the routing golden oracle
 
 The `assert_routing` suite pins topic + partition key + every stamped header + the rerouted counters for all pipelines and lanes. It is the parity instrument for every later step.
 
-#### Step 2 · Extract routing into a pure `route()`
+### Step 2 · Extract routing into a pure `route()`
 
 `route(&ProcessedEventMetadata, ai_events_overflow_armed) -> Result<Route { target, ordering }, CaptureError>`, consulted by the sink.
 The decision is the target `Output` plus the customer-facing `OrderingGuarantee` the sink realizes as a partition key; side effects are implied by the target rather than carried as decision data, the AI overflow valve rides in as an explicit argument to keep the function pure, and a replay decision with no session id is rejected rather than returned unrealizable.
 This is the function Step 5 hoists out of the sink into lane resolution.
 
-#### Step 3 · `TopicTable` + startup completeness check
+### Step 3 · `TopicTable` + startup completeness check
 
 One destination→topic wiring point plus refuse-to-boot on a blank topic, gated behind `CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED` (default off; see Step 13's arming precondition).
 Step 7 absorbs it into the `OutputRegistry`; the mode-scoped demand is folded in at Step 13, where `(Pipeline, Lane)` makes the per-mode reachable set explicit.
 
-### Stage B — the two new seams (shipped; no caller-visible change)
-
-#### Step 4 · Serialization layer: format × envelope
+### Step 4 · Serialization layer: format × envelope
 
 - **Goal.** New `serialization` module: `Format` (event → payload bytes + `content-type`) with `Json` as the only impl, `Envelope` (bytes → bytes + `content-encoding`) with `None` and `Lz4` (the replay 4-byte LE size-prefix block format, moved verbatim), and a `Serializer` composing one of each. `prepare_record` calls the serializer instead of inlining `serde_json::to_string` + the lz4 branch. Replay's serializer is `Json × Lz4` when `kafka_replay_envelope_compression` says so; everything else `Json × None`.
 - **Explicitly not in the serializer:** partition keys, routing headers, topics. Bytes and content headers only.
@@ -93,7 +93,7 @@ Step 7 absorbs it into the `OutputRegistry`; the mode-scoped demand is folded in
 - **Risk / rollback.** Low — mechanical hoist. Revert.
 - **Size.** M.
 
-#### Step 5 · `Pipeline` + `Lane`; the lane decision becomes pipeline-layer code
+### Step 5 · `Pipeline` + `Lane`; the lane decision becomes pipeline-layer code
 
 - **Goal.** Introduce the address pair and relocate the decision logic:
   - `Pipeline { Analytics, Heatmaps, Warnings, ErrorTracking, Replay }` (`Pipeline::from_data_type` extracts the pipeline half of `DataType`).
@@ -105,9 +105,7 @@ Step 7 absorbs it into the `OutputRegistry`; the mode-scoped demand is folded in
 - **Risk / rollback.** Low-medium — mechanical relocation. Revert.
 - **Size.** M/L.
 
-### Stage C — sinks become mechanism, outputs become the API (shipped)
-
-#### Step 6 · Narrow the Kafka sink to backend mechanism
+### Step 6 · Narrow the Kafka sink to backend mechanism
 
 - **Goal.** New `sinks/sink.rs`: `PreparedPayload { uuid, record: ProduceRecord }` (serialized, addressed) is the sink input; `trait Sink { publish(Vec<PreparedPayload>) -> Vec<SinkResult>; flush() }` — no prepare on the trait, no metadata access — plus `Outcome` and `fold_results` (first failure wins). Kafka: `prepare_batch` (serial <8 / scatter-gather ≥8, fail-fast) extracted from `send_batch` as an inherent method the outputs layer will call; `impl Sink` = serial enqueue + fail-fast ack drain, reporting batch-uniform per-event results (the per-event surface refines only with the response model). `Event::send_batch` becomes the bridge: prep → publish → fold. Kafka only — s3/print/noop gain mechanism impls with the outputs layer, which is what needs them.
 - **Sequencing decision.** `FallbackSink` is never ported onto the mechanism trait: the outputs layer owns multi-target policies (single | failover) from its first commit, built from the same config, and the Event-era composite is deleted when its last caller migrates. `SplitKafkaSink` is already gone — deleted with the retired AI secondary-cluster routing — so split survives only as a policy shape the outputs layer grows back when a cluster migration needs it.
@@ -116,7 +114,7 @@ Step 7 absorbs it into the `OutputRegistry`; the mode-scoped demand is folded in
 - **Risk / rollback.** Medium-high — core mechanism. Revert.
 - **Size.** L.
 
-#### Step 7 · Outputs layer with policies; composites retired
+### Step 7 · Outputs layer with policies; composites retired
 
 - **Goal.** New `outputs` module — the produce surface, with multi-target policy ownership from day one:
   - `Output`: a single backend, or a policy composing two *outputs* — today `failover` (health-gated Kafka→S3: skip primary while the advisory handle is unhealthy, re-publish the batch on a retriable failure, fatal never fails over). Targets are outputs themselves, so a future policy (a split for the next cluster migration) composes over pairs the way the old composites did. Policies operate on *events*, before prep — each target resolves topics and serializes for itself, exactly like the old per-sink `send_batch` paths, so parity is structural.
@@ -130,7 +128,7 @@ Step 7 absorbs it into the `OutputRegistry`; the mode-scoped demand is folded in
 - **Risk / rollback.** Medium. Revert.
 - **Size.** L.
 
-#### Step 8 · Call sites migrate to the table; `Event` retired
+### Step 8 · Call sites migrate to the table; `Event` retired
 
 - **Goal.** All four call sites (`events/analytics.rs`, `ai_endpoint.rs`, `otel/mod.rs`, `events/recordings.rs`) publish via `OutputRegistry::publish`, recording `capture_event_batch_size` at the call site; `State` and test mocks retype; then delete the v0 `Event` trait, its `Box<T>` blanket, the outputs facade, and the `Event` impls on Kafka, S3, print, noop, and the test mock.
 - **`State` drops its trait object.** `State.sink: Arc<dyn Event>` becomes `State.outputs: Arc<OutputRegistry>` — a concrete type, since `Output::single` already accepts any leaf. The substitution seam moves down to the leaf: `PublishEvents` and `Output::single` become `pub` so the `tests/` suites can stand their own capturing sinks in (`test_sink` is `cfg(test)`-gated and unreachable from there), and pipeline tests drive the real table and policy path instead of bypassing the outputs layer.
@@ -138,27 +136,21 @@ Step 7 absorbs it into the `OutputRegistry`; the mode-scoped demand is folded in
 - **Parity proof.** All endpoint/integration suites green; grep proves `Event` call-site-free before the deletion half.
 - **Size.** M/L. May split into per-call-site commits if the diff grows.
 
-### Stage D — outputs carry their own configuration
-
-The remaining committed work, and it is a mechanism, not a feature: an output owns the configuration it produces with. Once that holds, an emergency fallback to another cluster is *a configuration of an output's targets* rather than a code path — which is what the target architecture said all along.
-
-Each step is small, ships green, and reverts by plain revert. Steps 9 and 10 put every output — v1's included — on one config model; Steps 11 and 12 make the reachable set a type; Steps 13 and 14 are the checks that type makes possible; Step 15 is the fallback itself; Step 16 removes what it replaces.
-
-#### Step 9 · An output owns its connection and its topics
+### Step 9 · An output owns its connection and its topics
 
 - **Goal.** Every leaf output is built from an output-scoped config block — brokers, TLS, and that output's own topic names — instead of reading the one deployment-wide `KafkaConfig`. Two Kafka outputs in the same tree can name different clusters and different topics, because neither consults global state to find out where it produces.
 - **Adopt v1's model; do not invent a third.** `v1::sinks::kafka::Config` is already exactly this: per-sink, namespaced by sink name (`CAPTURE_V1_SINK_MSK_KAFKA_HOSTS` → key `HOSTS`), carrying its own connection, its own producer tuning, and its own topics — declared *"Topics (all required — envconfig errors if any are missing)"*, with no defaults. v0 is the stack with one deployment-wide `KafkaConfig` and ten defaulted topics. Step 9 moves v0 onto v1's shape, reusing the struct rather than paralleling it. A v0-specific config model here would leave three to reconcile at Steps 18–20 instead of one.
 - **Why this is the whole mechanism.** `Output::failover` already composes two arbitrary outputs (Step 7). It is typed Kafka→S3 today only because `setup` builds it that way. Once a leaf carries its own config, a second cluster with its own topic names is a `setup` change and a values file, with no new trait and no per-feature plumbing.
 - **Size.** M.
 
-#### Step 10 · v1 converges on the shared config strata
+### Step 10 · v1 converges on the shared config strata
 
 - **Goal.** v1's `Destination` bridges to `(Pipeline, Lane)`; v1 topic resolution goes through the shared table; v1's `serialize_batch` uses the Step-4 serializer. The v1 `Sink`/`Router` trait convergence stays with objective 2 (Steps 17–20).
 - **Why it sits here.** After Step 9 both stacks configure a destination the same way — per sink, namespaced, topics required — so the two differ in routing and response granularity, not in how a producer learns where it produces. Convergence is cheapest immediately after Step 9 and gets dearer with every step built over a model v1 has not joined — so it lands before the registry types and boot checks, which then demand and probe v1's topics too.
 - **Parity proof.** v1_pipeline (17) + v1_sink_integration (10) unmodified, plus `overflow_parity.rs` unmodified. That suite drives both pipelines end to end over the overflow and rate-limit matrix and is the oracle for the ordering-vs-person-processing contract this step has to carry across (see the Hazard note under "v1 convergence on the outputs machinery"). Both paths already share `OrderingGuarantee` from `crate::ordering`.
 - **Size.** M/L.
 
-#### Step 11 · Typed per-pipeline lanes
+### Step 11 · Typed per-pipeline lanes
 
 - **Goal.** Lanes become types per pipeline — `AnalyticsLane`, `AiLane`, `SessionReplayLane`, `BasicLane` — so invalid `(pipeline, lane)` pairs are unrepresentable, and admin custom redirects become addresses carrying their own topic outside the lane model: the vocabulary rules above, made code. `resolve` constructs addresses; pipeline and lane kind become projections.
 - **Why it sits here.** Step 12's registry rows demand topics per lane. With the flat `Lane`, the set of valid lanes per pipeline is runtime knowledge, and the registry keeps a fatal backstop for pairs routing never produces. Typed lanes make the demand total: the fields a row requires are exactly the addresses that exist.
@@ -166,7 +158,7 @@ Each step is small, ships green, and reverts by plain revert. Steps 9 and 10 put
 - **Parity proof.** Step-1 goldens unmodified; `resolve` precedence tests retyped with assertions preserved.
 - **Size.** M/L.
 
-#### Step 12 · Per-mode output registries
+### Step 12 · Per-mode output registries
 
 - **Goal.** The deployment's output registry becomes a concrete type per capture mode — `AnalyticsFamilyOutputs` (analytics, ai, heatmaps, warnings, error tracking rows) for Events/Ai/Import pods, `SessionReplayOutputs` for Recordings pods — with required fields, so the narrow list of what a deployment must wire is the type itself. Rows share backends (one Kafka connection per distinct cluster), so per-row policy trees behave as the single pre-table output did.
 - **Why it sits here.** Step 13's demand is per mode. Without registry types that demand is a hand-written `CaptureMode` → reachable-set map — the unarmable completeness flag reborn as glue the types would later delete. With them, the reachable set *is* the type, and Step 13 reduces to deleting defaults.
@@ -174,7 +166,7 @@ Each step is small, ships green, and reverts by plain revert. Steps 9 and 10 put
 - **Parity proof.** Step-1 goldens and integration suites unmodified; per-mode construction tests.
 - **Size.** L.
 
-#### Step 13 · A reachable output must be configured
+### Step 13 · A reachable output must be configured
 
 - **Goal.** The configuration an output requires is required in code: an output the deployment's `CaptureMode` can reach must be fully configured or capture refuses to boot. Unreachable outputs are not asked for at all — a Recordings pod is never asked to name an error-tracking topic, because its Step-12 registry type has no such row.
 - **Defaults go.** The `#[envconfig(default = ...)]` on each topic field is what makes a missing or misspelled variable resolve to a compiled-in name instead of failing. A reachable output's topics stop being defaulted; an absent or empty value is a boot failure, which is the behaviour the check was always meant to have.
@@ -182,14 +174,14 @@ Each step is small, ships green, and reverts by plain revert. Steps 9 and 10 put
 - **Parity proof.** Per-mode refusal tests, and anti-over-demand tests proving a mode is never asked for an output it cannot reach.
 - **Size.** M.
 
-#### Step 14 · Verify an output's topics against its own broker
+### Step 14 · Verify an output's topics against its own broker
 
 - **Goal.** At boot, probe each reachable output's cluster metadata for the topics that output can produce to, and refuse to start on a missing one. Per output, against that output's own broker — so a fallback pointed at a half-provisioned cluster fails before it can take traffic.
 - **Why it is separate from Step 13.** Step 13 is config-only and never touches a broker: it answers "is this wired", instantly, with no connect attempt. Step 14 answers "does this exist on the cluster we are about to produce to", which is the question that matters when the cluster is one this deployment has never written to.
 - **Default off**, armed per deployment: on brokers with topic auto-creation the metadata probe can create the topic it is checking, which makes a pass meaningless.
 - **Size.** M.
 
-#### Step 15 · The capture-analytics emergency fallback
+### Step 15 · The capture-analytics emergency fallback
 
 The consumer of Steps 9, 13, and 14, and the reason they exist.
 
@@ -202,7 +194,7 @@ The consumer of Steps 9, 13, and 14, and the reason they exist.
 - **Known gaps to carry, not solve here.** Consumers have no equivalent switch, so a repoint is not symmetric; capture-import writes the same topics and must be stopped before any drain-to-zero gate; the AI lane's bridges read MSK-era names. And until Step 19, an armed fallback moves only traffic that publishes through the outputs layer — the v1 slice stays on the primary. These belong in the runbook, not the code.
 - **Size.** M.
 
-#### Step 16 · Retire the S3 fallback
+### Step 16 · Retire the S3 fallback
 
 - **Goal.** Delete `S3Sink`, its `PublishEvents` impl, the `s3_fallback_*` config, and the Kafka→S3 failover wiring in `setup`.
 - **Why it is safe.** It is off in every production deployment: six `S3_FALLBACK_ENABLED: "false"` across the charts apps against one `"true"`, and that one is `apps/capture-analytics/values.dev.yaml`. The infra config notes the IAM role is "wired but unused". Retiring it removes dead break-glass machinery, not a live safety net.
@@ -211,7 +203,7 @@ The consumer of Steps 9, 13, and 14, and the reason they exist.
 - **Cross-repo.** Six chart values, the `CaptureAnalyticsV0S3FallbackActive` alert spec and its runbook, and the IAM role in cloud-infra all go with it.
 - **Size.** M.
 
-#### What Steps 13 and 14 would already have caught
+### What Steps 13 and 14 would already have caught
 
 `KAFKA_REPLAY_OVERFLOW_TOPIC` appears in **no file** in the charts repo, while `(Pipeline::Replay, Lane::Overflow) → Destination::SessionReplayOverflow` is a reachable route with a passing test. Replay overflow therefore resolves to the compiled-in `session_recording_snapshot_item_overflow`, while prod-us replay wires `ingestion-sessionreplay-overflow-64` under `KAFKA_OVERFLOW_TOPIC`.
 
@@ -219,7 +211,7 @@ Step 13 fails that at boot: a reachable output with no configured topic. Step 14
 
 ## Objective 2 — one produce surface (unsequenced)
 
-v1 publishes through the shared outputs machinery and the legacy v1 sink stack is deleted, so every policy — the manual fallback, and later the signal-driven switch — applies to all capture traffic uniformly. Stage D's Step 10 does the config-level convergence; these steps finish it, sequenced when objective 1 closes.
+v1 publishes through the shared outputs machinery and the legacy v1 sink stack is deleted, so every policy — the manual fallback, and later the signal-driven switch — applies to all capture traffic uniformly. Objective 1's Step 10 does the config-level convergence; these steps finish it, sequenced when objective 1 closes.
 
 ### Step 17 · Per-event publish results
 
