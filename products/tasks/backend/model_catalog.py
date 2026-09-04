@@ -87,7 +87,7 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("claude-opus-4-8", CLAUDE, _EXTENDED),
     CatalogModel("claude-opus-5", CLAUDE, _EXTENDED),
     CatalogModel("claude-fable-5", CLAUDE, _EXTENDED),
-    CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED, label="Claude Fable 5.1"),
+    CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED),
     CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED),
     CatalogModel("claude-sonnet-4-6", CLAUDE, _STANDARD),
     CatalogModel("gpt-5", CODEX, _STANDARD),
@@ -160,20 +160,6 @@ def normalize_model_id(model_id: str) -> str:
     return normalized
 
 
-def runtime_adapter_for_model(model_id: str) -> str | None:
-    """The adapter this catalog declares for a model id, or ``None`` when it lists none.
-
-    The gateway reports a model's ``owned_by`` as the party serving it — ``cloudflare``,
-    ``baseten``, the vendor org — which says nothing about the harness that drives it. The
-    catalog does, so an id it names is routed by that rather than by its owner.
-    """
-    normalized = normalize_model_id(model_id)
-    for model in MODELS:
-        if model.id == normalized:
-            return model.runtime_adapter
-    return None
-
-
 def label_for_model(model_id: str) -> str | None:
     """The name this catalog pins for a model id, or ``None`` to let the caller derive one."""
     normalized = normalize_model_id(model_id)
@@ -222,5 +208,4 @@ __all__ = [
     "normalize_model_id",
     "reasoning_efforts_for",
     "serves_model",
-    "runtime_adapter_for_model",
 ]

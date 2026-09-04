@@ -181,14 +181,11 @@ def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
     by_provider = _runtime_adapter_by_provider()
     choices = []
     for model in list_gateway_models(product):
-        # The catalog answers first: it names the harness that drives a model, whereas
-        # `owned_by` names whoever serves it. The vendor-served models (GLM, Kimi,
-        # DeepSeek) come back owned by `cloudflare`/`baseten`/the vendor org, so routing
-        # on the owner alone dropped every one of them from this list while the desktop
-        # picker offered them. A model the catalog doesn't name still falls back to its
-        # provider, which is what keeps an unlisted `gpt-*` working and still drops a
-        # provider we have no runtime for at all.
-        runtime_adapter = model_catalog.runtime_adapter_for_model(model.id) or by_provider.get(model.owned_by)
+        # The catalog names the harness that drives a model; `owned_by` names whoever
+        # serves it, which for the vendor-served models is `cloudflare`/`baseten`/the
+        # vendor org and says nothing about the harness. Falling back to the provider
+        # keeps an unlisted `gpt-*` working and still drops a provider we cannot route.
+        runtime_adapter = runtime_adapter_for(model.id) or by_provider.get(model.owned_by)
         if runtime_adapter is None:
             continue
         choices.append(

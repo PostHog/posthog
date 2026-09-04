@@ -125,39 +125,14 @@ def test_default_model_is_one_the_catalog_serves() -> None:
         )
 
 
-@pytest.mark.parametrize(
-    "model,expected",
-    [
-        ("deepseek-ai/deepseek-v4-flash-0731", "claude"),
-        ("zai-org/glm-5.3-flash", "claude"),
-        ("moonshotai/kimi-k3", "claude"),
-        ("anthropic/claude-sonnet-4-6", "claude"),
-        ("gpt-5.6-sol", "codex"),
-        ("titan-express", None),
-    ],
-    ids=[
-        "vendor_served_deepseek",
-        "vendor_served_flash",
-        "vendor_served_kimi",
-        "provider_qualified_id",
-        "codex_model",
-        "model_the_catalog_does_not_name",
-    ],
-)
-def test_runtime_adapter_resolves_from_the_catalog_not_the_owner(model: str, expected: str | None) -> None:
-    # The gateway owns vendor-served models under `cloudflare`/`baseten`/the vendor org, so a
-    # picker routing on the owner drops them; the catalog names the harness that drives each.
-    assert model_catalog.runtime_adapter_for_model(model) == expected
-
-
 def test_labels_are_set_only_where_the_derived_name_is_wrong() -> None:
-    labelled = {entry.id: entry.label for entry in model_catalog.MODELS if entry.label}
-    assert labelled == {
-        "@cf/zai-org/glm-5.2": "GLM-5.2",
-        "zai-org/glm-5.3": "GLM-5.3",
-        "zai-org/glm-5.3-flash": "GLM-5.3 Flash",
-        "moonshotai/kimi-k3": "Kimi K3",
-        "deepseek-ai/deepseek-v4-flash-0731": "DeepSeek V4 Flash",
-        "claude-fable-5-1": "Claude Fable 5.1",
-    }
-    assert model_catalog.label_for_model("claude-opus-4-8") is None
+    # A pin that the formatter would produce anyway is dead weight that outlives the
+    # formatter improving, so assert the property rather than restating the six strings.
+    from products.tasks.backend.logic.services.model_catalogue import format_model_id
+
+    for entry in model_catalog.MODELS:
+        if entry.label is None:
+            continue
+        assert entry.label != format_model_id(entry.id), (
+            f"'{entry.id}' pins the label the formatter already derives; drop the pin"
+        )

@@ -115,7 +115,6 @@ export const MODELS: readonly CatalogModel[] = [
     id: "claude-fable-5-1",
     runtimeAdapter: "claude",
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultracode"],
-    label: "Claude Fable 5.1",
   },
   {
     id: "claude-sonnet-5",

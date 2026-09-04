@@ -103,17 +103,21 @@ def render(catalog: dict[str, Any], style: Style) -> str:
     models: tuple[Any, ...] = catalog["MODELS"]
     efforts: tuple[str, ...] = catalog["REASONING_EFFORTS"]
 
-    model_entries = "\n".join(
-        f"{i}{{\n"
-        f"{i}{i}id: {style.s(model.id)},\n"
-        f"{i}{i}runtimeAdapter: {style.s(model.runtime_adapter)},\n"
-        f"{style.array(model.reasoning_efforts, prefix='reasoningEfforts: ', suffix=',', depth=2)}\n"
+    def model_entry(model: Any) -> str:
+        lines = [
+            f"{i}{{",
+            f"{i}{i}id: {style.s(model.id)},",
+            f"{i}{i}runtimeAdapter: {style.s(model.runtime_adapter)},",
+            style.array(model.reasoning_efforts, prefix="reasoningEfforts: ", suffix=",", depth=2),
+        ]
         # Omitted rather than emitted as null, so a consumer's `??` falls through to its
         # own formatter for every model the catalog does not name.
-        + (f"{i}{i}label: {style.s(model.label)},\n" if model.label else "")
-        + f"{i}}},"
-        for model in models
-    )
+        if model.label:
+            lines.append(f"{i}{i}label: {style.s(model.label)},")
+        lines.append(f"{i}}},")
+        return "\n".join(lines)
+
+    model_entries = "\n".join(model_entry(model) for model in models)
     provider_entries = "\n".join(f"{i}{adapter}: {style.s(providers[adapter])}," for adapter in adapters)
     default_entries = "\n".join(f"{i}{adapter}: {style.s(defaults[adapter])}," for adapter in adapters)
     fallback_entries = "\n".join(
