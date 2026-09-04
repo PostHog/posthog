@@ -151,7 +151,7 @@ export interface PersonHogClientConfig {
 
     // -- Request limits --
 
-    /** Per-request timeout in milliseconds. Default: 1 000. */
+    /** Per-request timeout in milliseconds. Default: 3 000. */
     timeoutMs?: number
     /** Maximum inbound message size in bytes. Default: 128 MiB. */
     readMaxBytes?: number
@@ -286,7 +286,7 @@ export function createPersonhogTransport(config: PersonHogClientConfig): {
 
         const transport = createGrpcTransport({
             baseUrl: `${scheme}://${config.addr}`,
-            defaultTimeoutMs: config.timeoutMs ?? 1_000,
+            defaultTimeoutMs: config.timeoutMs ?? 3_000,
             readMaxBytes: config.readMaxBytes ?? 128 * 1024 * 1024,
             writeMaxBytes: config.writeMaxBytes ?? 4 * 1024 * 1024,
             sessionManager: stateMonitor,

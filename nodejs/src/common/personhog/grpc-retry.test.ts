@@ -105,24 +105,45 @@ describe('withRetry', () => {
                 'test-method'
             )
         ).rejects.toMatchObject({ code: Code.Unavailable, isRetriable: true })
-        // 1 initial + 2 retries = 3 total (default maxRetries=2)
+        // 1 initial + 2 retries = 3 total (narrow default budget)
         expect(callCount).toBe(3)
     })
 
-    it('respects custom maxRetries', async () => {
-        let callCount = 0
-        await expect(
-            withRetry(
+    describe('DeadlineExceeded', () => {
+        beforeEach(() => jest.useFakeTimers())
+        afterEach(() => jest.useRealTimers())
+
+        it('rides out a slow window with a wider budget before exhausting', async () => {
+            let callCount = 0
+            const promise = withRetry(
                 () => {
                     callCount++
-                    throw new ConnectError('unavailable', Code.Unavailable)
+                    throw new ConnectError('timed out', Code.DeadlineExceeded)
                 },
                 'test-client',
-                'test-method',
-                4
-            )
-        ).rejects.toThrow(ConnectError)
-        // 1 initial + 4 retries = 5 total
-        expect(callCount).toBe(5)
+                'test-method'
+            ).catch((e: unknown) => e)
+            await jest.runAllTimersAsync()
+            const error = await promise
+            // 1 initial + 5 retries = 6 total (wider deadline budget), vs 3 for the narrow default
+            expect(callCount).toBe(6)
+            expect(error).toMatchObject({ code: Code.DeadlineExceeded, isRetriable: true })
+        })
+
+        it('tags the exhausted error with client and method so fingerprints split', async () => {
+            const promise = withRetry(
+                () => {
+                    throw new ConnectError('timed out', Code.DeadlineExceeded)
+                },
+                'cdp-events-consumer',
+                'fetchPersonsByDistinctIds'
+            ).catch((e: unknown) => e)
+            await jest.runAllTimersAsync()
+            const error = (await promise) as Error
+            // Error tracking hashes the exception type (name), not the message, once the
+            // stack resolves, so the name is what splits the fingerprint per caller.
+            expect(error.name).toBe('personhog cdp-events-consumer/fetchPersonsByDistinctIds')
+            expect(error.message).toContain('personhog cdp-events-consumer/fetchPersonsByDistinctIds')
+        })
     })
 })
