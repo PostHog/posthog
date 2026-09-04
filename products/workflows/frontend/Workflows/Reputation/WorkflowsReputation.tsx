@@ -370,9 +370,10 @@ function TeamRatesCard({
     )
 }
 
-// The promotion also needs steady use of the current allowance. The copy says so without naming the
-// daily bar, which moves with the caps table and would read as a promise once stale. A pinned
-// project is skipped by the tier sweep in both directions, so it gets the support pointer instead.
+// Promotion needs three things: the days at the tier, clean rates, and real use of the allowance on
+// separate days. The copy names all three but not the daily volume bar, which moves with the caps
+// table and would read as a promise once stale. A pinned project is skipped by the tier sweep in
+// both directions, so it gets the support pointer instead.
 function NextTierLine({ allowance }: { allowance: EmailSendingAllowanceApi }): JSX.Element {
     if (allowance.next_tier_emails_per_day == null || allowance.next_tier_max_batch_audience == null) {
         return (
@@ -387,8 +388,9 @@ function NextTierLine({ allowance }: { allowance: EmailSendingAllowanceApi }): J
     return (
         <p className="text-secondary mt-2 mb-0">
             Tier {allowance.tier + 1} allows {humanFriendlyNumber(allowance.next_tier_emails_per_day)} emails a day and
-            batches of up to {humanFriendlyNumber(allowance.next_tier_max_batch_audience)}. To reach it, keep using this
-            tier for at least {allowance.min_days_at_tier} days with low bounce and spam complaint rates.
+            batches of up to {humanFriendlyNumber(allowance.next_tier_max_batch_audience)}. To reach it, stay on this
+            tier for at least {allowance.min_days_at_tier} days with low bounce and spam complaint rates. You also have
+            to use a good part of the daily allowance on separate days, so one big send is not enough.
         </p>
     )
 }
