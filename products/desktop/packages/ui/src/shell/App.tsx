@@ -18,6 +18,7 @@ import { CanvasGenerationToaster } from "@posthog/ui/features/canvas/freeform/us
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
+import { ConnectivityBanner } from "@posthog/ui/features/connectivity/ConnectivityBanner";
 import { ConsentScreen } from "@posthog/ui/features/consent/ConsentScreen";
 import { useConsentAnalytics } from "@posthog/ui/features/consent/consentAnalytics";
 import { useOrgConsent } from "@posthog/ui/features/consent/useOrgConsent";
@@ -236,8 +237,21 @@ function App({ devToolbar }: AppProps) {
     return <AppLoadingScreen />;
   }
 
+  // Which screen the app is on. The four pre-router screens render instead of
+  // the RouterProvider, so anything the routed shell mounts is absent there.
+  const activeScreen =
+    !hasCompletedOnboarding && !isBlockedByAccessPolicy
+      ? "onboarding"
+      : !isAuthenticated
+        ? "auth"
+        : isBlockedByAccessPolicy
+          ? "desktop-access"
+          : consent.status === "error" || needsConsent
+            ? "consent"
+            : "main";
+
   const renderContent = () => {
-    if (!hasCompletedOnboarding && !isBlockedByAccessPolicy) {
+    if (activeScreen === "onboarding") {
       return (
         <motion.div
           key="onboarding"
@@ -251,7 +265,7 @@ function App({ devToolbar }: AppProps) {
       );
     }
 
-    if (!isAuthenticated) {
+    if (activeScreen === "auth") {
       return (
         <motion.div key="auth" initial={{ opacity: 1 }} className="h-full">
           <AuthScreen
@@ -261,7 +275,7 @@ function App({ devToolbar }: AppProps) {
       );
     }
 
-    if (isBlockedByAccessPolicy) {
+    if (activeScreen === "desktop-access") {
       return (
         <motion.div
           key="desktop-access"
@@ -293,7 +307,7 @@ function App({ devToolbar }: AppProps) {
       );
     }
 
-    if (consent.status === "error" || needsConsent) {
+    if (activeScreen === "consent") {
       return (
         <motion.div key="consent" initial={{ opacity: 1 }} className="h-full">
           <ConsentScreen
@@ -327,6 +341,9 @@ function App({ devToolbar }: AppProps) {
         shouldSuppress={isNotAuthenticatedError}
       >
         <div className="flex h-screen flex-col">
+          {/* The routed shell mounts its own banner at `__root`; the pre-router
+              screens are outside the router, so they get it from here. */}
+          {activeScreen !== "main" && <ConnectivityBanner />}
           <div className="relative min-h-0 flex-1 overflow-hidden">
             {isAuthenticated ? (
               <AnimatePresence mode="wait">{content}</AnimatePresence>
