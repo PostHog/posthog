@@ -91,6 +91,14 @@ class IspQueryPlan:
 
 
 @frozen
+class IspBatchAnswer:
+    """What one batch produced: the responses SES returned, and the subjects it refused outright."""
+
+    responses: tuple[Mapping[str, Any], ...]
+    rejected: frozenset[IspMetric]
+
+
+@frozen
 class IspMetricSeries:
     """Daily counts per provider and metric, and the subjects SES returned no answer for."""
 
@@ -764,45 +772,84 @@ class SESProvider:
                 raise TimeoutError(
                     f"SES metric queries exceeded {METRIC_QUERY_BUDGET_SECONDS}s for {domain_count} domain(s)"
                 )
+            answer = self._answer_metric_batch(batch, plan, deadline)
+            failed.update(answer.rejected)
+            for response in answer.responses:
+                self._absorb_metric_response(response, plan, buckets_by_subject, failed)
+        return IspMetricSeries(buckets=buckets_by_subject, failed=frozenset(failed))
+
+    def _answer_metric_batch(
+        self, batch: Sequence[dict[str, Any]], plan: IspQueryPlan, deadline: float
+    ) -> IspBatchAnswer:
+        """
+        Run one batch, reissuing it per provider if SES refuses the whole request.
+
+        SES validates dimension values per request, so one name it will not accept fails every
+        query sent alongside it. Almost every batch carries two providers, and a subject is keyed
+        by provider and metric with no domain, so failing the batch would drop a provider SES does
+        accept from the whole breakdown rather than from this request. Reissuing keeps it, and
+        costs the extra calls only when a name is bad. A provider is never split across two
+        groups, because ISP_METRICS divides METRIC_QUERY_BATCH_SIZE.
+        """
+        try:
+            return IspBatchAnswer(
+                responses=(self.ses_v2_metrics_client.batch_get_metric_data(Queries=list(batch)),),  # type: ignore[arg-type]
+                rejected=frozenset(),
+            )
+        except ClientError as rejection:
+            if rejection.response.get("Error", {}).get("Code") != "BadRequestException":
+                raise
+
+        responses: list[Mapping[str, Any]] = []
+        rejected: set[IspMetric] = set()
+        for group in batched(batch, len(ISP_METRICS), strict=False):
+            if monotonic() + METRIC_CALL_WORST_CASE_SECONDS > deadline:
+                raise TimeoutError(
+                    f"SES metric queries exceeded {METRIC_QUERY_BUDGET_SECONDS}s splitting a rejected batch"
+                )
+            subjects = [plan.subjects[query["Id"]] for query in group]
             try:
-                response = self.ses_v2_metrics_client.batch_get_metric_data(Queries=list(batch))  # type: ignore[arg-type]
+                responses.append(self.ses_v2_metrics_client.batch_get_metric_data(Queries=list(group)))  # type: ignore[arg-type]
             except ClientError as rejection:
                 if rejection.response.get("Error", {}).get("Code") != "BadRequestException":
                     raise
-                # SES validates dimension values per request, so one name it will not accept fails
-                # every query sent alongside it. Failing the batch instead of the call costs the
-                # providers in it rather than the whole breakdown. A batch holds whole providers:
-                # ISP_METRICS divides METRIC_QUERY_BATCH_SIZE, so none is split across two.
-                subjects = [plan.subjects[query["Id"]] for query in batch]
-                failed.update(subjects)
+                rejected.update(subjects)
                 logger.warning(
-                    "SES rejected a metric batch; dropping its providers",
-                    extra={"providers": sorted({subject.isp for subject in subjects})},
+                    "SES rejected a metric query; dropping the provider",
+                    extra={"provider": subjects[0].isp},
                 )
-                continue
-            for result in response.get("Results", []):
-                buckets = buckets_by_subject[plan.subjects[result["Id"]]]
-                # AWS documents Values as "cumulative / sum" without saying which, so this reads
-                # them as per-bucket counts. If they are running totals, summed deliveries overshoot
-                # sends and every provider pins to a 100% delivery rate against the clamp.
-                for timestamp, value in zip(result.get("Timestamps", []), result.get("Values", []), strict=False):
-                    buckets[timestamp.date().isoformat()] += value
-            for error in response.get("Errors", []):
-                subject = plan.subjects.get(error.get("Id", ""))
-                if subject is not None:
-                    failed.add(subject)
-                # A per-query failure leaves that metric at zero, which understates a rate rather
-                # than breaking the panel. Log it so a systematic failure stays visible. A
-                # malformed ISP name is different: SES fails the whole request, which the caller
-                # turns into an absent breakdown.
-                # "message" is reserved: LogRecord already has one, and passing it in `extra`
-                # raises KeyError inside makeRecord, turning a logged warning into a lost breakdown.
-                logger.warning(
-                    "SES metric query failed",
-                    extra={
-                        "query": subject,
-                        "code": error.get("Code"),
-                        "error_message": error.get("Message"),
-                    },
-                )
-        return IspMetricSeries(buckets=buckets_by_subject, failed=frozenset(failed))
+        return IspBatchAnswer(responses=tuple(responses), rejected=frozenset(rejected))
+
+    def _absorb_metric_response(
+        self,
+        response: Mapping[str, Any],
+        plan: IspQueryPlan,
+        buckets_by_subject: dict[IspMetric, dict[str, int]],
+        failed: set[IspMetric],
+    ) -> None:
+        """Fold one response into the running series, recording the queries it could not answer."""
+        for result in response.get("Results", []):
+            buckets = buckets_by_subject[plan.subjects[result["Id"]]]
+            # AWS documents Values as "cumulative / sum" without saying which, so this reads
+            # them as per-bucket counts. If they are running totals, summed deliveries overshoot
+            # sends and every provider pins to a 100% delivery rate against the clamp.
+            for timestamp, value in zip(result.get("Timestamps", []), result.get("Values", []), strict=False):
+                buckets[timestamp.date().isoformat()] += value
+        for error in response.get("Errors", []):
+            subject = plan.subjects.get(error.get("Id", ""))
+            if subject is not None:
+                failed.add(subject)
+            # A per-query failure leaves that metric at zero, which understates a rate rather
+            # than breaking the panel. Log it so a systematic failure stays visible. A malformed
+            # ISP name is different: SES rejects the request rather than the query, which
+            # _answer_metric_batch narrows down to the one provider it names.
+            # "message" is reserved: LogRecord already has one, and passing it in `extra`
+            # raises KeyError inside makeRecord, turning a logged warning into a lost breakdown.
+            logger.warning(
+                "SES metric query failed",
+                extra={
+                    "query": subject,
+                    "code": error.get("Code"),
+                    "error_message": error.get("Message"),
+                },
+            )

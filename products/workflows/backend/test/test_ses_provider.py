@@ -689,10 +689,11 @@ class TestGetIdentityIspMetrics(TestCase):
         # No delivery series means no trend to draw, rather than a line flat at zero.
         assert rows[0].daily == ()
 
-    def test_a_rejected_batch_drops_only_its_own_providers(self):
+    def test_a_provider_ses_rejects_does_not_take_its_batch_mates_with_it(self):
         # SES validates dimension values per request, so a name it will not accept fails every
-        # query sent with it. The whole call used to raise, which the endpoint turned into no
-        # breakdown at all, so one unusable provider name hid every usable one.
+        # query sent with it. Five metrics per provider means a ten-query batch carries two, and a
+        # subject is keyed by provider and metric with no domain, so failing the batch dropped a
+        # good provider from every domain rather than from the one request.
         def respond(Queries):
             if any(query["Dimensions"]["ISP"] == "Mail.ru" for query in Queries):
                 raise ClientError({"Error": {"Code": "BadRequestException"}}, "BatchGetMetricData")
@@ -706,13 +707,12 @@ class TestGetIdentityIspMetrics(TestCase):
         self.mock_client.batch_get_metric_data.side_effect = lambda Queries: respond(Queries)
 
         with self.assertLogs("products.workflows.backend.providers.ses", level="WARNING") as logs:
+            # Gmail shares the first batch with the name SES refuses; Yahoo sits in the second.
             rows = self.provider.get_identity_isp_metrics(
-                [TEST_DOMAIN], window_days=30, isps=["Gmail", "Yahoo", "Mail.ru"]
+                [TEST_DOMAIN], window_days=30, isps=["Gmail", "Mail.ru", "Yahoo"]
             )
 
-        assert any("SES rejected a metric batch" in line for line in logs.output)
-        # Five metrics per provider divide the ten-query batch, so the rejected name travels alone
-        # and the two that SES accepts still answer.
+        assert any("SES rejected a metric query" in line for line in logs.output)
         assert [row.isp for row in rows] == ["Gmail", "Yahoo"]
 
     def test_daily_series_skips_buckets_with_no_sends(self):
