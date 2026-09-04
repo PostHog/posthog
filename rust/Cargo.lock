@@ -2922,7 +2922,9 @@ name = "common-kafka-consumer"
 version = "0.1.0"
 dependencies = [
  "metrics",
+ "metrics-util",
  "rdkafka",
+ "tracing",
 ]
 
 [[package]]
