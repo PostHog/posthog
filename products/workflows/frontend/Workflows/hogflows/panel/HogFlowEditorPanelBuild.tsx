@@ -188,19 +188,27 @@ const TEMPLATE_IDS_AT_TOP_LEVEL: string[] = [
 function HogFlowEditorToolbarNode({
     action,
     onDragStart: onDragStartProp,
+    onActionSelect,
     children,
 }: {
     action: CreateActionType
     onDragStart?: (event: React.DragEvent) => void
+    onActionSelect?: (action: CreateActionType) => void
     children?: React.ReactNode
 }): JSX.Element | null {
-    const { setNodeToBeAdded } = useActions(hogFlowEditorLogic)
+    const { hideDropzones, setNodeToBeAdded, showDropzones } = useActions(hogFlowEditorLogic)
 
     const onDragStart = (event: React.DragEvent): void => {
         setNodeToBeAdded(action)
+        showDropzones()
         event.dataTransfer.setData('application/reactflow', action.type)
         event.dataTransfer.effectAllowed = 'move'
         onDragStartProp?.(event)
+    }
+
+    const onDragEnd = (): void => {
+        setNodeToBeAdded(null)
+        hideDropzones()
     }
 
     const step = useHogFlowStep(action as HogFlowAction)
@@ -210,11 +218,17 @@ function HogFlowEditorToolbarNode({
     }
 
     return (
-        <div draggable onDragStart={onDragStart}>
+        <div
+            draggable={!onActionSelect}
+            onDragStart={onActionSelect ? undefined : onDragStart}
+            onDragEnd={onActionSelect ? undefined : onDragEnd}
+        >
             <LemonButton
                 icon={<span style={{ color: step.color }}>{step.icon}</span>}
-                sideIcon={<IconDrag />}
+                sideIcon={onActionSelect ? undefined : <IconDrag />}
                 fullWidth
+                className="justify-start text-left hover:bg-fill-secondary"
+                onClick={onActionSelect ? () => onActionSelect(action) : undefined}
             >
                 {children ?? action.name}
             </LemonButton>
@@ -239,7 +253,11 @@ const customFilterFunction = (template: HogFunctionTemplateType): boolean => {
     return true
 }
 
-function HogFunctionTemplatesChooser(): JSX.Element {
+function HogFunctionTemplatesChooser({
+    onActionSelect,
+}: {
+    onActionSelect?: (action: CreateActionType) => void
+}): JSX.Element {
     const logic = hogFunctionTemplateListLogic({
         type: 'destination',
         customFilterFunction,
@@ -286,6 +304,7 @@ function HogFunctionTemplatesChooser(): JSX.Element {
                                                         : '',
                                                 config: { template_id: template.id, inputs: {} },
                                             }}
+                                            onActionSelect={onActionSelect}
                                         >
                                             <div className="py-1 flex items-center gap-1 flex-1">
                                                 <div className="flex-1">
@@ -310,7 +329,13 @@ function HogFunctionTemplatesChooser(): JSX.Element {
     )
 }
 
-export function HogFlowEditorPanelBuild(): JSX.Element {
+export function HogFlowEditorPanelBuild({
+    className,
+    onActionSelect,
+}: {
+    className?: string
+    onActionSelect?: (action: CreateActionType) => void
+} = {}): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
     const { isRowScopedTrigger } = useValues(workflowLogic)
@@ -327,15 +352,22 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
     const logicNodes = hideIfRowScoped(LOGIC_NODES_TO_SHOW)
 
     return (
-        <div className="flex overflow-y-auto flex-col gap-px p-2" data-attr="workflow-add-action">
-            <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
+        <div
+            className={`flex flex-col gap-1 overflow-y-auto p-3${className ? ` ${className}` : ''}`}
+            data-attr="workflow-add-action"
+        >
+            <span className="mt-2 flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted">
                 Dispatch <LemonDivider className="flex-1" />
             </span>
             {ACTION_NODES_TO_SHOW.map((node, index) => (
-                <HogFlowEditorToolbarNode key={`${node.type}-${index}`} action={node} />
+                <HogFlowEditorToolbarNode key={`${node.type}-${index}`} action={node} onActionSelect={onActionSelect} />
             ))}
             {featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS] && (
-                <HogFlowEditorToolbarNode key="push-notifications" action={PUSH_NOTIFICATION_ACTION_NODE}>
+                <HogFlowEditorToolbarNode
+                    key="push-notifications"
+                    action={PUSH_NOTIFICATION_ACTION_NODE}
+                    onActionSelect={onActionSelect}
+                >
                     <span className="inline-flex items-center gap-1.5">
                         {PUSH_NOTIFICATION_ACTION_NODE.name}
                         <LemonTag type="completion">Beta</LemonTag>
@@ -343,7 +375,7 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
                 </HogFlowEditorToolbarNode>
             )}
             {featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] && (
-                <HogFlowEditorToolbarNode key="ai-task" action={AI_TASK_ACTION_NODE}>
+                <HogFlowEditorToolbarNode key="ai-task" action={AI_TASK_ACTION_NODE} onActionSelect={onActionSelect}>
                     <span className="inline-flex items-center gap-1.5">
                         {AI_TASK_ACTION_NODE.name}
                         <LemonTag type="completion">Beta</LemonTag>
@@ -356,47 +388,67 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
             {featureFlags[FEATURE_FLAGS.WORKFLOW_RUN_SCOUT_ACTION] &&
                 !!currentTeam &&
                 currentTeam.id === currentTeam.project_id && (
-                    <HogFlowEditorToolbarNode key="run-scout" action={RUN_SCOUT_ACTION_NODE}>
+                    <HogFlowEditorToolbarNode
+                        key="run-scout"
+                        action={RUN_SCOUT_ACTION_NODE}
+                        onActionSelect={onActionSelect}
+                    >
                         <span className="inline-flex items-center gap-1.5">
                             {RUN_SCOUT_ACTION_NODE.name}
                             <LemonTag type="completion">Beta</LemonTag>
                         </span>
                     </HogFlowEditorToolbarNode>
                 )}
-            <HogFunctionTemplatesChooser />
+            <HogFunctionTemplatesChooser onActionSelect={onActionSelect} />
 
-            <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
+            <span className="mt-2 flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted">
                 Delays <LemonDivider className="flex-1" />
             </span>
             {delayNodes.map((action, index) => (
-                <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
+                <HogFlowEditorToolbarNode
+                    key={`${action.type}-${index}`}
+                    action={action}
+                    onActionSelect={onActionSelect}
+                />
             ))}
 
             {logicNodes.length > 0 && (
                 <>
-                    <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
+                    <span className="mt-2 flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted">
                         Audience split <LemonDivider className="flex-1" />
                     </span>
                     {logicNodes.map((action, index) => (
-                        <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
+                        <HogFlowEditorToolbarNode
+                            key={`${action.type}-${index}`}
+                            action={action}
+                            onActionSelect={onActionSelect}
+                        />
                     ))}
                 </>
             )}
 
-            <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
+            <span className="mt-2 flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted">
                 PostHog actions <LemonDivider className="flex-1" />
             </span>
             {POSTHOG_NODES_TO_SHOW.map((action, index) => (
-                <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
+                <HogFlowEditorToolbarNode
+                    key={`${action.type}-${index}`}
+                    action={action}
+                    onActionSelect={onActionSelect}
+                />
             ))}
 
             {registeredCategories.map((cat) => (
                 <Fragment key={cat.label}>
-                    <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
+                    <span className="mt-2 flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted">
                         {cat.label} <LemonDivider className="flex-1" />
                     </span>
                     {cat.nodes.map((action, index) => (
-                        <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
+                        <HogFlowEditorToolbarNode
+                            key={`${action.type}-${index}`}
+                            action={action}
+                            onActionSelect={onActionSelect}
+                        />
                     ))}
                 </Fragment>
             ))}
