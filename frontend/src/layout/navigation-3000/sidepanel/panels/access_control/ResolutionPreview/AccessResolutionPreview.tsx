@@ -5,6 +5,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonCollapse,
+    LemonDialog,
     LemonTable,
     LemonTableColumns,
     LemonTag,
@@ -13,6 +14,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { objectRuleUrl } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResourceAccessControlsV2/accessDetailLogic'
@@ -109,9 +111,25 @@ const sharedColumns: LemonTableColumns<ResolutionChange> = [
 ]
 
 export function AccessResolutionPreview(): JSX.Element {
-    const { preview, previewLoading, previewForbidden } = useValues(resolutionPreviewLogic)
-    const { loadPreview } = useActions(resolutionPreviewLogic)
+    const { preview, previewLoading, previewForbidden, acceptingResolution } = useValues(resolutionPreviewLogic)
+    const { loadPreview, acceptResolution } = useActions(resolutionPreviewLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { currentOrganization, isAdminOrOwner } = useValues(organizationLogic)
+    const alreadyEnabled = !!currentOrganization?.uses_most_specific_access_resolution
+
+    const confirmAccept = (): void => {
+        LemonDialog.open({
+            title: 'Switch to the most specific rule now?',
+            description:
+                'Access in every project of your organization will resolve with the most specific rule from now on. The changes listed here take effect right away.',
+            primaryButton: {
+                children: 'Switch now',
+                onClick: acceptResolution,
+                'data-attr': 'access-resolution-accept-confirm',
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
 
     if (previewLoading) {
         return <Spinner className="text-lg" />
@@ -276,22 +294,36 @@ export function AccessResolutionPreview(): JSX.Element {
                 )
             })}
 
-            <div className="flex items-center gap-2">
-                <LemonButton type="primary" disabledReason="Not available yet" data-attr="access-resolution-accept">
-                    Accept the new resolution
-                </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    onClick={() => openSupportForm({ kind: 'support' })}
-                    data-attr="access-resolution-keep-current"
-                >
-                    Keep current access
-                </LemonButton>
-                <span className="text-muted text-xs">
-                    Contact support to keep the current access for all members. We will adjust your rules so everyone's
-                    effective access stays the same.
-                </span>
-            </div>
+            {alreadyEnabled ? (
+                <LemonBanner type="success">
+                    The most specific rule already decides access for your organization.
+                </LemonBanner>
+            ) : (
+                <div className="flex items-center gap-2">
+                    <LemonButton
+                        type="primary"
+                        onClick={confirmAccept}
+                        loading={acceptingResolution}
+                        disabledReason={
+                            isAdminOrOwner ? undefined : 'Only organization admins can switch the resolution'
+                        }
+                        data-attr="access-resolution-accept"
+                    >
+                        Accept the new resolution
+                    </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => openSupportForm({ kind: 'support' })}
+                        data-attr="access-resolution-keep-current"
+                    >
+                        Keep current access
+                    </LemonButton>
+                    <span className="text-muted text-xs">
+                        Contact support to keep the current access for all members. We will adjust your rules so
+                        everyone's effective access stays the same.
+                    </span>
+                </div>
+            )}
         </div>
     )
 }
