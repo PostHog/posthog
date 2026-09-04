@@ -51,8 +51,8 @@ export interface observationShareLogicActions {
 export interface observationShareLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        shareUrl: (includeTime: boolean, time: string | null) => string
         timeError: (includeTime: boolean, time: string | null) => string | null
+        shareUrl: (includeTime: boolean, time: string | null) => string
     }
 }
 
