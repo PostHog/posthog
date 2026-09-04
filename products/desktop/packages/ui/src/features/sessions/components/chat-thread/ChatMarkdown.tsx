@@ -296,8 +296,13 @@ export const ChatStreamingMarkdown = memo(function ChatStreamingMarkdown({
   const blocks = useMemo(() => splitMarkdownBlocks(content), [content]);
   const lastIndex = blocks.length - 1;
 
+  // ph-no-capture: session replay records a DOM mutation per streamed token,
+  // and this subtree mutates every animation frame for the length of a turn.
+  // Blocking it keeps rrweb's mutation buffer off the streaming hot path; the
+  // completed message re-renders through ChatMarkdown outside this component,
+  // so the final content still reaches the replay.
   return (
-    <div className="flex flex-col gap-3 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+    <div className="ph-no-capture flex flex-col gap-3 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
       {blocks.map((block, index) => {
         const key = `b${index}`;
         const openFence = index === lastIndex ? parseOpenFence(block) : null;

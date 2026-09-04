@@ -70,11 +70,17 @@ export const AgentMessage = memo(function AgentMessage({
   return (
     <div className="group/msg relative pl-3 text-[13px] [&>*:last-child]:mb-0 [&_p]:leading-[1.9]">
       {isStreaming ? (
-        <StreamingMarkdown
-          content={smoothed}
-          renderObjectTags
-          componentsOverride={agentComponents}
-        />
+        // ph-no-capture: this subtree mutates every animation frame while the
+        // turn streams, which floods session replay's mutation buffer. The
+        // completed message renders through MarkdownRenderer below, so the
+        // final content still reaches the replay.
+        <div className="ph-no-capture">
+          <StreamingMarkdown
+            content={smoothed}
+            renderObjectTags
+            componentsOverride={agentComponents}
+          />
+        </div>
       ) : (
         <MarkdownRenderer
           content={content}

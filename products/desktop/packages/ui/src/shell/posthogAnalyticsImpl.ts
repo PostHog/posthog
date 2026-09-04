@@ -145,9 +145,16 @@ export function initializePostHog(sessionId?: string) {
     // canvases are xterm terminals (secrets show up as pixels, bypassing text
     // masking) and decorative WebGL (hedgehog, confetti). Capturing them costs
     // an image encode per canvas at canvasFps for the whole app lifetime.
+    // Network and console capture are pinned off for the same reason: this
+    // renderer lives for a whole workday and streams agent output, so any
+    // recorder feature the shared project turns on remotely accumulates in
+    // this process until the V8 heap limit, not for one page view.
     session_recording: {
       captureCanvas: { recordCanvas: false },
+      recordHeaders: false,
+      recordBody: false,
     },
+    enable_recording_console_log: false,
     // The shared analytics project runs many popover surveys aimed at the
     // PostHog web app; any one without URL/event conditions would render here
     // too. This app only submits survey responses through its own UI
