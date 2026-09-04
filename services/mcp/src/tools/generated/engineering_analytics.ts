@@ -216,11 +216,7 @@ const engineeringAnalyticsWorkflowJobs = (): ToolBase<
 const EngineeringAnalyticsWorkflowRunnerCostsSchema = () => {
     const EngineeringAnalyticsWorkflowRunnerCostsQueryParams =
         orvalSchemas.EngineeringAnalyticsWorkflowRunnerCostsQueryParams()
-    return EngineeringAnalyticsWorkflowRunnerCostsQueryParams.extend({
-        run_scope: EngineeringAnalyticsWorkflowRunnerCostsQueryParams.shape['run_scope'].describe(
-            'Which group of runs to report on. "default_branch" for master/main runs; "pull_request" for PR branches only (excludes default-branch and merge-queue runs; same-repo PRs only, since fork PRs carry no PR attribution); "merge_queue" for the gate runs the merge queue fired before a merge landed; omit or pass "all" for every run.'
-        ),
-    })
+    return EngineeringAnalyticsWorkflowRunnerCostsQueryParams
 }
 
 const engineeringAnalyticsWorkflowRunnerCosts = (): ToolBase<
@@ -310,9 +306,6 @@ const WorkflowHealthSchema = () => {
         ),
         date_to: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_to'].describe(
             'Window end — relative or ISO8601. Defaults to now.'
-        ),
-        run_scope: EngineeringAnalyticsWorkflowHealthQueryParams.shape['run_scope'].describe(
-            'Which group of runs to report on. "default_branch" for master/main runs; "pull_request" for PR branches only (excludes default-branch and merge-queue runs; same-repo PRs only, since fork PRs carry no PR attribution); "merge_queue" for the gate runs the merge queue fired before a merge landed; omit or pass "all" for every run.'
         ),
     })
 }

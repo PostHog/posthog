@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import type { GitHubSourceApi, WorkflowHealthItemApi } from '../generated/api.schemas'
+import { workflowHealthItem } from '../lib/storyFixtures'
 
 const SOURCES: GitHubSourceApi[] = [{ id: 'src-1', repo: 'PostHog/posthog', prefix: '' }]
 
@@ -18,8 +19,7 @@ function healthItem(
     failing: boolean = false
 ): WorkflowHealthItemApi {
     const settled = successRate !== null
-    return {
-        repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
+    return workflowHealthItem({
         workflow_name: workflowName,
         run_count: runCount,
         successful_run_count: settled ? Math.round(runCount * successRate) : 0,
@@ -32,8 +32,6 @@ function healthItem(
         latest_run_failed: settled ? failing : null,
         latest_run_conclusion: settled ? (failing ? 'failure' : 'success') : null,
         latest_run_id: settled ? 900000 + runCount : null,
-        latest_run_attempt: 1,
-        granularity: 'day',
         billable_minutes: runCount * 9,
         estimated_cost_usd: runCount * 0.6,
         rerun_cycles: failing ? 14 : 2,
@@ -45,7 +43,7 @@ function healthItem(
             successes: settled ? Math.round((runCount / 7) * successRate) : 0,
             failures: failing && day % 2 === 0 ? 3 : 0,
         })),
-    }
+    })
 }
 
 // The list's whole ordering space: gating workflows the merge queue runs (one of them failing), busier

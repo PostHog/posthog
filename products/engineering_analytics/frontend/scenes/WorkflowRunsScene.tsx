@@ -22,7 +22,7 @@ import { JobAggregatesTable } from '../components/JobAggregatesTable'
 import { MetricTile } from '../components/MetricTile'
 import { RunActivityChart } from '../components/RunActivityChart'
 import { RunConclusionTag } from '../components/runTables'
-import { RepoScopeChip, RunScopeControl, ScopeBar, ScopeDateFilter, WorkflowScopeChip } from '../components/ScopeBar'
+import { RepoScopeChip, ScopeBar, WorkflowScopeChip, WorkflowScopeControls } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
@@ -82,6 +82,8 @@ export const scene: SceneExport<WorkflowRunsLogicProps> = {
     }),
 }
 
+const refreshing = (loading: boolean, rows: unknown[]): boolean => loading && rows.length > 0
+
 export function WorkflowRunsScene(): JSX.Element {
     const {
         runRows,
@@ -113,13 +115,10 @@ export function WorkflowRunsScene(): JSX.Element {
     const githubUrl = githubWorkflowUrl(repoOwner, repoName, workflowName)
     // The rim spinner means "these numbers are updating", so each read only counts once it has data on
     // screen to update. A first load shows the sections' own skeletons instead.
-    const healthBusy = runActivityLoading && activityRuns.length > 0
-    const costBusy = runnerCostsLoading && runnerCosts.length > 0
+    const healthBusy = refreshing(runActivityLoading, activityRuns)
+    const costBusy = refreshing(runnerCostsLoading, runnerCosts)
     const panelBusy =
-        (runsLoading && runRows.length > 0) ||
-        healthBusy ||
-        costBusy ||
-        (jobAggregatesLoading && jobAggregates.length > 0)
+        refreshing(runsLoading, runRows) || healthBusy || costBusy || refreshing(jobAggregatesLoading, jobAggregates)
     // Master's own verdict when the window has master runs; the overall fleet state otherwise.
     const verdictPill =
         masterConclusion != null ? (
@@ -322,15 +321,7 @@ export function WorkflowRunsScene(): JSX.Element {
                 right={verdictPill}
             />
             {/* Same window + run scope as the repo hub, so numbers match after drilling in. */}
-            <ScopePanel
-                busy={panelBusy}
-                controls={
-                    <>
-                        <RunScopeControl />
-                        <ScopeDateFilter />
-                    </>
-                }
-            >
+            <ScopePanel busy={panelBusy} controls={<WorkflowScopeControls />}>
                 <div className="flex flex-wrap gap-2.5">
                     <MetricTile
                         label="Pass rate"

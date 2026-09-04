@@ -295,13 +295,6 @@ tools:
             estimated_cost_usd. Use this for "which runner tier drives this workflow's CI bill" and to spot oversized
             runners. Billable self-hosted Linux tiers carry a cost; github-hosted and non-Linux rows are null. Returns
             an empty list when the job-level source isn't synced yet.
-        param_overrides:
-            run_scope:
-                description: >
-                    Which group of runs to report on. "default_branch" for master/main runs; "pull_request" for PR
-                    branches only (excludes default-branch and merge-queue runs; same-repo PRs only, since fork PRs
-                    carry no PR attribution); "merge_queue" for the gate runs the merge queue fired before a merge
-                    landed; omit or pass "all" for every run.
         feature_flag: engineering-analytics
     engineering-analytics-workflow-runs:
         operation: engineering_analytics_workflow_runs
@@ -377,11 +370,5 @@ tools:
                 description: Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h.
             date_to:
                 description: Window end — relative or ISO8601. Defaults to now.
-            run_scope:
-                description: >
-                    Which group of runs to report on. "default_branch" for master/main runs; "pull_request" for PR
-                    branches only (excludes default-branch and merge-queue runs; same-repo PRs only, since fork PRs
-                    carry no PR attribution); "merge_queue" for the gate runs the merge queue fired before a merge
-                    landed; omit or pass "all" for every run.
         feature_flag: engineering-analytics
         url_prefix: /engineering-analytics/workflows

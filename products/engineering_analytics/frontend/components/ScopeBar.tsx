@@ -206,7 +206,7 @@ export function WorkflowScopeChip({
 
 const RUN_SCOPE_SEGMENTS = RUN_SCOPE_OPTIONS.map((option) => ({
     ...option,
-    'data-attr': 'engineering-analytics-run-scope',
+    'data-attr': `engineering-analytics-run-scope-${option.value}`,
 }))
 
 /** The shared run-scope control: four fixed groups that partition the repo's runs. Every workflow
@@ -242,6 +242,16 @@ export function ScopeDateFilter(): JSX.Element {
             dateOptions={SCOPE_DATE_OPTIONS}
             size="small"
         />
+    )
+}
+
+/** The scope-panel rim both workflow pages share: run group on the left, window on the right. */
+export function WorkflowScopeControls(): JSX.Element {
+    return (
+        <>
+            <RunScopeControl />
+            <ScopeDateFilter />
+        </>
     )
 }
 

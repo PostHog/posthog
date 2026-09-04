@@ -7,7 +7,7 @@ import { LemonButton, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { RepoEntityHeader } from '../components/EntityHeader'
-import { RunScopeControl, ScopeDateFilter, SourceScopeChip } from '../components/ScopeBar'
+import { SourceScopeChip, WorkflowScopeControls } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
 import { WorkflowsHealthHeader } from '../components/WorkflowsHealthHeader'
@@ -44,15 +44,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
             <RepoEntityHeader repoFullName={activeSource?.repo || ''} right={<SourceScopeChip pickerOnly />} />
 
             {/* Scope + window govern every surface inside the panel, the same scope the overview carries. */}
-            <ScopePanel
-                busy={workflowHealthLoading && workflowHealth.length > 0}
-                controls={
-                    <>
-                        <RunScopeControl />
-                        <ScopeDateFilter />
-                    </>
-                }
-            >
+            <ScopePanel busy={workflowHealthLoading && workflowHealth.length > 0} controls={<WorkflowScopeControls />}>
                 <WorkflowsHealthHeader
                     summary={fleetSummary}
                     truncated={fleetTruncated}

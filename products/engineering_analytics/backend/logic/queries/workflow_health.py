@@ -356,8 +356,9 @@ def query_workflow_health(
     # Under an active branch or scope filter the main query's merge-queue count answers the filtered
     # population, which cannot rank workflows: under merge_queue every row would look gating, under
     # pull_request none would. So read the count from an unfiltered scan of the same window instead.
-    gating_by_workflow: dict[tuple[str, str, str], int] | None = None
-    if branch_clause or run_scope_clause:
+    scoped = bool(branch_clause or run_scope_clause)
+    gating_by_workflow: dict[tuple[str, str, str], int] = {}
+    if scoped:
         gating_response = curated.run(
             fill(_GATING_SELECT),
             query_type="engineering_analytics.workflow_health_gating",
@@ -409,7 +410,7 @@ def query_workflow_health(
             success_rate_prev=prev_rate_by_workflow.get((repo_owner, repo_name, workflow_name)),
             merge_queue_run_count=(
                 gating_by_workflow.get((repo_owner, repo_name, workflow_name), 0)
-                if gating_by_workflow is not None
+                if scoped
                 else int(merge_queue_run_count or 0)
             ),
         )

@@ -14,6 +14,7 @@ import type {
     WorkflowRunDetailApi,
     WorkflowRunnerCostApi,
 } from '../generated/api.schemas'
+import { workflowHealthItem } from '../lib/storyFixtures'
 
 const SOURCES: GitHubSourceApi[] = [{ id: 'src-1', repo: 'PostHog/posthog', prefix: '' }]
 
@@ -136,28 +137,23 @@ const JOB_AGGREGATES: WorkflowJobAggregateApi[] = [
 
 // Only the workflow-switcher dropdown reads this, and it loads on first open.
 const WORKFLOW_HEALTH: WorkflowHealthItemApi[] = ['Backend CI', 'Frontend CI', 'E2E - Playwright'].map(
-    (workflowName): WorkflowHealthItemApi => ({
-        repo: REPO,
-        workflow_name: workflowName,
-        run_count: 312,
-        successful_run_count: 292,
-        conclusive_run_count: 306,
-        success_rate: 0.95,
-        success_rate_prev: 0.93,
-        p50_seconds: 1440,
-        p95_seconds: 2180,
-        last_failure_at: '2026-07-01T11:12:00Z',
-        latest_run_failed: false,
-        latest_run_conclusion: 'success',
-        latest_run_id: 880190,
-        latest_run_attempt: 1,
-        granularity: 'day',
-        billable_minutes: 2140,
-        estimated_cost_usd: 61.4,
-        rerun_cycles: 4,
-        merge_queue_run_count: 148,
-        buckets: [],
-    })
+    (workflowName): WorkflowHealthItemApi =>
+        workflowHealthItem({
+            workflow_name: workflowName,
+            run_count: 312,
+            successful_run_count: 292,
+            conclusive_run_count: 306,
+            success_rate_prev: 0.93,
+            p50_seconds: 1440,
+            p95_seconds: 2180,
+            last_failure_at: '2026-07-01T11:12:00Z',
+            latest_run_id: 880190,
+            billable_minutes: 2140,
+            estimated_cost_usd: 61.4,
+            rerun_cycles: 4,
+            merge_queue_run_count: 148,
+            buckets: [],
+        })
 )
 
 const meta: Meta = {
