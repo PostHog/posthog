@@ -199,6 +199,16 @@ class ExperimentBreakdownAttributionQueryBuilder:
         user count) are relabeled to BREAKDOWN_OTHER_STRING_LABEL before the final GROUP BY,
         capping output cardinality. The relabel collapses the whole tuple together so all
         breakdown columns of an "Other" row carry the Other label.
+
+        Integration should measure the top-N read cost. The same membership subquery is inlined
+        once per breakdown column, and ClickHouse re-evaluates an unmaterialized CTE at each
+        reference, so N breakdowns plus the outer read scan entity_metrics N+1 times (the runner
+        caps N at 3, so up to 4). On the optimized funnel path entity_metrics is the single events
+        scan that path exists to compute once. Two fixes, both needing a real experiment timing:
+        materialize entity_metrics (trades the repeated scan for holding one row per exposed user),
+        or compute the membership flag once in a select that wraps the outer query. The wrap cannot
+        happen here, because the funnel query builder keeps editing the final SELECT after
+        injection (step counts, maturity HAVING), so it belongs in the caller that wires this in.
         """
         # Membership test against the top-N set. Single breakdown compares the scalar value
         # directly; multiple breakdowns compare the value tuple element-wise.
