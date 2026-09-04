@@ -4,12 +4,12 @@ when configured, else the Python LLM gateway."""
 from typing import Any, Literal
 
 import structlog
-from openai import APIConnectionError, APIError, APIStatusError, InternalServerError, Omit, OpenAI, RateLimitError, omit
+from openai import APIError, Omit, OpenAI, omit
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from rest_framework import exceptions
 
 from posthog.llm.gateway_client import build_openai_client, team_distinct_id
-from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS
+from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS, is_flex_recoverable
 
 from ..constants import SUMMARIZATION_FLEX_TIMEOUT, SUMMARIZATION_TIMEOUT
 from ..models import OpenAIModel, SummarizationMode
@@ -21,21 +21,6 @@ logger = structlog.get_logger(__name__)
 
 def _is_gpt5_model(model: OpenAIModel) -> bool:
     return str(model).startswith("gpt-5")
-
-
-def _is_flex_recoverable(error: APIError) -> bool:
-    """Whether a failed flex attempt should retry on the standard tier.
-
-    Recoverable: a capacity refusal (429), a connection reset or client timeout
-    (APIConnectionError covers its APITimeoutError subclass), any 5xx (the ai-gateway answers
-    504 at its buffered-response ceiling), and 408, which OpenAI's flex docs use for a
-    server-side flex timeout and the SDK raises as the bare APIStatusError. Anything else
-    (400 bad request, auth errors) is a configuration problem the standard tier shares, so it
-    propagates instead of masking itself behind a fallback.
-    """
-    if isinstance(error, RateLimitError | APIConnectionError | InternalServerError):
-        return True
-    return isinstance(error, APIStatusError) and error.status_code == 408
 
 
 # Strict json_schema keeps the model's output parseable by SummarizationResponse without a
@@ -103,9 +88,9 @@ def summarize_with_openai(
                 response = _create(client.with_options(max_retries=0), "flex", SUMMARIZATION_FLEX_TIMEOUT)
             except APIError as flex_error:
                 # Flex runs on spare provider capacity, so the attempt can fail in several
-                # documented ways; _is_flex_recoverable names them. Retry once at the standard
+                # documented ways; is_flex_recoverable names them. Retry once at the standard
                 # tier so the window gets its summary.
-                if not _is_flex_recoverable(flex_error):
+                if not is_flex_recoverable(flex_error):
                     raise
                 logger.info(
                     "summarization_flex_fell_back",

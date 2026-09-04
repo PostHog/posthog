@@ -18,9 +18,9 @@ from posthog.temporal.ai_observability.trace_clustering.constants import NOISE_C
 from posthog.temporal.ai_observability.trace_clustering.models import ClusterLabel
 
 # Per-call timeouts, capped so no single call can outlive the 600s labeling activity: flex
-# 120s x 3 attempts (the SDK retries recover a flex capacity refusal), standard 240s x 2
-# attempts. The ai-gateway cuts non-streaming calls at ~290s anyway, so longer client
-# timeouts are unreachable.
+# 120s x 1 attempt (a recoverable flex failure retries once on the standard tier with the
+# standard timeout, instead of re-rolling flex), standard 240s x 2 attempts. The ai-gateway
+# cuts non-streaming calls at ~290s anyway, so longer client timeouts are unreachable.
 LABELING_FLEX_CALL_TIMEOUT = 120.0
 LABELING_STANDARD_CALL_TIMEOUT = 240.0
 
@@ -43,10 +43,11 @@ def get_labeling_llm(
     guardrail as before: AI features only run in Cloud or local DEBUG builds.
 
     Labeling runs as a daily batch, so allowlisted models request the flex
-    service tier for half-price tokens. The SDK's retries recover transient
-    flex refusals; a run that still fails falls to the callers' default labels
-    and the next day's batch. Rolling flex back is a one-line revert plus a
-    deploy, matching the summarization rollout's trade-off.
+    service tier for half-price tokens. A recoverable flex failure retries that
+    one call on the standard tier (``FlexFirstChatOpenAI``), so the agent keeps
+    its completed turns; the SDK's own retries are off on flex because they
+    would re-roll the refused tier. Rolling flex back is a one-line revert plus
+    a deploy, matching the summarization rollout's trade-off.
     """
     use_flex = flex and model in FLEX_CAPABLE_MODELS
     return build_langchain_chat_client(
@@ -58,7 +59,8 @@ def get_labeling_llm(
         properties=properties,
         distinct_id=distinct_id,
         service_tier="flex" if use_flex else None,
-        max_retries=2 if use_flex else 1,
+        max_retries=0 if use_flex else 1,
+        flex_fallback_timeout=LABELING_STANDARD_CALL_TIMEOUT if use_flex else None,
     )
 
 

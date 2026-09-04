@@ -1,4 +1,6 @@
-"""Which OpenAI models may request the flex service tier."""
+"""Which OpenAI models may request the flex service tier, and which failures escalate off it."""
+
+from openai import APIConnectionError, APIError, APIStatusError, InternalServerError, RateLimitError
 
 # OpenAI decides flex eligibility per model, and the pro tiers are excluded, so callers must
 # check membership here rather than infer it from a model family prefix. This mirrors the flex
@@ -22,3 +24,18 @@ FLEX_CAPABLE_MODELS: frozenset[str] = frozenset(
         "o4-mini",
     }
 )
+
+
+def is_flex_recoverable(error: APIError) -> bool:
+    """Whether a failed flex attempt should retry on the standard tier.
+
+    Recoverable: a capacity refusal (429), a connection reset or client timeout
+    (APIConnectionError covers its APITimeoutError subclass), any 5xx (the ai-gateway answers
+    504 at its buffered-response ceiling), and 408, which OpenAI's flex docs use for a
+    server-side flex timeout and the SDK raises as the bare APIStatusError. Anything else
+    (400 bad request, auth errors) is a configuration problem the standard tier shares, so it
+    propagates instead of masking itself behind a fallback.
+    """
+    if isinstance(error, RateLimitError | APIConnectionError | InternalServerError):
+        return True
+    return isinstance(error, APIStatusError) and error.status_code == 408

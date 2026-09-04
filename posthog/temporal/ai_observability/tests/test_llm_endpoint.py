@@ -3,14 +3,18 @@
 import json
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
+import httpx
+import openai
+from openai import APIStatusError, APITimeoutError, InternalServerError, RateLimitError
 from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.ai_observability.llm_endpoint import (
     AI_FEATURES_CLOUD_ONLY_ERROR_TYPE,
+    FlexFirstChatOpenAI,
     build_langchain_callbacks,
     build_langchain_chat_client,
 )
@@ -88,7 +92,7 @@ class TestBuildOpenAIChatClient:
 
     @override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY)
     def test_gateway_mode_tags_ai_product_via_posthog_properties_header(self):
-        with patch("posthog.temporal.ai_observability.llm_endpoint.ChatOpenAI") as mock_chat:
+        with patch("posthog.temporal.ai_observability.llm_endpoint.FlexFirstChatOpenAI") as mock_chat:
             build_langchain_chat_client(
                 "gpt-5.4",
                 600.0,
@@ -117,7 +121,7 @@ class TestBuildOpenAIChatClient:
 
     @override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY)
     def test_gateway_mode_without_ai_product_omits_header(self):
-        with patch("posthog.temporal.ai_observability.llm_endpoint.ChatOpenAI") as mock_chat:
+        with patch("posthog.temporal.ai_observability.llm_endpoint.FlexFirstChatOpenAI") as mock_chat:
             build_langchain_chat_client("gpt-5.4", 600.0)
 
         assert mock_chat.call_args.kwargs["default_headers"] is None
@@ -222,10 +226,111 @@ class TestBuildOpenAIChatClient:
                 "gpt-5.4", 600.0, trace_id="t", session_id="s", properties={}, distinct_id="d", flex=False
             )
 
-        # Flex: 120s x 3 attempts = 360s; standard: 240s x 2 = 480s. Both fit the 600s
-        # activity budget, where the old 600s x 3 attempts per call could not.
+        # Flex: 120s x 1 attempt (the standard rerun is the retry); standard: 240s x 2 = 480s.
+        # Both fit the 600s activity budget, where the old 600s x 3 attempts per call could not.
         assert flex_client.request_timeout == LABELING_FLEX_CALL_TIMEOUT
-        assert flex_client.max_retries == 2
+        assert flex_client.max_retries == 0
         assert standard_client.service_tier is None
         assert standard_client.request_timeout == LABELING_STANDARD_CALL_TIMEOUT
         assert standard_client.max_retries == 1
+
+
+_FLEX_REQUEST = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+
+_COMPLETION = {
+    "id": "chatcmpl-1",
+    "object": "chat.completion",
+    "created": 1,
+    "model": "gpt-5.4",
+    "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "labeled"}}],
+    "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+}
+
+
+def _flex_client(service_tier: str | None = "flex") -> FlexFirstChatOpenAI:
+    return FlexFirstChatOpenAI(
+        model="gpt-5.4",
+        api_key="sk-test",
+        max_retries=0,
+        service_tier=service_tier,
+        flex_fallback_timeout=240.0,
+    )
+
+
+def _mock_create(*results: object) -> MagicMock:
+    """Mock client.with_raw_response.create: raise exceptions as-is, wrap dicts as raw responses."""
+
+    def to_side_effect(result: object) -> object:
+        if isinstance(result, Exception):
+            return result
+        raw = MagicMock()
+        raw.parse.return_value = result
+        raw.headers = {}
+        return raw
+
+    create = MagicMock(side_effect=[to_side_effect(result) for result in results])
+    client = MagicMock()
+    client.with_raw_response.create = create
+    return client
+
+
+class TestFlexFirstChatOpenAI:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            RateLimitError("capacity refused", response=httpx.Response(429, request=_FLEX_REQUEST), body=None),
+            APIStatusError("flex timeout", response=httpx.Response(408, request=_FLEX_REQUEST), body=None),
+            InternalServerError("gateway 504", response=httpx.Response(504, request=_FLEX_REQUEST), body=None),
+            APITimeoutError(request=_FLEX_REQUEST),
+        ],
+    )
+    def test_recoverable_flex_failure_retries_that_call_on_standard(self, error):
+        llm = _flex_client()
+        llm.client = _mock_create(error, _COMPLETION)
+
+        result = llm.invoke("label the clusters")
+
+        assert result.content == "labeled"
+        first, second = llm.client.with_raw_response.create.call_args_list
+        assert first.kwargs["service_tier"] == "flex"
+        # The fallback re-issues only the failing call, on standard with the standard budget.
+        assert second.kwargs["service_tier"] == "default"
+        assert second.kwargs["timeout"] == 240.0
+
+    def test_non_recoverable_error_propagates_without_fallback(self):
+        llm = _flex_client()
+        llm.client = _mock_create(
+            openai.BadRequestError("bad request", response=httpx.Response(400, request=_FLEX_REQUEST), body=None)
+        )
+
+        with pytest.raises(openai.BadRequestError):
+            llm.invoke("label the clusters")
+
+        assert llm.client.with_raw_response.create.call_count == 1
+
+    def test_standard_client_never_falls_back(self):
+        llm = _flex_client(service_tier=None)
+        llm.client = _mock_create(
+            RateLimitError("rate limited", response=httpx.Response(429, request=_FLEX_REQUEST), body=None)
+        )
+
+        with pytest.raises(RateLimitError):
+            llm.invoke("label the clusters")
+
+        assert llm.client.with_raw_response.create.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_async_path_falls_back_too(self):
+        llm = _flex_client()
+        flex_raw = RateLimitError("capacity refused", response=httpx.Response(429, request=_FLEX_REQUEST), body=None)
+        standard_raw = MagicMock()
+        standard_raw.parse.return_value = _COMPLETION
+        standard_raw.headers = {}
+        create = AsyncMock(side_effect=[flex_raw, standard_raw])
+        llm.async_client = MagicMock()
+        llm.async_client.with_raw_response.create = create
+
+        result = await llm.ainvoke("label the clusters")
+
+        assert result.content == "labeled"
+        assert create.call_args_list[1].kwargs["service_tier"] == "default"
