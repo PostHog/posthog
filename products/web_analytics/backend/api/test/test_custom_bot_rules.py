@@ -1,3 +1,4 @@
+from posthog.models.organization import OrganizationMembership
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
@@ -5,8 +6,27 @@ from rest_framework import status
 
 
 class TestCustomBotRulesAPI(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # A rule is stored on the admin-only `modifiers` setting, so mutating it needs project admin.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
     def _url(self, suffix: str = "") -> str:
         return f"/api/projects/{self.team.id}/web_analytics_bot_rules/{suffix}"
+
+    def test_non_admin_cannot_mutate_but_can_list(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        create = self.client.post(
+            self._url(),
+            {"name": "Acme", "key": "$raw_user_agent", "matcher": "contains", "pattern": "AcmeBot"},
+        )
+        assert create.status_code == status.HTTP_403_FORBIDDEN, create.json()
+        assert self.client.delete(self._url("any-id/")).status_code == status.HTTP_403_FORBIDDEN
+        # Reading the rules is not gated.
+        assert self.client.get(self._url()).status_code == status.HTTP_200_OK
 
     def test_create_list_and_delete_round_trip(self) -> None:
         create = self.client.post(

@@ -1,15 +1,19 @@
 from typing import Any
 from uuid import uuid4
 
+from django.db import transaction
+
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import CustomBotDefinition
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models import Team
+from posthog.models.organization import OrganizationMembership
 
 from products.web_analytics.backend.hogql_queries.custom_bot_definitions import (
     CIDR_MATCHER,
@@ -65,12 +69,21 @@ class CustomBotRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def _definitions(self) -> list[dict[str, Any]]:
         return list((self.team.modifiers or {}).get("customBotDefinitions") or [])
 
-    def _save(self, definitions: list[dict[str, Any]]) -> None:
+    def _require_project_admin(self) -> None:
+        # A rule reshapes bot classification across the whole project, and it is stored on the
+        # admin-only `modifiers` team setting, so mutating it must not be reachable by a plain
+        # editor. This matches the team API's gate on `modifiers` and the path-cleaning endpoint.
+        level = self.user_permissions.team(self.team).effective_membership_level
+        if level is None or level < OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("Only project admins can change bot rules.")
+
+    @staticmethod
+    def _save(team: Team, definitions: list[dict[str, Any]]) -> None:
         # Merge so replacing the rules never wipes another modifier the team relies on.
-        modifiers = dict(self.team.modifiers or {})
+        modifiers = dict(team.modifiers or {})
         modifiers["customBotDefinitions"] = definitions
-        self.team.modifiers = modifiers
-        self.team.save(update_fields=["modifiers"])
+        team.modifiers = modifiers
+        team.save(update_fields=["modifiers"])
 
     @extend_schema(
         operation_id="web_analytics_bot_rules_list",
@@ -89,13 +102,11 @@ class CustomBotRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={201: CustomBotRuleSerializer},
     )
     def create(self, request: Request, **kwargs: Any) -> Response:
+        self._require_project_admin()
+
         serializer = CustomBotRuleSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-
-        definitions = self._definitions()
-        if len(definitions) >= MAX_CUSTOM_BOT_DEFINITIONS:
-            raise ValidationError(f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots.")
 
         rule = {
             "id": str(uuid4()),
@@ -107,6 +118,8 @@ class CustomBotRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if data.get("category"):
             rule["category"] = data["category"]
 
+        # Validate (and probe ClickHouse) before locking, so the row lock is held only for the
+        # read-check-write and never across the ClickHouse round trip.
         try:
             definition = CustomBotDefinition(**rule)
             validate_definition(definition)
@@ -114,7 +127,15 @@ class CustomBotRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except ValueError as error:
             raise ValidationError(str(error))
 
-        self._save([*definitions, rule])
+        # Lock and reload the team so a concurrent create can neither drop the other's rule nor
+        # slip past the cap through a stale read of `modifiers`.
+        with transaction.atomic():
+            team = Team.objects.select_for_update().get(pk=self.team.pk)
+            definitions = list((team.modifiers or {}).get("customBotDefinitions") or [])
+            if len(definitions) >= MAX_CUSTOM_BOT_DEFINITIONS:
+                raise ValidationError(f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots.")
+            self._save(team, [*definitions, rule])
+
         return Response(rule, status=201)
 
     @extend_schema(
@@ -124,9 +145,14 @@ class CustomBotRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={204: None},
     )
     def destroy(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
-        definitions = self._definitions()
-        remaining = [definition for definition in definitions if definition.get("id") != pk]
-        if len(remaining) == len(definitions):
-            raise NotFound("No such bot rule.")
-        self._save(remaining)
+        self._require_project_admin()
+
+        with transaction.atomic():
+            team = Team.objects.select_for_update().get(pk=self.team.pk)
+            definitions = list((team.modifiers or {}).get("customBotDefinitions") or [])
+            remaining = [definition for definition in definitions if definition["id"] != pk]
+            if len(remaining) == len(definitions):
+                raise NotFound("No such bot rule.")
+            self._save(team, remaining)
+
         return Response(status=204)
