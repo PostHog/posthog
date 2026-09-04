@@ -482,9 +482,9 @@ class InsightBasicSerializer(
         else:
             representation.pop("dashboards", None)
 
-        if instance.query is not None or instance.query_from_filters is not None:
+        if instance.query is not None:
             representation["filters"] = {}
-            representation["query"] = instance.query or instance.query_from_filters
+            representation["query"] = instance.query
         else:
             filters = instance.dashboard_filters()
             representation["filters"] = filters
@@ -1237,10 +1237,10 @@ class InsightSerializer(InsightBasicSerializer):
             tile_filters_override_requested_by_client(request, dashboard_tile, is_shared=is_shared) if request else {}
         )
 
-        if instance.query is not None or instance.query_from_filters is not None:
+        if instance.query is not None:
             # Upgrade before applying dashboard filters: the stored query may predate the current
             # schema, and apply_dashboard_filters_to_dict validates against the latest one
-            query = upgrade(instance.query or instance.query_from_filters)
+            query = upgrade(instance.query)
             if (
                 dashboard is not None
                 or dashboard_filters_override is not None

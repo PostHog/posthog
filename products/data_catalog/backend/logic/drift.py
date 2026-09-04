@@ -25,8 +25,8 @@ def canonical_query_hash(query: dict) -> str:
 
 
 def effective_insight_query(insight: Insight) -> Optional[dict]:
-    """The insight's query, converting legacy ``filters``-only insights via query_from_filters."""
-    return insight.query or insight.query_from_filters
+    """The insight's query."""
+    return insight.query
 
 
 def fetch_insight(team_id: int, short_id: str, *, include_deleted: bool = False) -> Optional[Insight]:
