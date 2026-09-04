@@ -16,7 +16,12 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { billingErrorGuidance, currencyFormatter, getSpendTypeOptions } from './billing-utils'
+import {
+    billingErrorGuidance,
+    currencyFormatter,
+    getSpendTypeOptions,
+    selectionCoversEveryProject,
+} from './billing-utils'
 import { BillingChart } from './BillingChart'
 import { BillingDataTable } from './BillingDataTable'
 import { BillingEarlyAccessBanner } from './BillingEarlyAccessBanner'
@@ -246,12 +251,16 @@ export function BillingSpendView(): JSX.Element {
                             </LemonButton>
                             {/* Not gated on the chart having loaded: the file is built on the server from the same
                                 filters, and it is what the guidance offers when the chart times out or is too large.
-                                Two files, because the chart's cap is not a filter: "every project" is the data for the
-                                period, "the chart's series" is what is drawn. */}
+                                Two files, because the chart's cap is not a filter: the first is the data for the period
+                                under the page's filters, "the chart's series" is what is drawn. */}
                             <LemonMenu
                                 items={[
                                     {
-                                        label: 'Every project in this period',
+                                        label:
+                                            filters.team_ids?.length &&
+                                            !selectionCoversEveryProject(filters.team_ids, teamOptions)
+                                                ? `Selected projects in this period (${filters.team_ids.length})`
+                                                : 'All projects in this period',
                                         onClick: () => window.location.assign(spendExportUrl),
                                     },
                                     filters.breakdowns?.includes('team') && filters.top_projects
