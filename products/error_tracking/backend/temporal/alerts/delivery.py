@@ -83,6 +83,7 @@ class AlertThreadBusyError(Exception):
 
 
 ALERT_THROTTLE_KEY_PREFIX = "error_tracking:alert_throttle:v1"
+_RELEASE_IF_HELD = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0"
 MAX_RECORDED_ERROR_LENGTH = 500
 
 
@@ -199,6 +200,13 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
     planned = plan_alert_deliveries(inputs)
     filter_matches = _opener_filter_matches(planned, inputs)
     throttle_allowed: dict = {}
+    # Throttled alerts with an opener in this run, minus those that rooted a
+    # conversation or are still owed a retry: the rest give their window back at
+    # the end. Openers re-rooting an unrooted row count too, so a retry that
+    # turns terminal releases the window its first attempt claimed.
+    throttled_openers: dict = {}
+    rooted: set = set()
+    retrying: set = set()
     delivered = 0
     failures = 0
     retry_after = timedelta(0)
@@ -214,6 +222,8 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
                 # A filtered-out opener leaves no thread behind, so later replies for
                 # this issue stay unclaimed and a matching opener can still root one.
                 continue
+        if delivery.is_opener and delivery.alert.throttle_seconds > 0:
+            throttled_openers.setdefault(delivery.alert.id, delivery.alert)
         if delivery.is_opener and delivery.thread is None:
             # The throttle window is claimed only for openers that would start a
             # new conversation, once per alert; every destination of the alert
@@ -228,6 +238,8 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
         try:
             if _deliver_one(delivery, inputs):
                 delivered += 1
+                if delivery.is_opener:
+                    rooted.add(delivery.alert.id)
         except AlertThreadBusyError:
             # Expected contention, not a fault: the retry lands as a reply once the
             # holder has saved its root.
@@ -240,6 +252,7 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
                 notification_id=inputs.notification_id,
             )
             failures += 1
+            retrying.add(delivery.alert.id)
         except SlackApiError as error:
             code = _slack_error_code(error)
             _record_delivery_outcome(delivery.destination, error=f"Slack error: {code}")
@@ -254,6 +267,7 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
                     slack_error=code,
                 )
                 continue
+            retrying.add(delivery.alert.id)
             if code == "ratelimited":
                 retry_after = max(retry_after, _slack_retry_after(error))
             logger.warning(
@@ -265,7 +279,7 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
                 notification_id=inputs.notification_id,
             )
             failures += 1
-        except Exception as error:
+        except Exception:
             # Give every destination a chance before surfacing the failure to
             # Temporal; the per-notification claim makes the retry safe for the
             # deliveries that already went out.
@@ -278,8 +292,17 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
                 lifecycle_event=inputs.event,
                 notification_id=inputs.notification_id,
             )
-            _record_delivery_outcome(delivery.destination, error=str(error))
+            # The exception text can name internal hosts; the log line above keeps it.
+            _record_delivery_outcome(delivery.destination, error="Delivery failed unexpectedly")
             failures += 1
+            retrying.add(delivery.alert.id)
+    for alert_id, alert in throttled_openers.items():
+        if alert_id not in rooted and alert_id not in retrying:
+            # Every destination of this alert failed for good (or nothing was
+            # posted) and no retry is coming: a window that never opened a
+            # conversation must not silence the next opener, which is the first
+            # one after the user repairs the destination.
+            _release_opener_throttle(alert, inputs)
     if failures:
         # Slack's Retry-After drives the next attempt so early retries do not land
         # inside the rate-limit window and burn the budget.
@@ -303,10 +326,32 @@ def _slack_retry_after(error: SlackApiError) -> timedelta:
         return timedelta(0)
 
 
+def _throttle_key(alert: ErrorTrackingAlert, inputs: AlertDeliveryWorkflowInputs) -> str:
+    return f"{ALERT_THROTTLE_KEY_PREFIX}:{alert.id}:{inputs.issue_id}"
+
+
+def _release_opener_throttle(alert: ErrorTrackingAlert, inputs: AlertDeliveryWorkflowInputs) -> None:
+    # An earlier attempt of this notification may have rooted a sibling
+    # destination; that conversation keeps the window. Older conversations that
+    # only got a reply here do not.
+    if (
+        ErrorTrackingAlertThread.objects.for_team(alert.team_id, canonical=True)
+        .filter(alert=alert, issue_id=inputs.issue_id, external_ref__notification_id=inputs.notification_id)
+        .exists()
+    ):
+        return
+    try:
+        # Compare-and-delete in one step: a stale claimer must never remove a
+        # window that a later notification claimed after this key expired.
+        get_client().eval(_RELEASE_IF_HELD, 1, _throttle_key(alert, inputs), inputs.notification_id)
+    except Exception:
+        logger.exception("error_tracking_alert_throttle_release_failed", alert_id=str(alert.id))
+
+
 def _opener_throttle_allows(alert: ErrorTrackingAlert, inputs: AlertDeliveryWorkflowInputs) -> bool:
     if alert.throttle_seconds <= 0:
         return True
-    key = f"{ALERT_THROTTLE_KEY_PREFIX}:{alert.id}:{inputs.issue_id}"
+    key = _throttle_key(alert, inputs)
     try:
         client = get_client()
         # The API rejects longer windows; the clamp keeps shared Redis safe from rows
@@ -427,7 +472,9 @@ def _post_claimed(
             return False
         message = build_root_message(inputs)
         response = client.chat_postMessage(channel=channel, blocks=message["blocks"], text=message["text"])
-        external_ref = {"channel": response["channel"], "ts": response["ts"]}
+        # The rooting notification is recorded so a later attempt of it can tell
+        # its own root from an older conversation.
+        external_ref = {"channel": response["channel"], "ts": response["ts"], "notification_id": inputs.notification_id}
         root_headline = message["headline"]
     else:
         reply = build_reply_text(inputs)
