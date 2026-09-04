@@ -1,6 +1,6 @@
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -19,6 +19,7 @@ from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import Throttle
 from llm_gateway.request_context import request_context_var
 from llm_gateway.services.desktop_access_resolver import DesktopAccessDecision
+from llm_gateway.services.model_registry import ModelRegistryService
 from llm_gateway.services.plan_resolver import PlanInfo
 from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
@@ -28,6 +29,18 @@ def _reset_request_context() -> Generator[None]:
     token = request_context_var.set(None)
     yield
     request_context_var.reset(token)
+
+
+@pytest.fixture
+def accept_placeholder_model() -> Generator[None]:
+    """Let a test drive `handle_llm_request` with a placeholder model id.
+
+    The handler rejects an id the model registry cannot name, which is its own test; in a test
+    about streaming or error handling it would only stop every case before it reaches the
+    behaviour under test.
+    """
+    with patch.object(ModelRegistryService, "is_model_known", return_value=True):
+        yield
 
 
 def _make_fake_quota_resolver() -> AsyncMock:

@@ -193,14 +193,40 @@ def _raise_unsupported_model(model: str) -> None:
     )
 
 
+def _registry_ids(model: str) -> tuple[str, ...]:
+    """The ids the model registry may know this model by.
+
+    Provider endpoints prefix a bare id before dispatch (`normalize_litellm_model_name`),
+    but litellm's cost map keys most models without a prefix, so try both spellings.
+    """
+    for prefix in _KNOWN_LITELLM_PROVIDER_PREFIXES:
+        if model.startswith(prefix):
+            return (model, model[len(prefix) :])
+    return (model,)
+
+
 def _raise_if_unsupported_model(model: str) -> None:
     from llm_gateway.services.model_registry import ModelRegistryService
 
     if model.lower().startswith(_UNSUPPORTED_MODEL_PREFIXES):
         _raise_unsupported_model(model)
-    info = ModelRegistryService.get_instance().get_model(model)
-    if info is not None and info.provider in _UNSUPPORTED_PROVIDERS:
-        _raise_unsupported_model(model)
+
+    registry = ModelRegistryService.get_instance()
+    for candidate in _registry_ids(model):
+        info = registry.get_model(candidate)
+        if info is not None:
+            if info.provider in _UNSUPPORTED_PROVIDERS:
+                _raise_unsupported_model(model)
+            return
+        # Not in litellm's cost map. `@cf/`, Modal and Baseten models never are, so ask the
+        # registry for the sources it keeps outside it.
+        if registry.is_model_known(candidate):
+            return
+
+    # An id no source knows must not reach a provider: litellm either fails to resolve it or
+    # resolves it to OpenAI, which 404s after a wasted round trip. Both shapes surface as a
+    # provider exception, so every new bad id opens its own error tracking issue.
+    _raise_unsupported_model(model)
 
 
 # LLM routing/auth params — never accept from user input (request redirection, key exfiltration).

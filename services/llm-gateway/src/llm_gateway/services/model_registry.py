@@ -192,6 +192,21 @@ class ModelRegistryService:
             )
         return models
 
+    def is_model_known(self, model_id: str) -> bool:
+        """Whether the gateway can name this model, whatever the state of the backend that serves it.
+
+        Weaker than `is_model_available` on purpose. The request path needs to know that an id is
+        real before it hands the caller's model to a provider, and it must not reject a model whose
+        provider holds no litellm API key: Bedrock authenticates with AWS credentials, and the
+        `@cf/` models are served over per-call credentials the request path checks for itself.
+        """
+        for allowlist in (CLOUDFLARE_ALLOWED_MODELS, MODAL_ALLOWED_MODELS):
+            if _model_matches_allowlist(model_id, allowlist):
+                return True
+        if model_id in BASETEN_EXCLUSIVE_MODELS:
+            return True
+        return self.get_model(model_id) is not None
+
     def is_model_available(self, model_id: str, product: str) -> bool:
         """Check if a model is available for a product."""
         config = get_product_config(product)

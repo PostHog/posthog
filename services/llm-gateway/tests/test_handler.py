@@ -22,6 +22,8 @@ from llm_gateway.api.handler import (
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.request_context import effort_var, get_effort
 
+pytestmark = pytest.mark.usefixtures("accept_placeholder_model")
+
 
 class TestEffortExtractors:
     @pytest.mark.parametrize(
