@@ -123,6 +123,7 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public claimedWatcherIds: string[] | null = null
     public wakeRows: MockRow[] = []
     public moveRows: MockRow[] = []
+    public resumeRows: { id: string; status: string; state?: Buffer | null }[] = []
     public updateRowCount = 0
 
     constructor() {
@@ -152,6 +153,9 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
             }
             if (sql.includes('SELECT id, state FROM cyclotron_jobs')) {
                 return Promise.resolve({ rows: this.wakeRows, rowCount: this.wakeRows.length })
+            }
+            if (sql.includes('SELECT id, status, state FROM cyclotron_jobs')) {
+                return Promise.resolve({ rows: this.resumeRows, rowCount: this.resumeRows.length })
             }
             if (sql.includes('SELECT id, team_id, distinct_id, function_id, action_id, state')) {
                 return Promise.resolve({ rows: this.moveRows, rowCount: this.moveRows.length })
@@ -1846,6 +1850,83 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             } else {
                 expect(update).toBeUndefined()
             }
+        })
+    })
+
+    describe('step resumes', () => {
+        const jobId = 'b1f0c2d4-0000-4000-8000-000000000001'
+        const originKey = `${jobId}:task_node:3`
+        const rawResume = (properties: Record<string, any>, team_id = 2): any => ({
+            value: Buffer.from(
+                JSON.stringify({
+                    team_id,
+                    event: {
+                        uuid: 'evt-uuid-resume',
+                        event: '$workflow_step_resume',
+                        distinct_id: `team_${team_id}`,
+                        properties,
+                        timestamp: '2024-01-01T00:00:00Z',
+                    },
+                })
+            ),
+        })
+        const parkedState = (key = originKey): Buffer =>
+            stateBuffer({
+                actionStepCount: 3,
+                currentAction: {
+                    id: 'task_node',
+                    startedAtTimestamp: 1,
+                    awaitingResume: { key, deadlineAt: 'x', dispatch: {} },
+                },
+            })
+        const resume = { origin_key: originKey, status: 'completed', result: { final_message: 'done' } }
+        const resumeUpdate = () =>
+            matcher.calls.find(
+                (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW()')
+            )
+
+        it('routes a resume out of the events stream even for a team with no wait steps', () => {
+            const other = { value: Buffer.from(JSON.stringify({ team_id: 2, event: { event: 'other' } })) }
+
+            const { resumes, rest } = matcher._splitStepResumes([rawResume(resume), other])
+
+            expect(resumes).toEqual([{ ...resume, jobId, actionId: 'task_node' }])
+            expect(rest).toEqual([other])
+        })
+
+        it('drops a resume whose key cannot name a job', () => {
+            const { resumes, rest } = matcher._splitStepResumes([rawResume({ ...resume, origin_key: 'nope' })])
+
+            expect(resumes).toEqual([])
+            expect(rest).toEqual([])
+        })
+
+        it('stamps the result on the parked step and pulls the job forward', async () => {
+            matcher.resumeRows = [{ id: jobId, status: 'available', state: parkedState() }]
+
+            await matcher.processStepResumes([{ ...resume, status: 'completed', jobId, actionId: 'task_node' }])
+
+            const update = resumeUpdate()!
+            expect(update.params[0]).toEqual([jobId])
+            const written = parseJSON(update.params[1][0].toString('utf-8'))
+            expect(written.state.currentAction.resumeResult).toEqual({
+                key: originKey,
+                status: 'completed',
+                result: { final_message: 'done' },
+            })
+            expect(written.state.currentAction.awaitingResume.key).toBe(originKey)
+        })
+
+        it.each([
+            ['the job waits on a different visit', 'available', parkedState(`${jobId}:task_node:1`)],
+            ['the job already finished', 'completed', parkedState()],
+            ['the job is still mid-dequeue', 'running', null],
+        ])('wakes nothing when %s', async (_, status, state) => {
+            matcher.resumeRows = [{ id: jobId, status, state }]
+
+            await matcher.processStepResumes([{ ...resume, status: 'completed', jobId, actionId: 'task_node' }])
+
+            expect(resumeUpdate()).toBeUndefined()
         })
     })
 })

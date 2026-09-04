@@ -1,8 +1,10 @@
 import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
 import { Counter, Gauge, Histogram } from 'prom-client'
+import { z } from 'zod'
 
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import { parseWorkflowStepDispatchKey } from '~/cdp/utils/workflow-step-dispatch-key'
 import {
     KAFKA_CDP_INTERNAL_EVENTS,
     KAFKA_EVENTS_JSON,
@@ -178,6 +180,23 @@ type MatchedJob = {
 }
 
 type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
+
+// Emitted by Django when a run a workflow step dispatched ends; `origin_key` names the parked job.
+export const WORKFLOW_STEP_RESUME_EVENT = '$workflow_step_resume'
+
+const WorkflowStepResumeSchema = z.object({
+    origin_key: z.string().min(1),
+    status: z.enum(['completed', 'failed', 'cancelled']),
+    result: z.record(z.string(), z.unknown()).optional().nullable(),
+})
+
+type StepResume = z.infer<typeof WorkflowStepResumeSchema> & { jobId: string; actionId: string }
+
+const counterStepResume = new Counter({
+    name: 'cdp_hogflow_step_resume',
+    help: 'Workflow step resumes by outcome.',
+    labelNames: ['outcome'],
+})
 
 // Wakes parked hogflow jobs when an event matches a `wait_until_condition` step
 // or a workflow conversion goal.
@@ -816,6 +835,79 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         return events
     }
 
+    // Step resumes name their job, so they skip the person and team gates the event parser applies.
+    public _splitStepResumes(messages: Message[]): { resumes: StepResume[]; rest: Message[] } {
+        const resumes: StepResume[] = []
+        const rest: Message[] = []
+        for (const message of messages) {
+            let parsed
+            try {
+                parsed = CdpInternalEventSchema.parse(parseJSON(message.value!.toString()))
+            } catch {
+                rest.push(message)
+                continue
+            }
+            if (parsed.event.event !== WORKFLOW_STEP_RESUME_EVENT) {
+                rest.push(message)
+                continue
+            }
+            const props = WorkflowStepResumeSchema.safeParse(parsed.event.properties)
+            const key = props.success ? parseWorkflowStepDispatchKey(props.data.origin_key) : null
+            if (!props.success || !key) {
+                counterStepResume.labels({ outcome: 'parse_error' }).inc()
+                continue
+            }
+            resumes.push({ ...props.data, ...key })
+        }
+        return { resumes, rest }
+    }
+
+    @instrumented('cdpHogflowSubscriptionMatcher.processStepResumes')
+    public async processStepResumes(resumes: StepResume[]): Promise<void> {
+        if (resumes.length === 0) {
+            return
+        }
+        const byJob = new Map(resumes.map((resume) => [resume.jobId, resume]))
+        const client = await this.cyclotronPool.connect()
+        try {
+            await client.query('BEGIN')
+            const rows = await client.query(
+                `SELECT id, status, state FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`,
+                [[...byJob.keys()]]
+            )
+            const updates: { id: string; state: Buffer }[] = []
+            for (const row of rows.rows) {
+                const resume = byJob.get(row.id)!
+                byJob.delete(row.id)
+                const state = row.status === 'available' && row.state ? applyStepResumeToState(row.state, resume) : null
+                if (!state) {
+                    counterStepResume
+                        .labels({ outcome: row.status === 'available' ? 'stale_key' : `job_${row.status}` })
+                        .inc()
+                    continue
+                }
+                updates.push({ id: row.id, state })
+            }
+            counterStepResume.labels({ outcome: 'job_missing' }).inc(byJob.size)
+            if (updates.length > 0) {
+                const updated = await client.query(
+                    `UPDATE cyclotron_jobs cj
+                     SET scheduled = NOW(), state = u.state
+                     FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::bytea[]) AS state) u
+                     WHERE cj.id = u.id AND cj.status = 'available'`,
+                    [updates.map((u) => u.id), updates.map((u) => u.state)]
+                )
+                counterStepResume.labels({ outcome: 'delivered' }).inc(updated.rowCount ?? 0)
+            }
+            await client.query('COMMIT')
+        } catch (err) {
+            await client.query('ROLLBACK').catch(() => {})
+            throw err
+        } finally {
+            client.release()
+        }
+    }
+
     @instrumented('cdpHogflowSubscriptionMatcher.parseInternalEventMessages')
     public async _parseInternalEventsBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         const events: HogFunctionInvocationGlobals[] = []
@@ -1122,11 +1214,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             }),
             this.internalEventsKafkaConsumer.connect(async (messages) => {
                 return await instrumentFn('cdpHogflowSubscriptionMatcher.handleInternalEventsBatch', async () => {
+                    const { resumes, rest } = this._splitStepResumes(messages)
+                    const events = await this._parseInternalEventsBatch(rest)
                     return {
-                        backgroundTask: this.processBatch(
-                            await this._parseInternalEventsBatch(messages),
-                            'internal_events'
-                        ),
+                        backgroundTask: Promise.all([
+                            this.processBatch(events, 'internal_events'),
+                            this.processStepResumes(resumes),
+                        ]).then(() => undefined),
                     }
                 })
             }),
@@ -1378,6 +1472,33 @@ function rewriteStatePersonId(
         return Buffer.from(JSON.stringify(parsed))
     } catch (err) {
         logger.warn('Failed to parse state during distinct_id-move re-key', { jobId, err })
+        return null
+    }
+}
+
+// Stamps the resume onto the parked step. Returns null when the job is not waiting on this exact
+// key: the step already advanced, or the wake belongs to an earlier visit of the same step.
+function applyStepResumeToState(stateBuffer: Buffer, resume: StepResume): Buffer | null {
+    try {
+        const parsed = parseJSON(stateBuffer.toString('utf-8'))
+        const currentAction = parsed.state?.currentAction
+        if (currentAction?.id !== resume.actionId || currentAction.awaitingResume?.key !== resume.origin_key) {
+            return null
+        }
+        parsed.state = {
+            ...parsed.state,
+            currentAction: {
+                ...currentAction,
+                resumeResult: {
+                    key: resume.origin_key,
+                    status: resume.status,
+                    result: resume.result ?? undefined,
+                },
+            },
+        }
+        return Buffer.from(JSON.stringify(parsed))
+    } catch (err) {
+        logger.warn('Failed to parse state during step resume', { jobId: resume.jobId, err })
         return null
     }
 }
