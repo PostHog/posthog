@@ -140,8 +140,8 @@ export interface tracingSceneLogicActions {
         traceId: string
         ts?: string | null
     } // tracingDataLogic
-    runQuery: () => {
-        value: true
+    runQuery: (force?: boolean) => {
+        force: boolean
     } // tracingDataLogic
     setVisibleRowRange: (
         startIndex: number,

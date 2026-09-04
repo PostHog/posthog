@@ -69,7 +69,7 @@ export function TracingFilterBar(): JSX.Element {
                             size="small"
                             icon={<IconRefresh />}
                             type="secondary"
-                            onClick={() => runQuery()}
+                            onClick={() => runQuery(true)}
                             loading={spansLoading}
                         />
                         <SavedViewsButton />
