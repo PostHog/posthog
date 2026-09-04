@@ -2076,7 +2076,7 @@ def _offset_paging_tiebreak(keys: list[str]) -> sql.Composed:
     from scratch. Any order that leaves rows tied lets Postgres return the tied rows in a different
     sequence per chunk, and the pages then overlap and skip. A full-table scan has no ORDER BY at
     all, `xmin` repeats across every row one transaction wrote, and an incremental cursor repeats
-    across rows sharing a timestamp — so each needs the primary key appended to break the ties.
+    across rows sharing a timestamp, so each needs the primary key appended to break the ties.
     """
     return sql.SQL(", ").join(sql.SQL("{col} ASC").format(col=sql.Identifier(key)) for key in keys)
 
@@ -2213,12 +2213,18 @@ def _build_query(
     return ordered
 
 
+# The `xmin` system column cast to a sortable, comparable integer, because no ordering operators
+# exist on raw `xid`. The window predicate, the projection and the seek must all compare the same
+# expression, so they share this one.
+_XMIN_CURSOR = sql.SQL("xmin::text::bigint")
+
+
 def _xmin_predicate(bounds: XminBounds) -> sql.Composed:
     """Bounded predicate over the cast `xmin` (no ordering operators exist on raw `xid`)."""
     if bounds.full_scan:
         # No window is safe across wraparound epochs (see `_capture_xmin_ceiling`), so read it all.
         return sql.SQL("TRUE").format()
-    xmin_expr = sql.SQL("xmin::text::bigint")
+    xmin_expr = _XMIN_CURSOR
     if bounds.wraparound_or_range:
         return sql.SQL("({xmin} >= {lo} OR {xmin} < {hi})").format(
             xmin=xmin_expr, lo=sql.Literal(bounds.lower), hi=sql.Literal(bounds.upper)
@@ -2240,8 +2246,8 @@ def _build_xmin_query(
 ) -> sql.Composed:
     # `_ph_xmin` is force-projected (system columns never come back from `SELECT *`) and kept out of
     # `compute_projected_columns` so it can't collide with the user's incremental-field machinery.
-    select = sql.SQL("xmin::text::bigint AS {alias}, {cols}").format(
-        alias=sql.Identifier(XMIN_PROJECTED_COLUMN), cols=select_clause
+    select = sql.SQL("{cursor} AS {alias}, {cols}").format(
+        cursor=_XMIN_CURSOR, alias=sql.Identifier(XMIN_PROJECTED_COLUMN), cols=select_clause
     )
     query = sql.SQL("SELECT {cols} FROM {table} WHERE {predicate}").format(
         cols=select, table=sql.Identifier(schema, table_name), predicate=_xmin_predicate(bounds)
@@ -2249,8 +2255,9 @@ def _build_xmin_query(
     if row_filter_conditions:
         query = query + sql.SQL(" AND ") + and_join(row_filter_conditions)
 
-    # ORDER BY the cast cursor so the offset-resume path stays correct on a connection drop.
-    ordered = query + sql.SQL(" ORDER BY xmin::text::bigint ASC")
+    # The cast cursor orders the read, but every row one transaction wrote shares it, so an
+    # offset-paged read needs the tiebreak below before its order survives per-chunk re-evaluation.
+    ordered = query + sql.SQL(" ORDER BY {cursor} ASC").format(cursor=_XMIN_CURSOR)
     if offset_paging_keys:
         ordered = ordered + sql.SQL(", ") + _offset_paging_tiebreak(offset_paging_keys)
     if add_sampling:
@@ -2286,22 +2293,35 @@ def _build_keyset_query(
     incremental_field: Optional[str] = None,
     enabled_columns: Optional[list[str]] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
+    xmin_bounds: Optional[XminBounds] = None,
 ) -> sql.Composed:
-    """One page of a full-table read, seeking past the last primary key already read.
+    """One page of a full-table or xmin read, seeking past the last key already read.
 
     A full-table read has no ORDER BY, so LIMIT/OFFSET cannot page it: every page is its own scan
     and may come back in a different order, which both repeats and drops rows. Ordering by the
     primary key gives the pages one sequence to walk, and seeking past the last key keeps each page
     an index range scan. The key must be unique, or a page boundary inside a run of equal keys
     drops the rest of that run.
+
+    An xmin read does order itself, but every row one transaction wrote carries the same `xmin`, so
+    a bulk-loaded table is one long run of equal keys. Its cursor therefore leads the primary key in
+    the seek instead of replacing it, which makes the pair unique again.
     """
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
     select_clause: sql.Composable = (
         sql.SQL("*") if projected is None else sql.SQL(", ").join(sql.Identifier(c) for c in projected)
     )
-    key_columns = sql.SQL(", ").join(sql.Identifier(key) for key in primary_keys)
+    key_expressions: list[sql.Composable] = [sql.Identifier(key) for key in primary_keys]
+    if xmin_bounds is not None:
+        select_clause = sql.SQL("{cursor} AS {alias}, {cols}").format(
+            cursor=_XMIN_CURSOR, alias=sql.Identifier(XMIN_PROJECTED_COLUMN), cols=select_clause
+        )
+        key_expressions.insert(0, _XMIN_CURSOR)
+    key_columns = sql.SQL(", ").join(key_expressions)
 
     conditions = render_psycopg_row_filter_conditions(row_filters or [])
+    if xmin_bounds is not None:
+        conditions.insert(0, _xmin_predicate(xmin_bounds))
     if after is not None:
         conditions.append(
             sql.SQL("({keys}) > ({values})").format(
@@ -3767,6 +3787,15 @@ def postgres_source(
                 )
 
                 last_key: tuple[Any, ...] | None = None
+                # An xmin read leads its seek with the cursor, which comes back under the projected
+                # alias rather than a column name, so the two lists differ for it.
+                keyset_result_columns: list[str] = []
+                if keyset_primary_keys is not None:
+                    keyset_result_columns = (
+                        [XMIN_PROJECTED_COLUMN, *keyset_primary_keys]
+                        if xmin_bounds is not None
+                        else keyset_primary_keys
+                    )
 
                 def build_page_query() -> sql.Composed:
                     if keyset_primary_keys is not None:
@@ -3778,6 +3807,7 @@ def postgres_source(
                             incremental_field=incremental_field,
                             enabled_columns=enabled_columns,
                             row_filters=row_filters,
+                            xmin_bounds=xmin_bounds,
                         )
                         return page + sql.SQL(" LIMIT {limit}").format(limit=sql.Literal(chunk_size))
                     return query + sql.SQL(" LIMIT {limit} OFFSET {offset}").format(
@@ -3844,7 +3874,7 @@ def postgres_source(
                                 break
 
                             if keyset_primary_keys is not None:
-                                key_positions = [column_names.index(key) for key in keyset_primary_keys]
+                                key_positions = [column_names.index(key) for key in keyset_result_columns]
                                 last_key = tuple(rows[-1][position] for position in key_positions)
                             else:
                                 offset += len(rows)
@@ -4098,28 +4128,32 @@ def postgres_source(
                 except psycopg.errors.SerializationFailure as e:
                     # If we hit a SerializationFailure and we're reading from a read replica, we fallback to offset chunking
                     if using_read_replica and "conflict with recovery" in "".join(e.args):
-                        # Paging by OFFSET needs a query that orders its rows, the precondition the
+                        # Paging by OFFSET needs a query whose order is total, the precondition the
                         # connection-dropped handler below also enforces. A full-table read orders
-                        # nothing, so seek on the primary key instead, and only from the start,
-                        # because rows already yielded are already written.
-                        if not should_use_incremental_field and xmin_bounds is None:
-                            if keyset_primary_keys is None:
-                                raise _unorderable_read_abort_error(schema, table_name) from e
-                            if offset > 0:
+                        # nothing, and an xmin read orders on a cursor that every row of one
+                        # transaction shares, so both seek on the primary key instead. Seeking can
+                        # only start from the top, because rows already yielded are already written.
+                        if not should_use_incremental_field:
+                            if keyset_primary_keys is not None and offset == 0:
+                                logger.debug(
+                                    f"Falling back to keyset chunking for table due to SerializationFailure error: {e}."
+                                )
+                                yield from offset_chunking(
+                                    0,
+                                    chunk_size,
+                                    from_recovery_conflict=True,
+                                    keyset_primary_keys=keyset_primary_keys,
+                                )
+                                return
+                            # An xmin read still has its cursor to page on, and it appends, so
+                            # restarting it would duplicate the rows it already wrote. Keep paging.
+                            if xmin_bounds is None:
+                                if keyset_primary_keys is None:
+                                    raise _unorderable_read_abort_error(schema, table_name) from e
                                 # Retryable, so Temporal restarts the read and the load overwrites
                                 # from the first batch. The next attempt can conflict before any row
                                 # is out, where seeking takes over.
                                 raise
-                            logger.debug(
-                                f"Falling back to keyset chunking for table due to SerializationFailure error: {e}."
-                            )
-                            yield from offset_chunking(
-                                0,
-                                chunk_size,
-                                from_recovery_conflict=True,
-                                keyset_primary_keys=keyset_primary_keys,
-                            )
-                            return
 
                         logger.debug(
                             f"Falling back to offset chunking for table due to SerializationFailure error: {e}."
