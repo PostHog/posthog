@@ -34,6 +34,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import emit_embedding_request
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -219,6 +220,9 @@ def _present_chunk_ids_in_clickhouse(team_id: int, chunk_ids: list[UUID]) -> set
     result = execute_hogql_query(
         query=query,
         team=team,
+        query_type="BusinessKnowledgeReconcileEmbeddings",
+        workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.BUSINESS_KNOWLEDGE,
         placeholders={
             "product": ast.Constant(value=BK_EMBEDDING_PRODUCT),
             "document_type": ast.Constant(value=BK_EMBEDDING_DOCUMENT_TYPE),

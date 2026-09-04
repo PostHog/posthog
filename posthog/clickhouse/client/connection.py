@@ -94,6 +94,7 @@ class ClickHouseUser(StrEnum):
     ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
     BILLING = "billing"
+    BUSINESS_KNOWLEDGE = "business_knowledge"
     REPLAY_VISION = "replay_vision"
     # Session replay surfacing scoring sweep
     SURFACING_SCORING = "surfacing_scoring"
