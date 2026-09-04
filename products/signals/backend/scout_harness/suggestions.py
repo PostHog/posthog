@@ -66,8 +66,7 @@ MAX_DRAFT_BODY_CHARS = 20_000
 # create it is supposed to be ready for.
 MAX_DESCRIPTION_CHARS = 4_096
 
-# Tags every $ai_generation a suggestion run makes, so its spend is splittable out of the
-# `ai_product='signals'` bucket next to `scout:<skill>` (see `runner._ai_stage`).
+# Resolves a suggestion run to the `signals_scout_suggestions` gateway product.
 SUGGESTIONS_AI_STAGE = "scout_suggestions"
 
 SuggestionKind = Literal["canonical", "custom"]
