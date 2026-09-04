@@ -305,6 +305,7 @@ function makeClaims(overrides?: Partial<SandboxEventIngestTokenPayload>): Sandbo
         taskId: 'task-abc',
         teamId: 42,
         presenceGated: false,
+        thinTail: false,
         originProduct: 'unknown',
         ...overrides,
     }

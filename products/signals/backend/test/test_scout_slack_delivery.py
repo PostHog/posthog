@@ -28,6 +28,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     post_scout_emission_to_slack,
 )
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
+from products.signals.backend.slack_formatting import SLACK_MARKDOWN_TEXT_MAX_LEN
 from products.signals.backend.tasks import deliver_scout_slack_output, enqueue_scout_slack_delivery
 
 
@@ -117,7 +118,7 @@ class TestScoutSlackDelivery(BaseTest):
             source_id=f"run:{run.id}:finding:checkout-500s",
         )
 
-    def test_posts_safe_mrkdwn_but_does_not_invite_followup_for_child_environment(self) -> None:
+    def test_posts_safe_markdown_but_does_not_invite_followup_for_child_environment(self) -> None:
         emission = self._make_emission(
             "**Checkout** failures [trace](https://example.com/trace) <!channel> [ping](!here)"
         )
@@ -144,12 +145,12 @@ class TestScoutSlackDelivery(BaseTest):
         assert call["channel"] == "CSCOUTS"
         assert call["client_msg_id"] == str(emission.id)
         assert "thread_ts" not in call
-        section = call["blocks"][1]["text"]["text"]
-        assert "*Checkout*" in section
-        assert "<https://example.com/trace|trace>" in section
-        assert "<!channel>" not in section
-        assert "<!here>" not in section
-        assert "&lt;!channel&gt;" in section
+        markdown = call["blocks"][1]["text"]
+        assert "**Checkout**" in markdown
+        assert "[trace](https://example.com/trace)" in markdown
+        assert "<!channel>" not in markdown
+        assert "<!here>" not in markdown
+        assert "&lt;!channel&gt;" in markdown
         assert call["blocks"][-1]["elements"][0]["url"] == (
             f"{settings.SITE_URL}/project/{self.team.id}/inbox/scouts/signals-scout-error-tracking/checkout%2F500s"
         )
@@ -161,7 +162,12 @@ class TestScoutSlackDelivery(BaseTest):
             team=self.team,
             status=SignalReport.Status.READY,
             title="Checkout failures",
-            summary="**Checkout** failed for <!channel> [trace](https://example.com/trace)",
+            summary=(
+                "**Checkout** failed for <!channel> [trace](https://example.com/trace)\n\n"
+                "| PR | Status |\n"
+                "| --- | --- |\n"
+                "| [#93147 fix(checkout): retry 500s](https://example.com/pull/93147) | ready |\n"
+            ),
         )
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
         fake_client = MagicMock()
@@ -184,11 +190,15 @@ class TestScoutSlackDelivery(BaseTest):
         assert call["channel"] == "CSCOUTS"
         assert call["client_msg_id"] == delivery_id
         assert "thread_ts" not in call
-        section = call["blocks"][2]["text"]["text"]
-        assert "*Checkout*" in section
-        assert "<!channel>" not in section
-        assert "&lt;!channel&gt;" in section
-        assert "<https://example.com/trace|trace>" in section
+        markdown = call["blocks"][2]["text"]
+        assert "**Checkout**" in markdown
+        assert "<!channel>" not in markdown
+        assert "&lt;!channel&gt;" in markdown
+        assert "[trace](https://example.com/trace)" in markdown
+        # A link inside a table reached Slack as raw `[label](url)` while delivery converted the
+        # summary to mrkdwn: the converter lifted tables out before converting anything, then put
+        # the cells back untouched.
+        assert "[#93147 fix(checkout): retry 500s](https://example.com/pull/93147)" in markdown
         assert call["blocks"][-1]["elements"][0]["url"] == (
             f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
         )
@@ -229,11 +239,11 @@ class TestScoutSlackDelivery(BaseTest):
         context = call["blocks"][0]["elements"][0]["text"]
         assert "added a note to an existing report" in context
         assert call["blocks"][1]["text"]["text"] == "Checkout failures"
-        section = call["blocks"][2]["text"]["text"]
-        assert "*error rate*" in section
-        assert "<!channel>" not in section
-        assert "&lt;!channel&gt;" in section
-        assert "failed for many users" not in section
+        markdown = call["blocks"][2]["text"]
+        assert "**error rate**" in markdown
+        assert "<!channel>" not in markdown
+        assert "&lt;!channel&gt;" in markdown
+        assert "failed for many users" not in markdown
         assert call["blocks"][-1]["elements"][0]["url"] == (
             f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
         )
@@ -362,13 +372,13 @@ class TestScoutSlackDelivery(BaseTest):
         replies = calls[1:]
         assert len(replies) > 1
         assert all(reply.kwargs["thread_ts"] == "1785418710.000500" for reply in replies)
-        # Every posted section stays within the cap, and nothing is ellipsis-truncated.
-        section_texts = [
-            block["text"]["text"] for call in calls for block in call.kwargs["blocks"] if block["type"] == "section"
+        # Every posted chunk stays within the cap, and nothing is ellipsis-truncated.
+        markdown_texts = [
+            block["text"] for call in calls for block in call.kwargs["blocks"] if block["type"] == "markdown"
         ]
-        assert all(len(text) <= 2900 for text in section_texts)
-        assert not any(text.endswith("…") for text in section_texts)
-        assert any(tail_marker in text for text in section_texts)
+        assert all(len(text) <= SLACK_MARKDOWN_TEXT_MAX_LEN for text in markdown_texts)
+        assert not any(text.endswith("…") for text in markdown_texts)
+        assert any(tail_marker in text for text in markdown_texts)
 
     @parameterized.expand(
         [
@@ -412,8 +422,8 @@ class TestScoutSlackDelivery(BaseTest):
         calls = fake_client.chat_postMessage.call_args_list
         assert len(calls) == 4
         assert "thread_ts" not in calls[0].kwargs
-        lead_sections = [block["text"]["text"] for block in calls[0].kwargs["blocks"] if block["type"] == "section"]
-        assert lead_sections == ["Lead line."]
+        lead_chunks = [block["text"] for block in calls[0].kwargs["blocks"] if block["type"] == "markdown"]
+        assert lead_chunks == ["Lead line."]
         first_reply, second_reply = calls[1].kwargs, calls[2].kwargs
         # Slack rejects a client_msg_id that is not a UUID, and the reply loop swallows the error,
         # so a malformed id costs every reply while the delivery still reports success.
@@ -421,10 +431,10 @@ class TestScoutSlackDelivery(BaseTest):
         assert [str(uuid.UUID(reply_id)) for reply_id in reply_ids] == reply_ids
         assert len(set(reply_ids)) == 2
         assert first_reply["thread_ts"] == "1785418710.000600"
-        assert "First" in first_reply["blocks"][0]["text"]["text"]
-        assert "Detail" in first_reply["blocks"][0]["text"]["text"]
-        assert "Second" not in first_reply["blocks"][0]["text"]["text"]
-        assert "Second" in second_reply["blocks"][0]["text"]["text"]
+        assert "First" in first_reply["blocks"][0]["text"]
+        assert "Detail" in first_reply["blocks"][0]["text"]
+        assert "Second" not in first_reply["blocks"][0]["text"]
+        assert "Second" in second_reply["blocks"][0]["text"]
         assert calls[3].kwargs["blocks"][0]["type"] == "context"
 
     def test_threaded_report_without_section_labels_posts_a_single_message(self) -> None:
@@ -458,9 +468,9 @@ class TestScoutSlackDelivery(BaseTest):
         calls = fake_client.chat_postMessage.call_args_list
         assert len(calls) == 2
         assert "thread_ts" not in calls[0].kwargs
-        section_texts = [block["text"]["text"] for block in calls[0].kwargs["blocks"] if block["type"] == "section"]
-        assert len(section_texts) == 1
-        assert "second one" in section_texts[0]
+        markdown_texts = [block["text"] for block in calls[0].kwargs["blocks"] if block["type"] == "markdown"]
+        assert len(markdown_texts) == 1
+        assert "second one" in markdown_texts[0]
         assert calls[1].kwargs["blocks"][0]["type"] == "context"
 
     def test_reply_posted_regardless_of_ai_approval(self) -> None:
@@ -951,8 +961,8 @@ class TestScoutSlackDelivery(BaseTest):
             )
 
         rejected, resent = (call.kwargs["blocks"] for call in fake_client.chat_postMessage.call_args_list[:2])
-        assert [b["type"] for b in rejected] == ["context", "header", "section", "section", "image", "actions"]
-        assert [b["type"] for b in resent] == ["context", "header", "section", "actions"]
+        assert [b["type"] for b in rejected] == ["context", "header", "markdown", "section", "image", "actions"]
+        assert [b["type"] for b in resent] == ["context", "header", "markdown", "actions"]
 
     def test_task_retries_transient_delivery_failure(self) -> None:
         emission = self._make_emission()
