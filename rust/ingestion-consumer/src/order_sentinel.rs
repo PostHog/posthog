@@ -633,10 +633,10 @@ impl SentinelContext {
 }
 
 fn partition_names(tpl: &TopicPartitionList) -> Vec<String> {
-    let mut partitions: Vec<(String, i32)> = tpl
-        .elements()
+    let elements = tpl.elements();
+    let mut partitions: Vec<(&str, i32)> = elements
         .iter()
-        .map(|element| (element.topic().to_owned(), element.partition()))
+        .map(|element| (element.topic(), element.partition()))
         .collect();
     partitions.sort_unstable();
     partitions
