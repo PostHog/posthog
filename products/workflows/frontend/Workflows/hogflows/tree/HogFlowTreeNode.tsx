@@ -100,7 +100,10 @@ export function HogFlowTreeNode({
                             </CollapsibleTrigger>
                         </div>
                     </div>
-                    <CollapsibleContent className="flex flex-col gap-3 pt-2">
+                    <CollapsibleContent
+                        style={{ overflow: 'clip', zIndex: 'auto' }}
+                        className="flex flex-col gap-3 pt-2"
+                    >
                         {visibleBranches.map((branch, index) => {
                             const branchIndex = branch.edge.type === 'branch' ? (branch.edge.index ?? index) : null
                             const branchColor = getHogFlowBranchColor(branchIndex)
