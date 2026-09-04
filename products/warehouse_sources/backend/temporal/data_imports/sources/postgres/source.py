@@ -1070,6 +1070,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 schema=config.schema,
                 names=names,
                 require_ssl=require_ssl,
+                team_id=team_id,
             )
             # Foreign keys are advisory metadata (they pre-populate relationship hints in the
             # table picker). The discovery query joins three `information_schema` views, which
@@ -1086,6 +1087,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                     schema=config.schema,
                     names=names,
                     require_ssl=require_ssl,
+                    team_id=team_id,
                 )
             except Exception as e:
                 structlog.get_logger().warning("Failed to detect foreign keys for Postgres schemas", exc_info=e)
@@ -1101,6 +1103,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                     schema=config.schema,
                     names=names,
                     require_ssl=require_ssl,
+                    team_id=team_id,
                 )
             else:
                 row_counts = {}
@@ -1134,6 +1137,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                     password=config.password,
                     database=config.database,
                     require_ssl=require_ssl,
+                    team_id=team_id,
                 ) as conn:
                     # PK lookup powers `supports_cdc`. Wrap in try/except so a permissions
                     # quirk on `pg_catalog` (rare) only disables CDC advertising for this
@@ -1368,6 +1372,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 password=config.password,
                 database=config.database,
                 require_ssl=require_ssl,
+                team_id=team_id,
             )
 
     def check_cdc_prerequisites(
