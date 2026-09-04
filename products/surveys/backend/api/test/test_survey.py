@@ -8107,3 +8107,24 @@ class TestSurveyFeatureFlagScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTest
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+class TestSurveyAppearanceSchemaSerializer(SimpleTestCase):
+    def test_theming_appearance_fields_survive_validation(self) -> None:
+        # This serializer drives the OpenAPI schema, so the frontend types and MCP tool schema
+        # are generated from its declared fields. A theming key that is not declared here is
+        # silently dropped from a survey update before it reaches the model JSONField.
+        from products.surveys.backend.api.survey import SurveyAppearanceSchemaSerializer
+
+        payload = {
+            "borderRadius": "0px",
+            "boxShadow": "none",
+            "inputBackground": "#ffffff",
+            "inputTextColor": "#000000",
+            "textSubtleColor": "#666666",
+            "position": "center",
+            "tabPosition": "right",
+        }
+        serializer = SurveyAppearanceSchemaSerializer(data=payload)
+        assert serializer.is_valid(), serializer.errors
+        assert dict(serializer.validated_data) == payload

@@ -628,6 +628,21 @@ class SurveyMatchType(models.TextChoices):
 SURVEY_MATCH_TYPE_CHOICES = list(SurveyMatchType.values)
 
 
+SURVEY_POSITION_CHOICES = [
+    "top_left",
+    "top_center",
+    "top_right",
+    "middle_left",
+    "middle_center",
+    "middle_right",
+    "left",
+    "center",
+    "right",
+    "next_to_trigger",
+]
+SURVEY_TAB_POSITION_CHOICES = ["top", "left", "right", "bottom"]
+
+
 class SurveyAppearanceSchemaSerializer(serializers.Serializer):
     backgroundColor = serializers.CharField(required=False)
     submitButtonColor = serializers.CharField(required=False)
@@ -669,6 +684,36 @@ class SurveyAppearanceSchemaSerializer(serializers.Serializer):
     zIndex = serializers.CharField(required=False)
     disabledButtonOpacity = serializers.CharField(required=False)
     boxPadding = serializers.CharField(required=False)
+    borderRadius = serializers.CharField(
+        required=False,
+        help_text="CSS border-radius for the survey container, e.g. '8px' or '0px'.",
+    )
+    boxShadow = serializers.CharField(
+        required=False,
+        help_text="CSS box-shadow for the survey container, e.g. 'none' or '0 4px 12px rgba(0,0,0,0.1)'.",
+    )
+    inputBackground = serializers.CharField(
+        required=False,
+        help_text="Background color for text inputs and rating buttons.",
+    )
+    inputTextColor = serializers.CharField(
+        required=False,
+        help_text="Text color for inputs and rating buttons. Auto-calculated from inputBackground when unset.",
+    )
+    textSubtleColor = serializers.CharField(
+        required=False,
+        help_text="Color for secondary or subtle text.",
+    )
+    position = serializers.ChoiceField(
+        choices=SURVEY_POSITION_CHOICES,
+        required=False,
+        help_text="Where a popover survey appears on screen.",
+    )
+    tabPosition = serializers.ChoiceField(
+        choices=SURVEY_TAB_POSITION_CHOICES,
+        required=False,
+        help_text="Which screen edge a tab-style widget attaches to.",
+    )
 
 
 SURVEY_DEVICE_TYPE_CHOICES = ["Desktop", "Mobile", "Tablet"]
