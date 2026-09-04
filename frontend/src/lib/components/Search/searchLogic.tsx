@@ -30,6 +30,7 @@ import { recentItemsModel } from '~/models/recentItemsModel'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
 import { matchesFlagDefinition } from '~/scenes/settings/flagGating'
+import { getTitleText } from '~/scenes/settings/settingsSearch'
 import { Setting, SettingSection, SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab, FileSystemIconColor, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
@@ -175,6 +176,7 @@ export interface SettingsSectionSummary {
     hideFromNavigation?: boolean
     flag?: SettingSection['flag']
     to?: string
+    keywords?: string[]
     settings: {
         id: string
         hasTitle: boolean
@@ -1259,14 +1261,17 @@ export const searchLogic = kea<searchLogicType>([
                     // Create a search item for each settings section
                     const levelPrefix = toSentenceCase(effectiveLevel)
 
-                    const settings = section.settings
-                        .filter((setting) => setting.hasTitle)
-                        .flatMap((setting) => [
-                            toSentenceCase(setting.id.replace(/[-]/g, ' ')),
-                            ...(setting.titleString ? [setting.titleString] : []),
-                            ...(setting.descriptionString ? [setting.descriptionString] : []),
-                            ...(setting.keywords ?? []),
-                        ])
+                    const searchTerms = [
+                        ...(section.keywords ?? []),
+                        ...section.settings
+                            .filter((setting) => setting.hasTitle)
+                            .flatMap((setting) => [
+                                toSentenceCase(setting.id.replace(/[-]/g, ' ')),
+                                ...(setting.titleString ? [setting.titleString] : []),
+                                ...(setting.descriptionString ? [setting.descriptionString] : []),
+                                ...(setting.keywords ?? []),
+                            ]),
+                    ]
 
                     // Create the display name for each settings section
                     const displayName = section.titleString ?? toSentenceCase(section.id.replace(/[-]/g, ' '))
@@ -1278,7 +1283,7 @@ export const searchLogic = kea<searchLogicType>([
 
                     items.push({
                         id: `settings-${effectiveSectionId}`,
-                        name: `${levelPrefix}: ${displayName} (${settings})`,
+                        name: `${levelPrefix}: ${displayName} (${searchTerms})`,
                         displayName: `${displayName}${displayNameSuffix}`,
                         category: 'settings',
                         href: billingHref || section.to || urls.settings(effectiveSectionId),
@@ -1736,17 +1741,21 @@ export const searchLogic = kea<searchLogicType>([
                     SETTINGS_MAP.map((section) => ({
                         id: section.id,
                         level: section.level,
-                        titleString: typeof section.title === 'string' ? section.title : null,
+                        titleString: getTitleText(section.title) || null,
                         hideFromNavigation: section.hideFromNavigation,
                         flag: section.flag,
                         to: section.to,
+                        keywords: section.keywords,
                         settings: section.settings.map((setting) => ({
                             id: setting.id,
-                            // A JSX-titled setting has no title string to search but must stay
-                            // findable via its id token — hasTitle preserves that distinction.
+                            // A setting can render a title that getTitleText cannot read, such as a
+                            // whole component, and it must stay findable via its id token.
+                            // hasTitle preserves that distinction.
                             hasTitle: !!setting.title,
-                            titleString: typeof setting.title === 'string' ? setting.title : null,
-                            descriptionString: typeof setting.description === 'string' ? setting.description : null,
+                            titleString: getTitleText(setting.title) || null,
+                            descriptionString:
+                                setting.searchDescription ??
+                                (typeof setting.description === 'string' ? setting.description : null),
                             keywords: setting.keywords,
                         })),
                     }))
