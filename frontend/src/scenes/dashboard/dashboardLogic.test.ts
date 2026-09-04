@@ -641,6 +641,23 @@ describe('dashboardLogic', () => {
             expect(logic.values.changedFilterCount).toBe(2)
         })
 
+        it('clears the unsaved state when a filter returns to inherit', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setInterval('week')
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
+
+            await expectLogic(logic, () => {
+                logic.actions.setInterval(null)
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardSettingsState).toBe('saved')
+            expect(logic.values.dashboardSettingsChanges).toEqual([])
+        })
+
         it('does not treat embedded context filters as unsaved dashboard filters', async () => {
             await expectLogic(logic).toFinishAllListeners()
             ;(api.update as jest.Mock).mockClear()

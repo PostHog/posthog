@@ -137,6 +137,7 @@ import {
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
 import {
+    dashboardFiltersEqual,
     dashboardVariableValuesEqual,
     getDashboardFilterChanges,
     getDashboardVariableChanges,
@@ -2711,7 +2712,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         )
                 )
 
-                if (!equal(saved.filters, current.filters) || variablesChanged) {
+                if (!dashboardFiltersEqual(saved.filters, current.filters) || variablesChanged) {
                     return 'unsavedChanges'
                 }
                 return 'saved'

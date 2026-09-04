@@ -34,6 +34,27 @@ export function dashboardVariableValuesEqual(
     return equal(formatVariableValue(previous), formatVariableValue(current))
 }
 
+/**
+ * Deep equality that reads null and an absent key as the same setting. Both mean "inherit" for a
+ * dashboard filter, and the inherit option on each control writes null rather than dropping the key.
+ */
+function dashboardFilterValuesEqual(previous: unknown, current: unknown): boolean {
+    if (previous == null && current == null) {
+        return true
+    }
+    return equal(previous, current)
+}
+
+export function dashboardFiltersEqual(previous: DashboardFilter, current: DashboardFilter): boolean {
+    const keys = new Set([...Object.keys(previous), ...Object.keys(current)])
+    return Array.from(keys).every((key) =>
+        dashboardFilterValuesEqual(
+            (previous as Record<string, unknown>)[key],
+            (current as Record<string, unknown>)[key]
+        )
+    )
+}
+
 function changeValue(value: string | undefined): string[] {
     return value ? [value] : []
 }
@@ -183,18 +204,9 @@ export function getDashboardFilterChanges(
     const currentHasDate = !!currentFilters.date_from || !!currentFilters.date_to || !!currentFilters.explicitDate
 
     if (
-        !equal(
-            {
-                date_from: previousFilters.date_from,
-                date_to: previousFilters.date_to,
-                explicitDate: previousFilters.explicitDate,
-            },
-            {
-                date_from: currentFilters.date_from,
-                date_to: currentFilters.date_to,
-                explicitDate: currentFilters.explicitDate,
-            }
-        )
+        !dashboardFilterValuesEqual(previousFilters.date_from, currentFilters.date_from) ||
+        !dashboardFilterValuesEqual(previousFilters.date_to, currentFilters.date_to) ||
+        !dashboardFilterValuesEqual(previousFilters.explicitDate, currentFilters.explicitDate)
     ) {
         changes.push({
             label: 'Date range',
@@ -204,7 +216,7 @@ export function getDashboardFilterChanges(
         })
     }
 
-    if (!equal(previousFilters.interval, currentFilters.interval)) {
+    if (!dashboardFilterValuesEqual(previousFilters.interval, currentFilters.interval)) {
         changes.push({
             label: 'Grouped by',
             previousValue: changeValue(
@@ -215,7 +227,7 @@ export function getDashboardFilterChanges(
         })
     }
 
-    if (!equal(previousFilters.breakdown_filter, currentFilters.breakdown_filter)) {
+    if (!dashboardFilterValuesEqual(previousFilters.breakdown_filter, currentFilters.breakdown_filter)) {
         const previousHasBreakdown =
             !!previousFilters.breakdown_filter?.breakdown || !!previousFilters.breakdown_filter?.breakdowns?.length
         const currentHasBreakdown =
@@ -228,7 +240,7 @@ export function getDashboardFilterChanges(
         })
     }
 
-    if (!equal(previousFilters.filterTestAccounts, currentFilters.filterTestAccounts)) {
+    if (!dashboardFilterValuesEqual(previousFilters.filterTestAccounts, currentFilters.filterTestAccounts)) {
         const previousHasTestAccountSetting =
             previousFilters.filterTestAccounts !== null && previousFilters.filterTestAccounts !== undefined
         const currentHasTestAccountSetting =

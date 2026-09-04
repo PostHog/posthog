@@ -1,7 +1,7 @@
 import type { HogQLVariable } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { getDashboardFilterChanges, getDashboardVariableChanges } from './dashboardChanges'
+import { dashboardFiltersEqual, getDashboardFilterChanges, getDashboardVariableChanges } from './dashboardChanges'
 
 describe('getDashboardFilterChanges', () => {
     it('lists new, changed, and removed property filters with their values', () => {
@@ -58,6 +58,20 @@ describe('getDashboardFilterChanges', () => {
         ])
     })
 
+    it.each([
+        ['interval', { interval: null }],
+        ['test accounts', { filterTestAccounts: null }],
+        ['breakdown', { breakdown_filter: null }],
+    ])('reports no change when %s returns to inherit', (_name, reverted) => {
+        expect(getDashboardFilterChanges({}, reverted)).toEqual([])
+    })
+
+    it('still reports a change when a saved setting returns to inherit', () => {
+        expect(getDashboardFilterChanges({ interval: 'week' }, { interval: null })).toEqual([
+            { label: 'Grouped by', previousValue: ['Week'], value: [], status: 'removed' },
+        ])
+    })
+
     it('marks the exact time range mode on each side of a date change', () => {
         expect(
             getDashboardFilterChanges(
@@ -99,6 +113,24 @@ describe('getDashboardFilterChanges', () => {
         expect(getDashboardFilterChanges({}, { properties: [] })).toEqual([
             { label: 'Property filters', previousValue: [], value: ['No property filters'], status: 'new' },
         ])
+    })
+})
+
+describe('dashboardFiltersEqual', () => {
+    it.each([
+        ['a null interval against an absent one', {}, { interval: null }],
+        ['a null test account override against an absent one', {}, { filterTestAccounts: null }],
+        ['a null end date against an absent one', { date_from: '-7d' }, { date_from: '-7d', date_to: null }],
+    ])('treats %s as unchanged', (_name, saved, current) => {
+        expect(dashboardFiltersEqual(saved, current)).toBe(true)
+    })
+
+    it.each([
+        ['a forced interval', {}, { interval: 'week' as const }],
+        ['a forced test account override', {}, { filterTestAccounts: false }],
+        ['a cleared property list', {}, { properties: [] }],
+    ])('treats %s as changed', (_name, saved, current) => {
+        expect(dashboardFiltersEqual(saved, current)).toBe(false)
     })
 })
 
