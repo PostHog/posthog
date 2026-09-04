@@ -113,6 +113,7 @@ export interface BillingTimeSeriesResponseApi {
     results: BillingTimeSeriesPointApi[]
     team_id_options?: number[]
     next?: string
+    total_count?: number
 }
 
 export interface BillingTeamOptionsResponseApi {
