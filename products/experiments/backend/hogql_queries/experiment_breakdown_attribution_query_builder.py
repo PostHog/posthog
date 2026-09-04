@@ -126,6 +126,14 @@ class ExperimentBreakdownAttributionQueryBuilder:
         that as "None" too, but it is a different value from the null label, so it would form a
         second no-value bucket and steal a top-N slot. Users with no attributable metric event get
         the null label instead.
+
+        Integration must add an exposure-time bound here. An ordered funnel keeps pre-exposure
+        metric events in the CTE, because the funnel aggregate anchors on the exposure step while
+        this aggregate reads any row at a metric step. So a user who fired a metric event before
+        exposure can be filed under that earlier value. The 3-CTE path already has
+        ``exposures.first_exposure_time`` to gate on; the optimized ordered path has no
+        exposure-time column yet (its first-exposures CTE is built for unordered and CUPED only),
+        so gating both paths together is deferred to the caller that wires this class in.
         """
         resolution = self.context.resolve_attribution()
         condition: ast.Expr = ast.And(
