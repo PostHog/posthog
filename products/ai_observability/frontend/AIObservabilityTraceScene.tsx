@@ -1538,8 +1538,6 @@ const EventContent = React.memo(
         const showPlaygroundButton = isGenerationEvent
         const showCreateSentimentEvalButton = isGenerationEvent
 
-        const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
-
         // Badges are context-sensitive: a generation shows its own results, the trace root shows
         // trace-target results. Other events (spans, embeddings) have no evaluation context.
         const isTraceRoot = !!event && !isLLMEvent(event)
@@ -1660,69 +1658,61 @@ const EventContent = React.memo(
                                     )}
                                 </div>
                             )}
-                            {(showPromptButton ||
-                                showPlaygroundButton ||
-                                showCreateSentimentEvalButton ||
-                                hasSessionRecording ||
-                                showSaveToDatasetButton) && (
-                                <div className="flex flex-row items-center gap-2">
-                                    {showPromptButton && (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="xsmall"
-                                            icon={<IconAIText />}
-                                            to={
-                                                promptVersion
-                                                    ? combineUrl(
-                                                          urls.aiObservabilityPrompt(promptName),
-                                                          promptVersion ? { version: String(promptVersion) } : {}
-                                                      ).url
-                                                    : urls.aiObservabilityPrompt(promptName)
-                                            }
-                                            tooltip="View the prompt used for this generation"
-                                            data-attr="view-prompt-trace"
-                                        >
-                                            View prompt
-                                        </LemonButton>
-                                    )}
-                                    {showPlaygroundButton && (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="xsmall"
-                                            icon={<IconPlay />}
-                                            onClick={handleOpenInPlayground}
-                                            tooltip="Open in Playground"
-                                            data-attr="llma-playground-open-from-trace"
-                                        >
-                                            Open in Playground
-                                        </LemonButton>
-                                    )}
-                                    {showCreateSentimentEvalButton && (
-                                        <CreateSentimentEvaluationButton traceId={trace.id} />
-                                    )}
-                                    {showSaveToDatasetButton && (
-                                        <SaveToDatasetButton
-                                            traceId={trace.id}
-                                            timestamp={trace.createdAt}
-                                            sourceId={event.id}
-                                            input={isLLMEvent(event) ? loadedInput : event.inputState}
-                                            output={isLLMEvent(event) ? loadedOutput : event.outputState}
-                                            metadata={eventMetadata}
-                                        />
-                                    )}
-                                    {hasSessionRecording && (
-                                        <ViewRecordingButton
-                                            openPlayerIn={RecordingPlayerType.Modal}
-                                            type="secondary"
-                                            size="xsmall"
-                                            data-attr="llm-analytics"
-                                            sessionId={sessionId || undefined}
-                                            timestamp={removeMilliseconds(event.createdAt)}
-                                            checkRecordingExists
-                                        />
-                                    )}
-                                </div>
-                            )}
+                            <div className="flex flex-row items-center gap-2">
+                                {showPromptButton && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        icon={<IconAIText />}
+                                        to={
+                                            promptVersion
+                                                ? combineUrl(
+                                                      urls.aiObservabilityPrompt(promptName),
+                                                      promptVersion ? { version: String(promptVersion) } : {}
+                                                  ).url
+                                                : urls.aiObservabilityPrompt(promptName)
+                                        }
+                                        tooltip="View the prompt used for this generation"
+                                        data-attr="view-prompt-trace"
+                                    >
+                                        View prompt
+                                    </LemonButton>
+                                )}
+                                {showPlaygroundButton && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        icon={<IconPlay />}
+                                        onClick={handleOpenInPlayground}
+                                        tooltip="Open in Playground"
+                                        data-attr="llma-playground-open-from-trace"
+                                    >
+                                        Open in Playground
+                                    </LemonButton>
+                                )}
+                                {showCreateSentimentEvalButton && (
+                                    <CreateSentimentEvaluationButton traceId={trace.id} />
+                                )}
+                                <SaveToDatasetButton
+                                    traceId={trace.id}
+                                    timestamp={trace.createdAt}
+                                    sourceId={event.id}
+                                    input={isLLMEvent(event) ? loadedInput : event.inputState}
+                                    output={isLLMEvent(event) ? loadedOutput : event.outputState}
+                                    metadata={eventMetadata}
+                                />
+                                {hasSessionRecording && (
+                                    <ViewRecordingButton
+                                        openPlayerIn={RecordingPlayerType.Modal}
+                                        type="secondary"
+                                        size="xsmall"
+                                        data-attr="llm-analytics"
+                                        sessionId={sessionId || undefined}
+                                        timestamp={removeMilliseconds(event.createdAt)}
+                                        checkRecordingExists
+                                    />
+                                )}
+                            </div>
                         </header>
                         <LemonTabs
                             activeKey={viewMode}

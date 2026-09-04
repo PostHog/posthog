@@ -26,12 +26,7 @@ from posthog.auth import InternalAPIAuthentication
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
-from posthog.permissions import (
-    AccessControlPermission,
-    APIScopePermission,
-    PostHogFeatureFlagPermission,
-    TeamMemberAccessPermission,
-)
+from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 from products.access_control.backend.presentation.access_control import (
@@ -629,8 +624,6 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
     scope_object = "dataset"
     scope_object_read_actions = ["list", "retrieve", "revisions", "exports", "export_status", "export_content"]
     scope_object_write_actions = ["create", "partial_update", "archive", "restore"]
-    permission_classes = [PostHogFeatureFlagPermission]
-    posthog_feature_flag = "llm-analytics-datasets"
     pagination_class = DatasetPagination
     serializer_class = DatasetReadSerializer
     queryset = _dataset_queryset()
@@ -932,8 +925,6 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "dataset"
     scope_object_read_actions = ["list", "retrieve", "versions"]
     scope_object_write_actions = ["create", "partial_update", "archive", "restore"]
-    permission_classes = [PostHogFeatureFlagPermission]
-    posthog_feature_flag = "llm-analytics-datasets"
     pagination_class = DatasetItemPagination
     serializer_class = DatasetItemReadSerializer
     queryset = _current_item_version_queryset()
@@ -951,7 +942,6 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             APIScopePermission(),
             DatasetItemParentAccessControlPermission(),
             TeamMemberAccessPermission(),
-            PostHogFeatureFlagPermission(),
         ]
 
     def safely_get_queryset(
