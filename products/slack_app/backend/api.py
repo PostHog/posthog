@@ -4584,32 +4584,19 @@ def _handle_error_tracking_issue_action(payload: dict, action: dict) -> HttpResp
         )
         return HttpResponse(status=200)
 
-    from products.error_tracking.backend.facade.issues import (  # noqa: PLC0415 — cross-product calls kept off the slack import path
-        assign_issue_to_user_from_slack,
-        resolve_issue_from_slack,
-    )
+    fingerprint = value.get("fingerprint")
+    from products.slack_app.backend.tasks import run_error_tracking_issue_action  # noqa: PLC0415
 
-    if action.get("action_id") == ERROR_TRACKING_RESOLVE_ACTION_ID:
-        outcome = resolve_issue_from_slack(issue_id, integration=integration, user=posthog_user)
-        messages = {
-            "ok": "Resolved. The thread will update in a moment.",
-            "already": "This issue is already resolved.",
-        }
-    else:
-        outcome = assign_issue_to_user_from_slack(issue_id, integration=integration, user=posthog_user)
-        messages = {
-            "ok": "Assigned to you. The thread will update in a moment.",
-            "already": "This issue is already assigned to you.",
-        }
-    if outcome == "not_found":
-        logger.info("error_tracking_slack_action_no_issue", issue_id=str(issue_id))
-        return HttpResponse(status=200)
-    if outcome == "no_access":
-        text = "You do not have access to this issue's project in PostHog."
-    else:
-        text = messages[outcome]
-    inbox_interactivity.post_response_url(
-        response_url, {"response_type": "ephemeral", "replace_original": False, "text": text}
+    # The mutation syncs ClickHouse and dispatches alert delivery; that can outrun Slack's
+    # three-second acknowledgement budget, so it runs out of band and reports back through
+    # the response URL.
+    run_error_tracking_issue_action.delay(
+        action_id=action.get("action_id"),
+        issue_id=str(issue_id),
+        fingerprint=fingerprint if isinstance(fingerprint, str) else None,
+        integration_id=integration.id,
+        user_id=posthog_user.id,
+        response_url=response_url,
     )
     return HttpResponse(status=200)
 
