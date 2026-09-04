@@ -25,10 +25,13 @@ HAVING countIf(event = '$pageview') > 0
    AND countIf(event = '$pageleave') = 0
 """
 
-# The ratio tracks how much navigation leaves the page, so it is not a fixed multiple of $pageview.
+# The SDK sends $pageleave one time for each page unload, so the ratio to $pageview depends on how many
+# pageviews one page load holds. A single-page app has no fixed ratio.
 PAGELEAVE_VOLUME_NOTE = (
-    "Volume: on a site with full page loads, $pageleave adds about 1 extra event per pageview. "
-    "On a single-page app it adds well under 0.1, because most navigation never leaves the page."
+    "Volume: the SDK sends one $pageleave each time the browser leaves the page. "
+    "On a site with full page loads that is about 1 extra event per pageview. "
+    "A single-page app sends fewer, because one page load can cover several pageviews. "
+    "A visit that stays on one route still sends about one."
 )
 
 
