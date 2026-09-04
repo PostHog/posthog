@@ -57,7 +57,6 @@ def get_labeling_llm(
         distinct_id=distinct_id,
         service_tier="flex" if use_flex else None,
         max_retries=0 if use_flex else 1,
-        flex_fallback_timeout=LABELING_STANDARD_CALL_TIMEOUT if use_flex else None,
     )
 
 

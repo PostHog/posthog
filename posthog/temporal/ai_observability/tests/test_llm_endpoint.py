@@ -253,7 +253,6 @@ def _flex_client(service_tier: str | None = "flex") -> FlexFirstChatOpenAI:
         api_key="sk-test",
         max_retries=0,
         service_tier=service_tier,
-        flex_fallback_timeout=240.0,
     )
 
 
@@ -294,9 +293,7 @@ class TestFlexFirstChatOpenAI:
         assert result.content == "labeled"
         first, second = llm.client.with_raw_response.create.call_args_list
         assert first.kwargs["service_tier"] == "flex"
-        # The fallback re-issues only the failing call, on standard with the standard budget.
         assert second.kwargs["service_tier"] == "default"
-        assert second.kwargs["timeout"] == 240.0
 
     def test_non_recoverable_error_propagates_without_fallback(self):
         llm = _flex_client()
@@ -322,7 +319,6 @@ class TestFlexFirstChatOpenAI:
 
         third = llm.client.with_raw_response.create.call_args_list[2]
         assert third.kwargs["service_tier"] == "default"
-        assert third.kwargs["timeout"] == 240.0
 
     def test_standard_client_never_falls_back(self):
         llm = _flex_client(service_tier=None)

@@ -17,6 +17,7 @@ import structlog
 import posthoganalytics
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.callbacks.manager import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
+from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatResult
 from langchain_openai import ChatOpenAI
@@ -48,16 +49,14 @@ class FlexFirstChatOpenAI(ChatOpenAI):
     so a flex brownout costs one timeout per agent run, not one per call.
     """
 
-    flex_fallback_timeout: float | None = None
     _flex_latched: bool = PrivateAttr(default=False)
 
-    def _standard_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        standard = {**kwargs, "service_tier": "default"}
-        if self.flex_fallback_timeout is not None:
-            standard["timeout"] = self.flex_fallback_timeout
-        return standard
+    def _get_request_payload(self, input_: LanguageModelInput, *, stop: list[str] | None = None, **kwargs: Any) -> dict:
+        if self._flex_latched:
+            kwargs = {**kwargs, "service_tier": "default"}
+        return super()._get_request_payload(input_, stop=stop, **kwargs)
 
-    def _fallback_kwargs_or_raise(self, error: APIError, kwargs: dict[str, Any]) -> dict[str, Any]:
+    def _latch_or_raise(self, error: APIError) -> None:
         if self._flex_latched or self.service_tier != "flex" or not is_flex_recoverable(error):
             raise error
         logger.warning(
@@ -67,7 +66,6 @@ class FlexFirstChatOpenAI(ChatOpenAI):
             model=self.model_name,
         )
         self._flex_latched = True
-        return self._standard_kwargs(kwargs)
 
     def _generate(
         self,
@@ -76,14 +74,11 @@ class FlexFirstChatOpenAI(ChatOpenAI):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        if self._flex_latched:
-            kwargs = self._standard_kwargs(kwargs)
         try:
             return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
         except APIError as error:
-            return super()._generate(
-                messages, stop=stop, run_manager=run_manager, **self._fallback_kwargs_or_raise(error, kwargs)
-            )
+            self._latch_or_raise(error)
+            return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
 
     async def _agenerate(
         self,
@@ -92,14 +87,11 @@ class FlexFirstChatOpenAI(ChatOpenAI):
         run_manager: AsyncCallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        if self._flex_latched:
-            kwargs = self._standard_kwargs(kwargs)
         try:
             return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
         except APIError as error:
-            return await super()._agenerate(
-                messages, stop=stop, run_manager=run_manager, **self._fallback_kwargs_or_raise(error, kwargs)
-            )
+            self._latch_or_raise(error)
+            return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
 
 
 def build_langchain_chat_client(
@@ -112,7 +104,6 @@ def build_langchain_chat_client(
     distinct_id: str | None = None,
     service_tier: Literal["flex"] | None = None,
     max_retries: int = 2,
-    flex_fallback_timeout: float | None = None,
 ) -> ChatOpenAI:
     """Return a ChatOpenAI client for the labeling/report agents. Cloud/DEBUG only.
 
@@ -148,19 +139,13 @@ def build_langchain_chat_client(
             http_client=httpx.Client(trust_env=False),
             http_async_client=httpx.AsyncClient(trust_env=False),
             service_tier=service_tier,
-            flex_fallback_timeout=flex_fallback_timeout,
         )
 
     direct_key = os.environ.get("OPENAI_API_KEY")
     if not direct_key:
         raise Exception("OPENAI_API_KEY is not configured")
     return FlexFirstChatOpenAI(
-        model=model,
-        api_key=direct_key,
-        timeout=timeout,
-        max_retries=max_retries,
-        service_tier=service_tier,
-        flex_fallback_timeout=flex_fallback_timeout,
+        model=model, api_key=direct_key, timeout=timeout, max_retries=max_retries, service_tier=service_tier
     )
 
 
