@@ -555,6 +555,44 @@ class TestConversionGoals(SetupPlanTestCase):
         assert "deleted action" in fix.evidence
 
     @pytest.mark.asyncio
+    async def test_revenue_flag_suggestion_links_out_when_no_goal_sums_an_amount(self):
+        # The apply endpoint refuses `counts_as_revenue` on a goal that counts rows, so a
+        # patch here fails every time — and this is the common case, because the suggestion
+        # only appears while no goal carries the flag.
+        self.goal_flags = {"g1": {"math": "total"}}
+
+        plan = await get_setup_plan(self.team)
+
+        revenue = next(s for s in plan.suggestions if s.kind == SuggestionKind.MARK_GOAL_AS_REVENUE)
+        assert revenue.apply is not None
+        assert revenue.apply.op == "open_settings"
+        assert "sums a revenue amount" in revenue.evidence
+
+    @pytest.mark.asyncio
+    async def test_revenue_flag_suggestion_patches_the_goal_that_already_sums(self):
+        # The highest-volume goal counts rows, so picking on volume alone proposes the
+        # one patch the endpoint rejects.
+        self.diagnostic = MarketingDiagnosticResponse(
+            integrations=[_integration()],
+            overall_status="healthy",
+            conversion_goals=ConversionGoalsListResponse(
+                goals=[_goal("g1", "Signup", count=9000), _goal("g2", "Purchase", count=120)]
+            ),
+        )
+        self.goal_flags = {
+            "g1": {"math": "total"},
+            "g2": {"math": "sum", "math_property": "revenue"},
+        }
+
+        plan = await get_setup_plan(self.team)
+
+        revenue = next(s for s in plan.suggestions if s.kind == SuggestionKind.MARK_GOAL_AS_REVENUE)
+        assert revenue.apply is not None
+        assert revenue.apply.op == "update_conversion_goal"
+        assert revenue.apply.conversion_goal_id == "g2"
+        assert "Purchase" in revenue.evidence
+
+    @pytest.mark.asyncio
     async def test_goal_flag_suggestions_are_never_batch_applied(self):
         self.goal_flags = {"g1": {}}
 

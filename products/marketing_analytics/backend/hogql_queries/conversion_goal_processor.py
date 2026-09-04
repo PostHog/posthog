@@ -6,7 +6,7 @@ from dataclasses import (
     field as dataclass_field,
 )
 from datetime import datetime, timedelta
-from typing import ClassVar, Optional, Union
+from typing import Any, ClassVar, Optional, Union
 
 import structlog
 
@@ -251,6 +251,15 @@ class SharedTouchpointsPrecompute:
             return self._result
 
 
+def math_sums_a_property(math_type: Any) -> bool:
+    """Whether this math sums a property value rather than counting conversions.
+
+    Takes the raw `math` value so the write paths, which hold a goal as a dict, get the same
+    answer as the read path, which holds a validated goal.
+    """
+    return math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum")
+
+
 def goal_sums_a_property(goal: Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]) -> bool:
     """Whether a goal's column holds a summed property value rather than a conversion count.
 
@@ -258,8 +267,7 @@ def goal_sums_a_property(goal: Union[ConversionGoalFilter1, ConversionGoalFilter
     processor-selection guards that decide which goals to build — needs the same answer, so they
     all route through here rather than each re-deriving it from `math` and drifting apart.
     """
-    math_type = goal.math
-    return math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum")
+    return math_sums_a_property(goal.math)
 
 
 # Mutable by design: `precompute_stale` is set while building the query, and each
