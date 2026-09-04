@@ -1,0 +1,48 @@
+rules:
+    - id: clickhouse-migrations-no-drop-column-or-index
+      message: |
+          ClickHouse migration runs `DROP COLUMN` or `DROP INDEX`.
+
+          Both are mutations: ClickHouse rewrites every part of the table. A table that already
+          has unfinished mutations rejects new ones with `Too many unfinished mutations`, and
+          `sharded_events` always has deletions in flight, so the migration fails on every retry
+          and blocks every deploy behind it (2026-09-04:
+          https://posthog.slack.com/archives/C0185UNBSJZ/p1788503855373249). On `sharded_events`
+          a mutation may also never finish in prod.
+
+          Column and index removal is a two-step process:
+
+              1. The ClickHouse team applies the DROP directly on every cloud environment.
+              2. You write the migration with the matching `DROP ... IF EXISTS` (a no-op there)
+                 and mark it on that line:
+                 `# nosemgrep: clickhouse-migrations-no-drop-column-or-index -- applied by the ClickHouse team on <date>, <link>`
+
+          Do not do step 2 until step 1 is confirmed. To replace an index, `ADD INDEX` under a new
+          name (metadata only) and let the ClickHouse team drop the old one; never `DROP` + `ADD`.
+          The same applies to every other mutation (`MATERIALIZE INDEX`, `RENAME COLUMN`, a
+          `MODIFY COLUMN` type change, `UPDATE`, `DELETE`): see posthog/clickhouse/migrations/AGENTS.md.
+      severity: ERROR
+      languages: [python]
+      paths:
+          include:
+              - 'posthog/clickhouse/migrations/**/*.py'
+          exclude:
+              # Applied before this rule existed.
+              - 'posthog/clickhouse/migrations/0014_persons_distinct_ids_column_remove.py'
+              - 'posthog/clickhouse/migrations/0026_fix_materialized_window_and_session_ids.py'
+              - 'posthog/clickhouse/migrations/0072_materialize_elements_chain_ids.py'
+              - 'posthog/clickhouse/migrations/0078_add_soft_delete_column_on_events.py'
+              - 'posthog/clickhouse/migrations/0082_add_actually_inserted_at_column.py'
+              - 'posthog/clickhouse/migrations/0112_add_soft_delete_column_on_groups.py'
+              - 'posthog/clickhouse/migrations/0198_drop_ai_large_property_group.py'
+              - 'posthog/clickhouse/migrations/0219_drop_group_keys_from_person.py'
+              - 'posthog/clickhouse/migrations/0250_property_values_lowercase_text_index.py'
+              - 'posthog/clickhouse/migrations/0252_extend_session_replay_features.py'
+              - 'posthog/clickhouse/migrations/0262_property_values_swap_text_index_for_ngrambf.py'
+              - 'posthog/clickhouse/migrations/0297_flag_evaluations_events_mirror.py'
+      # On the file text rather than the AST so f-strings and concatenated SQL are covered too.
+      pattern-regex: '(?i)\bDROP\s+(COLUMN|INDEX)\b'
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit

@@ -175,14 +175,15 @@ engine=Distributed(
 > follow a two-step process:
 >
 > 1. The ClickHouse team applies the change directly on every cloud environment.
-> 2. You write a migration with the matching statement (guarded with `IF EXISTS` / `IF NOT EXISTS`
->    so it is a no-op there) and set `CLICKHOUSE_TEAM_APPLIED_MUTATION = "<date, who, link>"` at
->    module level. `posthog/clickhouse/test/test_migrations.py` fails any migration from 0314 on
->    that runs a mutation without that attestation.
+> 2. You write a migration with the matching statement, guarded with `IF EXISTS` so it is a
+>    no-op there.
 >
-> Do not initiate step 2 without confirmation that step 1 has been completed. Adding an index or
-> column is metadata-only and needs none of this; replacing an index means `ADD` under a new name,
-> never `DROP` + `ADD`.
+> Do not initiate step 2 without confirmation that step 1 has been completed. The semgrep rule
+> `clickhouse-migrations-no-drop-column-or-index` fails CI on any `DROP COLUMN` or `DROP INDEX`
+> in a migration; for step 2, mark the line with
+> `# nosemgrep: clickhouse-migrations-no-drop-column-or-index -- applied by the ClickHouse team on <date>, <link>`.
+> Adding an index or column is metadata-only and needs none of this; replacing an index means
+> `ADD` under a new name, never `DROP` + `ADD`.
 
 > [!INFO]
 > Always use `IF EXISTS` / `IF NOT EXISTS` guards. For `ALTER TABLE` the guard goes on the
