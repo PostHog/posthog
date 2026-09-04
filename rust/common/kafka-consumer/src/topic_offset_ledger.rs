@@ -1,10 +1,24 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+
+use metrics::{counter, gauge};
 
 use crate::charge::Charge;
 use crate::partition_offset_ledger::{Held, LedgerError, PartitionOffsetLedger};
 use crate::types::Offset;
+
+/// Offsets a partition holds uncommitted.
+const UNCOMMITTED_OFFSETS: &str = "kafka_consumer_ledger_uncommitted_offsets";
+/// Events those offsets carry.
+const UNCOMMITTED_EVENTS: &str = "kafka_consumer_ledger_uncommitted_events";
+/// Bytes those offsets carry.
+const UNCOMMITTED_BYTES: &str = "kafka_consumer_ledger_uncommitted_bytes";
+/// Charges and settlements dropped because their partition was reassigned
+/// while they were in flight.
+const STALE_SLICES: &str = "kafka_consumer_ledger_stale_slices_total";
+/// Contract violations in the ledger's accounting; must stay at zero.
+const ERRORS: &str = "kafka_consumer_ledger_errors_total";
 
 /// A partition of a named topic, the key for everything the ledger tracks.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -40,18 +54,6 @@ pub enum Rejection {
     },
 }
 
-/// One batch's settled view of its partition ledger: the frontier after its
-/// offsets landed, plus the context a mismatch report needs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Settlement {
-    /// Next-to-read frontier, `None` while the first offset of the window is
-    /// still incomplete.
-    pub frontier: Option<Offset>,
-    /// What the window still holds after the completion.
-    pub held: Held,
-    pub generation: u64,
-}
-
 /// One [`PartitionOffsetLedger`] per partition, each founded under a
 /// per-partition generation. Forgetting a partition advances its generation and
 /// replaces its ledger in one step, so charges and completions stamped with an
@@ -60,6 +62,10 @@ pub struct Settlement {
 /// Staleness is one rule: work whose stamp is below the partition's current
 /// generation is stale. Generations are independent per partition, so one
 /// partition's reassignment never affects another's in-flight work.
+///
+/// The ledger publishes its own metrics under the `kafka_consumer_ledger_`
+/// prefix, so every consumer built on this crate reports the same series and
+/// no caller can forget a gauge.
 #[derive(Default)]
 pub struct TopicOffsetLedger {
     partitions: Mutex<HashMap<TopicPartition, PartitionOffsetLedger>>,
@@ -96,86 +102,109 @@ impl TopicOffsetLedger {
     /// Record one slice of delivered offsets on the partition's ledger,
     /// founding the ledger when the slice is the partition's first delivery.
     /// Returns what the partition's window holds after the charge, or why
-    /// the slice was rejected.
+    /// the slice was rejected. Publishes the outcome either way.
     pub fn charge(
         &self,
         topic_partition: &TopicPartition,
         stamp: u64,
         offset_charges: impl IntoIterator<Item = (Offset, Charge)>,
     ) -> Result<Held, Rejection> {
-        let mut partitions = self.partitions.lock().unwrap();
-        let ledger = partitions
-            .entry(topic_partition.clone())
-            .or_insert_with(|| PartitionOffsetLedger::new(0));
-        let generation = ledger.generation();
-        if stamp < generation {
-            return Err(Rejection::Stale { stamp, generation });
-        }
-        match ledger.charge(offset_charges) {
-            Ok(_) => Ok(ledger.held()),
-            Err(error) => {
-                let held = ledger.held();
-                *ledger = PartitionOffsetLedger::new(generation + 1);
-                self.generations_version.fetch_add(1, Ordering::Relaxed);
-                Err(Rejection::Violation {
-                    error,
-                    stamp,
-                    generation,
-                    held,
-                })
+        let result = {
+            let mut partitions = self.partitions.lock().unwrap();
+            let ledger = partitions
+                .entry(topic_partition.clone())
+                .or_insert_with(|| PartitionOffsetLedger::new(0));
+            let generation = ledger.generation();
+            if stamp < generation {
+                Err(Rejection::Stale { stamp, generation })
+            } else {
+                match ledger.charge(offset_charges) {
+                    Ok(_) => Ok(ledger.held()),
+                    Err(error) => {
+                        let held = ledger.held();
+                        *ledger = PartitionOffsetLedger::new(generation + 1);
+                        self.generations_version.fetch_add(1, Ordering::Relaxed);
+                        Err(Rejection::Violation {
+                            error,
+                            stamp,
+                            generation,
+                            held,
+                        })
+                    }
+                }
             }
+        };
+        // Outside the lock, and on every path, so no caller has to remember.
+        match result {
+            Ok(held) => publish_held(topic_partition, held),
+            Err(rejection) => count_rejection("charge", rejection),
         }
+        result
     }
 
     /// Settle one batch's offsets, stamped with the generation they were
     /// buffered under: mark them complete on the partition's ledger and
-    /// report the frontier that results. The window holds the offsets until
-    /// `take_frontier` drains them.
+    /// report the next-to-read frontier that results, `None` while the first
+    /// offset of the window is still incomplete. The window holds the offsets
+    /// until `take_frontier` drains them.
     pub fn settle(
         &self,
         topic_partition: &TopicPartition,
         stamp: u64,
         offsets: impl IntoIterator<Item = Offset>,
-    ) -> Result<Settlement, Rejection> {
-        let mut partitions = self.partitions.lock().unwrap();
-        let Some(ledger) = partitions.get_mut(topic_partition) else {
-            // Nothing was ever charged, so the batch cannot have been either.
-            return Err(Rejection::Stale {
-                stamp,
-                generation: 0,
-            });
-        };
-        let generation = ledger.generation();
-        if stamp < generation {
-            return Err(Rejection::Stale { stamp, generation });
-        }
-        match ledger.complete(offsets) {
-            Ok(()) => Ok(Settlement {
-                frontier: ledger.frontier(),
-                held: ledger.held(),
-                generation,
-            }),
-            Err(error) => {
-                let held = ledger.held();
-                *ledger = PartitionOffsetLedger::new(generation + 1);
-                self.generations_version.fetch_add(1, Ordering::Relaxed);
-                Err(Rejection::Violation {
-                    error,
+    ) -> Result<Option<Offset>, Rejection> {
+        let result = {
+            let mut partitions = self.partitions.lock().unwrap();
+            match partitions.get_mut(topic_partition) {
+                // Nothing was ever charged, so the batch cannot have been either.
+                None => Err(Rejection::Stale {
                     stamp,
-                    generation,
-                    held,
-                })
+                    generation: 0,
+                }),
+                Some(ledger) => {
+                    let generation = ledger.generation();
+                    if stamp < generation {
+                        Err(Rejection::Stale { stamp, generation })
+                    } else {
+                        match ledger.complete(offsets) {
+                            Ok(()) => Ok(ledger.frontier()),
+                            Err(error) => {
+                                let held = ledger.held();
+                                *ledger = PartitionOffsetLedger::new(generation + 1);
+                                self.generations_version.fetch_add(1, Ordering::Relaxed);
+                                Err(Rejection::Violation {
+                                    error,
+                                    stamp,
+                                    generation,
+                                    held,
+                                })
+                            }
+                        }
+                    }
+                }
             }
+        };
+        // The window only changes depth at a charge or a take, so a
+        // settlement reports rejections and leaves the gauges alone.
+        if let Err(rejection) = result {
+            count_rejection("settle", rejection);
         }
+        result
     }
 
     /// Drain the completed prefix and return the frontier it reached; `None`
     /// when the partition has no ledger or nothing has completed at the front
-    /// of its window.
+    /// of its window. The drained offsets leave the window, so the gauges
+    /// follow them down.
     pub fn take_frontier(&self, topic_partition: &TopicPartition) -> Option<Offset> {
-        let mut partitions = self.partitions.lock().unwrap();
-        let ledger = partitions.get_mut(topic_partition)?;
-        ledger.take_frontier().map(|taken| taken.offset)
+        let (offset, held) = {
+            let mut partitions = self.partitions.lock().unwrap();
+            let ledger = partitions.get_mut(topic_partition)?;
+            let taken = ledger.take_frontier()?;
+            (taken.offset, ledger.held())
+        };
+        publish_held(topic_partition, held);
+        Some(offset)
     }
 
     /// What the partition's window still holds; nothing without a ledger.
@@ -192,25 +221,77 @@ impl TopicOffsetLedger {
     /// when a partition is revoked or assigned: Kafka redelivers it from the
     /// committed offset, which a kept ledger would reject as duplicate
     /// delivery, and work still in flight from the old assignment must not
-    /// land on the new one.
+    /// land on the new one. The dropped offsets leave the window, so the
+    /// partition's gauges go to zero.
     pub fn forget_partitions<'a>(
         &self,
         topic_partitions: impl IntoIterator<Item = (&'a str, i32)>,
     ) {
-        let mut partitions = self.partitions.lock().unwrap();
-        let mut forgotten = 0;
-        for (topic, partition) in topic_partitions {
-            let key = TopicPartition::new(topic, partition);
-            let generation = partitions
-                .get(&key)
-                .map(PartitionOffsetLedger::generation)
-                .unwrap_or_default();
-            partitions.insert(key, PartitionOffsetLedger::new(generation + 1));
-            forgotten += 1;
+        let mut forgotten = Vec::new();
+        {
+            let mut partitions = self.partitions.lock().unwrap();
+            for (topic, partition) in topic_partitions {
+                let key = TopicPartition::new(topic, partition);
+                let generation = partitions
+                    .get(&key)
+                    .map(PartitionOffsetLedger::generation)
+                    .unwrap_or_default();
+                partitions.insert(key.clone(), PartitionOffsetLedger::new(generation + 1));
+                forgotten.push(key);
+            }
+            self.generations_version
+                .fetch_add(forgotten.len() as u64, Ordering::Relaxed);
         }
-        self.generations_version
-            .fetch_add(forgotten, Ordering::Relaxed);
+        for topic_partition in forgotten {
+            publish_held(&topic_partition, Held::default());
+        }
     }
+}
+
+/// Publish what a partition's window holds.
+fn publish_held(topic_partition: &TopicPartition, held: Held) {
+    let (topic, partition) = labels(topic_partition);
+    gauge!(
+        UNCOMMITTED_OFFSETS,
+        "topic" => topic.clone(),
+        "partition" => partition.clone()
+    )
+    .set(held.offsets as f64);
+    gauge!(
+        UNCOMMITTED_EVENTS,
+        "topic" => topic.clone(),
+        "partition" => partition.clone()
+    )
+    .set(held.charge.events as f64);
+    gauge!(
+        UNCOMMITTED_BYTES,
+        "topic" => topic,
+        "partition" => partition
+    )
+    .set(held.charge.bytes as f64);
+}
+
+/// Count one charge or settlement the ledger rejected. A stale slice is
+/// expected around a rebalance; a violation is a bug in the accounting. The
+/// rejection is returned to the caller, which alone still holds the slice
+/// and so is the place to log it.
+fn count_rejection(stage: &'static str, rejection: Rejection) {
+    match rejection {
+        Rejection::Stale { .. } => {
+            counter!(STALE_SLICES, "stage" => stage).increment(1);
+        }
+        Rejection::Violation { error, .. } => {
+            counter!(ERRORS, "stage" => stage, "kind" => error.kind()).increment(1);
+        }
+    }
+}
+
+/// One partition's label values, built once per emission.
+fn labels(topic_partition: &TopicPartition) -> (Arc<str>, Arc<str>) {
+    (
+        Arc::from(topic_partition.topic.as_str()),
+        Arc::from(topic_partition.partition.to_string()),
+    )
 }
 
 #[cfg(test)]
@@ -238,10 +319,10 @@ mod tests {
         charge(&ledger, &p0, 0, &[10]);
         charge(&ledger, &p0, 0, &[11]);
 
-        let settlement = ledger
+        let frontier = ledger
             .settle(&p0, 0, [Offset(10), Offset(11)])
             .expect("live ledger settles");
-        assert_eq!(settlement.frontier, Some(Offset(12)));
+        assert_eq!(frontier, Some(Offset(12)));
 
         assert_eq!(ledger.take_frontier(&p0), Some(Offset(12)));
         assert_eq!(ledger.held(&p0).offsets, 0);
@@ -292,20 +373,19 @@ mod tests {
         charge(&ledger, &p0, 0, &[10]);
         charge(&ledger, &p0, 0, &[11]);
 
-        let settlement = ledger
+        let frontier = ledger
             .settle(&p0, 0, [Offset(11)])
             .expect("live ledger settles");
-        assert_eq!(settlement.frontier, None);
-        assert_eq!(settlement.held.offsets, 2);
+        assert_eq!(frontier, None);
         assert_eq!(ledger.take_frontier(&p0), None);
         assert_eq!(ledger.held(&p0).offsets, 2);
 
         // The late completion arrives with the next batch and the held
         // offsets drain.
-        let settlement = ledger
+        let frontier = ledger
             .settle(&p0, 0, [Offset(10)])
             .expect("live ledger settles");
-        assert_eq!(settlement.frontier, Some(Offset(12)));
+        assert_eq!(frontier, Some(Offset(12)));
         assert_eq!(ledger.take_frontier(&p0), Some(Offset(12)));
         assert_eq!(ledger.held(&p0).offsets, 0);
     }
@@ -321,11 +401,11 @@ mod tests {
         let settled = ledger
             .settle(&p0, 0, [Offset(10), Offset(11)])
             .expect("live ledger settles");
-        assert_eq!(settled.frontier, Some(Offset(12)));
+        assert_eq!(settled, Some(Offset(12)));
         let held = ledger
             .settle(&p1, 0, [Offset(21)])
             .expect("live ledger settles");
-        assert_eq!(held.frontier, None);
+        assert_eq!(held, None);
 
         ledger.take_frontier(&p0);
         ledger.take_frontier(&p1);
