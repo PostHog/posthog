@@ -1,5 +1,6 @@
 from typing import Any, Optional, TypedDict
 
+from django.core.exceptions import RequestDataTooBig
 from django.http.request import HttpRequest
 from django.http.response import JsonResponse
 
@@ -21,6 +22,15 @@ class RequestParsingError(Exception):
 
 class UnspecifiedCompressionFallbackParsingError(Exception):
     pass
+
+
+class RequestTooLarge(APIException):
+    status_code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+    default_code = "request_too_large"
+    # drf-exceptions-hog has no default type for 413, and its fallback of `server_error` would
+    # tell the caller to retry the same body.
+    default_type = "invalid_request"
+    default_detail = "Request body is too large. Split the payload across smaller requests."
 
 
 class QuotaLimitExceeded(APIException):
@@ -174,7 +184,8 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
     """
     Wraps drf-exceptions-hog and, on 401, advertises the OAuth protected resource
     metadata document via WWW-Authenticate per RFC 9728, so that MCP-style agents
-    can bootstrap from a stock 401.
+    can bootstrap from a stock 401. Also maps an oversized request body to a 413,
+    which drf-exceptions-hog leaves as an unhandled error.
     """
     # Imported lazily: exceptions_hog calls a non-lazy gettext at module import time,
     # which raises AppRegistryNotReady when posthog.exceptions is imported during
@@ -183,6 +194,12 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
 
     # Imported lazily to avoid pulling settings into module import.
     from posthog.utils import absolute_uri
+
+    if isinstance(exc, RequestDataTooBig):
+        # Django raises this the first time anything reads an oversized body. That read often happens
+        # in the permission layer, before the view runs, and drf-exceptions-hog has no mapping for
+        # it, so the caller would otherwise get a response that never names the size as the cause.
+        exc = RequestTooLarge()
 
     response = _exceptions_hog_handler(exc, context)
     if response is not None and response.status_code == status.HTTP_401_UNAUTHORIZED:
