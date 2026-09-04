@@ -45,6 +45,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import Ext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.adapters.self_managed import SelfManagedAdapter
 from products.marketing_analytics.backend.hogql_queries.constants import CONVERSION_GOAL_KIND_CHOICES
+from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import math_sums_a_property
 from products.marketing_analytics.backend.hogql_queries.utils import map_url_to_provider
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
     explain_conversion_goal,
@@ -278,9 +279,6 @@ _CONVERSION_GOAL_ADAPTER: TypeAdapter[ConversionGoalFilter1 | ConversionGoalFilt
 )
 
 
-_SUM_MATHS = frozenset({"sum"})
-
-
 def _revenue_goal_error(goal: dict[str, Any]) -> str | None:
     """Why this goal can't claim to carry revenue, or None if it can.
 
@@ -289,14 +287,25 @@ def _revenue_goal_error(goal: dict[str, Any]) -> str | None:
     without a `math_property`. So the flag alone produces a ROAS column that is either
     a conversion count divided by spend, or a row of zeros — both of which look like
     answers. Nothing validated this before, on any of the three write paths.
+
+    The sum test comes from `math_sums_a_property`, the same one the query builder uses,
+    so a math the ROAS column accepts is not refused here.
+
+    The message names the fields as the goal editor labels them, because the person who
+    reads it goes to that editor to fix the goal.
     """
     if not goal.get("counts_as_revenue"):
         return None
-    math = str(goal.get("math") or "")
-    if math not in _SUM_MATHS:
-        return f"counts_as_revenue needs math='sum' so the amount is summed rather than counted; got {math or 'none'}."
+    if not math_sums_a_property(goal.get("math")):
+        return (
+            "'Each conversion is worth money' needs the goal to sum an amount. "
+            "Edit the goal in marketing analytics settings and set the aggregation to sum."
+        )
     if not goal.get("math_property"):
-        return "counts_as_revenue needs math_property naming the field that holds the amount."
+        return (
+            "'Each conversion is worth money' needs an amount property. "
+            "Edit the goal in marketing analytics settings and pick the event property that holds the amount."
+        )
     return None
 
 
