@@ -11,6 +11,7 @@ import type { DashboardFilterChange } from './dashboardFilterChanges'
 interface DashboardFilterChangesTooltipProps {
     changes: DashboardFilterChange[]
     children: ReactNode
+    title?: string
 }
 
 function getChangeIcon(label: DashboardFilterChange['label']): JSX.Element {
@@ -79,7 +80,11 @@ function renderChangeValue(change: DashboardFilterChange): JSX.Element {
     )
 }
 
-export function DashboardFilterChangesTooltip({ changes, children }: DashboardFilterChangesTooltipProps): JSX.Element {
+export function DashboardFilterChangesTooltip({
+    changes,
+    children,
+    title = 'Filter changes',
+}: DashboardFilterChangesTooltipProps): JSX.Element {
     if (!changes.length) {
         return <>{children}</>
     }
@@ -93,7 +98,7 @@ export function DashboardFilterChangesTooltip({ changes, children }: DashboardFi
             openOnClick
             title={
                 <div className="max-w-sm">
-                    <div className="mb-2 font-semibold">Filter changes</div>
+                    <div className="mb-2 font-semibold">{title}</div>
                     <div className="InsightDetails space-y-2">
                         {changes.map((change, index) => (
                             <InsightDetailSectionDisplay

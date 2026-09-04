@@ -166,13 +166,16 @@ describe('DashboardFilterBar', () => {
         logic.unmount()
     })
 
-    it('shows temporary URL filters to a viewer without save actions', () => {
+    it('shows temporary URL filters to a viewer without save actions', async () => {
         router.actions.push('/', {
             [SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d' }),
         })
         const viewerDashboard = { ...MOCK_DASHBOARD, user_access_level: AccessControlLevel.Viewer }
         const logic = dashboardLogic({ id: viewerDashboard.id, dashboard: viewerDashboard })
         logic.mount()
+        logic.actions.setDashboardMode(null, DashboardEventSource.DashboardFilters)
+
+        await expectLogic(logic).toFinishAllListeners()
 
         render(
             <BindLogic logic={dashboardLogic} props={{ id: viewerDashboard.id, dashboard: viewerDashboard }}>

@@ -1024,7 +1024,8 @@ export interface dashboardLogicMeta {
         isTemporaryFilterView: (
             hasUrlFilters: boolean,
             hasIntermittentFilters: boolean,
-            filterEditModeActive: boolean
+            filterEditModeActive: boolean,
+            urlVariables: Record<string, HogQLVariable>
         ) => boolean
         showApplyFiltersBanner: (canAutoPreview: boolean, hasIntermittentFilters: boolean) => boolean
         urlFilters: (searchParams: Record<string, any>) => DashboardFilter
@@ -2575,9 +2576,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
         // announces overrides while showing exactly its saved state.
         hasUrlFilters: [(s) => [s.urlFilters], (urlFilters: DashboardFilter) => !isDashboardFilterEmpty(urlFilters)],
         isTemporaryFilterView: [
-            (s) => [s.hasUrlFilters, s.hasIntermittentFilters, s.filterEditModeActive],
-            (hasUrlFilters: boolean, hasIntermittentFilters: boolean, filterEditModeActive: boolean): boolean =>
-                hasUrlFilters && !hasIntermittentFilters && !filterEditModeActive,
+            (s) => [s.hasUrlFilters, s.hasIntermittentFilters, s.filterEditModeActive, s.urlVariables],
+            (
+                hasUrlFilters: boolean,
+                hasIntermittentFilters: boolean,
+                filterEditModeActive: boolean,
+                urlVariables: Record<string, HogQLVariable>
+            ): boolean =>
+                (hasUrlFilters && !hasIntermittentFilters && !filterEditModeActive) ||
+                Object.keys(urlVariables).length > 0,
         ],
         showApplyFiltersBanner: [
             (s) => [s.canAutoPreview, s.hasIntermittentFilters],
