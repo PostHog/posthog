@@ -26,6 +26,12 @@ export interface AttributeCellProps {
     width: number
     /** The row's timestamp; lets the trace_id cell link with a time hint for the cold-load query. */
     timestamp?: string
+    /**
+     * Overrides the horizontal-scroll sync key, which defaults to the attribute key. The Person and
+     * Session columns pass a per-column key, so rows resolving different attribute keys still scroll
+     * together.
+     */
+    cellKey?: string
 }
 
 export const AttributeCell = memo(function AttributeCell({
@@ -33,9 +39,10 @@ export const AttributeCell = memo(function AttributeCell({
     value,
     width,
     timestamp,
+    cellKey,
 }: AttributeCellProps): JSX.Element {
     const { id, isAttributeColumn } = useValues(logsViewerLogic)
-    const { configuredSessionIdKeys } = useValues(logsConfigLogic)
+    const { configuredDistinctIdKeys, configuredSessionIdKeys } = useValues(logsConfigLogic)
     const { addFilter, toggleAttributeColumn } = useActions(logsViewerLogic)
     const tracingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Tracing,
@@ -44,7 +51,7 @@ export const AttributeCell = memo(function AttributeCell({
 
     const { scrollRef, handleScroll, startScrolling, stopScrolling } = useCellScroll({
         id,
-        cellKey: `attr:${attributeKey}`,
+        cellKey: cellKey ?? `attr:${attributeKey}`,
     })
 
     return (
@@ -57,7 +64,7 @@ export const AttributeCell = memo(function AttributeCell({
         >
             <div style={{ width, flexShrink: 0 }} className="relative flex items-center self-stretch group/attr pr-1">
                 <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-x-auto hide-scrollbar">
-                    {isDistinctIdKey(attributeKey) ? (
+                    {isDistinctIdKey(attributeKey, configuredDistinctIdKeys) ? (
                         <span className="font-mono text-xs whitespace-nowrap pr-24" title={value}>
                             <PersonDisplay person={{ distinct_id: value }} noEllipsis inline />
                         </span>

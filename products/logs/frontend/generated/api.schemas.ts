@@ -2459,6 +2459,8 @@ export interface _LogsValuesResponseApi {
  * * `source` - source
  * * `trace_id` - trace_id
  * * `span_id` - span_id
+ * * `person` - person
+ * * `session` - session
  * * `pattern` - pattern
  * * `message` - message
  * * `custom` - custom
@@ -2471,6 +2473,8 @@ export const LogsViewColumnTypeEnumApi = {
     Source: 'source',
     TraceId: 'trace_id',
     SpanId: 'span_id',
+    Person: 'person',
+    Session: 'session',
     Pattern: 'pattern',
     Message: 'message',
     Custom: 'custom',
@@ -2486,6 +2490,8 @@ export interface LogsViewColumnApi {
      * * `source` - source
      * * `trace_id` - trace_id
      * * `span_id` - span_id
+     * * `person` - person
+     * * `session` - session
      * * `pattern` - pattern
      * * `message` - message
      * * `custom` - custom */
