@@ -40,15 +40,20 @@ func ServedHandler(stats *events.Stats) func(c echo.Context) error {
 func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisStore *events.StatsInRedis) func(c echo.Context) error {
 	return func(c echo.Context) error {
 
+		// No omitempty on the counts: zero is a real reading, and clients must
+		// tell it apart from a missing field.
 		type resp struct {
-			UsersOnProduct   int    `json:"users_on_product,omitempty"`
-			ActiveRecordings int    `json:"active_recordings,omitempty"`
-			Error            string `json:"error,omitempty"`
+			UsersOnProduct   int `json:"users_on_product"`
+			ActiveRecordings int `json:"active_recordings"`
+		}
+
+		type errResp struct {
+			Error string `json:"error"`
 		}
 
 		_, token, err := auth.GetAuthClaims(c.Request().Header)
 		if err != nil {
-			return c.JSON(http.StatusUnauthorized, resp{Error: "wrong token claims"})
+			return c.JSON(http.StatusUnauthorized, errResp{Error: "wrong token claims"})
 		}
 
 		if redisStore != nil {
@@ -57,15 +62,10 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisS
 			sessionCount, sessionErr := redisStore.GetSessionCount(ctx, token)
 
 			if userErr == nil && sessionErr == nil {
-				if userCount == 0 && sessionCount == 0 {
-					return c.JSON(http.StatusOK, resp{Error: "no stats"})
-				}
-
-				siteStats := resp{}
-				siteStats.UsersOnProduct = int(userCount)
-				siteStats.ActiveRecordings = int(sessionCount)
-
-				return c.JSON(http.StatusOK, siteStats)
+				return c.JSON(http.StatusOK, resp{
+					UsersOnProduct:   int(userCount),
+					ActiveRecordings: int(sessionCount),
+				})
 			}
 
 			log.Printf("Redis read failed, falling back to local LRU: users_err=%v sessions_err=%v", userErr, sessionErr)
@@ -75,16 +75,14 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisS
 		userStore := stats.GetExistingStoreForToken(token)
 		sessionCount := sessionStats.CountForToken(token)
 
+		// The LRU is per-instance, so a token it never saw means no data, not zero.
 		if userStore == nil && sessionCount == 0 {
-			return c.JSON(http.StatusOK, resp{Error: "no stats"})
+			return c.JSON(http.StatusOK, errResp{Error: "no stats"})
 		}
 
-		siteStats := resp{}
+		siteStats := resp{ActiveRecordings: sessionCount}
 		if userStore != nil {
 			siteStats.UsersOnProduct = userStore.Len()
-		}
-		if sessionCount != 0 {
-			siteStats.ActiveRecordings = sessionCount
 		}
 		return c.JSON(http.StatusOK, siteStats)
 	}

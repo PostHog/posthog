@@ -209,6 +209,42 @@ func TestStatsHandler_ReadsFromRedis(t *testing.T) {
 	assert.Empty(t, resp.Error)
 }
 
+func TestStatsHandler_ReportsZeroCountsFromRedis(t *testing.T) {
+	viper.Set("jwt.secret", "test-secret-for-stats")
+	apiToken := "phx_test_token"
+
+	mr := miniredis.RunT(t)
+	client, err := rueidis.NewClient(rueidis.ClientOption{
+		InitAddress:  []string{mr.Addr()},
+		DisableCache: true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { client.Close() })
+	rw := events.NewStatsInRedisFromClient(client)
+
+	handler := StatsHandler(events.NewStatsKeeper(), events.NewSessionStatsKeeper(0, 0), rw)
+
+	token := createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+		"team_id":   1,
+		"api_token": apiToken,
+	})
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	require.NoError(t, handler(c))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, float64(0), resp["users_on_product"])
+	assert.Equal(t, float64(0), resp["active_recordings"])
+	assert.NotContains(t, resp, "error")
+}
+
 func TestStatsHandler_FallsBackToLocal(t *testing.T) {
 	viper.Set("jwt.secret", "test-secret-for-stats")
 	apiToken := "phx_test_token"

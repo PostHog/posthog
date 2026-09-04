@@ -141,6 +141,10 @@ export const liveUserCountLogic = kea<liveUserCountLogicType>([
                     },
                 })
                 const data: LiveUserCountStats = await response.json()
+                if (data.users_on_product == null && data.active_recordings == null) {
+                    // The stream reports no data yet. Keep the last known counts so the badges do not blink away.
+                    return
+                }
                 actions.setStats(data, new Date())
             } catch (error) {
                 console.error('Failed to poll stats:', error)
