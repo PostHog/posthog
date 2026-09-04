@@ -23,6 +23,9 @@ export const destinationsSetupLogic = createSetupDetectionLogic({
                 type: ['destination', 'site_destination', 'internal_destination'],
                 limit: 1,
             }),
+            // The legacy plugin config endpoints are not in the OpenAPI spec, so there is
+            // no generated client to call here.
+            // nosemgrep: prefer-codegen-api
             api.get<CountedPaginatedResponse<unknown>>(
                 `api/projects/${projectId}/pipeline_destination_configs/?limit=1`
             ),
