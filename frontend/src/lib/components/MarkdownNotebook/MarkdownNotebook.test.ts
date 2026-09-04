@@ -774,16 +774,46 @@ points = pd.DataFrame()" />`,
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
     })
 
-    it('does not cross a blank-line boundary for a malformed component', () => {
-        const markdown = `<PythonV2 nodeId=p
+    it('recovers an escaped multiline component produced by the prose serializer', () => {
+        const markdown = `\\<PythonV2 title="Chart" code="import pandas as pd
 
-code=print(1) />`
+\\# Prepare values
+values = rows\\[0\\] \\* 2" />`
+        const recoveredMarkdown = `<PythonV2 title="Chart" code="import pandas as pd
+
+# Prepare values
+values = rows[0] * 2" />`
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes[0]).toMatchObject({
+            type: 'component',
+            tagName: 'PythonV2',
+            props: {
+                title: 'Chart',
+                code: 'import pandas as pd\n\n# Prepare values\nvalues = rows[0] * 2',
+            },
+        })
+        expect(serializeMarkdownNotebook(document)).toEqual(recoveredMarkdown)
+    })
+
+    it.each([
+        [
+            'an unquoted prop',
+            `<PythonV2 nodeId=p
+
+code=print(1) />`,
+        ],
+        [
+            'an unterminated quoted prop',
+            `<PythonV2 nodeId="p
+
+Following paragraph`,
+        ],
+    ])('does not cross a blank-line boundary for a malformed component with %s', (_name, markdown) => {
         const document = parseMarkdownNotebook(markdown)
 
         expect(document.nodes).not.toContainEqual(expect.objectContaining({ type: 'component' }))
-        expect(serializeMarkdownNotebook(document)).toEqual(`\\<PythonV2 nodeId=p
-
-code=print(1) />`)
+        expect(serializeMarkdownNotebook(document)).toEqual(`\\${markdown}`)
     })
 
     it('does not scan past the multiline component limit', () => {

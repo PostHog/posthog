@@ -69,6 +69,8 @@ _MARKDOWN_COMPONENT_TAG_REGEX = re.compile(r"^<([A-Z][A-Za-z0-9]*)([\s\S]*?)(?:/
 _MARKDOWN_COMPONENT_PROP_NAME_REGEX = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)")
 _MARKDOWN_COMPONENT_RAW_PROP_VALUE_REGEX = re.compile(r"^([^\s/>]+)")
 _MARKDOWN_COMPONENT_NUMBER_REGEX = re.compile(r"^-?\d+(\.\d+)?$")
+_MARKDOWN_ESCAPED_COMPONENT_START_REGEX = re.compile(r"^\\<[A-Z][A-Za-z0-9]*(\s|>|/)")
+_MARKDOWN_INLINE_ESCAPABLE_CHARACTERS = frozenset("\\`*_~[]()<>#+-.|!")
 _MAX_MARKDOWN_COMPONENT_LINES = 1_000
 _MAX_MARKDOWN_COMPONENT_CHARACTERS = 256 * 1024
 
@@ -388,6 +390,9 @@ def _get_markdown_code_block_end(lines: list[str], line_index: int) -> int:
 
 def _read_markdown_component_block(lines: list[str], line_index: int) -> tuple[str, str, int] | None:
     first_line = lines[line_index].strip()
+    recover_escaped_source = bool(_MARKDOWN_ESCAPED_COMPONENT_START_REGEX.match(first_line))
+    if recover_escaped_source:
+        first_line = _unescape_markdown_inline_source(first_line)
     if not _MARKDOWN_COMPONENT_START_REGEX.match(first_line):
         return None
 
@@ -396,22 +401,37 @@ def _read_markdown_component_block(lines: list[str], line_index: int) -> tuple[s
     if not tag_name:
         return None
 
-    scan = _scan_markdown_component_block(lines, line_index, tag_name)
+    scan = _scan_markdown_component_block(lines, line_index, tag_name, recover_escaped_source)
+    if recover_escaped_source and scan.next_line_index <= line_index + 1:
+        return None
     if not scan.found_terminator:
+        if _MARKDOWN_COMPONENT_TAG_REGEX.match(first_line):
+            return tag_name, first_line, line_index + 1
         return None
 
     return tag_name, scan.raw, scan.next_line_index
 
 
-def _scan_markdown_component_block(lines: list[str], line_index: int, tag_name: str) -> _MarkdownComponentScan:
+def _scan_markdown_component_block(
+    lines: list[str], line_index: int, tag_name: str, recover_escaped_source: bool = False
+) -> _MarkdownComponentScan:
     raw_lines: list[str] = []
     state = _MarkdownComponentScanState()
     character_count = 0
     next_line_index = line_index
+    fallback_raw_line_count: int | None = None
+    fallback_next_line_index: int | None = None
     line_limit = min(len(lines), line_index + _MAX_MARKDOWN_COMPONENT_LINES)
 
     while next_line_index < line_limit:
-        line = lines[next_line_index]
+        line = (
+            _unescape_markdown_inline_source(lines[next_line_index])
+            if recover_escaped_source
+            else lines[next_line_index]
+        )
+        if next_line_index > line_index and not line.strip() and fallback_next_line_index is None:
+            fallback_raw_line_count = len(raw_lines)
+            fallback_next_line_index = next_line_index
         if next_line_index > line_index and not line.strip() and state.quote is None and state.expression_depth == 0:
             break
 
@@ -459,11 +479,27 @@ def _scan_markdown_component_block(lines: list[str], line_index: int, tag_name: 
             state.escape_next = False
         next_line_index += 1
 
+    fallback_raw_lines = raw_lines if fallback_raw_line_count is None else raw_lines[:fallback_raw_line_count]
     return _MarkdownComponentScan(
-        raw="\n".join(raw_lines).strip(),
-        next_line_index=next_line_index,
+        raw="\n".join(fallback_raw_lines).strip(),
+        next_line_index=fallback_next_line_index if fallback_next_line_index is not None else next_line_index,
         found_terminator=False,
     )
+
+
+def _unescape_markdown_inline_source(source: str) -> str:
+    unescaped: list[str] = []
+    index = 0
+    while index < len(source):
+        character = source[index]
+        next_character = source[index + 1] if index + 1 < len(source) else None
+        if character == "\\" and next_character in _MARKDOWN_INLINE_ESCAPABLE_CHARACTERS:
+            unescaped.append(next_character)
+            index += 2
+        else:
+            unescaped.append(character)
+            index += 1
+    return "".join(unescaped)
 
 
 def _advance_markdown_component_scan(state: _MarkdownComponentScanState, character: str) -> None:

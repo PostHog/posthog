@@ -51,6 +51,7 @@ type ComponentScanState = {
 }
 
 const COMPONENT_START_REGEX = /^<[A-Z][A-Za-z0-9]*(\s|>|\/)/
+const ESCAPED_COMPONENT_START_REGEX = /^\\<[A-Z][A-Za-z0-9]*(\s|>|\/)/
 const MAX_COMPONENT_BLOCK_LINES = 1_000
 const MAX_COMPONENT_BLOCK_CHARACTERS = 256 * 1024
 const ORDERED_LIST_REGEX = /^\s*\d+[.)](?:\s+|$)/
@@ -624,6 +625,18 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
         return parseComponentBlock(lines, lineIndex)
     }
 
+    if (ESCAPED_COMPONENT_START_REGEX.test(trimmed)) {
+        const recoveredComponent = parseComponentBlock(lines, lineIndex, true)
+        const recoveredNode = recoveredComponent.node
+        if (
+            recoveredNode?.type === 'component' &&
+            recoveredComponent.nextLineIndex > lineIndex + 1 &&
+            !recoveredNode.errors?.length
+        ) {
+            return recoveredComponent
+        }
+    }
+
     const headingMatch = line.match(HEADING_REGEX)
     if (headingMatch) {
         return {
@@ -1104,8 +1117,12 @@ function parseImageBlock(lines: string[], lineIndex: number): BlockParseResult {
     }
 }
 
-function parseComponentBlock(lines: string[], lineIndex: number): BlockParseResult {
-    const firstLine = lines[lineIndex].trim()
+function parseComponentBlock(
+    lines: string[],
+    lineIndex: number,
+    recoverEscapedSource: boolean = false
+): BlockParseResult {
+    const firstLine = getComponentSourceLine(lines[lineIndex], recoverEscapedSource).trim()
     const tagName = firstLine.match(/^<([A-Z][A-Za-z0-9]*)/)?.[1]
 
     if (!tagName) {
@@ -1117,8 +1134,16 @@ function parseComponentBlock(lines: string[], lineIndex: number): BlockParseResu
         }
     }
 
-    const scan = scanComponentBlock(lines, lineIndex, tagName)
+    const scan = scanComponentBlock(lines, lineIndex, tagName, recoverEscapedSource)
     if (!scan.foundTerminator) {
+        const singleLineComponent = parseComponentTag(firstLine)
+        if (singleLineComponent.node) {
+            return {
+                node: singleLineComponent.node,
+                nextLineIndex: lineIndex + 1,
+            }
+        }
+
         return {
             node: makeComponentFallbackParagraph(scan.raw),
             nextLineIndex: scan.nextLineIndex,
@@ -1136,7 +1161,12 @@ function parseComponentBlock(lines: string[], lineIndex: number): BlockParseResu
     }
 }
 
-function scanComponentBlock(lines: string[], lineIndex: number, tagName: string): ComponentScanResult {
+function scanComponentBlock(
+    lines: string[],
+    lineIndex: number,
+    tagName: string,
+    recoverEscapedSource: boolean
+): ComponentScanResult {
     const rawLines: string[] = []
     const state: ComponentScanState = {
         quote: null,
@@ -1147,10 +1177,16 @@ function scanComponentBlock(lines: string[], lineIndex: number, tagName: string)
     }
     let characterCount = 0
     let nextLineIndex = lineIndex
+    let fallbackRawLineCount: number | null = null
+    let fallbackNextLineIndex: number | null = null
     const lineLimit = Math.min(lines.length, lineIndex + MAX_COMPONENT_BLOCK_LINES)
 
     while (nextLineIndex < lineLimit) {
-        const line = lines[nextLineIndex]
+        const line = getComponentSourceLine(lines[nextLineIndex], recoverEscapedSource)
+        if (nextLineIndex > lineIndex && !line.trim() && fallbackNextLineIndex === null) {
+            fallbackRawLineCount = rawLines.length
+            fallbackNextLineIndex = nextLineIndex
+        }
         if (isComponentBlankLineBoundary(line, nextLineIndex, lineIndex, state)) {
             break
         }
@@ -1195,11 +1231,33 @@ function scanComponentBlock(lines: string[], lineIndex: number, tagName: string)
         nextLineIndex += 1
     }
 
+    const fallbackRawLines = fallbackRawLineCount === null ? rawLines : rawLines.slice(0, fallbackRawLineCount)
     return {
-        raw: rawLines.join('\n').trim(),
-        nextLineIndex,
+        raw: fallbackRawLines.join('\n').trim(),
+        nextLineIndex: fallbackNextLineIndex ?? nextLineIndex,
         foundTerminator: false,
     }
+}
+
+function getComponentSourceLine(line: string, recoverEscapedSource: boolean): string {
+    if (!recoverEscapedSource) {
+        return line
+    }
+
+    let source = ''
+    let index = 0
+    while (index < line.length) {
+        const character = line[index]
+        const nextCharacter = line[index + 1]
+        if (character === '\\' && nextCharacter !== undefined && INLINE_ESCAPABLE_CHARS.has(nextCharacter)) {
+            source += nextCharacter
+            index += 2
+        } else {
+            source += character
+            index += 1
+        }
+    }
+    return source
 }
 
 function isComponentBlankLineBoundary(
