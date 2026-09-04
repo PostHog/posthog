@@ -2055,9 +2055,38 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_csv")
     @patch("ee.api.billing.posthog_feature_flag_enabled")
-    def test_an_export_needs_editor_access_to_exports(self, mock_flag_eval: MagicMock, mock_get_usage_csv: MagicMock):
-        """The page disables the export button below editor access to exports; a direct call is
-        refused the same way, before billing is asked for the file."""
+    def test_an_export_carries_only_the_projects_the_member_may_export(
+        self, mock_flag_eval: MagicMock, mock_get_usage_csv: MagicMock
+    ):
+        """Export access is set per project. A member who may export one visible project but not
+        another gets a file of the first alone, whatever project they are working in."""
+        self._setup_member_with_private_team()
+        mock_flag_eval.side_effect = self._member_access_flags
+        restricted = Team.objects.create(organization=self.organization, name="Export denied")
+        AccessControl.objects.create(
+            team=restricted,
+            resource="export",
+            resource_id=None,
+            access_level="none",
+            organization_member=None,
+            role=None,
+        )
+        upstream = MagicMock()
+        upstream.iter_content.return_value = iter([b"Product,Project,Project ID,Total\n"])
+        upstream.headers = {"Content-Type": "text/csv"}
+        mock_get_usage_csv.return_value = upstream
+
+        response = self.client.get("/api/billing/usage/export/?start_date=2026-08-01&end_date=2026-08-02")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        passed = json.loads(mock_get_usage_csv.call_args.args[1]["team_ids"])
+        self.assertEqual(passed, [self.team.pk])
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_csv")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_an_export_is_refused_when_the_member_may_export_none_of_the_projects(
+        self, mock_flag_eval: MagicMock, mock_get_usage_csv: MagicMock
+    ):
         self._setup_member_with_private_team()
         mock_flag_eval.side_effect = self._member_access_flags
         AccessControl.objects.create(

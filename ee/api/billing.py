@@ -1178,36 +1178,21 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         Omitting it asks for every project.
         """
         organization = self._get_org_required()
-        # The page disables the export button below editor access to exports; the same rule holds
-        # for a direct call. Export access is set per project, so it is checked on the project the
-        # person is working in, or the first of the organization's projects they can see.
-        if isinstance(request.user, User):
-            team = (
-                request.user.team
-                if request.user.team and request.user.team.organization_id == organization.id
-                else None
-            )
-            if team is None:
-                team = next(
-                    iter(
-                        visible_teams_for_user(
-                            organization, UserAccessControl(user=request.user, organization_id=str(organization.id))
-                        )
-                    ),
-                    None,
-                )
-            access = UserAccessControl(user=request.user, team=team, organization_id=str(organization.id))
-            if not access.check_access_level_for_resource("export", "editor"):
-                raise PermissionDenied("You do not have permission to export data.")
         serializer = BillingUsageRequestSerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
         self._check_requested_team_ids_belong_to_org(organization, serializer.validated_data.get("team_ids"))
 
         params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
         # The same narrowing as the interactive endpoints: a member who can only see some projects
-        # must not export the others.
+        # must not export the others. Then one step further, since export access is set per
+        # project like the page's button: the file carries only the projects the person may
+        # export, and none of them is a refusal. An admin or owner has export access everywhere,
+        # which is the case where nothing is scoped.
         scoped_team_ids = self._scoped_team_ids_for_usage_spend_request(request, organization, params_to_pass)
         if scoped_team_ids is not None:
+            scoped_team_ids = self._exportable_team_ids(request, organization, scoped_team_ids)
+            if not scoped_team_ids:
+                raise PermissionDenied("You do not have permission to export data.")
             params_to_pass["team_ids"] = json.dumps(scoped_team_ids)
         # No teams_map: the names go into the file as it streams back, in _rewrite_csv_labels.
         teams_map = self._get_teams_map(organization, scoped_team_ids)
@@ -1310,6 +1295,21 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if 400 <= upstream_status < 500:
             raise BillingQueryRejected() from error
         raise BillingServiceError() from error
+
+    def _exportable_team_ids(
+        self, request: Request, organization: Organization, team_ids: Sequence[int]
+    ) -> Sequence[int]:
+        """The given projects on which the person has editor access to exports."""
+        if not isinstance(request.user, User):
+            return sorted(team_ids)
+        teams = Team.objects.filter(organization=organization, id__in=team_ids)
+        return sorted(
+            team.id
+            for team in teams
+            if UserAccessControl(
+                user=request.user, team=team, organization_id=str(organization.id)
+            ).check_access_level_for_resource("export", "editor")
+        )
 
     def _scoped_team_ids_for_usage_spend_request(
         self, request: Request, organization: Organization, params_to_pass: dict[str, Any]
