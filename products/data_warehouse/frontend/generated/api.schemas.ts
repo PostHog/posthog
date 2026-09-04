@@ -1783,6 +1783,14 @@ export interface IncrementalEligibilityApi {
     warnings: string[]
 }
 
+/**
+ * Body of the `resume_schedules` action.
+ */
+export interface SavedQueryResumeSchedulesRequestApi {
+    /** Ids of the saved queries to resume. Ids that are not in this project are ignored. */
+    view_ids: string[]
+}
+
 export interface DataWarehouseSavedQueryDraftApi {
     readonly id: string
     readonly created_at: string

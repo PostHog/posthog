@@ -71,6 +71,7 @@ import type {
     SavedQueryLineageRequestApi,
     SavedQueryMaterializeApi,
     SavedQueryResumeApi,
+    SavedQueryResumeSchedulesRequestApi,
     SavedQueryRunApi,
     TableApi,
     ViewLinkApi,
@@ -1832,14 +1833,14 @@ export const getWarehouseSavedQueriesResumeSchedulesCreateUrl = (projectId: stri
  */
 export const warehouseSavedQueriesResumeSchedulesCreate = async (
     projectId: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    savedQueryResumeSchedulesRequestApi: SavedQueryResumeSchedulesRequestApi,
     options?: RequestInit
-): Promise<DataWarehouseSavedQueryApi> => {
-    return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesResumeSchedulesCreateUrl(projectId), {
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseSavedQueriesResumeSchedulesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataWarehouseSavedQueryApi),
+        body: JSON.stringify(savedQueryResumeSchedulesRequestApi),
     })
 }
 

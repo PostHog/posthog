@@ -29,7 +29,10 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
-from products.data_warehouse.backend.presentation.views.saved_query import SavedQueryMaterializeSerializer
+from products.data_warehouse.backend.presentation.views.saved_query import (
+    SavedQueryMaterializeSerializer,
+    SavedQueryResumeSchedulesRequestSerializer,
+)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -2254,6 +2257,15 @@ class TestSavedQuery(APIBaseTest):
             node.refresh_from_db()
             self.assertEqual(suspension_state(node), {})
 
+    def test_resume_schedules_rejects_a_malformed_view_id(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/resume_schedules/",
+            {"view_ids": ["not-a-uuid"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_materialize_and_revert_are_rate_limited(self, _rate_limit_enabled_mock):
         api_key = self.create_personal_api_key_with_scopes(["warehouse_view:write"])
@@ -2309,6 +2321,22 @@ class TestMaterializeRequestBody(SimpleTestCase):
 
         assert not serializer.is_valid()
         assert "sync_frequency" in serializer.errors
+
+
+class TestResumeSchedulesRequestBody(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("view_ids_omitted", {}),
+            ("view_ids_empty", {"view_ids": []}),
+            # a malformed id must be rejected before it reaches the id__in filter
+            ("view_id_not_a_uuid", {"view_ids": ["not-a-uuid"]}),
+            ("body_is_a_list", []),
+        ]
+    )
+    def test_rejected_body(self, _name, payload):
+        serializer = SavedQueryResumeSchedulesRequestSerializer(data=payload)
+
+        assert not serializer.is_valid()
 
 
 class TestSavedQueryRun(APIBaseTest):

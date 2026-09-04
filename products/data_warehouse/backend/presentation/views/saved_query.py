@@ -1349,6 +1349,16 @@ class SavedQueryResumeSerializer(serializers.Serializer):
     resumed = serializers.BooleanField(help_text="False when the query's materialization was not suspended.")
 
 
+class SavedQueryResumeSchedulesRequestSerializer(serializers.Serializer):
+    """Body of the `resume_schedules` action."""
+
+    view_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        help_text="Ids of the saved queries to resume. Ids that are not in this project are ignored.",
+    )
+
+
 class SavedQueryLineageRequestSerializer(serializers.Serializer):
     """Body of the `ancestors` and `descendants` actions."""
 
@@ -1888,6 +1898,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_200_OK)
 
+    @extend_schema(request=SavedQueryResumeSchedulesRequestSerializer, responses={202: None})
     @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
     def resume_schedules(self, request: request.Request, *args, **kwargs) -> response.Response:
         """
@@ -1898,10 +1909,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         from products.data_modeling.backend.facade.api import resume_saved_query
 
-        view_ids = request.data.get("view_ids", [])
-        if not view_ids:
-            return response.Response({"error": "view_ids is required"}, status=status.HTTP_400_BAD_REQUEST)
-        saved_queries = DataWarehouseSavedQuery.objects.filter(id__in=view_ids, team_id=self.team_id)
+        serializer = SavedQueryResumeSchedulesRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        saved_queries = DataWarehouseSavedQuery.objects.filter(
+            id__in=serializer.validated_data["view_ids"], team_id=self.team_id
+        )
         for saved_query in saved_queries:
             resume_saved_query(saved_query)
         return response.Response(status=status.HTTP_202_ACCEPTED)

@@ -76552,6 +76552,14 @@ export namespace Schemas {
     }
 
     /**
+     * Body of the `resume_schedules` action.
+     */
+    export interface SavedQueryResumeSchedulesRequest {
+      /** Ids of the saved queries to resume. Ids that are not in this project are ignored. */
+      view_ids: string[];
+    }
+
+    /**
      * Body of the `run` action.
      */
     export interface SavedQueryRun {
