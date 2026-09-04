@@ -4525,12 +4525,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         saveDashboardChanges: async () => {
-            if (!values.dashboard || !values.dashboardConfigurationDraft) {
+            if (!values.dashboard || values.dashboardConfigurationState !== 'unsavedChanges') {
                 actions.saveDashboardChangesSuccess(null)
                 return
             }
 
-            const configuration = values.dashboardConfigurationDraft
+            const configuration = values.effectiveDashboardConfiguration
             try {
                 const dashboard = await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
                     filters: configuration.filters,

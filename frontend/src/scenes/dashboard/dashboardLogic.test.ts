@@ -2872,14 +2872,34 @@ describe('dashboardLogic', () => {
             }
         )
 
-        it('shows a URL variable override as unsaved configuration without a dirty filter', async () => {
+        it('shows and saves a URL variable override as unsaved configuration', async () => {
             await mountDashboardWithVariable({ urlValue: 'url-val' })
+            const update = jest.spyOn(api, 'update').mockResolvedValue({
+                ...logic.values.dashboard!,
+                persisted_variables: {
+                    [variableId]: { ...baseVariable, value: 'url-val', isNull: false },
+                },
+            })
 
             expect(logic.values.urlVariables).toEqual({
                 [variableId]: expect.objectContaining({ code_name: 'organization', value: 'url-val' }),
             })
             expect(logic.values.filtersDirty).toBe(false)
             expect(logic.values.filterChanges).toEqual([])
+            expect(logic.values.dashboardConfigurationState).toBe('unsavedChanges')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveDashboardChanges()
+            }).toFinishAllListeners()
+
+            expect(update).toHaveBeenCalledWith(expect.any(String), {
+                filters: {},
+                variables: {
+                    [variableId]: expect.objectContaining({ value: 'url-val' }),
+                },
+            })
+            expect(router.values.searchParams).toEqual({})
+            expect(logic.values.dashboardConfigurationState).toBe('saved')
         })
 
         it('shows filter edits as unsaved when a URL variable override exists', async () => {
