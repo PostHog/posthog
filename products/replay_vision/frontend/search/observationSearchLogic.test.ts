@@ -77,7 +77,7 @@ describe('observationSearchLogic', () => {
     it.each([
         ['a full page plus one leaves a single result on page 2', 11, 2, ['obs-10']],
         ['an exact page fill has no second page', 10, 1, []],
-    ])('%s', (_name, resultCount, expectedPageCount, expectedSecondPageIds) => {
+    ])('%s', async (_name, resultCount, expectedPageCount, expectedSecondPageIds) => {
         const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
         logic.mount()
         logic.actions.setPage(3)
@@ -86,8 +86,10 @@ describe('observationSearchLogic', () => {
         expect(logic.values.page).toBe(1)
         expect(logic.values.pageCount).toBe(expectedPageCount)
         expect(logic.values.pageResults).toHaveLength(Math.min(resultCount, 10))
-        logic.actions.setPage(2)
+        await expectLogic(logic, () => logic.actions.setPage(2)).toFinishAllListeners()
         expect(logic.values.pageResults.map((r) => r.observation.id)).toEqual(expectedSecondPageIds)
+        // Paging slices the one ranked response, so a page change must not re-embed and re-rank.
+        expect(searchSpy).not.toHaveBeenCalled()
         logic.unmount()
     })
 
