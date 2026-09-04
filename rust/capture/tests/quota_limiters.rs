@@ -183,6 +183,17 @@ fn create_batch_payload_with_token(events: &[&str], token: &str) -> String {
     }
 }
 
+async fn assert_quota_limited(response: axum_test_helper::TestResponse, expected: &[&str]) {
+    let body: Value = serde_json::from_str(&response.text().await).unwrap();
+    let reported: Vec<&str> = body["quota_limited"]
+        .as_array()
+        .expect("a quota-paused response must name the paused resources")
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert_eq!(reported, expected);
+}
+
 fn extract_captured_event_names(events: &[ProcessedEvent]) -> Vec<String> {
     events
         .iter()
@@ -378,6 +389,9 @@ async fn test_billing_limit_returns_ok_when_no_retained_events() {
     // No events should be captured
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 0);
+
+    // ...but the 200 must still tell the client the events quota is paused
+    assert_quota_limited(response, &["events"]).await;
 }
 
 #[tokio::test]
@@ -588,6 +602,10 @@ async fn test_exception_limiter_returns_ok_when_only_exception_events() {
     // When quota exceeded, ALL survey events should be filtered out
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 0);
+
+    // The scoped bucket that paused the batch is the one reported, not the
+    // global events bucket, which is still open for this token.
+    assert_quota_limited(response, &["exceptions"]).await;
 }
 
 #[tokio::test]
