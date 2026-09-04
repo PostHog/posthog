@@ -49,6 +49,8 @@ describe('PlayerFrame', () => {
         expect(sessionRecordingPlayerLogic(logicProps).values.rootFrame).toBe(
             frameDocument.getElementById('player-frame-content')
         )
+        // The frame is same-origin, so any script permission added here runs as the app.
+        expect(iframe).toHaveAttribute('sandbox', 'allow-same-origin')
     })
 
     // A same-origin error page, a login redirect, or a browser network-error page all fire load

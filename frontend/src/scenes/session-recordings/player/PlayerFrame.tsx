@@ -52,8 +52,8 @@ export const PlayerFrame = (): JSX.Element => {
 
             replayDimensionRef.current = dimensions
 
-            // Under the flag the parent is the player frame's body, which fills this container
-            // exactly, so it measures the same box either way.
+            // rrweb scales its wrapper to fit the wrapper's parent, so measure that parent rather than
+            // this container. Under the flag the parent is the player frame's body.
             const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
 
             const { scale, transform } = getPlayerFrameScale(parentDimensions, dimensions)

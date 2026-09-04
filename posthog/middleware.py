@@ -1199,9 +1199,9 @@ class CSPMiddleware:
                 [
                     "default-src 'none'",
                     "script-src 'none'",
-                    "style-src * 'unsafe-inline' data:",
+                    "style-src * 'unsafe-inline' data: blob:",
                     "img-src * data: blob:",
-                    "font-src * data:",
+                    "font-src * data: blob:",
                     "media-src * data: blob:",
                     "connect-src *",
                     "frame-src *",

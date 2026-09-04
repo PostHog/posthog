@@ -1905,10 +1905,14 @@ class TestCSPMiddleware(APIBaseTest):
         response = self.client.get("/")
         assert "frame-src 'self' https:" in response["Content-Security-Policy-Report-Only"]
 
-    def test_replay_player_frame_is_reachable_without_a_session(self):
+    def test_replay_player_frame_serves_the_mount_node_without_a_session(self):
         # Shared recordings render the player for logged-out viewers.
         self.client.logout()
-        assert self.client.get("/replay_player_frame/index.html").status_code == 200
+        response = self.client.get("/replay_player_frame/index.html")
+        assert response.status_code == 200
+        # PlayerFrame.tsx looks the mount node up by this id. A rename here makes every player fall
+        # back to the app document.
+        assert 'id="player-frame-content"' in response.content.decode()
 
     def test_non_html_response_gets_strict_csp(self):
         response = self.client.get("/api/users/@me/")
