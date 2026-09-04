@@ -2473,6 +2473,40 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         # data_freshness_seconds=86400, materialized ~5 min ago -> ~86100s remaining
         self.assertGreater(cache_ttl, 80000, f"cache TTL clamped ({cache_ttl}s): freshness read from frozen timestamp")
 
+    def test_materialized_insight_pins_date_range_to_job_materialization_time(self):
+        endpoint = self._make_fresh_materialized_endpoint(
+            "v2-insight-now",
+            TrendsQuery(series=[EventsNode(event="$pageview")], dateRange={"date_from": "-7d"}).model_dump(),
+        )
+        saved_query = endpoint.versions.first().saved_query
+        saved_query.sync_frequency_interval = None
+        saved_query.last_run_at = None
+        saved_query.status = None
+        saved_query.save()
+        materialized_at = timezone.now() - timedelta(minutes=5)
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJob.Engine.CLICKHOUSE,
+            last_run_at=materialized_at,
+        )
+
+        flat_response = Response({"results": [[0, "2026-01-01", 0]], "columns": ["__series_index", "day", "count"]})
+        with (
+            mock.patch.object(EndpointExecutionService, "_execute_query_and_respond", return_value=flat_response),
+            mock.patch(
+                "products.endpoints.backend.logic.strategies.transform_materialized_insight_response"
+            ) as mock_transform,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_transform.assert_called_once()
+        self.assertEqual(mock_transform.call_args.kwargs["now"], materialized_at)
+
     def test_series_mismatch_falls_back_to_inline(self):
         """Series drift triggers re-materialization AND serves the request inline."""
         from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
