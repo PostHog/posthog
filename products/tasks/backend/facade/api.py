@@ -843,7 +843,9 @@ def signal_report_pipeline_stage(task_id: str | UUID, team_id: int) -> str | Non
 
     A task's runs all carry the stage the pipeline started it for, so the newest run answers for
     the task. ``None`` covers everything else: a scout run, a user-created task, a legacy row
-    predating the stamp.
+    predating the stamp. A person-started Inbox run on a customer-created task carries the
+    ``inbox`` stamp from ``Task.create_run``; it names no pipeline identity, so stage-to-identity
+    lookups miss it.
     """
     state = (
         TaskRun.objects.filter(
@@ -2241,9 +2243,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "loop_terminal_bookkeeping_complete",
         # Stamped once at run creation. The review carve-outs read ai_stage="implementation" as proof
         # a run is self-driving, so a PATCHable value would forge that and unlock the bot/draft bypass.
-        # is_interactive_signals_run reads its presence the same way, to tell a pipeline-started
-        # signals run from one a person started; forging it would move the run off the interactive
-        # budget and out of its per-run spend ceiling.
+        # is_interactive_signals_run reads it the same way, so forging it would move the run off
+        # the interactive budget and out of its per-run spend ceiling.
         "ai_stage",
         # The server-generated head branch the run->PR link is keyed on (find_signal_implementation_run).
         # A PATCHable value would let a caller re-aim the approve-first carve-out at any App-authored
