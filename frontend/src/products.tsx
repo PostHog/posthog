@@ -557,6 +557,7 @@ export const productConfiguration: Record<string, any> = {
         name: 'Business knowledge',
         projectBased: true,
         activityScope: 'KnowledgeSource',
+        iconType: 'conversations',
         description:
             'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
     },

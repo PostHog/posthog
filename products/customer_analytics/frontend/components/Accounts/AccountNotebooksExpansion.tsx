@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import {
     IconCloud,
     IconCopy,
+    IconCreditCard,
     IconDatabase,
     IconGlobe,
     IconGraph,
@@ -76,6 +77,7 @@ const LINK_ICONS: Record<string, JSX.Element> = {
     metabase: <IconDatabase />,
     slack: <IconSlack />,
     'billing-admin': <IconReceipt />,
+    stripe: <IconCreditCard />,
     salesforce: <IconCloud />,
 }
 

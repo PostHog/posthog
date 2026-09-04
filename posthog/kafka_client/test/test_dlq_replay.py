@@ -131,6 +131,7 @@ class FakeConsumer:
 class FakeProducer:
     def __init__(self, delivery_error: Optional[str] = None) -> None:
         self.delivery_error = delivery_error
+        self.conf: dict[str, Any] = {}
         self.produced: list[dict[str, Any]] = []
         self._pending: list[Callable[[Any, Any], None]] = []
 
@@ -154,12 +155,18 @@ class DrainDlqTest(TestCase):
         batches: list[list[FakeMessage]],
         producer: FakeProducer,
         consumer: Optional[FakeConsumer] = None,
+        producer_settings: Optional[dict[str, Any]] = None,
         **kwargs: Any,
     ) -> tuple[dict[str, int], FakeConsumer]:
         consumer = consumer or FakeConsumer(batches)
+
+        def build_producer(conf: dict[str, Any]) -> FakeProducer:
+            producer.conf = conf
+            return producer
+
         with (
             patch("posthog.kafka_client.dlq_replay.Consumer", return_value=consumer),
-            patch("posthog.kafka_client.dlq_replay.Producer", return_value=producer),
+            patch("posthog.kafka_client.dlq_replay.Producer", side_effect=build_producer),
             patch(
                 "posthog.kafka_client.dlq_replay.get_profile_settings",
                 return_value=SimpleNamespace(
@@ -168,6 +175,7 @@ class DrainDlqTest(TestCase):
                     sasl_mechanism=None,
                     sasl_user=None,
                     sasl_password=None,
+                    producer_settings=producer_settings or {},
                 ),
             ),
         ):
@@ -190,6 +198,31 @@ class DrainDlqTest(TestCase):
         assert consumer.commits == 1
         assert [record["value"] for record in producer.produced] == [b"one", b"two"]
         assert dict(producer.produced[0]["headers"]) == {REPLAY_COUNT_HEADER: b"1"}
+
+    @parameterized.expand(
+        [
+            ("flag_wins_over_profile", 8_000_000, {"max_request_size": 4_000_000}, 8_000_000),
+            ("profile_when_flag_unset", None, {"max_request_size": 4_000_000}, 4_000_000),
+            ("librdkafka_default_when_both_unset", None, {}, None),
+        ]
+    )
+    def test_producer_message_max_bytes(
+        self,
+        _name: str,
+        max_message_bytes: Optional[int],
+        producer_settings: dict[str, Any],
+        expected: Optional[int],
+    ) -> None:
+        producer = FakeProducer()
+
+        self._drain(
+            [[FakeMessage(b"one")]],
+            producer,
+            producer_settings=producer_settings,
+            max_message_bytes=max_message_bytes,
+        )
+
+        assert producer.conf.get("message.max.bytes") == expected
 
     def test_delivery_failure_is_reported_and_not_committed(self) -> None:
         producer = FakeProducer(delivery_error="Broker: Message too large")
