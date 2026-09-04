@@ -26,6 +26,11 @@ teams:
     # PostHog Desktop's channel kept the name it was created under.
     team-posthog-code:
         slack: '#team-desktop'
+    # The derived '#team-replay' is right; the entry exists only to drop the daily
+    # stamphog digest, which the team reads on the PRs themselves.
+    team-replay:
+        notifications:
+            stamphog: false
 rules:
     - match: Dockerfile.llm-analytics
       owners: team-ai-observability
