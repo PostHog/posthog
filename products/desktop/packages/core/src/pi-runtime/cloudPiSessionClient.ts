@@ -644,6 +644,9 @@ export class CloudPiSessionClient implements PiSession {
   private normalizeLegacyEvent(
     event: AgentConversationEvent,
   ): AgentConversationEvent {
+    if (event.type === "turn_completed" && event.stopReason === "aborted") {
+      return { ...event, stopReason: "cancelled" };
+    }
     if (
       event.type === "tool_call_started" &&
       event.toolCall.origin === undefined &&
