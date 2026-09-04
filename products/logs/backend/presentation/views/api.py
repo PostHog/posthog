@@ -52,6 +52,7 @@ from products.logs.backend.group_by_query_runner import (
     LogsGroupByQueryRunner,
 )
 from products.logs.backend.has_logs_query_runner import team_has_logs
+from products.logs.backend.impact_query_runner import ImpactQueryRunner
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_facet_values_query_runner import FACET_FIELDS, LogFacetValuesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
@@ -401,6 +402,28 @@ class _LogsCountBodySerializer(serializers.Serializer):
 
 class _LogsCountRequestSerializer(serializers.Serializer):
     query = _LogsCountBodySerializer(help_text="The count query to execute.")
+
+
+class _LogsImpactRequestSerializer(serializers.Serializer):
+    query = _LogsCountBodySerializer(
+        help_text="The impact query to execute. Takes the same filters as the count query."
+    )
+
+
+class _LogsImpactResponseSerializer(serializers.Serializer):
+    total = serializers.IntegerField(help_text="Number of log entries matching the filters.")
+    logsWithSessionId = serializers.IntegerField(
+        help_text="How many of the matching logs carry a session ID under the team's configured or conventional attribute keys."
+    )
+    sessions = serializers.IntegerField(
+        help_text="Estimated number of unique session IDs across the matching logs (HyperLogLog, about 1-2% error)."
+    )
+    logsWithDistinctId = serializers.IntegerField(
+        help_text="How many of the matching logs carry a person distinct ID under the team's configured or conventional attribute keys."
+    )
+    users = serializers.IntegerField(
+        help_text="Estimated number of unique distinct IDs across the matching logs (HyperLogLog, about 1-2% error)."
+    )
 
 
 class _LogFacetValueSerializer(serializers.Serializer):
@@ -1463,6 +1486,46 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         report_user_action(
             request.user,
             "logs count queried",
+            {
+                "has_search_term": bool(query_data.get("searchTerm")),
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "severity_levels_count": len(query_data.get("severityLevels", [])),
+                "service_names_count": len(query_data.get("serviceNames", [])),
+            },
+            team=self.team,
+            request=request,
+        )
+
+        return Response(response.results, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_LogsImpactRequestSerializer, responses={200: _LogsImpactResponseSerializer})
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
+    def impact(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
+        query_data = request.data.get("query", {})
+        self._require_dict_query(query_data)
+
+        date_range_data = query_data.get("dateRange")
+        date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
+
+        query = LogsQuery(
+            dateRange=date_range,
+            severityLevels=query_data.get("severityLevels", []),
+            serviceNames=query_data.get("serviceNames", []),
+            searchTerm=query_data.get("searchTerm", None),
+            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
+        )
+
+        runner = ImpactQueryRunner(team=self.team, query=query)
+        response = runner.run(
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+
+        report_user_action(
+            request.user,
+            "logs impact queried",
             {
                 "has_search_term": bool(query_data.get("searchTerm")),
                 "has_filter_group": bool(query_data.get("filterGroup")),

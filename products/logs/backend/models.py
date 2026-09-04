@@ -66,6 +66,24 @@ def default_logs_session_id_attribute_keys() -> list[str]:
     return list(DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS)
 
 
+# Built-in convention keys the logs UI renders as clickable session-replay links, on top of a
+# team's configured keys. Mirror of SESSION_ID_KEYS in products/logs/frontend/utils.tsx — keep
+# the two in sync. Literal keys only: the frontend additionally matches dot-suffixed variants,
+# which an exact attribute lookup can't express.
+SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS = [
+    "session.id",
+    "session_id",
+    "sessionId",
+    "sessionID",
+    "$session_id",
+    "posthogSessionId",
+    "posthogSessionID",
+    "posthog_session_id",
+    "posthog.session.id",
+    "posthog.session_id",
+]
+
+
 # Default top-level JSON keys that hold the message text a log pattern is derived from.
 # Keys match literally, so a dot is part of the name and never a path. Ordered: selection
 # checks keys in list order and the first key whose value is a non-empty string wins. An

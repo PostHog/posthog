@@ -13,6 +13,7 @@ import { logsPatternsLogic } from 'products/logs/frontend/components/LogsPattern
 
 import { MAX_GROUP_BY_DIMENSIONS, logsViewerConfigLogic } from './config/logsViewerConfigLogic'
 import { resolveGroupBySource } from './groupBySource'
+import { LogsImpactStrip } from './LogsImpactStrip'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
 
 export interface LogsDisplayBarProps {
@@ -82,10 +83,12 @@ export const LogsDisplayBar = ({
                 ) : inGroupByMode ? (
                     <GroupsCountIndicator id={id} />
                 ) : (
-                    totalLogsCount !== undefined &&
-                    totalLogsCount > 0 && (
-                        <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsCount)} logs</span>
-                    )
+                    <>
+                        {totalLogsCount !== undefined && totalLogsCount > 0 && (
+                            <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsCount)} logs</span>
+                        )}
+                        <LogsImpactStrip id={id} />
+                    </>
                 )}
             </div>
             {inPatternsMode ? (
