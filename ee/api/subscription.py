@@ -290,7 +290,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         required=False,
         allow_blank=True,
         allow_null=True,
-        help_text="Optional message included in the invitation email when adding new recipients.",
+        write_only=True,
+        help_text=(
+            "Optional one-time note included in the invitation email sent to the recipients this "
+            "request adds. The subscription does not store it, so reads never return it."
+        ),
     )
     send_test_now = serializers.BooleanField(
         required=False,
