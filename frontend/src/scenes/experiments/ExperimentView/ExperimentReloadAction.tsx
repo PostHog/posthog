@@ -103,11 +103,13 @@ export const ExperimentReloadAction = ({
     lastRefresh,
     onClick,
     progress,
+    queuedHint,
 }: {
     isRefreshing: boolean
     lastRefresh: string | null
     onClick: () => void
     progress?: { completed: number; total: number }
+    queuedHint?: string
 }): JSX.Element => {
     const { autoRefresh, experiment } = useValues(experimentLogic)
     const { setAutoRefresh, setPageVisibility, stopAutoRefreshInterval } = useActions(experimentLogic)
@@ -158,7 +160,7 @@ export const ExperimentReloadAction = ({
                     size="xsmall"
                     icon={isRefreshing ? <Spinner textColored /> : <IconRefresh />}
                     data-attr="refresh-experiment"
-                    disabledReason={isRefreshing ? 'Loading...' : null}
+                    disabledReason={isRefreshing ? (queuedHint ?? 'Loading...') : null}
                     sideAction={
                         ended
                             ? undefined
