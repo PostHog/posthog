@@ -55,6 +55,8 @@ class EgressClient(ABC):
         except requests.RequestException:
             # Best-effort telemetry must never mask the real transport error — record and re-raise it.
             self._record_exception(source=source, scope=scope, method=method, url=url, endpoint=endpoint)
+            if scope:
+                self._settle(None, scope=scope, url=url)
             raise
 
         self._record_response(response, source=source, scope=scope, method=method, endpoint=endpoint)
@@ -85,8 +87,9 @@ class EgressClient(ABC):
         """Admit (and by default spend) ``1`` from the domain's shared budget for ``scope`` at ``priority``.
         ``url`` lets a domain route the draw to the resource-specific meter GitHub bills the URL to."""
 
-    def _settle(self, response: requests.Response, *, scope: str, url: str) -> None:
-        """Hook for APIs that charge by response; ``_consume`` already spent for the rest."""
+    def _settle(self, response: requests.Response | None, *, scope: str, url: str) -> None:
+        """Hook for APIs that charge by response; ``_consume`` already spent for the rest. ``None`` when
+        the request raised before a response arrived, which the API may still have counted."""
         return None
 
     @abstractmethod

@@ -63,6 +63,18 @@ class TestGitHubTransport(SimpleTestCase):
         peek.assert_not_called()
         charge.assert_not_called()
 
+    def test_request_that_raises_is_still_charged(self) -> None:
+        # GitHub may have counted a call whose response never arrived; a retry loop must not run unmetered.
+        with (
+            patch("posthog.egress.github.transport.peek_github_installation_sync", return_value=True),
+            patch("posthog.egress.github.transport.charge_github_installation_sync") as charge,
+            patch("requests.request", side_effect=requests.ConnectionError()),
+            patch("posthog.egress.github.transport.record_github_api_exception"),
+            self.assertRaises(requests.ConnectionError),
+        ):
+            github_request("GET", "https://api.github.com/repos/o/r", source="test", installation_id="42")
+        assert charge.call_count == 1
+
 
 class TestGitHubConditionalRequests(SimpleTestCase):
     url = "https://api.github.com/repos/o/r/branches"

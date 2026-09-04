@@ -226,9 +226,9 @@ class GitHubClient(EgressClient):
             scope, resource=classify_github_resource(url), priority=priority, source=source
         )
 
-    def _settle(self, response: requests.Response, *, scope: str, url: str) -> None:
+    def _settle(self, response: requests.Response | None, *, scope: str, url: str) -> None:
         # GitHub does not count a 304 against the primary rate limit, so neither does our budget.
-        if response.status_code == 304:
+        if response is not None and response.status_code == 304:
             return
         charge_github_installation_sync(scope, resource=classify_github_resource(url))
 
