@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 from posthog.hogql import ast
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, is_reserved_system_name
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
@@ -47,7 +47,13 @@ logger = structlog.get_logger(__name__)
 TEST_VIEW_EXPIRY_INTERVAL = timedelta(days=7)
 
 
-def validate_saved_query_name(value):
+def validate_saved_query_name(value: str) -> None:
+    if is_reserved_system_name(value):
+        raise ValidationError(
+            "The system namespace is reserved for built-in tables. Choose a different view name.",
+            params={"value": value},
+        )
+
     if not re.match(r"^[A-Za-z_$][A-Za-z0-9_.$]*$", value):
         raise ValidationError(
             f"{value} is not a valid view name. View names can only contain letters, numbers, '_', '.', or '$' ",

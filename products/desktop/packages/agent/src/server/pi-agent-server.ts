@@ -846,7 +846,7 @@ export class PiAgentServer {
       case "user_message":
         return this.deliverUserMessage(runtime, params);
       case "cancel":
-        return client.abort();
+        return runtime.abort();
       case "queue_get":
         return client.getQueue();
       case "queue_clear": {

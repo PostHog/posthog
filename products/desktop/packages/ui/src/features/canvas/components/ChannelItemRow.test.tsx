@@ -334,6 +334,26 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "Pinned" })).toBeNull();
   });
 
+  it.each([
+    ["the signed-in user", "u-1", "You were here recently"],
+    ["another user", "u-2", "Ada Lovelace was here recently"],
+  ])("labels recent presence for %s", (_case, uuid, label) => {
+    renderRow(
+      item({
+        ts: Date.now() - 5 * 60_000,
+        authorUser: {
+          id: 1,
+          uuid,
+          email: "ada@example.com",
+          first_name: "Ada",
+          last_name: "Lovelace",
+        },
+      }),
+    );
+
+    expect(screen.getByRole("img", { name: label })).not.toBeNull();
+  });
+
   // A pinned row offering only `move` resolves against the Command Center's
   // `copy` as no drop, so the tile stops accepting it with nothing to show why.
   it.each([{ pinned: false }, { pinned: true }])(
