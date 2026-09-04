@@ -1,11 +1,8 @@
-"""Batched daily poller for Harmonic's async enrichment status.
+"""Daily poller for Harmonic's async enrichment status.
 
-Harmonic exposes exactly one signal for a stub it is still working on: an `enrichmentUrn` on
-the lookup and a batchable `GET /enrichment_status` that returns QUEUED, IN_PROGRESS, COMPLETE,
-FAILED or NOT_FOUND per URN, with no webhook. This workflow polls every org's most recently
-archived open URN once a day, 50 URNs per Harmonic call, and stamps the result on
-`OrganizationEnrichment.data` so the re-enrichment sweep and RevOps (`org_icp_fit_current`) can
-read provider progress without polling anything themselves.
+Batches every org's most recently archived open URN into `GET /enrichment_status` calls, since
+Harmonic has no webhook, and stamps the result onto `OrganizationEnrichment.data` for the
+re-enrichment sweep and RevOps to read.
 """
 
 import typing
@@ -41,13 +38,12 @@ NON_TERMINAL_STATUSES = ("QUEUED", "IN_PROGRESS")
 TERMINAL_STATUSES = ("COMPLETE", "FAILED", "NOT_FOUND")
 STALLED_STATUS = "STALLED"
 
-# Harmonic's own guidance is "a few hours", so a URN still pending after 14 days is stamped
-# STALLED so consumers can tell late from never. Stubs have completed after day 14, so polling
-# continues to the 30-day cutoff below.
+# Harmonic's own guidance is "a few hours"; a URN still pending past this age is stamped STALLED
+# so a consumer can tell late from never.
 STALL_AGE_HOURS = 14 * 24
 
-# Beyond this, the org's open URN is dropped from selection entirely and its stamp is left as
-# whatever it last observed — a re-lookup issues a fresh URN, which restarts the window.
+# Past this age the org's URN drops from selection and its stamp is left as last observed;
+# a later lookup issues a fresh URN and restarts the window.
 MAX_URN_AGE_DAYS = 30
 
 # Harmonic caps URNs per /enrichment_status call.
@@ -58,8 +54,8 @@ POLL_BATCH_SIZE = 50
 MAX_CANDIDATES_PER_RUN = 5000
 
 SELECT_ACTIVITY_TIMEOUT = dt.timedelta(minutes=5)
-# One Harmonic HTTP call (10s client-side timeout) plus up to 50 row-locked record writes and a
-# final analytics flush; generous headroom over the observed cost of either.
+# One Harmonic HTTP call plus a batch's worth of record writes and a final analytics flush,
+# sized with headroom over their combined cost.
 POLL_BATCH_ACTIVITY_TIMEOUT = dt.timedelta(seconds=60)
 
 
@@ -71,10 +67,8 @@ class HarmonicStatusPollInputs:
 @activity.defn
 @close_db_connections
 async def select_status_poll_candidates_activity(inputs: HarmonicStatusPollInputs) -> dict[str, typing.Any]:
-    """Orgs due a status poll: an open URN under 30 days old, with no terminal stamp for it.
-
-    Read-only, so guards live here rather than the schedule: a config flip takes effect on the
-    next run without touching Temporal state, same as the sweep's selection.
+    """Read-only, so its kill-switch and region guards live here rather than in the schedule, letting a
+    config flip take effect on the next run without touching Temporal state.
     """
     from asgiref.sync import sync_to_async  # noqa: PLC0415
 
@@ -95,12 +89,9 @@ async def select_status_poll_candidates_activity(inputs: HarmonicStatusPollInput
         now = dt.datetime.now(dt.UTC)
         urn_cutoff = now - dt.timedelta(days=MAX_URN_AGE_DAYS)
 
-        # Same non-null-URN filter as core._latest_archived_urn, applied ahead of the DISTINCT ON
-        # so a later fetch that archived a null URN (a recheck landing on an already-matched
-        # company) can't shadow an earlier still-open tracking URN. Filtering the age cutoff here
-        # too, rather than after, is equivalent: an org's latest qualifying row is its true latest
-        # non-null-URN fetch only when that fetch itself is within the window — if it isn't, every
-        # earlier one is even older, and the org has nothing left to select.
+        # Filtering non-null URN and the age cutoff ahead of the DISTINCT ON keeps a later null-URN fetch from
+        # shadowing an earlier open one, and is still correct since an org's true latest non-null-URN fetch
+        # lying outside the window means every earlier fetch does too.
         latest_open_urn_fetches = (
             OrganizationEnrichmentFetch.objects.filter(
                 provider="harmonic", payload__enrichmentUrn__isnull=False, fetched_at__gte=urn_cutoff
@@ -162,11 +153,8 @@ async def select_status_poll_candidates_activity(inputs: HarmonicStatusPollInput
 @activity.defn
 @close_db_connections
 async def poll_status_batch_activity(candidates: list[dict[str, typing.Any]]) -> dict[str, typing.Any]:
-    """One Harmonic status call for up to POLL_BATCH_SIZE URNs, then stamp and emit per org.
-
-    Re-checks the kill switch here too, not just at selection: a run over many batches can span
-    minutes, and this is the only gate between a flipped-off switch and further paid Harmonic
-    calls, same rationale as the sweep's per-org recheck.
+    """Re-checks the kill switch here, not only at selection, since a run spanning many batches must not
+    keep making paid Harmonic calls after the switch flips off.
     """
     from asgiref.sync import sync_to_async  # noqa: PLC0415
 
@@ -275,12 +263,7 @@ def report_status_poll_run_activity(summary: HarmonicStatusPollRunSummary) -> No
 
 @workflow.defn(name="harmonic-enrichment-status-poll")
 class HarmonicEnrichmentStatusPollWorkflow(PostHogWorkflow):
-    """Daily poll: select orgs with an open URN, batch-poll Harmonic, stamp transitions.
-
-    Sequential batches, same reasoning as the sweep: trivially inside Harmonic's rate limit, and
-    a failed batch (after its own retries) is logged and skipped rather than sinking the run —
-    the next day's selection naturally re-offers anything still open.
-    """
+    """Sequential batches keep the daily poll inside Harmonic's rate limit."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> HarmonicStatusPollInputs:
@@ -312,7 +295,7 @@ class HarmonicEnrichmentStatusPollWorkflow(PostHogWorkflow):
                 changed += result["changed"]
                 stalled += result["stalled"]
             except Exception:
-                # A batch's own retries are exhausted; one failed batch must not sink the whole run.
+                # A batch's own retries are exhausted; one failed batch must not fail the whole run.
                 errors += len(batch)
 
         summary = HarmonicStatusPollRunSummary(

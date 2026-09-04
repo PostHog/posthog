@@ -54,11 +54,8 @@ class EnrichmentProvider(abc.ABC):
         return (await self.enrichment_statuses_for([urn])).get(urn)
 
     async def enrichment_statuses_for(self, urns: list[str]) -> dict[str, str]:
-        """Batch-poll the provider for the status of several previously archived tracking URNs.
-
-        Keyed by URN; a URN the provider has nothing to report for is simply absent from the
-        result rather than mapped to None, so callers can use plain membership checks. No-op by
-        default, same as enrichment_status_for.
+        """A URN the provider has nothing to report for is absent from the result rather than mapped to None,
+        so callers can use plain membership checks.
         """
         return {}
 

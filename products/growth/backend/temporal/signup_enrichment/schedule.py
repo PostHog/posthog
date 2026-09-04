@@ -1,9 +1,7 @@
-"""The Temporal Schedules for signup_enrichment's two daily jobs: the Harmonic status poller
-and the ICP re-enrichment sweep.
+"""Temporal Schedules for the signup_enrichment daily jobs.
 
-Registered from posthog/temporal/schedule.py, so every deploy upserts them. Each schedule only
-starts its workflow; the workflow re-checks the kill switch and region (and, for the sweep, the
-cap) on every run, so pausing either is an instance-setting change, not a Temporal operation.
+Each schedule only starts its workflow; pausing one is an instance-setting change, since the
+workflow itself re-checks the kill switch and region on every run.
 """
 
 from django.conf import settings
@@ -53,7 +51,7 @@ async def create_icp_reenrichment_sweep_schedule(client: Client) -> None:
 
 HARMONIC_STATUS_POLL_SCHEDULE_ID = "harmonic-enrichment-status-poll-daily"
 
-# An hour ahead of the sweep so a same-day stamp is available to it.
+# Ahead of the sweep so a same-day stamp is available to it.
 HARMONIC_STATUS_POLL_CRON = "40 6 * * *"
 
 
