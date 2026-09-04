@@ -159,6 +159,7 @@ class TestGitHubConditionalRequests(SimpleTestCase):
             ("different_identity", {"cache_identity": "installation:99"}),
             ("different_query", {"params": {"page": 2}}),
             ("different_accept", {"headers": {"Accept": _DIFF}}),
+            ("different_api_version", {"headers": {"X-GitHub-Api-Version": "2099-01-01"}}),
         ]
     )
     def test_key_separates(self, _name: str, second: dict) -> None:
@@ -180,7 +181,6 @@ class TestGitHubConditionalRequests(SimpleTestCase):
         [
             ("no_etag", {"Content-Type": "application/json"}),
             ("no_store", {"ETag": '"v1"', "Cache-Control": "private, no-store"}),
-            ("unaccounted_vary", {"ETag": '"v1"', "Vary": f"{_GITHUB_VARY}, X-Some-New-Dimension"}),
             ("vary_star", {"ETag": '"v1"', "Vary": "*"}),
         ]
     )

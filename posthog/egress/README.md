@@ -143,10 +143,10 @@ GitHub does not charge a matched conditional request against the installation's 
 
 Caching is opt-in because the credential, not the URL, decides what the response contains.
 `cache_identity` names whose view is being stored; `GitHubIntegrationBase.api_request` passes `_installation_cache_scope()`, and a caller holding a narrower token (a user access token, say) passes nothing and is never cached.
-The key is that identity plus the effective `Accept` and the full URL — the same `/compare/{basehead}` is read both as a diff and as JSON under one installation.
+The key is that identity plus the full URL and the request headers that change the representation, `Accept` and `X-GitHub-Api-Version` — the same `/compare/{basehead}` is read both as a diff and as JSON under one installation.
 Entries are held in Django's `default` cache, so bodies are compressed and reads can go to a replica.
 
-Nothing is stored for a non-GET, a streamed response, a request the caller already made conditional, a response with no `ETag` or with `no-store`, a `Vary` naming anything the key does not cover, or a body over `GITHUB_EGRESS_CONDITIONAL_CACHE_MAX_BODY_BYTES`.
+Nothing is stored for a non-GET, a streamed response, a request the caller already made conditional, a response with no `ETag` or with `no-store`, a `Vary` of `*`, or a body over `GITHUB_EGRESS_CONDITIONAL_CACHE_MAX_BODY_BYTES`.
 That ceiling counts the uncompressed body, so the stored entry is several times smaller than the limit suggests.
 `GITHUB_EGRESS_CONDITIONAL_CACHE_TTL_SECONDS = 0` turns the whole thing off.
 Watch `github_egress_conditional_cache_total`: stores without matching hits mean the URL is not stable between calls.

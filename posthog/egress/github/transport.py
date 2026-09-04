@@ -54,13 +54,9 @@ _CALLER_CONDITIONAL_HEADERS = frozenset(
     {"if-none-match", "if-modified-since", "if-match", "if-unmodified-since", "if-range"}
 )
 
-# Vary dimensions that cannot split our entries: `accept` is in the key, `authorization` is subsumed
-# by the caller-declared identity, requests decodes `accept-encoding` before we store, and we never
-# send the rest, so their value is the same empty one on every request. GitHub names all of these on
-# every REST response. A token outside this set, or `*`, means we would be keying too coarsely.
-_VARY_ACCOUNTED_FOR = frozenset(
-    {"accept", "authorization", "accept-encoding", "cookie", "x-github-otp", "x-requested-with"}
-)
+# Request headers we send whose value changes the representation, so the key has to carry them.
+# Authorization is the other one, and the caller-declared identity stands in for it.
+_KEYED_REQUEST_HEADERS = ("Accept", "X-GitHub-Api-Version")
 
 
 @frozen
@@ -70,17 +66,17 @@ class _CachedResponse:
     headers: dict[str, str]
 
 
-def _conditional_cache_key(identity: str, accept: str, method: str, url: str, params: object) -> str:
+def _conditional_cache_key(identity: str, headers: CaseInsensitiveDict, method: str, url: str, params: object) -> str:
     prepared = requests.Request(method=method, url=url, params=params).prepare().url or url
-    digest = hashlib.sha256(f"{accept}\n{prepared}".encode()).hexdigest()
+    keyed = "\n".join(headers.get(name, "") for name in _KEYED_REQUEST_HEADERS)
+    digest = hashlib.sha256(f"{keyed}\n{prepared}".encode()).hexdigest()
     return f"{_CONDITIONAL_CACHE_PREFIX}:{identity}:{digest}"
 
 
 def _storable(response: requests.Response) -> bool:
     if response.status_code != 200 or not response.headers.get("etag"):
         return False
-    vary = {token.strip().lower() for token in response.headers.get("vary", "").split(",") if token.strip()}
-    if not vary <= _VARY_ACCOUNTED_FOR:
+    if response.headers.get("vary", "").strip() == "*":
         return False
     if "no-store" in response.headers.get("cache-control", "").lower():
         return False
@@ -212,7 +208,7 @@ class GitHubClient(EgressClient):
             record_github_conditional_cache("skip", source=source)
             return self.request(method, url, source=source, headers=headers, **kwargs)
 
-        key = _conditional_cache_key(cache_identity, merged["Accept"], method, url, kwargs.get("params"))
+        key = _conditional_cache_key(cache_identity, merged, method, url, kwargs.get("params"))
         cached = get_safe_cache(key)
         if isinstance(cached, _CachedResponse):
             headers = {**(headers or {}), "If-None-Match": cached.etag}
