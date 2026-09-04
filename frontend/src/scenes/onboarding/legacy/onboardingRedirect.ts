@@ -18,5 +18,10 @@ export function pointsToRecordOfAnotherProject(path: string): boolean {
     if (STATIC_ROUTES.has(pathname)) {
         return false
     }
-    return !!urlToResource(pathname) || RECORD_SCENE_ROOTS.has(pathname.split('/')[1])
+    // A record route can carry more segments than the record URL, such as `/insights/<short id>/edit`
+    // or the canonical `/workflows/<id>/workflow`, and `urlToResource` answers for the record URL
+    // alone. Ask about each prefix, so that a trailing segment does not hide the record.
+    const parts = pathname.split('/').filter(Boolean)
+    const namesRecord = parts.some((_, index) => !!urlToResource(parts.slice(0, index + 1).join('/')))
+    return namesRecord || RECORD_SCENE_ROOTS.has(pathname.split('/')[1])
 }

@@ -690,6 +690,8 @@ describe('onboardingLogic — flow composition', () => {
             ['/dashboard/5'],
             ['/error_tracking/0198f0a2-1b2c-7000-abcd-000000000000'],
             ['/llm-analytics/traces/0198f0a2-1b2c-7000-abcd-000000000000'],
+            ['/insights/aBcDeFgH/edit'],
+            ['/workflows/0198f0a2-1b2c-7000-abcd-000000000000/workflow'],
         ])('redirect override %s is dropped for the per-product URL', (override) => {
             logic.actions.setProductKey(ProductKey.SESSION_REPLAY)
             logic.actions.setOnCompleteOnboardingRedirectUrl(override)
