@@ -2,13 +2,13 @@
 
 Working contract for implementation agents. Steps 1–8 have shipped; each remaining step is one commit in its own PR.
 
-**Retirement.** This doc dies when it schedules nothing and owns no unsequenced objective. Stage D closes the first objective (the manual fallback); the second (one produce surface) and third (automated fallback) are then sequenced in order by promoting their steps into scheduled stages, parity proofs intact. Whatever is still load-bearing at the end — the vocabulary rules, the ordering-vs-person-processing contract, the repartitioning design note — graduates into module docs or `v1/sinks/DESIGN.md` first, and only work serving no objective leaves as issues.
+**Retirement.** This doc dies when it schedules nothing and owns no unsequenced objective. Stage D closes the first objective (the manual fallback); the second (one produce surface) and third (automated fallback) are then sequenced in order by scheduling their steps, parity proofs intact. Whatever is still load-bearing at the end — the vocabulary rules, the ordering-vs-person-processing contract, the repartitioning design note — graduates into module docs or `v1/sinks/DESIGN.md` first, and only work serving no objective leaves as issues.
 
 ## Motivation
 
 **Three objectives, one mechanism: an output owns the configuration it produces with.**
 
-**Objective 1 — ship a manual fallback.** If MSK degrades, capture-analytics must be able to produce to an alternative cluster — its brokers, its TLS, its own topic names — armed by one environment variable and a pod roll, and we must know the configuration is sound before any traffic moves. Running capture against a half-wired cluster is the risk this objective removes, and the boot-time checks that remove it (Steps 13 and 14) are only buildable once configuration is isolated per output (Step 9) and demanded per mode (Step 12): a single deployment-wide `KafkaConfig` with ten defaulted topic names is exactly what a startup check cannot verify, and a check that demands all ten rows on every pod can be armed nowhere. Stage D is this objective; Step 15 is the feature.
+**Objective 1 — ship a manual fallback.** If MSK degrades, capture-analytics must be able to produce to an alternative cluster — its brokers, its TLS, its own topic names — armed by one environment variable and a pod roll, and we must know the configuration is sound before any traffic moves. Running capture against a half-wired cluster is the risk this objective removes, and the boot-time checks that remove it (Steps 13 and 14) are only buildable once configuration is isolated per output (Step 9) and demanded per mode (Step 12): a single deployment-wide `KafkaConfig` with ten defaulted topic names is exactly what a startup check cannot verify, and a check that demands all ten rows on every pod can be armed nowhere. Stage D is its remaining work; Step 15 is the feature.
 
 **Objective 2 — one produce surface.** The v1 stack is live in production — capture-analytics runs its AI endpoint through it, capture-import runs on it wholesale — and it publishes through its own sinks, so a fallback wired into the outputs layer moves none of its traffic. Convergence is therefore coverage, not hygiene. Stage D already puts both stacks on one config model (Step 10); this objective finishes the job — one publish surface, per-event results, the legacy v1 sink stack deleted (Steps 17–20).
 
@@ -63,9 +63,9 @@ Steps 1–3 land together with this doc: the routing golden oracle, the pure `ro
 - The per-event response model (v1 `BatchResponse`) stays out of scope until objective 2 (Step 17); call sites keep folding per-event results into today's whole-request `CaptureError`.
 - Sinks read no `ProcessedEventMetadata`. After Step 6 the only consumer of routing metadata is lane resolution.
 
-## The stages and steps
+## Objective 1 — ship a manual fallback
 
-### Stage A — oracle and groundwork
+### Stage A — oracle and groundwork (shipped)
 
 #### Step 1 · Consolidate the routing golden oracle
 
@@ -82,7 +82,7 @@ This is the function Step 5 hoists out of the sink into lane resolution.
 One destination→topic wiring point plus refuse-to-boot on a blank topic, gated behind `CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED` (default off; see Step 13's arming precondition).
 Step 7 absorbs it into the `OutputRegistry`; the mode-scoped demand is folded in at Step 13, where `(Pipeline, Lane)` makes the per-mode reachable set explicit.
 
-### Stage B — the two new seams (no caller-visible change)
+### Stage B — the two new seams (shipped; no caller-visible change)
 
 #### Step 4 · Serialization layer: format × envelope
 
@@ -105,7 +105,7 @@ Step 7 absorbs it into the `OutputRegistry`; the mode-scoped demand is folded in
 - **Risk / rollback.** Low-medium — mechanical relocation. Revert.
 - **Size.** M/L.
 
-### Stage C — sinks become mechanism, outputs become the API
+### Stage C — sinks become mechanism, outputs become the API (shipped)
 
 #### Step 6 · Narrow the Kafka sink to backend mechanism
 
@@ -248,7 +248,7 @@ Goal: v1 endpoints publish through the outputs layer like every other ingress, s
 
 ## Objective 3 — automated fallback (unsequenced)
 
-Capture's half of an automated fallback, and nothing more. The decision-maker is a separate circuit-breaker service; its internals — how it aggregates, when it trips, whether and how it probes — are outside this plan, and so are consumers. Capture's contract with the service is two channels: producer health metrics out, switch signals in. These steps are promoted into a scheduled stage, with parity proofs, when the objectives before them close; until then they are shapes, not commitments.
+Capture's half of an automated fallback, and nothing more. The decision-maker is a separate circuit-breaker service; its internals — how it aggregates, when it trips, whether and how it probes — are outside this plan, and so are consumers. Capture's contract with the service is two channels: producer health metrics out, switch signals in. These steps are scheduled, with parity proofs, when the objectives before them close; until then they are shapes, not commitments.
 
 ### Step 21 · Failover target selection behind a control-plane seam
 
@@ -266,11 +266,9 @@ An earlier in-process breaker step (`FailoverMode::Breaker`) dissolved into this
 
 ## Deferred work
 
-Not scheduled, and serving no objective directly. Revive a step by moving it back into a stage above, with its parity proof intact. Step 30 is superseded rather than deferred — its boot verification became Step 14, and retargeting a row is plain configuration once outputs own their config (Steps 9 and 12).
+Not scheduled, and serving no objective directly. Revive a step by moving it under an objective above, with its parity proof intact. Step 30 is superseded rather than deferred — its boot verification became Step 14, and retargeting a row is plain configuration once outputs own their config (Steps 9 and 12).
 
-### Stage E — prep hoists up; sinks become pure transport
-
-#### Step 24 · Prep hoists into the outputs layer; `PublishEvents` retired
+### Prep hoists into the outputs layer; `PublishEvents` retired (Step 24)
 
 - **Goal.** Sinks take prepared payloads as input, full stop. `PrepSpec` (registry + per-destination serializers) moves payload assembly — lane resolution, serialization, header stamps, topic and partition key, and the scatter-gather batch prep — into the outputs layer; the `(pipeline, lane)` → output bridge and the `TopicTable` move with it (`outputs::topics`). The `PublishEvents` trait is deleted; every backend (Kafka, S3, print, noop) preps identically via its output's spec, and the Kafka sink is reduced to producer + enqueue + ack drain. The boot completeness check moves to `setup::create_output`.
 - **Test posture change (deliberate).** Capturing mocks intercept *published payloads*, not `ProcessedEvent`s, so ~60 assertions that read metadata stamps migrate to wire-level outcomes: topic, partition key, headers, and payload bytes (deserialized for content checks). The declarative `ExpectedEvent` checkers recompute the expected record from the same expectations, so test bodies stay put. Wire-level assertions also pin a semantic the metadata-level ones couldn't see: replay events redirected to dlq/custom topics partition on the event key, not the session id.
