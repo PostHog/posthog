@@ -1,16 +1,18 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconArrowLeft, IconCheck, IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconCheck, IconLetter, IconX } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -18,7 +20,7 @@ import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/a
 
 import { EmailMetricsSummary } from '../Workflows/EmailMetricsSummary'
 import { EmailViewerModal } from '../Workflows/EmailViewerModal'
-import type { MessageAsset } from '../Workflows/messageAssetsApi'
+import { type MessageAsset, getMessageAssetContentUrl } from '../Workflows/messageAssetsApi'
 import { broadcastSentLogic } from './broadcastSentLogic'
 import { broadcastsLogic } from './broadcastsLogic'
 import { BroadcastSummaryTab, broadcastWizardLogic } from './broadcastWizardLogic'
@@ -49,18 +51,61 @@ function OverviewTab({ logicKey, hasRun }: { logicKey: string; hasRun: boolean }
     )
 }
 
-function ContentTab(): JSX.Element {
+const TEMPLATE_OPTION = '__template__'
+
+function ContentTab({ workflowId }: { workflowId: string }): JSX.Element {
     const { email } = useValues(broadcastWizardLogic)
+    const { sends, sendsLoading, previewSend } = useValues(broadcastSentLogic)
+    const { loadSends, setPreviewSend, setRecipientSearch } = useActions(broadcastSentLogic)
+
+    useEffect(() => {
+        loadSends()
+    }, [loadSends])
 
     return (
         <div className="flex flex-col gap-4">
             <Section title="Email">
-                <div className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
+                <div className="grid grid-cols-[max-content_1fr] items-center gap-x-4 gap-y-2 text-sm">
                     <span className="text-muted">To</span>
-                    <span className="font-mono text-xs">{email.to?.email || '-'}</span>
+                    {sends.length > 0 ? (
+                        <div className="flex items-center gap-2">
+                            <div className="min-w-80" data-attr="broadcast-content-recipient-picker">
+                                <LemonInputSelect
+                                    mode="single"
+                                    size="small"
+                                    value={previewSend ? [previewSend.invocation_id] : [TEMPLATE_OPTION]}
+                                    onChange={(values) => {
+                                        // Typing clears the single-select's value; keep the current preview
+                                        // on screen until a recipient is actually picked.
+                                        if (!values[0]) {
+                                            return
+                                        }
+                                        setPreviewSend(sends.find((send) => send.invocation_id === values[0]) ?? null)
+                                    }}
+                                    onInputChange={setRecipientSearch}
+                                    loading={sendsLoading}
+                                    // The options are already the server's answer to this search, and the
+                                    // built-in fuzzy filter drops valid matches on strings like "+9@".
+                                    disableFiltering
+                                    placeholder="Search recipients"
+                                    options={[
+                                        { key: TEMPLATE_OPTION, label: 'Template (variables unrendered)' },
+                                        ...sends.map((send) => ({ key: send.invocation_id, label: send.recipient })),
+                                    ]}
+                                />
+                            </div>
+                            <span className="text-xs text-muted">
+                                {previewSend
+                                    ? 'Showing the email this person was sent.'
+                                    : 'Showing the stored template.'}
+                            </span>
+                        </div>
+                    ) : (
+                        <span className="font-mono text-xs">{email.to?.email || '-'}</span>
+                    )}
                     <span className="text-muted">Subject</span>
-                    <span>{email.subject || 'No subject'}</span>
-                    {email.preheader ? (
+                    <span>{previewSend?.subject || email.subject || 'No subject'}</span>
+                    {!previewSend && email.preheader ? (
                         <>
                             <span className="text-muted">Preheader</span>
                             <span>{email.preheader}</span>
@@ -69,19 +114,40 @@ function ContentTab(): JSX.Element {
                 </div>
             </Section>
             <Section title="Preview">
-                <p className="m-0 text-xs text-muted">
-                    The email as stored on the broadcast, with its variables unrendered. The review step shows it
-                    rendered against a real recipient.
-                </p>
-                {email.html ? (
-                    <iframe
-                        srcDoc={email.html}
-                        sandbox=""
-                        title="Broadcast email preview"
-                        className="h-[32rem] w-full rounded border border-border bg-white"
-                    />
+                {previewSend ? (
+                    <>
+                        <p className="m-0 text-xs text-muted">
+                            The email as it was delivered to {previewSend.recipient}, rendered from what we stored at
+                            send time. Pick another recipient above to see theirs.
+                        </p>
+                        <iframe
+                            title="Rendered email"
+                            sandbox=""
+                            src={getMessageAssetContentUrl(
+                                workflowId,
+                                previewSend.invocation_id,
+                                previewSend.action_id
+                            )}
+                            className="h-[32rem] w-full rounded border border-border bg-white"
+                        />
+                    </>
                 ) : (
-                    <span className="text-muted">This broadcast has no email content.</span>
+                    <>
+                        <p className="m-0 text-xs text-muted">
+                            The email as stored on the broadcast, with its variables unrendered.
+                            {sends.length > 0 ? ' Pick a recipient above to see a delivered copy.' : ''}
+                        </p>
+                        {email.html ? (
+                            <iframe
+                                srcDoc={email.html}
+                                sandbox=""
+                                title="Broadcast email preview"
+                                className="h-[32rem] w-full rounded border border-border bg-white"
+                            />
+                        ) : (
+                            <span className="text-muted">This broadcast has no email content.</span>
+                        )}
+                    </>
                 )}
             </Section>
         </div>
@@ -100,9 +166,18 @@ const SEND_STATUS_TAG: Record<string, LemonTagType> = {
 }
 
 function SentTab({ workflowId }: { workflowId: string }): JSX.Element {
-    const { filteredSends, sendsLoading, sendsFailed, statusFilter, statuses, selectedSend } =
-        useValues(broadcastSentLogic)
-    const { loadSends, setStatusFilter, selectInvocation } = useActions(broadcastSentLogic)
+    const {
+        filteredSends,
+        sendsLoading,
+        sendsFailed,
+        statusFilter,
+        statuses,
+        selectedSend,
+        recipientCount,
+        recipientSearch,
+        hasMoreRecipients,
+    } = useValues(broadcastSentLogic)
+    const { loadSends, setStatusFilter, selectInvocation, setRecipientSearch } = useActions(broadcastSentLogic)
 
     useEffect(() => {
         loadSends()
@@ -122,16 +197,7 @@ function SentTab({ workflowId }: { workflowId: string }): JSX.Element {
         {
             title: 'Recipient',
             key: 'recipient',
-            render: (_, row) => (
-                <LemonButton
-                    size="small"
-                    type="tertiary"
-                    onClick={() => selectInvocation(row.invocation_id)}
-                    data-attr="broadcast-view-recipient-email"
-                >
-                    <span className="font-mono text-xs">{row.recipient}</span>
-                </LemonButton>
-            ),
+            render: (_, row) => <span className="font-mono text-xs">{row.recipient}</span>,
         },
         {
             title: 'Status',
@@ -143,11 +209,49 @@ function SentTab({ workflowId }: { workflowId: string }): JSX.Element {
                 </LemonTag>
             ),
         },
+        {
+            title: '',
+            key: 'actions',
+            width: 0,
+            render: (_, row) => (
+                <div className="flex justify-end whitespace-nowrap">
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconLetter />}
+                        onClick={() => selectInvocation(row.invocation_id)}
+                        data-attr="broadcast-view-recipient-email"
+                    >
+                        View email
+                    </LemonButton>
+                </div>
+            ),
+        },
     ]
 
     return (
         <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold">
+                    {sendsLoading && recipientCount === 0
+                        ? 'Loading recipients'
+                        : `${humanFriendlyNumber(recipientCount)}${hasMoreRecipients ? '+' : ''} ${
+                              recipientCount === 1 ? 'recipient' : 'recipients'
+                          }${recipientSearch ? ' matching' : ''}`}
+                </span>
+                {statusFilter ? (
+                    <span className="text-sm text-muted">· showing {humanFriendlyNumber(filteredSends.length)}</span>
+                ) : null}
+                <LemonDivider vertical />
+                <LemonInput
+                    size="small"
+                    type="search"
+                    placeholder="Search by email or subject"
+                    value={recipientSearch}
+                    onChange={setRecipientSearch}
+                    className="w-64"
+                    data-attr="broadcast-sent-search"
+                />
                 <span className="text-sm text-muted">Filter by</span>
                 <LemonSelect
                     size="small"
@@ -190,12 +294,25 @@ function SentTab({ workflowId }: { workflowId: string }): JSX.Element {
 function RecipientsTab({ batchJobs }: { batchJobs: HogFlowBatchJobApi[] }): JSX.Element {
     const { audienceProperties, scheduleSummary, conversion, goalEnabled, emailRateLimit } =
         useValues(broadcastWizardLogic)
+    const { recipientCount } = useValues(broadcastSentLogic)
+    const { loadSends } = useActions(broadcastSentLogic)
     const firstRun = batchJobs[batchJobs.length - 1]
+
+    useEffect(() => {
+        loadSends()
+    }, [loadSends])
 
     return (
         <div className="flex flex-col gap-4">
             <Section title="Recipients">
-                <p className="m-0 text-sm text-muted">This broadcast was sent to people matching:</p>
+                {recipientCount > 0 ? (
+                    <div className="text-2xl font-semibold">
+                        {humanFriendlyNumber(recipientCount)} {recipientCount === 1 ? 'person' : 'people'}
+                    </div>
+                ) : null}
+                <p className="m-0 text-sm text-muted">
+                    {recipientCount > 0 ? 'Matching:' : 'This broadcast goes to people matching:'}
+                </p>
                 {audienceProperties.length > 0 ? (
                     <PropertyFiltersDisplay filters={audienceProperties} />
                 ) : (
@@ -345,36 +462,38 @@ export function BroadcastSummary(): JSX.Element {
                     <h1 className="m-0 text-2xl font-semibold">{name}</h1>
                 </div>
 
-                <LemonTabs
-                    activeKey={summaryTab}
-                    onChange={(key) => setSummaryTab(key as BroadcastSummaryTab)}
-                    data-attr="broadcast-summary-tabs"
-                    tabs={[
-                        {
-                            key: 'overview' as const,
-                            label: 'Overview',
-                            content: <OverviewTab logicKey={logicKey} hasRun={!!latestBatchJobId} />,
-                        },
-                        { key: 'content' as const, label: 'Content', content: <ContentTab /> },
-                        {
-                            key: 'sent' as const,
-                            label: 'Sent',
-                            content: (
-                                <BindLogic
-                                    logic={broadcastSentLogic}
-                                    props={{ id: broadcastId ?? 'new', parentRunId: latestBatchJobId ?? null }}
-                                >
-                                    <SentTab workflowId={broadcastId ?? ''} />
-                                </BindLogic>
-                            ),
-                        },
-                        {
-                            key: 'recipients' as const,
-                            label: 'Recipients',
-                            content: <RecipientsTab batchJobs={batchJobs} />,
-                        },
-                    ]}
-                />
+                <BindLogic
+                    logic={broadcastSentLogic}
+                    props={{ id: broadcastId ?? 'new', parentRunId: latestBatchJobId ?? null }}
+                >
+                    <LemonTabs
+                        activeKey={summaryTab}
+                        onChange={(key) => setSummaryTab(key as BroadcastSummaryTab)}
+                        data-attr="broadcast-summary-tabs"
+                        tabs={[
+                            {
+                                key: 'overview' as const,
+                                label: 'Overview',
+                                content: <OverviewTab logicKey={logicKey} hasRun={!!latestBatchJobId} />,
+                            },
+                            {
+                                key: 'content' as const,
+                                label: 'Content',
+                                content: <ContentTab workflowId={broadcastId ?? ''} />,
+                            },
+                            {
+                                key: 'sent' as const,
+                                label: 'Sent',
+                                content: <SentTab workflowId={broadcastId ?? ''} />,
+                            },
+                            {
+                                key: 'recipients' as const,
+                                label: 'Recipients',
+                                content: <RecipientsTab batchJobs={batchJobs} />,
+                            },
+                        ]}
+                    />
+                </BindLogic>
 
                 <div className="flex flex-col gap-2">
                     <h2 className="m-0 text-lg font-semibold">Runs</h2>
