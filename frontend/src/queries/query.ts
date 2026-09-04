@@ -88,8 +88,14 @@ function isDroppedRequest(error: unknown): boolean {
     return (error as { status?: number } | null)?.status === 504
 }
 
+/**
+ * Whether the server keeps running the query after the gateway gives up on the request. Only the
+ * async modes hand the work off and answer with a query status. `force_cache` counts as blocking
+ * here, because the query endpoint upgrades it to compute-if-stale rather than only reading the
+ * cache, so a stale entry runs the query inside the request.
+ */
 function blocksOnServer(refresh: RefreshType | undefined): boolean {
-    return refresh !== 'async' && refresh !== 'force_async' && refresh !== 'lazy_async' && refresh !== 'force_cache'
+    return refresh !== 'async' && refresh !== 'force_async' && refresh !== 'lazy_async'
 }
 
 /**

@@ -357,6 +357,19 @@ describe('query', () => {
             expect(failed[0][1]).toMatchObject({ drop_recovery_attempted: true, error_status: 504 })
         })
 
+        it('recovers a dropped force_cache request, which the endpoint runs when the cache is stale', async () => {
+            jest.spyOn(api, 'query').mockRejectedValueOnce(gatewayTimeout())
+            const statusSpy = jest
+                .spyOn(api.queryStatus, 'get')
+                .mockResolvedValueOnce({ query_status: { complete: true, results: { results: ['late'] } } } as any)
+
+            await expect(performQuery(query, undefined, 'force_cache')).resolves.toMatchObject({
+                results: ['late'],
+            })
+
+            expect(statusSpy).toHaveBeenCalledTimes(1)
+        })
+
         it('does not follow up on a failed async submission', async () => {
             jest.spyOn(api, 'query').mockRejectedValueOnce(gatewayTimeout())
             const statusSpy = jest.spyOn(api.queryStatus, 'get')
