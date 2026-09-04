@@ -269,6 +269,7 @@ rules:
                               |MCPGatewayServer
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
+                              |MCPMeasuredStats
                               |MCPMemberServerRevocation
                               |MCPOrgRule
                               |MCPServiceAccount
