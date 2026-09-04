@@ -2985,6 +2985,57 @@ class TestSignalsRefundQuotaOffset(BaseTest):
         mock_offset.assert_not_called()
 
 
+class TestGraceExemptMidnightRollover(BaseTest):
+    # Period end for ["2026-06-01", "2026-07-01"] as `org_quota_limited_until` rounds it.
+    PERIOD_END = 1782864000
+
+    def _set_limited_signals_usage(self, usage: int, *, todays_usage: int, quota_limited_until: int) -> None:
+        # Already-limited signals org: `usage` alone sits below the cap, and the crossing came
+        # from `todays_usage` — the state the UTC-midnight reset lands on.
+        self.organization.usage = {
+            "signals_credits": {
+                "usage": usage,
+                "todays_usage": todays_usage,
+                "limit": 4500,
+                "quota_limited_until": quota_limited_until,
+            },
+            "period": ["2026-06-01T00:00:00Z", "2026-07-01T00:00:00Z"],
+        }
+        self.organization.customer_trust_scores = {}
+        self.organization.save()
+
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2026-06-15T00:00:00Z")
+    def test_todays_usage_reset_keeps_an_already_limited_org_limited(self, _feature_enabled, _capture) -> None:
+        # At midnight the cron recounts `todays_usage` for the new UTC day (0) before the next
+        # usage report folds yesterday's credits into `usage`, so `usage + todays_usage` dips
+        # under the cap. The limit must hold instead of unpausing the out-of-credit org.
+        self._set_limited_signals_usage(3000, todays_usage=0, quota_limited_until=self.PERIOD_END)
+
+        result = org_quota_limited_until(self.organization, QuotaResource.SIGNALS_CREDITS, [], [])
+
+        assert result == {"quota_limited_until": self.PERIOD_END, "quota_limiting_suspended_until": None}
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["signals_credits"]["quota_limited_until"] == self.PERIOD_END
+
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2026-06-15T00:00:00Z")
+    def test_stale_limit_from_a_previous_period_is_cleared(self, _feature_enabled, _capture) -> None:
+        # A limit set in an earlier period (its `quota_limited_until` predates the current
+        # period end) is a real drop, because the new period reset `usage`, so it must clear.
+        self._set_limited_signals_usage(0, todays_usage=0, quota_limited_until=self.PERIOD_END - 30 * 24 * 3600)
+
+        result = org_quota_limited_until(self.organization, QuotaResource.SIGNALS_CREDITS, [], [])
+
+        assert result is None
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["signals_credits"].get("quota_limited_until") is None
+
+
 class TestRefreshOrgSelfDrivingQuota(BaseTest):
     def _set_self_driving_usage(self, usage: int, *, todays_usage: int = 0, limit: int = 4500) -> None:
         self.organization.usage = {
