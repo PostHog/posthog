@@ -153,10 +153,9 @@ function isDuplicateRecentFilter(
 /**
  * Every picker on the page shares this one list, and its groups write at wildly different
  * rates: a property filter records a recent for each completed value, an event records one
- * when it is picked. Trimming the globally oldest entries therefore let an afternoon of
- * property filtering evict every event a user had picked days earlier — the "recents stopped
- * remembering my events" report. Round-robin instead: keep each group's most recent entry,
- * then each group's second, and so on, so every group in the list holds a share of the cap.
+ * when it is picked. Trimming the globally oldest entries would let a burst from one group
+ * evict every entry of another, so trim round-robin: keep each group's most recent entry,
+ * then each group's second, and so on, and every group present holds a share of the cap.
  * Input and output are both ordered newest-first.
  */
 export function capRecentFilters(filters: RecentTaxonomicFilter[]): RecentTaxonomicFilter[] {
