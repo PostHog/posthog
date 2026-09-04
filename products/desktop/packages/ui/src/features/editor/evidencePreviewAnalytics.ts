@@ -1,6 +1,9 @@
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { resolveServiceOptional } from "@posthog/di/container";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import {
+  ANALYTICS_EVENTS,
+  type EvidencePreviewSource,
+} from "@posthog/shared/analytics-events";
 import {
   ANALYTICS_TRACKER,
   type AnalyticsTracker,
@@ -23,7 +26,7 @@ export function trackEvidencePreviewShown(kind: string, cached: boolean): void {
 
 function trackEvidencePreviewReady(
   kind: string,
-  source: "hover" | "prefetch",
+  source: EvidencePreviewSource,
   latencyMs: number,
   hasPreview: boolean,
 ): void {
@@ -37,7 +40,7 @@ function trackEvidencePreviewReady(
 
 function trackEvidencePreviewFailed(
   kind: string,
-  source: "hover" | "prefetch",
+  source: EvidencePreviewSource,
   latencyMs: number,
 ): void {
   tracker()?.track(ANALYTICS_EVENTS.EVIDENCE_PREVIEW_FAILED, {
@@ -50,7 +53,7 @@ function trackEvidencePreviewFailed(
 export async function fetchEvidencePreviewTimed(
   client: PostHogAPIClient,
   target: EvidenceLinkTarget,
-  source: "hover" | "prefetch",
+  source: EvidencePreviewSource,
 ): Promise<EvidenceCardData | null> {
   const startedAt = performance.now();
   try {
