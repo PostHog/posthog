@@ -8,10 +8,10 @@ import { Spinner, Tooltip } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
+import { getHogFlowBranchColor, getHogFlowBranchStyle, useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { batchTriggerLogic } from './batchTriggerLogic'
@@ -76,6 +76,7 @@ export function StepConditionalBranchConfiguration({
 
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)
+    const { selectedBranch, setSelectedBranch } = useHogFlowBranchSelection()
 
     const nodeEdges = edgesByActionId[action.id] ?? []
 
@@ -127,62 +128,91 @@ export function StepConditionalBranchConfiguration({
     }
 
     const removeCondition = (index: number): void => {
+        setSelectedBranch(null)
         setConditions(conditions.filter((_, i) => i !== index))
         // Branch edges come first as they are sorted to show on the left
         setWorkflowActionEdges(action.id, [...removeBranchEdge(branchEdges, index), ...nonBranchEdges])
     }
 
     return (
-        <>
+        <div className="flex flex-col gap-3">
             <StepSchemaErrors />
-            {conditions.map((condition, index) => (
-                <div key={index} className="flex flex-col gap-2 p-2 rounded border">
-                    <div className="flex justify-between items-center gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                            <LemonLabel>Condition {index + 1}</LemonLabel>
-                            {isCountableCondition(condition.filters) && (
-                                <ConditionAudienceEstimate
-                                    actionId={action.id}
-                                    index={index}
-                                    filters={condition.filters}
-                                />
-                            )}
+            {conditions.map((condition, index) => {
+                const branchColor = getHogFlowBranchColor(index)
+                const isBranchSelected = selectedBranch?.actionId === action.id && selectedBranch.index === index
+
+                return (
+                    <div
+                        key={index}
+                        className="flex flex-col gap-3 rounded border p-3 transition-colors motion-reduce:transition-none"
+                        style={getHogFlowBranchStyle(index, isBranchSelected)}
+                        onFocusCapture={() => setSelectedBranch({ actionId: action.id, index })}
+                        onPointerDownCapture={() => setSelectedBranch({ actionId: action.id, index })}
+                    >
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="flex min-w-0 flex-1 items-center gap-2">
+                                <LemonButton
+                                    type="tertiary"
+                                    size="small"
+                                    noPadding
+                                    className="min-w-0 justify-start"
+                                    icon={
+                                        <span
+                                            className="size-2 shrink-0 rounded-full"
+                                            style={{ backgroundColor: branchColor }}
+                                        />
+                                    }
+                                    aria-label={`Select condition ${index + 1} path`}
+                                    aria-pressed={isBranchSelected}
+                                    onClick={() => setSelectedBranch({ actionId: action.id, index })}
+                                    data-attr="workflow-panel-select-branch"
+                                >
+                                    Condition {index + 1}
+                                </LemonButton>
+                                {isCountableCondition(condition.filters) && (
+                                    <ConditionAudienceEstimate
+                                        actionId={action.id}
+                                        index={index}
+                                        filters={condition.filters}
+                                    />
+                                )}
+                            </div>
+                            <LemonButton
+                                size="xsmall"
+                                icon={<IconX />}
+                                onClick={() => removeCondition(index)}
+                                disabledReason={getBranchRemovalDisabledReason(branchEdges, index, edgesByActionId)}
+                            />
                         </div>
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconX />}
-                            onClick={() => removeCondition(index)}
-                            disabledReason={getBranchRemovalDisabledReason(branchEdges, index, edgesByActionId)}
-                        />
-                    </div>
 
-                    <HogFlowPropertyFilters
-                        filtersKey={`condition-branch-condition-${action.id}-${index}`}
-                        filters={condition.filters ?? {}}
-                        setFilters={(filters) =>
-                            setConditions(
-                                conditions.map((condition, i) =>
-                                    i === index ? { ...condition, filters: filters ?? {} } : condition
+                        <HogFlowPropertyFilters
+                            filtersKey={`condition-branch-condition-${action.id}-${index}`}
+                            filters={condition.filters ?? {}}
+                            setFilters={(filters) =>
+                                setConditions(
+                                    conditions.map((condition, i) =>
+                                        i === index ? { ...condition, filters: filters ?? {} } : condition
+                                    )
                                 )
-                            )
-                        }
-                        typeKey={`workflow-trigger-${index}`}
-                    />
-
-                    <LemonField.Pure label="Condition name (optional)">
-                        <LemonInput
-                            value={localConditionNames[index] || ''}
-                            onChange={(value) => handleNameChange(index, value)}
-                            placeholder={`If condition #${index + 1} matches`}
-                            size="small"
+                            }
+                            typeKey={`workflow-trigger-${index}`}
                         />
-                    </LemonField.Pure>
-                </div>
-            ))}
 
-            <LemonButton type="secondary" icon={<IconPlus />} onClick={() => addCondition()} className="mt-2">
+                        <LemonField.Pure label="Condition name (optional)">
+                            <LemonInput
+                                value={localConditionNames[index] || ''}
+                                onChange={(value) => handleNameChange(index, value)}
+                                placeholder={`If condition #${index + 1} matches`}
+                                size="small"
+                            />
+                        </LemonField.Pure>
+                    </div>
+                )
+            })}
+
+            <LemonButton type="secondary" icon={<IconPlus />} onClick={() => addCondition()}>
                 Add condition
             </LemonButton>
-        </>
+        </div>
     )
 }

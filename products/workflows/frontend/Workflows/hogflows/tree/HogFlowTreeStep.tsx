@@ -6,6 +6,7 @@ import { IconCopy, IconDrag, IconTrash } from '@posthog/icons'
 import { Badge, Button, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle, cn } from 'lib/ui/quill'
 
 import { workflowLogic } from '../../workflowLogic'
+import { useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import type { HogFlowAction, HogFlowActionNode } from '../types'
@@ -26,6 +27,7 @@ export function HogFlowTreeStep({
 }): JSX.Element {
     const { animatingEdgePair, nodesById, selectedNode } = useValues(hogFlowEditorLogic)
     const { duplicateNodeBelow, onNodesDelete, setSelectedNodeId } = useActions(hogFlowEditorLogic)
+    const { setSelectedBranch } = useHogFlowBranchSelection()
     const { actionValidationErrorsById, workflow } = useValues(workflowLogic)
     const step = useHogFlowStep(action)
 
@@ -71,7 +73,10 @@ export function HogFlowTreeStep({
                 className="absolute inset-0 z-0 h-full w-full"
                 aria-label={`Edit ${action.name}`}
                 aria-pressed={isSelected}
-                onClick={() => setSelectedNodeId(action.id)}
+                onClick={() => {
+                    setSelectedBranch(null)
+                    setSelectedNodeId(action.id)
+                }}
             />
             {canDrag && (
                 <div
@@ -86,8 +91,17 @@ export function HogFlowTreeStep({
             )}
             <ItemMedia
                 variant="image"
-                className="relative z-10 min-h-8 min-w-8 [&>svg]:size-4 [&>svg]:shrink-0"
-                style={step?.color ? { backgroundColor: `${step.color}20`, color: step.color } : undefined}
+                className="relative z-10 !size-9 shrink-0 [&>img]:!size-5 [&>img]:!object-contain [&>svg]:!size-5 [&>svg]:shrink-0"
+                style={
+                    step?.color
+                        ? {
+                              alignSelf: 'center',
+                              translate: 'none',
+                              backgroundColor: `${step.color}20`,
+                              color: step.color,
+                          }
+                        : { alignSelf: 'center', translate: 'none' }
+                }
             >
                 {step?.icon}
             </ItemMedia>

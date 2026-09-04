@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import type { CSSProperties, DragEvent } from 'react'
+import { useActions } from 'kea'
+import { useEffect, useRef, useState } from 'react'
+import type { DragEvent } from 'react'
 
 import {
     Badge,
@@ -13,23 +14,17 @@ import {
     ItemTitle,
     Separator,
     Text,
+    cn,
 } from 'lib/ui/quill'
 
+import { getHogFlowBranchColor, getHogFlowBranchTint, useHogFlowBranchSelection } from '../HogFlowBranchSelection'
+import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowTreeDropzone } from './HogFlowTreeDropzone'
 import { HogFlowTreeStep } from './HogFlowTreeStep'
 import { countWorkflowTreeNodes } from './workflowTree'
 import type { WorkflowTreeNode } from './workflowTree'
 
 const BRANCH_LIMIT = 6
-const BRANCH_COLORS = [
-    'var(--data-color-1)',
-    'var(--data-color-7)',
-    'var(--data-color-14)',
-    'var(--data-color-12)',
-    'var(--data-color-11)',
-    'var(--data-color-4)',
-]
-
 export function HogFlowTreeNode({
     activeDropzones,
     draggedActionId,
@@ -43,10 +38,21 @@ export function HogFlowTreeNode({
     onDragEnd: () => void
     onDragStart: (event: DragEvent<HTMLDivElement>, actionId: string) => void
 }): JSX.Element {
+    const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
+    const { selectedBranch, setSelectedBranch } = useHogFlowBranchSelection()
     const [showAllBranches, setShowAllBranches] = useState(false)
+    const nodeRef = useRef<HTMLDivElement>(null)
     const visibleBranches = showAllBranches ? node.branches : node.branches.slice(0, BRANCH_LIMIT)
     const hiddenBranchCount = node.branches.length - visibleBranches.length
     const joinEdge = node.branches.find((branch) => branch.sequence.trailingEdge)?.sequence.trailingEdge
+
+    useEffect(() => {
+        if (selectedBranch?.actionId === node.action.id) {
+            nodeRef.current
+                ?.querySelector(`[data-workflow-branch-index="${selectedBranch.index ?? 'continue'}"]`)
+                ?.scrollIntoView({ block: 'nearest' })
+        }
+    }, [node.action.id, selectedBranch])
 
     const step = (
         <HogFlowTreeStep
@@ -59,7 +65,7 @@ export function HogFlowTreeNode({
     )
 
     return (
-        <div className="flex w-full flex-col">
+        <div ref={nodeRef} className="flex w-full flex-col">
             {node.incomingEdge && (
                 <HogFlowTreeDropzone
                     active={activeDropzones}
@@ -79,20 +85,41 @@ export function HogFlowTreeNode({
                     </CollapsibleHeader>
                     <CollapsibleContent className="flex flex-col gap-3 pt-2">
                         {visibleBranches.map((branch, index) => {
-                            const branchColor =
-                                branch.edge.type === 'continue'
-                                    ? 'var(--muted-foreground)'
-                                    : BRANCH_COLORS[index % BRANCH_COLORS.length]
-                            const branchStyle = { borderColor: branchColor } satisfies CSSProperties
+                            const branchIndex = branch.edge.type === 'branch' ? (branch.edge.index ?? index) : null
+                            const branchColor = getHogFlowBranchColor(branchIndex)
+                            const isBranchSelected =
+                                selectedBranch?.actionId === node.action.id && selectedBranch.index === branchIndex
                             const branchStepCount = countWorkflowTreeNodes(branch.sequence)
 
                             return (
                                 <div
                                     key={`${branch.edge.from}-${branch.edge.type}-${branch.edge.index ?? 'continue'}`}
-                                    className="flex min-w-0 flex-col border-s-2 ps-3"
-                                    style={branchStyle}
+                                    className={cn(
+                                        'flex min-w-0 flex-col ps-3 transition-[border-width] motion-reduce:transition-none',
+                                        isBranchSelected ? 'border-s-4' : 'border-s-2'
+                                    )}
+                                    style={{ borderColor: branchColor }}
+                                    data-workflow-branch-index={branchIndex ?? 'continue'}
                                 >
-                                    <Item variant="muted" size="xs" className="flex-nowrap" style={branchStyle}>
+                                    <Item
+                                        render={<button type="button" />}
+                                        variant="muted"
+                                        size="xs"
+                                        className={cn('flex-nowrap text-start', isBranchSelected && 'border-2')}
+                                        style={{
+                                            borderColor: branchColor,
+                                            backgroundColor: isBranchSelected
+                                                ? getHogFlowBranchTint(branchIndex)
+                                                : undefined,
+                                        }}
+                                        aria-label={`Edit ${branch.label} path from ${node.action.name}`}
+                                        aria-pressed={isBranchSelected}
+                                        onClick={() => {
+                                            setSelectedNodeId(node.action.id)
+                                            setSelectedBranch({ actionId: node.action.id, index: branchIndex })
+                                        }}
+                                        data-attr="workflow-tree-select-branch"
+                                    >
                                         <Badge
                                             variant="default"
                                             className="font-mono"
