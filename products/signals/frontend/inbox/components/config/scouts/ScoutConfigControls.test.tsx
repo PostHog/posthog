@@ -103,14 +103,95 @@ describe('ScoutConfigForm', () => {
         unmount()
     })
 
-    it('shows an unexpressible cron as a read-only custom mode without a time picker', () => {
+    it('saves a weekly run day and keeps the run time', () => {
         const onUpdate = jest.fn()
-        const { container, getByText, unmount } = render(
-            <ScoutConfigForm config={{ ...config, run_cron_schedule: '0 9 * * 1-5' }} onUpdate={onUpdate} />
+        const { getByLabelText, getByText, container, unmount } = render(
+            <ScoutConfigForm config={{ ...config, run_cron_schedule: '30 8 * * 1' }} onUpdate={onUpdate} />
+        )
+
+        expect(container.querySelector<HTMLInputElement>('input[type="time"]')?.value).toBe('08:30')
+
+        fireEvent.click(getByLabelText('signals-scout-general run day'))
+        fireEvent.click(getByText('Thursday'))
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { run_cron_schedule: '30 8 * * 4' })
+        unmount()
+    })
+
+    // A failed write rolls the config back, so the picker has to follow it. Holding the picked mode
+    // would report a schedule the scout does not run on, and the obvious retry sends nothing.
+    it('follows the config back when a schedule write does not stick', () => {
+        const onUpdate = jest.fn()
+        const rollingConfig = { ...config, run_cron_schedule: null }
+        const { getByText, container, rerender, unmount } = render(
+            <ScoutConfigForm config={rollingConfig} onUpdate={onUpdate} />
         )
 
         expect(container.querySelector('input[type="time"]')).toBeNull()
-        expect(getByText('Custom (0 9 * * 1-5)')).toBeTruthy()
+
+        fireEvent.click(getByText('Daily'))
+        fireEvent.click(getByText('Daily at a set time'))
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { run_cron_schedule: '0 9 * * *' })
+
+        rerender(<ScoutConfigForm config={{ ...rollingConfig, run_cron_schedule: '0 9 * * *' }} onUpdate={onUpdate} />)
+        expect(container.querySelector('input[type="time"]')).not.toBeNull()
+
+        rerender(<ScoutConfigForm config={rollingConfig} onUpdate={onUpdate} />)
+        expect(container.querySelector('input[type="time"]')).toBeNull()
+        unmount()
+    })
+
+    // Custom is the one mode no config can express while the field is still empty, so the picker
+    // holds it locally instead of waiting for a write.
+    it('opens an empty custom field without writing anything', () => {
+        const onUpdate = jest.fn()
+        const { getByText, getByLabelText, unmount } = render(
+            <ScoutConfigForm config={{ ...config, run_cron_schedule: null }} onUpdate={onUpdate} />
+        )
+
+        fireEvent.click(getByText('Daily'))
+        fireEvent.click(getByText('Custom cron'))
+        expect(getByLabelText('signals-scout-general cron expression')).toBeTruthy()
+        expect(onUpdate).not.toHaveBeenCalled()
+        unmount()
+    })
+
+    it('edits a day-restricted cron in place and refuses one the scheduler would reject', () => {
+        const onUpdate = jest.fn()
+        const { getByLabelText, getByText, unmount } = render(
+            <ScoutConfigForm config={{ ...config, run_cron_schedule: '0 9 1 2 *' }} onUpdate={onUpdate} />
+        )
+        const input = getByLabelText('signals-scout-general cron expression')
+
+        fireEvent.change(input, { target: { value: '0,15 9 * * *' } })
+        fireEvent.blur(input)
+        expect(getByText('Runs must be at least 30 minutes apart.')).toBeTruthy()
+        expect(onUpdate).not.toHaveBeenCalled()
+
+        fireEvent.change(input, { target: { value: '0 9 * * 1-5' } })
+        fireEvent.blur(input)
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { run_cron_schedule: '0 9 * * 1-5' })
+        unmount()
+    })
+
+    // The fleet polls while the panel is open, so a schedule set from another tab or by a teammate
+    // reaches the form under the open field. An untouched field must follow it, and leaving the
+    // field without typing must not write the expression it opened with back over it.
+    it('follows a cron set elsewhere until the field is typed in', () => {
+        const onUpdate = jest.fn()
+        const customConfig = { ...config, run_cron_schedule: '0 9 1 2 *' }
+        const { getByLabelText, rerender, unmount } = render(
+            <ScoutConfigForm config={customConfig} onUpdate={onUpdate} />
+        )
+        const input = getByLabelText('signals-scout-general cron expression')
+
+        expect(input).toHaveValue('0 9 1 2 *')
+
+        rerender(<ScoutConfigForm config={{ ...customConfig, run_cron_schedule: '0 9 * * 1-5' }} onUpdate={onUpdate} />)
+        expect(input).toHaveValue('0 9 * * 1-5')
+
+        fireEvent.focus(input)
+        fireEvent.blur(input)
+        expect(onUpdate).not.toHaveBeenCalled()
         unmount()
     })
 

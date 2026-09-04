@@ -65,6 +65,9 @@ export interface logsGroupByLogicActions {
     setGroupBys: (groupBys: LogsViewerGroupBy[]) => {
         groupBys: LogsViewerGroupBy[]
     } // logsViewerConfigLogic
+    bumpFacetRefresh: () => {
+        value: true
+    } // logsViewerFiltersLogic
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
     } // logsViewerFiltersLogic
@@ -145,7 +148,15 @@ export const logsGroupByLogic = kea<logsGroupByLogicType>([
         ],
         actions: [
             logsViewerFiltersLogic({ id: props.id }),
-            ['setDateRange', 'zoomDateRange', 'setSearchTerm', 'setFilters', 'setFilterGroup', 'setPinnedFilters'],
+            [
+                'setDateRange',
+                'zoomDateRange',
+                'setSearchTerm',
+                'setFilters',
+                'setFilterGroup',
+                'setPinnedFilters',
+                'bumpFacetRefresh',
+            ],
             logsViewerConfigLogic({ id: props.id }),
             ['setGroupBys', 'addGroupBy', 'removeGroupByAt', 'replaceGroupByAt'],
         ],
@@ -222,6 +233,9 @@ export const logsGroupByLogic = kea<logsGroupByLogicType>([
             setFilterGroup: reload,
             setPinnedFilters: reload,
             // Immediate: changing the grouping dimensions or ranking column is a deliberate click.
+            // The refresh button fires `bumpFacetRefresh` through the shared filters logic, so
+            // the groups re-aggregate with the logs table instead of showing the earlier result.
+            bumpFacetRefresh: () => actions.loadGroups(),
             setGroupBys: () => actions.loadGroups(),
             addGroupBy: () => actions.loadGroups(),
             removeGroupByAt: () => actions.loadGroups(),

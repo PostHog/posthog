@@ -3295,14 +3295,13 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
     @parameterized.expand(
         [
-            # A team that changed retention 14d -> 30d mid-period: 1.5 GB total split across both tiers
-            # (0.5 GB at 14d, 1.0 GB at 30d).
+            # 1.5 GB at a non-tier 45 days = 67.5 GB-days, so logs_retention_mb_days_in_period = 67_500
+            # (67_500_000_000 byte-days // 1_000_000).
             (
-                "split_retention_14d_to_30d",
+                "arbitrary_retention_days",
                 {
                     "bytes_ingested": 1_500_000_000,
-                    "bytes_ingested_retention_14d": 500_000_000,
-                    "bytes_ingested_retention_30d": 1_000_000_000,
+                    "retention_byte_days": 67_500_000_000,
                     "records_ingested": 1000,
                 },
                 {
@@ -3310,48 +3309,45 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "logs_records_in_period": 1000,
                     "logs_mb_in_period": 1500,
                     "logs_and_traces_mb_in_period": 1500,
-                    "logs_retention_14d_mb_in_period": 500,
-                    "logs_retention_30d_mb_in_period": 1000,
-                    "logs_retention_90d_mb_in_period": 0,
+                    "logs_retention_mb_days_in_period": 67_500,
                 },
             ),
-            # A team on a single tier the whole period: 2.5 GB, all under 90d retention.
+            # Sub-MB-day total floors to 0: 500 KB retained 1 day is 500_000 byte-days, under 1 MB-day.
             (
-                "single_tier_90d",
+                "sub_mb_day_floors_to_zero",
                 {
-                    "bytes_ingested": 2_500_000_000,
-                    "bytes_ingested_retention_90d": 2_500_000_000,
-                    "records_ingested": 2000,
-                },
-                {
-                    "logs_bytes_in_period": 2_500_000_000,
-                    "logs_records_in_period": 2000,
-                    "logs_mb_in_period": 2500,
-                    "logs_and_traces_mb_in_period": 2500,
-                    "logs_retention_14d_mb_in_period": 0,
-                    "logs_retention_30d_mb_in_period": 0,
-                    "logs_retention_90d_mb_in_period": 2500,
-                },
-            ),
-            # Sub-MB bytes split across tiers: each tier is floored to whole MB independently, so both
-            # tier counters drop to 0 even though the total (1.2 MB) rounds down to 1 MB. The tiers can
-            # sum to less than logs_mb_in_period.
-            (
-                "sub_mb_split_floors_to_zero",
-                {
-                    "bytes_ingested": 1_200_000,
-                    "bytes_ingested_retention_14d": 600_000,
-                    "bytes_ingested_retention_30d": 600_000,
+                    "bytes_ingested": 500_000,
+                    "retention_byte_days": 500_000,
                     "records_ingested": 5,
                 },
                 {
-                    "logs_bytes_in_period": 1_200_000,
+                    "logs_bytes_in_period": 500_000,
                     "logs_records_in_period": 5,
-                    "logs_mb_in_period": 1,
-                    "logs_and_traces_mb_in_period": 1,
-                    "logs_retention_14d_mb_in_period": 0,
-                    "logs_retention_30d_mb_in_period": 0,
+                    "logs_mb_in_period": 0,
+                    "logs_and_traces_mb_in_period": 0,
+                    "logs_retention_mb_days_in_period": 0,
+                },
+            ),
+            # Per-tier and byte-days in parallel: 2 GB at 30 days + 1 GB at 14 days. Each tier reports
+            # its own MB; byte-days = 2_000*30 + 1_000*14 = 74_000 MB-days.
+            (
+                "per_tier_and_byte_days_in_parallel",
+                {
+                    "bytes_ingested": 3_000_000_000,
+                    "bytes_ingested_retention_30d": 2_000_000_000,
+                    "bytes_ingested_retention_14d": 1_000_000_000,
+                    "retention_byte_days": 74_000_000_000,
+                    "records_ingested": 1500,
+                },
+                {
+                    "logs_bytes_in_period": 3_000_000_000,
+                    "logs_records_in_period": 1500,
+                    "logs_mb_in_period": 3000,
+                    "logs_and_traces_mb_in_period": 3000,
+                    "logs_retention_14d_mb_in_period": 1000,
+                    "logs_retention_30d_mb_in_period": 2000,
                     "logs_retention_90d_mb_in_period": 0,
+                    "logs_retention_mb_days_in_period": 74_000,
                 },
             ),
         ]

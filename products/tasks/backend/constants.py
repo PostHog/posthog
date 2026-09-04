@@ -270,6 +270,7 @@ POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
     "feature-requests-remove-evidence-create",
     "heatmaps-saved-regenerate",
     "inbox-reports-bulk-set-state",
+    "inbox-reports-claim",
     "inbox-reports-set-state",
     "llma-prompt-label-set",
     "opt-outs-add",

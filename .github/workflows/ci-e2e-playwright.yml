@@ -966,6 +966,16 @@ jobs:
 
             # Visual Review: create run + upload snapshots directly from the test job.
             # Completion happens in handle-screenshots so the baseline lands in the same commit as PNGs.
+            # Shares the entry ci-storybook.yml writes, keyed on the same lockfile. A miss
+            # only means the install downloads the tree, which is what it does today.
+            - name: Restore VR CLI npm cache
+              if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ~/.npm
+                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
+                  restore-keys: npm-vr-cli-${{ runner.os }}-
+
             - name: Install VR CLI
               if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
               run: cd products/visual_review/cli && npm ci && npm run build && npm link
@@ -1254,6 +1264,14 @@ jobs:
               with:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            # Shares the entry ci-storybook.yml writes, keyed on the same lockfile.
+            - name: Restore VR CLI npm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ~/.npm
+                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
+                  restore-keys: npm-vr-cli-${{ runner.os }}-
 
             - name: Install VR CLI
               run: cd products/visual_review/cli && npm ci && npm run build && npm link

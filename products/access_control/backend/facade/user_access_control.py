@@ -1133,7 +1133,7 @@ class UserAccessControl:
         filters = self._access_controls_filters_for_queryset(resource)
         access_controls = self._get_access_controls(filters)
 
-        decision = self._blocked_and_allowed_object_ids(access_controls)
+        decision = self._blocked_and_allowed_object_ids(resource, access_controls)
 
         # Apply filtering logic based on resource-level access
         if not self.has_resource_access(resource):
@@ -1153,48 +1153,33 @@ class UserAccessControl:
 
         return queryset
 
-    def _blocked_and_allowed_object_ids(self, access_controls: list[_AccessControl]) -> ObjectAccessDecision:
-        """Canonical object-level decision over a pool of object access controls (rows with
-        `resource_id` set), returning an ObjectAccessDecision of blocked and allowed ids.
+    def _blocked_and_allowed_object_ids(
+        self, resource: APIScopeObject, access_controls: list[_AccessControl]
+    ) -> ObjectAccessDecision:
+        """Decide the blocked and the allowed object ids from a pool of object rows
+        (rows with `resource_id` set).
 
-        Explicit-wins: if a resource_id has any explicit (role/member) rule, the object is
-        allowed when any explicit rule grants non-"none", otherwise blocked. With no explicit
-        rule, the object is blocked only when every default rule is "none".
+        Each object's rows resolve through `_object_rows_decision`, the same step the
+        object walk uses:
 
-        Reads the `role_id` / `organization_member_id` columns rather than the `.role` /
-        `.organization_member` FK accessors — equivalent result (id is None iff the relation is
-        None) without firing a query per row.
+        - decides "none": blocked, hidden from lists.
+        - explicit (member or role) grant: allowed, listed even without resource access.
+        - default grant: ignored here, because legacy precedence puts resource rules
+          above an object's default rules.
         """
-        resource_id_access_levels: dict[str, list[str]] = {}
+        rows_by_object_id: dict[str, list[_AccessControl]] = defaultdict(list)
         for access_control in access_controls:
-            resource_id_access_levels.setdefault(access_control.resource_id, []).append(access_control.access_level)
+            rows_by_object_id[access_control.resource_id].append(access_control)
 
         blocked_resource_ids: set[str] = set()
         allowed_resource_ids: set[str] = set()
 
-        for resource_id, access_levels in resource_id_access_levels.items():
-            # Get the access controls for this specific resource_id to check role/member
-            resource_access_controls = [ac for ac in access_controls if ac.resource_id == resource_id]
-
-            # Only consider access controls that have explicit role or member (not defaults)
-            explicit_access_controls = [
-                ac for ac in resource_access_controls if ac.role_id is not None or ac.organization_member_id is not None
-            ]
-
-            if not explicit_access_controls:
-                if all(access_level == NO_ACCESS_LEVEL for access_level in access_levels):
-                    blocked_resource_ids.add(resource_id)
-                # No explicit controls for this object - don't block it
-                continue
-
-            # Check if user has any non-"none" access to this specific object
-            has_specific_access = any(ac.access_level != NO_ACCESS_LEVEL for ac in explicit_access_controls)
-
-            if has_specific_access:
-                allowed_resource_ids.add(resource_id)
-            else:
-                # All explicit access levels are "none" - block this object
+        for resource_id, rows in rows_by_object_id.items():
+            row = self._object_rows_decision(resource, rows)
+            if row.access_level == NO_ACCESS_LEVEL:
                 blocked_resource_ids.add(resource_id)
+            elif self._row_subject(row) != "default":
+                allowed_resource_ids.add(resource_id)
 
         return ObjectAccessDecision(
             blocked_ids=frozenset(blocked_resource_ids), allowed_ids=frozenset(allowed_resource_ids)
@@ -1223,7 +1208,7 @@ class UserAccessControl:
 
         result: dict[APIScopeObject, frozenset[str]] = {}
         for resource, acs in object_rows_by_resource.items():
-            blocked = self._blocked_and_allowed_object_ids(acs).blocked_ids
+            blocked = self._blocked_and_allowed_object_ids(resource, acs).blocked_ids
             if blocked:
                 result[resource] = blocked
         return result
@@ -1255,7 +1240,7 @@ class UserAccessControl:
 
         result: dict[APIScopeObject, frozenset[str]] = {}
         for resource, acs in object_rows_by_resource.items():
-            allowed = self._blocked_and_allowed_object_ids(acs).allowed_ids
+            allowed = self._blocked_and_allowed_object_ids(resource, acs).allowed_ids
             if allowed and not self.has_resource_access(resource):
                 result[resource] = allowed
         return result
@@ -1488,6 +1473,20 @@ class UserAccessControl:
             return "role"
         return "default"
 
+    @staticmethod
+    def _object_rows_decision(resource: APIScopeObject, rows: list[_AccessControl]) -> _AccessControl:
+        """Select the deciding row from one object's own rows, before any resource-level fallback.
+
+        Explicit-wins: when the object has any explicit (member or role) row, the highest
+        explicit row decides. Otherwise the highest default row decides. `rows` must be
+        non-empty.
+
+        Shared by the object walk and `_blocked_and_allowed_object_ids` so the per-object
+        checks and the queryset filters cannot drift.
+        """
+        explicit_rows = [ac for ac in rows if ac.role_id is not None or ac.organization_member_id is not None]
+        return UserAccessControl._highest_access_from_rows(resource, explicit_rows or rows)
+
     def _object_access_level_from_rows(
         self,
         resource: APIScopeObject,
@@ -1506,7 +1505,7 @@ class UserAccessControl:
             ac for ac in object_access_controls if ac.role_id is not None or ac.organization_member_id is not None
         ]
         if explicit_rows:
-            row = self._highest_access_from_rows(resource, explicit_rows)
+            row = self._object_rows_decision(resource, object_access_controls)
             return ResolvedAccess(
                 access_level=row.access_level,
                 source="object",
@@ -1632,7 +1631,15 @@ class UserAccessControl:
     # ------------------------------------------------------------
     # Most-specific-wins resolution (RFC 557). Not enforced.
     #
-    # These methods resolve access by specificity:
+    # The methods in this section come in three tiers:
+    # - Entry points (`resolve_most_specific_*_access`): apply the guards for the user, fetch
+    #   the rows, then delegate.
+    # - Resolvers (`_most_specific_*_access_from_rows`): resolve access from rows that are
+    #   already in memory.
+    # - The decision (`_most_specific_rows_decision`): select the row that decides for one
+    #   scope.
+    #
+    # Resolution order, most specific first:
     # - Most specific subject first: member override -> max(role overrides) -> the object's
     #   own default.
     # - When the resource is in RESOURCE_FALLBACK_MAP (e.g. `warehouse_table` ->
@@ -1647,16 +1654,8 @@ class UserAccessControl:
     # `access_level_for_resource` instead.
     # ------------------------------------------------------------
 
-    def _rows_by_subject(self, rows: list[_AccessControl]) -> list[list[_AccessControl]]:
-        """Group one scope's rows by subject, most specific first: the member's own rows, then
-        the rows of their roles, then the rows that apply to everyone. Empty groups are removed."""
-        by_subject: dict[str, list[_AccessControl]] = {"member": [], "role": [], "default": []}
-        for ac in rows:
-            by_subject[self._row_subject(ac)].append(ac)
-        return [group for group in by_subject.values() if group]
-
     def resolve_most_specific_object_access(self, obj: Model) -> Optional[ResolvedAccess]:
-        """Future source of truth for object access — NOT enforced yet, see the section comment.
+        """Resolve the user's access to one object. Future source of truth.
 
         This method has no `explicit` parameter. It always returns the full answer. For the
         `explicit=True` behavior of the enforced methods, check
@@ -1670,56 +1669,16 @@ class UserAccessControl:
         if resolved:
             return access
 
-        fallback_parent_id = self._fallback_parent_id(obj, resource)
-        parent = RESOURCE_FALLBACK_MAP.get(resource) if fallback_parent_id else None
-
         object_rows = self._get_access_controls(self._access_controls_filters_for_object(resource, str(obj.id)))  # type: ignore
-        for subject_rows in self._rows_by_subject(object_rows):
-            row = self._highest_access_from_rows(resource, subject_rows)
-            return ResolvedAccess(
-                access_level=row.access_level,
-                source="object",
-                source_subject=self._row_subject(row),
-                source_resource=resource,
-                source_resource_id=row.resource_id,
-            )
-
-        if parent:
-            parent_rows = self._get_access_controls(
-                self._access_controls_filters_for_object(parent, cast(str, fallback_parent_id))
-            )
-            for subject_rows in self._rows_by_subject(parent_rows):
-                row = self._highest_access_from_rows(parent, subject_rows)
-                return ResolvedAccess(
-                    access_level=row.access_level,
-                    source="parent_object",
-                    source_subject=self._row_subject(row),
-                    source_resource=parent,
-                    source_resource_id=row.resource_id,
-                )
-
-        if self.has_access_levels_for_resource(resource):
-            access_for_resource = self.resolve_most_specific_resource_access(resource)
-            if access_for_resource:
-                return access_for_resource
-
-        if parent and self.has_access_levels_for_resource(parent):
-            access_for_parent = self.resolve_most_specific_resource_access(parent)
-            if access_for_parent:
-                return replace(access_for_parent, source="parent_resource")
-
-        return ResolvedAccess(
-            access_level=default_access_level(resource),
-            source="system_default",
-            source_subject=None,
-            source_resource=RESOURCE_INHERITANCE_MAP.get(resource, resource),
+        return self._most_specific_object_access_from_rows(
+            resource, object_rows, fallback_parent_id=self._fallback_parent_id(obj, resource)
         )
 
     def resolve_most_specific_resource_access(self, resource: APIScopeObject) -> Optional[ResolvedAccess]:
-        """Future source of truth for resource access — NOT enforced yet, see the section comment.
+        """Resolve the user's access to one resource type. Future source of truth.
 
-        The guards are the same as in `access_level_for_resource`. Only the row step differs:
-        the most specific subject that has a row decides.
+        The guards are the same as in `access_level_for_resource`. Only the decision differs:
+        the most specific subject that has rows decides.
         """
         parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
         if parent_resource:
@@ -1753,21 +1712,103 @@ class UserAccessControl:
             )
 
         rows = self._get_access_controls(self._access_controls_filters_for_resource(resource))
-        for subject_rows in self._rows_by_subject(rows):
-            row = self._highest_access_from_rows(resource, subject_rows)
+        return self._most_specific_resource_access_from_rows(resource, rows)
+
+    def _most_specific_object_access_from_rows(
+        self,
+        resource: APIScopeObject,
+        object_rows: list[_AccessControl],
+        fallback_parent_id: Optional[str] = None,
+    ) -> ResolvedAccess:
+        """Resolve access to one object from its rows, which are already in memory.
+
+        Scope order: the object's rows, the fallback parent's rows, the resource, the parent's
+        resource, the system default. The parent's rows are fetched only when
+        `fallback_parent_id` is given.
+        """
+        parent = RESOURCE_FALLBACK_MAP.get(resource) if fallback_parent_id else None
+
+        row = self._most_specific_rows_decision(resource, object_rows)
+        if row:
+            return ResolvedAccess(
+                access_level=row.access_level,
+                source="object",
+                source_subject=self._row_subject(row),
+                source_resource=resource,
+                source_resource_id=row.resource_id,
+            )
+
+        if parent:
+            parent_rows = self._get_access_controls(
+                self._access_controls_filters_for_object(parent, cast(str, fallback_parent_id))
+            )
+            parent_row = self._most_specific_rows_decision(parent, parent_rows)
+            if parent_row:
+                return ResolvedAccess(
+                    access_level=parent_row.access_level,
+                    source="parent_object",
+                    source_subject=self._row_subject(parent_row),
+                    source_resource=parent,
+                    source_resource_id=parent_row.resource_id,
+                )
+
+        if self.has_access_levels_for_resource(resource):
+            access_for_resource = self.resolve_most_specific_resource_access(resource)
+            if access_for_resource:
+                return access_for_resource
+
+        if parent and self.has_access_levels_for_resource(parent):
+            access_for_parent = self.resolve_most_specific_resource_access(parent)
+            if access_for_parent:
+                return replace(access_for_parent, source="parent_resource")
+
+        return ResolvedAccess(
+            access_level=default_access_level(resource),
+            source="system_default",
+            source_subject=None,
+            source_resource=RESOURCE_INHERITANCE_MAP.get(resource, resource),
+        )
+
+    def _most_specific_resource_access_from_rows(
+        self, resource: APIScopeObject, rows: list[_AccessControl]
+    ) -> ResolvedAccess:
+        """Resolve access to one resource type from its rows, which are already in memory.
+
+        The deciding row gives the level. Without rows, the system default applies.
+        """
+        row = self._most_specific_rows_decision(resource, rows)
+        if row:
             return ResolvedAccess(
                 access_level=row.access_level,
                 source="resource",
                 source_subject=self._row_subject(row),
                 source_resource=resource,
             )
-
         return ResolvedAccess(
             access_level=default_access_level(resource),
             source="system_default",
             source_subject=None,
             source_resource=resource,
         )
+
+    def _most_specific_rows_decision(
+        self, resource: APIScopeObject, rows: list[_AccessControl]
+    ) -> Optional[_AccessControl]:
+        """Select the deciding row for one scope (a single object, or a resource type).
+
+        The most specific subject that has rows decides. The highest of that subject's
+        rows wins. Returns None when `rows` is empty."""
+        for subject_rows in self._rows_by_subject(rows):
+            return self._highest_access_from_rows(resource, subject_rows)
+        return None
+
+    def _rows_by_subject(self, rows: list[_AccessControl]) -> list[list[_AccessControl]]:
+        """Group one scope's rows by subject, most specific first: the member's own rows, then
+        the rows of their roles, then the rows that apply to everyone. Empty groups are removed."""
+        by_subject: dict[str, list[_AccessControl]] = {"member": [], "role": [], "default": []}
+        for ac in rows:
+            by_subject[self._row_subject(ac)].append(ac)
+        return [group for group in by_subject.values() if group]
 
     def _report_resolved_access_divergence(
         self,
