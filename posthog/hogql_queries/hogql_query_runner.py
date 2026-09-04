@@ -210,7 +210,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         finder = find_placeholders(parsed_select)
         with self.timings.measure("filters"):
-            if filters and finder.has_filters:
+            # Expand even without filters, because the executor does: no filters makes `{filters}`
+            # true, so the query runs unbounded. Leaving the placeholder here would describe a
+            # query with a date range that never had one.
+            if finder.has_filters:
                 # Resolve {filters} against the shared database so a filtered query builds the schema
                 # once, instead of replace_filters building a throwaway one. With a connection id the
                 # schema is the external connection's, so keep the per-call build there.

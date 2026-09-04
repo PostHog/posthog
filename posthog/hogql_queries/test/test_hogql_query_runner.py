@@ -553,6 +553,18 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
         self.assertEqual([warning.reason for warning in all_events_warnings], [EventsScanWarningReason.NO_EVENT_FILTER])
 
+    def test_response_warns_when_filters_are_absent_and_the_query_runs_unbounded(self):
+        # No filters object makes `{filters}` true at execution, so the read has no date range.
+        # An empty filters object runs the same query, so both have to warn the same way.
+        for filters in (None, HogQLFilters()):
+            response = HogQLQueryRunner(
+                query=HogQLQuery(query="SELECT count() FROM events WHERE event = 'x' AND {filters}", filters=filters),
+                team=self.team,
+            ).calculate()
+
+            scan_warnings = [warning for warning in response.warnings or [] if isinstance(warning, EventsScanWarning)]
+            self.assertEqual([warning.reason for warning in scan_warnings], [EventsScanWarningReason.NO_TIME_BOUND])
+
     def test_response_blames_the_test_account_setting_for_a_filter_it_added(self):
         self.team.test_account_filters = [
             {"key": "$host", "type": "event", "value": ["localhost"], "operator": "is_not"}
