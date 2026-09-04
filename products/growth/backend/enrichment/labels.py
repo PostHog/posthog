@@ -18,6 +18,7 @@ from openai import APIConnectionError, InternalServerError, OpenAI, RateLimitErr
 from openai.types.chat import ChatCompletionMessageParam
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, wait_random
 
+from posthog.dataclasses import frozen
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.organization import Organization, OrganizationMembership
 
@@ -116,23 +117,28 @@ def to_domain(value: Any, depth: int = 0) -> Any:
     return value
 
 
-def pages_path(path: str) -> tuple[str, str] | None:
-    """Parses a `pages.<type>.<key>` input_fields path into (page_type, key), or None if it doesn't match that shape."""
+@frozen
+class PageInputPath:
+    page_type: str
+    key: str
+
+
+def pages_path(path: str) -> PageInputPath | None:
+    """Parses a `pages.<type>.<key>` input_fields path, or None if it doesn't match that shape."""
     if not path.startswith(PAGES_INPUT_PREFIX):
         return None
     parts = path.split(".")
     if len(parts) != 3 or not parts[1] or not parts[2]:
         return None
-    return parts[1], parts[2]
+    return PageInputPath(page_type=parts[1], key=parts[2])
 
 
 def _page_field_value(pages: dict[str, Any] | None, path: str) -> Any:
     parsed = pages_path(path)
     if pages is None or parsed is None:
         return None
-    page_type, key = parsed
-    page = pages.get(page_type)
-    return page.get(key) if isinstance(page, dict) else None
+    page = pages.get(parsed.page_type)
+    return page.get(parsed.key) if isinstance(page, dict) else None
 
 
 def extract_input_fields(
@@ -152,9 +158,8 @@ def extract_input_fields(
             if page_value is not None:
                 # Page copy is public, so it skips the email reduction applied to Harmonic values below.
                 result[path] = page_value
-            page_type, key = parsed
-            if key == "markdown":
-                url_path = f"{PAGES_INPUT_PREFIX}{page_type}.url"
+            if parsed.key == "markdown":
+                url_path = f"{PAGES_INPUT_PREFIX}{parsed.page_type}.url"
                 if url_path not in result:
                     url_value = _page_field_value(pages, url_path)
                     if url_value is not None:

@@ -44,7 +44,7 @@ def page_types_from_input_fields(input_fields: Iterable[str]) -> set[str]:
     for path in input_fields:
         parsed = pages_path(path)
         if parsed is not None:
-            types.add(parsed[0])
+            types.add(parsed.page_type)
     return types
 
 
