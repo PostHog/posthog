@@ -34,6 +34,7 @@ from products.canvas.backend.facade.api import (
     PLACEMENT_STATUSES,
     RESERVED_TEMPLATE_IDS,
 )
+from products.canvas.backend.facade.enums import CanvasBoardActorKind
 from products.canvas.backend.models import Canvas, CanvasBoard, CanvasBoardOp, CanvasState
 
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
@@ -1119,11 +1120,6 @@ class CanvasAgentRequestResultSerializer(serializers.Serializer):
         ),
     )
     task_id = serializers.UUIDField(help_text="Authoring task that received the request or report.")
-
-
-class CanvasBoardActorKind(models.TextChoices):
-    USER = "user", "User"
-    AGENT = "agent", "Agent"
 
 
 @extend_schema_field(OP_SCHEMA, component_name="CanvasBoardOperation")

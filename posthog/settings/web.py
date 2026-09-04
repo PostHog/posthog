@@ -566,6 +566,7 @@ SPECTACULAR_SETTINGS = {
             # entry decides the name.
             # Matches ErrorTrackingIssue severity (low/medium/high/critical).
             "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",
+            "CanvasBoardActorKindEnum": "products.canvas.backend.facade.enums.CanvasBoardActorKind",
             # ExperimentMetricsRecalculation and ExperimentTimeseriesRecalculation both define this Status.
             "MetricsRecalculationStatusEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status",
             # Matches tasks' LoopVisibility (personal/team).
