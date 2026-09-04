@@ -174,8 +174,12 @@ export const MAX_SELECTED_RECORDINGS = 20
 export const DELETE_CONFIRMATION_TEXT = 'delete'
 
 const getDefaultFilterTestAccounts = (): boolean => {
-    const stored = localStorage.getItem('default_filter_test_accounts')
-    return stored === 'true'
+    try {
+        return localStorage.getItem('default_filter_test_accounts') === 'true'
+    } catch {
+        // Runs while the logic mounts, so a throw here would blank the scene
+        return false
+    }
 }
 
 // The sort the user explicitly picked in the list settings. It wins over the relevance

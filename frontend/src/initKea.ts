@@ -16,6 +16,7 @@ import {
     removeProjectIdIfPresent,
     stripTrailingSlash,
 } from 'lib/utils/kea-router'
+import { safeStorageEngine } from 'lib/utils/safeStorageEngine'
 import { identifierToHuman } from 'lib/utils/strings'
 
 import { disposablesPlugin } from '~/kea-disposables'
@@ -102,7 +103,7 @@ export function initKea({
     const plugins = [
         ...(beforePlugins || []),
         disposablesPlugin,
-        localStoragePlugin(),
+        localStoragePlugin({ storageEngine: safeStorageEngine }),
         windowValuesPlugin({ window: window }),
         routerPlugin({
             history: routerHistory,
