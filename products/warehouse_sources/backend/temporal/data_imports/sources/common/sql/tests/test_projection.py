@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     format_projected_select_clause,
     project_arrow_columns,
     prune_enabled_columns,
+    resolve_enabled_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.types import Column, Table
 
@@ -79,6 +80,25 @@ class TestComputeProjectedColumns:
         expected: list[str] | None,
     ) -> None:
         assert compute_projected_columns(enabled_columns, primary_keys, incremental_field) == expected
+
+
+class TestResolveEnabledColumns:
+    @parameterized.expand(
+        [
+            ("sync_all_projects_the_catalog", None, ["id", "email"], ["id", "email"]),
+            ("sync_all_without_a_catalog_keeps_star", None, [], None),
+            ("explicit_selection_is_not_widened", ["email"], ["id", "email"], ["email"]),
+            ("empty_selection_stays_empty", [], ["id", "email"], []),
+        ]
+    )
+    def test_resolve_enabled_columns(
+        self,
+        _name: str,
+        enabled_columns: list[str] | None,
+        available_columns: list[str],
+        expected: list[str] | None,
+    ) -> None:
+        assert resolve_enabled_columns(enabled_columns, available_columns) == expected
 
 
 class TestFormatProjectedSelectClause:

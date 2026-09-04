@@ -65,6 +65,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     Table,
     ValidatedRowFilter,
     compute_projected_columns,
+    resolve_enabled_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
     EXTRACT_BATCH_MAX_BYTES,
@@ -3328,6 +3329,10 @@ def postgres_source(
                             table_name,
                             logger,
                             probe_unconstrained_numeric_scale=fresh_schema_being_created,
+                        )
+                        # Sync-all projects the discovered catalog, never `*`. See `resolve_enabled_columns`.
+                        enabled_columns = resolve_enabled_columns(
+                            enabled_columns, [column.name for column in full_table.columns]
                         )
 
                         # Session, not LOCAL: under autocommit a LOCAL timeout has no transaction to bind to.

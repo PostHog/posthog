@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
     compute_projected_columns,
     project_arrow_columns,
+    resolve_enabled_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
@@ -1424,10 +1425,16 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         row_filters = inputs.row_filters
 
         def _discover_metadata() -> tuple[list[str] | None, pa.Schema, int, PartitionSettings | None, int]:
+            # The streaming read below reuses the resolved projection, so rebind the outer name.
+            nonlocal enabled_columns
             with self.connect(config) as connection:
                 with connection.cursor() as cursor:
                     primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
                     full_table = self.get_table_metadata(cursor, schema, table_name)
+                    # Sync-all projects the discovered catalog, never `*`. See `resolve_enabled_columns`.
+                    enabled_columns = resolve_enabled_columns(
+                        enabled_columns, [column.name for column in full_table.columns]
+                    )
 
                     # Resolve PKs before the projection so probe/sample queries match the streaming SELECT.
                     if primary_keys is None and "id" in full_table:
