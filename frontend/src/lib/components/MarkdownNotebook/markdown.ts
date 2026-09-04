@@ -622,17 +622,17 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
     }
 
     if (COMPONENT_START_REGEX.test(trimmed)) {
-        return parseComponentBlock(lines, lineIndex)
+        const parsedComponent = parseComponentBlock(lines, lineIndex)
+        const parsedNode = parsedComponent.node
+        if (parsedNode?.type === 'component' && !parsedNode.errors?.length) {
+            return parsedComponent
+        }
+        return parseRecoveredMultilineComponentBlock(lines, lineIndex) ?? parsedComponent
     }
 
     if (ESCAPED_COMPONENT_START_REGEX.test(trimmed)) {
-        const recoveredComponent = parseComponentBlock(lines, lineIndex, true)
-        const recoveredNode = recoveredComponent.node
-        if (
-            recoveredNode?.type === 'component' &&
-            recoveredComponent.nextLineIndex > lineIndex + 1 &&
-            !recoveredNode.errors?.length
-        ) {
+        const recoveredComponent = parseRecoveredMultilineComponentBlock(lines, lineIndex)
+        if (recoveredComponent) {
             return recoveredComponent
         }
     }
@@ -704,6 +704,16 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
     }
 
     return parseParagraphBlock(lines, lineIndex)
+}
+
+function parseRecoveredMultilineComponentBlock(lines: string[], lineIndex: number): BlockParseResult | null {
+    const recoveredComponent = parseComponentBlock(lines, lineIndex, true)
+    const recoveredNode = recoveredComponent.node
+    return recoveredNode?.type === 'component' &&
+        recoveredComponent.nextLineIndex > lineIndex + 1 &&
+        !recoveredNode.errors?.length
+        ? recoveredComponent
+        : null
 }
 
 function parseParagraphBlock(lines: string[], lineIndex: number): BlockParseResult {

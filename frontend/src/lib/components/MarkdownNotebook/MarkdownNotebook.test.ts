@@ -774,14 +774,19 @@ points = pd.DataFrame()" />`,
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
     })
 
-    it('recovers an escaped multiline component produced by the prose serializer', () => {
-        const markdown = `\\<PythonV2 title="Chart" code="import pandas as pd
+    it.each([
+        ['an escaped tag', '\\<'],
+        ['an unescaped tag with escaped prop source', '<'],
+    ])('recovers a multiline component produced by the prose serializer with %s', (_name, tagStart) => {
+        const markdown = `${tagStart}PythonV2 title="Chart" code="import pandas as pd
 
 \\# Prepare values
+labels = \\[f\\\\"<b>{row}</b>\\\\" for row in rows\\]
 values = rows\\[0\\] \\* 2" />`
         const recoveredMarkdown = `<PythonV2 title="Chart" code="import pandas as pd
 
 # Prepare values
+labels = [f\\"<b>{row}</b>\\" for row in rows]
 values = rows[0] * 2" />`
         const document = parseMarkdownNotebook(markdown)
 
@@ -790,7 +795,7 @@ values = rows[0] * 2" />`
             tagName: 'PythonV2',
             props: {
                 title: 'Chart',
-                code: 'import pandas as pd\n\n# Prepare values\nvalues = rows[0] * 2',
+                code: 'import pandas as pd\n\n# Prepare values\nlabels = [f"<b>{row}</b>" for row in rows]\nvalues = rows[0] * 2',
             },
         })
         expect(serializeMarkdownNotebook(document)).toEqual(recoveredMarkdown)
