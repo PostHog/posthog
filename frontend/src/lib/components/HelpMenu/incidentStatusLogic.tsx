@@ -397,8 +397,12 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
         loadSummarySuccess: () => {
             setIncidentStatus(values.status)
 
+            // A hidden page clears this timer and runs the setup again when the page comes back, so
+            // a relative delay would start the full wait again on each hide and show. An absolute
+            // deadline keeps the elapsed time, so the longer wait after a 429 cannot grow forever.
+            const refreshAt = Date.now() + (cache.refreshInterval ?? REFRESH_INTERVAL)
             cache.disposables.add(() => {
-                const timerId = setTimeout(() => actions.loadSummary(), cache.refreshInterval ?? REFRESH_INTERVAL)
+                const timerId = setTimeout(() => actions.loadSummary(), Math.max(0, refreshAt - Date.now()))
                 return () => clearTimeout(timerId)
             }, 'refreshTimeout')
         },

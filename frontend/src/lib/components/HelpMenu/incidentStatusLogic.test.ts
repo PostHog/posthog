@@ -10,6 +10,17 @@ import {
     incidentStatusLogic,
 } from './incidentStatusLogic'
 
+// The disposables plugin listens for this event too, and it pauses the poll timer while the page
+// is hidden.
+function setPageHidden(hidden: boolean): void {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+    Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => (hidden ? 'hidden' : 'visible'),
+    })
+    document.dispatchEvent(new Event('visibilitychange'))
+}
+
 describe('incidentStatusLogic', () => {
     let logic: ReturnType<typeof incidentStatusLogic.build>
     let captureException: jest.SpyInstance
@@ -78,6 +89,33 @@ describe('incidentStatusLogic', () => {
             jest.advanceTimersByTime(RATE_LIMITED_REFRESH_INTERVAL - REFRESH_INTERVAL)
             expect(global.fetch).toHaveBeenCalledTimes(callsAfterFirstPoll + 1)
         } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    // The poll timer is paused while the page is hidden and armed again when the page comes back.
+    // A relative delay made each hide and show start the 30 minutes again, so a user who returned
+    // often never polled.
+    it('counts time already elapsed toward the 429 backoff after a hide and show', async () => {
+        jest.useFakeTimers()
+        try {
+            mockStatusPageResponse(429)
+            logic = incidentStatusLogic()
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadSummarySuccess'])
+            const callsAfterFirstPoll = (global.fetch as jest.Mock).mock.calls.length
+
+            jest.advanceTimersByTime(RATE_LIMITED_REFRESH_INTERVAL / 2)
+            setPageHidden(true)
+            jest.advanceTimersByTime(RATE_LIMITED_REFRESH_INTERVAL / 2)
+            expect(global.fetch).toHaveBeenCalledTimes(callsAfterFirstPoll)
+
+            setPageHidden(false)
+            jest.advanceTimersByTime(0)
+            expect(global.fetch).toHaveBeenCalledTimes(callsAfterFirstPoll + 1)
+        } finally {
+            setPageHidden(false)
             jest.useRealTimers()
         }
     })
