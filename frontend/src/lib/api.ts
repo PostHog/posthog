@@ -7,11 +7,12 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError, NetworkError, type NetworkFailureReason } from 'lib/api-error'
+import { ApiError, NetworkError, type NetworkFailureReason, isTransientGatewayStatus } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
+import { delay } from 'lib/utils/async'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
@@ -7535,11 +7536,34 @@ function captureClientRequestFailure(properties: {
     }
 }
 
+const MAX_TRANSIENT_RETRIES = 2
+const TRANSIENT_RETRY_BASE_DELAY_MS = 400
+
+/**
+ * The analytics query endpoint is a POST, but it reads data, so replaying it cannot duplicate a
+ * write. The path is `.../query/` or `.../query/<Kind>/` (e.g. `/query/HogQLQuery/`), so allow one
+ * optional trailing kind segment. A poll by client query id ends in a uuid and does not match.
+ */
+function isReadOnlyQueryEndpoint(url: string): boolean {
+    return /\/query(\/[a-zA-Z]+)?\/?$/.test(requestPathname(url))
+}
+
+/**
+ * Whether a transient gateway failure (502/503/504) is safe to retry. Only the read-only query
+ * endpoint retries: it backs every query-driven surface, including the person profile, and cannot
+ * duplicate a write. Replaying an arbitrary request could apply a mutation twice, so nothing else
+ * retries here.
+ */
+function shouldRetryTransientFailure(status: number, url: string): boolean {
+    return isTransientGatewayStatus(status) && isReadOnlyQueryEndpoint(url)
+}
+
 async function handleFetch(
     url: string,
     method: string,
     fetcher: () => Promise<Response>,
-    isRetry = false
+    isRetry = false,
+    transientRetryCount = 0
 ): Promise<Response> {
     const startTime = new Date().getTime()
 
@@ -7604,6 +7628,13 @@ async function handleFetch(
                 warnedSharedViewLeaks.add(leakKey)
                 console.warn(`[shared-view] unexpected ${response.status} on ${leakKey}`)
             }
+        }
+
+        // A transient gateway failure usually clears on retry, so replay it with backoff before
+        // surfacing the error. This is the automatic version of the reload a user would do by hand.
+        if (shouldRetryTransientFailure(response.status, url) && transientRetryCount < MAX_TRANSIENT_RETRIES) {
+            await delay(TRANSIENT_RETRY_BASE_DELAY_MS * 2 ** transientRetryCount)
+            return await handleFetch(url, method, fetcher, isRetry, transientRetryCount + 1)
         }
 
         throw await ApiError.fromResponse(response, apiErrorFallback(response, method, url))

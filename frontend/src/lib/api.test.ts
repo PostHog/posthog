@@ -486,6 +486,75 @@ describe('API helper', () => {
         })
     })
 
+    describe('transient gateway failures', () => {
+        beforeEach(() => jest.useFakeTimers())
+        afterEach(() => jest.useRealTimers())
+
+        const gatewayFailure = (status: number): any => ({
+            ok: false,
+            status,
+            statusText: '',
+            headers: new Headers(),
+            json: () => Promise.resolve(null),
+            clone(): any {
+                return this
+            },
+        })
+        const success = (): any => ({
+            ok: true,
+            status: 200,
+            body: {},
+            json: () => Promise.resolve(FAKE_FETCH_RESULT),
+            text: () => Promise.resolve(JSON.stringify(FAKE_FETCH_RESULT)),
+        })
+
+        it.each([502, 503, 504])(
+            'retries a %s on the query endpoint and resolves once a retry succeeds',
+            async (status) => {
+                fakeFetch.mockResolvedValueOnce(gatewayFailure(status)).mockResolvedValueOnce(success())
+
+                const promise = api.create('api/environments/2/query', {})
+                await jest.advanceTimersByTimeAsync(500)
+
+                await expect(promise).resolves.toEqual(FAKE_FETCH_RESULT)
+                expect(fakeFetch).toHaveBeenCalledTimes(2)
+            }
+        )
+
+        it('retries the query endpoint when the URL carries a kind segment', async () => {
+            fakeFetch.mockResolvedValueOnce(gatewayFailure(503)).mockResolvedValueOnce(success())
+
+            const promise = api.query({ kind: NodeKind.HogQLQuery, query: 'select 1' })
+            await jest.advanceTimersByTimeAsync(500)
+
+            await promise
+            expect(fakeFetch).toHaveBeenCalledTimes(2)
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/environments/2/query/HogQLQuery/')
+        })
+
+        it('does not retry a transient failure outside the query endpoint', async () => {
+            fakeFetch.mockResolvedValue(gatewayFailure(503))
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error.status).toBe(503)
+            expect(fakeFetch).toHaveBeenCalledTimes(1)
+        })
+
+        it('gives up after the retry budget and throws the gateway error', async () => {
+            fakeFetch.mockResolvedValue(gatewayFailure(503))
+
+            const promise = api.create('api/environments/2/query', {}).catch((e) => e)
+            await jest.advanceTimersByTimeAsync(2000)
+            const error = await promise
+
+            expect(error).toBeInstanceOf(ApiError)
+            expect(error.status).toBe(503)
+            // initial attempt plus two retries
+            expect(fakeFetch).toHaveBeenCalledTimes(3)
+        })
+    })
+
     describe('organizationFeatureFlags', () => {
         it('builds correct URL for organization feature flags', () => {
             const apiRequest = new ApiRequest()

@@ -9,6 +9,7 @@ import {
     coercePropertyValue,
     getPersonColorIndex,
     parsePersonFromHogQLRow,
+    personLoadErrorMessage,
     pickBestPersonDistinctId,
     scoreDistinctId,
 } from './person-utils'
@@ -325,5 +326,38 @@ describe('pickBestPersonDistinctId', () => {
         const distinctIds = [anonId, 'user@example.com']
         pickBestPersonDistinctId(distinctIds)
         expect(distinctIds).toEqual([anonId, 'user@example.com'])
+    })
+})
+
+describe('personLoadErrorMessage', () => {
+    const friendly = 'The server had trouble responding. This is usually temporary, so try again in a moment.'
+    it.each([
+        {
+            label: 'a 503 with no body shows friendly copy',
+            error: '503 fallback',
+            object: { status: 503 },
+            expected: friendly,
+        },
+        {
+            label: 'a 500 with no body shows friendly copy',
+            error: '500 fallback',
+            object: { status: 500 },
+            expected: friendly,
+        },
+        {
+            label: 'a server error with a readable detail keeps it',
+            error: 'At capacity, try later',
+            object: { status: 503, detail: 'At capacity, try later' },
+            expected: 'At capacity, try later',
+        },
+        {
+            label: 'a client error keeps its message',
+            error: 'Not found',
+            object: { status: 404 },
+            expected: 'Not found',
+        },
+        { label: 'a status-less failure keeps its message', error: 'boom', object: undefined, expected: 'boom' },
+    ])('$label', ({ error, object, expected }) => {
+        expect(personLoadErrorMessage(error, object)).toBe(expected)
     })
 })
