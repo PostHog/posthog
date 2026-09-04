@@ -2916,6 +2916,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(copied_insight_tiles[0]["insight"]["query"], insight["query"])
         self.assertEqual(copied_text_tiles[0]["text"]["body"], "Read me first")
 
+    def test_template_json_export_skips_the_dashboard_detail_tile_prefetch(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Marketing"})
+        self.dashboard_api.create_insight({"name": "Pageviews", "dashboards": [dashboard_id]})
+        self.dashboard_api.create_text_tile(dashboard_id, text="Read me first")
+
+        with self.assertNumQueries(14):
+            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/template_json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
     def test_template_json_export_is_denied_without_dashboard_access(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},

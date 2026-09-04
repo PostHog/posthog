@@ -2620,7 +2620,9 @@ class DashboardsViewSet(
 
         queryset = queryset.prefetch_related("sharingconfiguration_set").select_related("created_by")
 
-        if self.action != "list":
+        # template_json reads the tiles through its own queryset, which discards this prefetch and
+        # queries again. Skip the cascade so the export loads the tile graph once.
+        if self.action not in ("list", "template_json"):
             tiles_prefetch_queryset = DashboardTile.dashboard_queryset(
                 DashboardTile.objects.prefetch_related(
                     Prefetch(
