@@ -170,7 +170,9 @@ to a specific OpenAI organization (e.g. a HIPAA-covered organization with
 Zero Data Retention enabled). The gateway exports this as `OPENAI_ORG_ID` at
 startup so the OpenAI SDK (via litellm) forwards it on every request.
 
-When unset, no organization is sent and OpenAI infers the org from the API key.
+When `LLM_GATEWAY_OPENAI_ORGANIZATION` is unset, the gateway preserves an
+ambient `OPENAI_ORG_ID`. When neither variable is set, OpenAI infers the
+organization from the API key.
 
 The `organization` field is also in `FORBIDDEN_REQUEST_PARAMS`, so caller-supplied
 values are stripped — only the gateway-configured organization reaches OpenAI.
@@ -185,14 +187,17 @@ rollout instead of silent 401s. It is on by default
 every readiness probe like the database grant check, because each run costs a
 request to OpenAI.
 
-The check sends one `GET /v1/models` to OpenAI with the configured key and, when
-set, the `OpenAI-Organization` header. Only a `401` stops the pod from booting.
-A `403` from an edge or proxy in front of OpenAI, any other error status, and an
-unreachable provider are all treated as inconclusive and let the pod start.
+The check uses the OpenAI SDK with the same effective key, organization, and
+base URL as live requests. This includes ambient `OPENAI_API_KEY`,
+`OPENAI_ORG_ID`, and `OPENAI_BASE_URL` values when the matching
+`LLM_GATEWAY_*` setting is not set. It sends one `GET /v1/models` request. Only
+a `401` stops the pod from booting. A `403` from an edge or proxy in front of
+OpenAI, any other error status, and an unreachable provider are all treated as
+inconclusive and let the pod start.
 
 Set `LLM_GATEWAY_OPENAI_CREDENTIAL_CHECK_ENABLED=false` to skip the check, for
 example when an operator must start a pod that OpenAI rejects. The gateway also
-skips it when no OpenAI key is configured.
+skips it when neither OpenAI key variable is configured.
 
 ## Bedrock provider
 

@@ -10,6 +10,22 @@ logger = structlog.get_logger(__name__)
 
 _initialized = False
 
+# Provider codes can contain request-specific values. Only codes reviewed as
+# stable may become issue keys, so a provider cannot create an issue per failure.
+_LOW_CARDINALITY_PROVIDER_ERROR_CODES = frozenset(
+    {
+        "authentication_error",
+        "context_length_exceeded",
+        "invalid_api_key",
+        "invalid_organization",
+        "invalid_request_error",
+        "model_not_found",
+        "permission_denied",
+        "rate_limit_exceeded",
+        "unsupported_value",
+    }
+)
+
 
 def _ensure_initialized() -> bool:
     global _initialized
@@ -34,21 +50,20 @@ def _provider_error_fingerprint(error: Exception, properties: dict[str, Any]) ->
     an unsupported parameter must not share an issue. Returns None for a failure
     that did not come from a provider call, which keeps the default grouping.
     """
-    provider = properties.get("provider")
+    provider = getattr(error, "llm_provider", None) or properties.get("provider")
     status = getattr(error, "status_code", None)
     if not provider or status is None:
         return None
 
-    code = provider_error_code(error)
+    provider_code = provider_error_code(error)
+    fingerprint_code = provider_code if provider_code in _LOW_CARDINALITY_PROVIDER_ERROR_CODES else "unknown"
     return ":".join(
         [
             "llm-gateway",
             str(provider),
             type(error).__name__,
             str(status),
-            # Truncated because the provider controls this value, and an
-            # unbounded one would mint an issue per request.
-            code[:100] if code else "unknown",
+            fingerprint_code,
         ]
     )
 

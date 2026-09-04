@@ -1,12 +1,14 @@
+import os
+
 import httpx
+import openai
 import structlog
 
 from llm_gateway.config import Settings
-from llm_gateway.provider_errors import error_code_from_payload
+from llm_gateway.provider_errors import provider_error_code
 
 logger = structlog.get_logger(__name__)
 
-OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
 _CHECK_TIMEOUT = httpx.Timeout(3.0, connect=2.0)
 
 
@@ -15,7 +17,7 @@ class OpenAICredentialError(RuntimeError):
 
 
 async def verify_openai_credentials(settings: Settings) -> None:
-    """Reject a startup where OpenAI does not accept the configured credentials.
+    """Reject startup when OpenAI returns 401 for the effective SDK credentials.
 
     The key and the organization are configured separately, so a pair that does
     not match passes every local check and then fails every completion with a
@@ -23,42 +25,38 @@ async def verify_openai_credentials(settings: Settings) -> None:
     than on every readiness probe, unlike the database grant check, because each
     run costs a request to OpenAI.
     """
-    if not settings.openai_credential_check_enabled or not settings.openai_api_key:
+    if not settings.openai_credential_check_enabled:
         return
 
-    base_url = (settings.openai_api_base_url or OPENAI_DEFAULT_BASE_URL).rstrip("/")
-    headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
-    if settings.openai_organization:
-        headers["OpenAI-Organization"] = settings.openai_organization
+    api_key = settings.openai_api_key or os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        return
+
+    organization = settings.openai_organization or os.environ.get("OPENAI_ORG_ID")
+    base_url = settings.openai_api_base_url or os.environ.get("OPENAI_BASE_URL")
 
     try:
-        async with httpx.AsyncClient(timeout=_CHECK_TIMEOUT) as client:
-            response = await client.get(f"{base_url}/models", headers=headers)
-    except httpx.HTTPError as error:
-        # An unreachable provider must not block a rollout. A rejected
-        # credential answers quickly, and with a status code.
+        async with openai.AsyncOpenAI(
+            api_key=api_key,
+            organization=organization,
+            base_url=base_url,
+            timeout=_CHECK_TIMEOUT,
+            max_retries=0,
+        ) as client:
+            await client.models.list()
+    except openai.AuthenticationError as error:
+        raise OpenAICredentialError(
+            f"OpenAI rejected the configured credentials ({provider_error_code(error) or 'no error code'}). "
+            "Check that the OpenAI API key belongs to the configured organization."
+        ) from error
+    except openai.APIConnectionError as error:
         logger.warning("openai_credential_check_unreachable", error=str(error))
         return
-
-    if response.status_code == 401:
-        raise OpenAICredentialError(
-            f"OpenAI rejected the configured credentials ({_error_code(response) or 'no error code'}). "
-            "Check that the OpenAI API key belongs to the configured organization."
-        )
-
-    if response.status_code >= 400:
-        # Only a 401 names the gateway's own credentials. An edge or a proxy in
-        # front of OpenAI answers 403, and that must not hold every pod out of
-        # service.
-        logger.warning("openai_credential_check_inconclusive", status_code=response.status_code)
+    except openai.APIStatusError as error:
+        logger.warning("openai_credential_check_inconclusive", status_code=error.status_code)
+        return
+    except openai.APIError as error:
+        logger.warning("openai_credential_check_inconclusive", error=str(error))
         return
 
-    logger.info("openai_credential_check_passed", organization_configured=bool(settings.openai_organization))
-
-
-def _error_code(response: httpx.Response) -> str | None:
-    try:
-        payload = response.json()
-    except ValueError:
-        return None
-    return error_code_from_payload(payload)
+    logger.info("openai_credential_check_passed", organization_configured=bool(organization))

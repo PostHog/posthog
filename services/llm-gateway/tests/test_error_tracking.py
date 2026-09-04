@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+from litellm.exceptions import AuthenticationError
 
 import llm_gateway.observability.error_tracking as error_tracking_module
 
@@ -47,6 +48,20 @@ def _fingerprint(error: Exception, provider: str) -> str:
     return _capture_properties(error, {"provider": provider})["$exception_fingerprint"]
 
 
+def _litellm_authentication_error(provider: str, code: str) -> AuthenticationError:
+    response = httpx.Response(
+        401,
+        request=httpx.Request("GET", "https://example.com/v1/models"),
+        json={"error": {"code": code}},
+    )
+    return AuthenticationError(
+        "provider rejected the request",
+        llm_provider=provider,
+        model="test-model",
+        response=response,
+    )
+
+
 class TestCaptureException:
     def test_uses_sdk_capture_exception(self):
         with (
@@ -75,6 +90,13 @@ class TestCaptureException:
     def test_separates_provider_errors_that_share_a_stack(self, first, second):
         assert _fingerprint(*first) != _fingerprint(*second)
 
+    def test_uses_litellm_upstream_provider(self) -> None:
+        openai_error = _litellm_authentication_error("openai", "invalid_api_key")
+        openrouter_error = _litellm_authentication_error("openrouter", "invalid_api_key")
+
+        assert _fingerprint(openai_error, "openai") != _fingerprint(openrouter_error, "openai")
+        assert ":openrouter:" in _fingerprint(openrouter_error, "openai")
+
     def test_keeps_one_failure_in_one_issue_across_models(self):
         error = _ProviderError(401, code="invalid_organization")
 
@@ -89,7 +111,7 @@ class TestCaptureException:
             (_ProviderError(400, code="unsupported_value"), ":400:unsupported_value"),
             (_ProviderError(400, error_type="invalid_request_error"), ":400:invalid_request_error"),
             (
-                _ProviderError(401, response=httpx.Response(401, json={"error": {"code": "invalid_organization"}})),
+                _litellm_authentication_error("openai", "invalid_organization"),
                 ":401:invalid_organization",
             ),
             (_ProviderError(500), ":500:unknown"),
@@ -98,10 +120,12 @@ class TestCaptureException:
     def test_reads_the_code_wherever_litellm_leaves_it(self, error, expected):
         assert _fingerprint(error, "openai").endswith(expected)
 
-    def test_truncates_a_provider_controlled_code(self):
-        error = _ProviderError(400, code="x" * 500)
+    def test_buckets_unrecognized_provider_codes(self) -> None:
+        first = _ProviderError(400, code="request-1")
+        second = _ProviderError(400, code="request-2")
 
-        assert len(_fingerprint(error, "openai")) < 200
+        assert _fingerprint(first, "openai") == _fingerprint(second, "openai")
+        assert _fingerprint(first, "openai").endswith(":unknown")
 
     @pytest.mark.parametrize(
         "error,properties",

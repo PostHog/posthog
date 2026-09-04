@@ -1,5 +1,8 @@
 import os
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
+import openai
 import pytest
 import structlog
 from fastapi import Depends, FastAPI
@@ -8,7 +11,8 @@ from starlette.requests import ClientDisconnect
 from structlog.testing import capture_logs
 
 from llm_gateway.config import Settings, get_settings
-from llm_gateway.main import RequestLoggingMiddleware, export_provider_credentials
+from llm_gateway.main import RequestLoggingMiddleware, export_provider_credentials, lifespan
+from llm_gateway.openai_credentials import OpenAICredentialError
 
 _EXPORTED_ENV_VARS = (
     "ANTHROPIC_API_KEY",
@@ -156,6 +160,40 @@ class TestExportProviderCredentials:
 
         export_provider_credentials(settings)
         assert os.environ["OPENAI_BASE_URL"] == "https://eu.api.openai.com/v1"
+
+
+class TestLifespan:
+    async def test_rejects_openai_credentials_before_initializing_database(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_OPENAI_API_KEY", "sk-test")
+        monkeypatch.setenv("LLM_GATEWAY_OPENAI_ORGANIZATION", "org-test")
+        get_settings.cache_clear()
+
+        body = {"error": {"code": "invalid_organization"}}
+        response = httpx.Response(
+            401,
+            request=httpx.Request("GET", "https://api.openai.com/v1/models"),
+            json=body,
+        )
+        client = AsyncMock()
+        client.models.list.side_effect = openai.AuthenticationError(
+            "provider rejected the request", response=response, body=body
+        )
+        context = MagicMock()
+        context.__aenter__ = AsyncMock(return_value=client)
+        context.__aexit__ = AsyncMock(return_value=False)
+        init_db_pool = AsyncMock(side_effect=AssertionError("database initialization reached"))
+
+        with (
+            patch("llm_gateway.openai_credentials.openai.AsyncOpenAI", return_value=context),
+            patch("llm_gateway.main.init_db_pool", init_db_pool),
+            pytest.raises(OpenAICredentialError, match="invalid_organization"),
+        ):
+            async with lifespan(FastAPI()):
+                pytest.fail("application startup completed")
+
+        init_db_pool.assert_not_awaited()
 
 
 def _middleware_test_client() -> TestClient:
