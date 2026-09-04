@@ -12,7 +12,6 @@ import { DashboardEditBar } from './DashboardEditBar'
 import { DashboardFilterChangesTooltip } from './DashboardFilterChangesTooltip'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from './DashboardReloadAction'
-import { DashboardTemporaryFiltersNotice } from './DashboardTemporaryFiltersNotice'
 
 function UnsavedFiltersIndicator(): JSX.Element | null {
     const {
@@ -132,15 +131,7 @@ interface DashboardFilterBarProps {
 }
 
 export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Element {
-    const {
-        placement,
-        dashboard,
-        dashboardMode,
-        hasVariables,
-        dashboardConfigurationChanges,
-        dashboardConfigurationState,
-        initialDashboardConfigurationOverride,
-    } = useValues(dashboardLogic)
+    const { placement, dashboard, dashboardMode, hasVariables } = useValues(dashboardLogic)
     return (
         <div className="@container/dashboard-filters flex min-w-0 flex-1 flex-col gap-2">
             <div className="flex flex-wrap gap-x-2 gap-y-2 justify-between items-start">
@@ -156,11 +147,6 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                         ].includes(placement) &&
                             dashboard && <DashboardEditBar />}
                         <UnsavedFiltersIndicator />
-                        <DashboardTemporaryFiltersNotice
-                            changes={dashboardConfigurationChanges}
-                            configurationState={dashboardConfigurationState}
-                            hasUrlFilters={Object.keys(initialDashboardConfigurationOverride.filters).length > 0}
-                        />
                     </div>
                 </div>
                 {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (

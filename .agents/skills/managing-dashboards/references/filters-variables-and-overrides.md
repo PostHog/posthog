@@ -29,6 +29,8 @@ Before you change one layer, define its precedence with every other affected lay
 
 For dashboard editing, treat saved filters and variables as one configuration. Treat both URL parameters as one initial override. A filter or variable edit creates one user draft. Resolve saved configuration, then initial override, then user draft.
 
+Show initial URL overrides through the same unsaved treatment as user edits. Do not create a separate temporary state or treatment.
+
 ## Required checks
 
 - Use `normalize_dashboard_filters_properties` for persisted dashboard property filters.

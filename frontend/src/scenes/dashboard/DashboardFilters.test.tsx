@@ -137,7 +137,7 @@ describe('DashboardFilterBar', () => {
         logic.unmount()
     })
 
-    it('keeps edited temporary filters as unsaved after cancelling layout editing', async () => {
+    it('keeps edited URL overrides as unsaved after cancelling layout editing', async () => {
         router.actions.push('/', {
             [SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d' }),
         })
@@ -160,31 +160,29 @@ describe('DashboardFilterBar', () => {
             logic.actions.cancelLayoutEdit()
         }).toFinishAllListeners()
 
-        expect(document.querySelector('[data-attr="dashboard-temporary-filters"]')).not.toBeInTheDocument()
         expect(document.querySelector('[data-attr="dashboard-filters-unsaved"]')).toBeInTheDocument()
 
         logic.unmount()
     })
 
-    it('shows temporary URL filters to a viewer without save actions', async () => {
+    it('shows URL overrides as unsaved changes', async () => {
         router.actions.push('/', {
             [SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d' }),
         })
-        const viewerDashboard = { ...MOCK_DASHBOARD, user_access_level: AccessControlLevel.Viewer }
-        const logic = dashboardLogic({ id: viewerDashboard.id, dashboard: viewerDashboard })
+        const logic = dashboardLogic({ id: MOCK_DASHBOARD.id, dashboard: MOCK_DASHBOARD })
         logic.mount()
         logic.actions.setDashboardMode(null, DashboardEventSource.DashboardFilters)
 
         await expectLogic(logic).toFinishAllListeners()
 
         render(
-            <BindLogic logic={dashboardLogic} props={{ id: viewerDashboard.id, dashboard: viewerDashboard }}>
+            <BindLogic logic={dashboardLogic} props={{ id: MOCK_DASHBOARD.id, dashboard: MOCK_DASHBOARD }}>
                 <DashboardFilterBar />
             </BindLogic>
         )
 
-        expect(document.querySelector('[data-attr="dashboard-temporary-filters"]')).toBeInTheDocument()
-        expect(document.querySelector('[data-attr="dashboard-save-filters"]')).not.toBeInTheDocument()
+        expect(document.querySelector('[data-attr="dashboard-filters-unsaved"]')).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="dashboard-save-filters"]')).toBeInTheDocument()
 
         logic.unmount()
     })

@@ -666,6 +666,7 @@ describe('dashboardLogic', () => {
             ])
             expect(logic.values.filtersDirty).toBe(false)
             expect(logic.values.filterChanges).toEqual([])
+            expect(logic.values.dashboardConfigurationState).toBe('unsavedChanges')
 
             await expectLogic(logic, () => {
                 logic.actions.saveDashboardFilters()
@@ -742,7 +743,7 @@ describe('dashboardLogic', () => {
                 expect.objectContaining({ date_from: '-7d' })
             )
             expect(logic.values.filtersDirty).toBe(true)
-            expect(logic.values.isTemporaryFilterView).toBe(false)
+            expect(logic.values.dashboardConfigurationState).toBe('unsavedChanges')
         })
 
         it('cancelling layout editing keeps unapplied filter changes', async () => {
@@ -2871,7 +2872,7 @@ describe('dashboardLogic', () => {
             }
         )
 
-        it('does not treat a URL variable override as an unsaved dashboard filter', async () => {
+        it('shows a URL variable override as unsaved configuration without a dirty filter', async () => {
             await mountDashboardWithVariable({ urlValue: 'url-val' })
 
             expect(logic.values.urlVariables).toEqual({
@@ -2881,7 +2882,7 @@ describe('dashboardLogic', () => {
             expect(logic.values.filterChanges).toEqual([])
         })
 
-        it('shows filter edits as unsaved when a temporary variable override exists', async () => {
+        it('shows filter edits as unsaved when a URL variable override exists', async () => {
             await mountDashboardWithVariable({ urlValue: 'url-val' })
 
             await expectLogic(logic, () => {
@@ -2890,7 +2891,7 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.filtersDirty).toBe(true)
-            expect(logic.values.isTemporaryFilterView).toBe(false)
+            expect(logic.values.dashboardConfigurationState).toBe('unsavedChanges')
         })
 
         it('discards filter and SQL variable changes and restores the saved configuration', async () => {

@@ -7,30 +7,13 @@ import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { mswDecorator } from '~/mocks/browser'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
-import {
-    AccessControlLevel,
-    DashboardMode,
-    DashboardTile,
-    DashboardType,
-    PropertyFilterType,
-    PropertyOperator,
-    QueryBasedInsightModel,
-} from '~/types'
+import { AccessControlLevel, DashboardMode, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import { DashboardFilterBar } from './DashboardFilters'
 import { dashboardLogic } from './dashboardLogic'
 import { encodeURLFilters, SEARCH_PARAM_FILTERS_KEY } from './dashboardUtils'
 
-type FilterBarState =
-    | 'saved'
-    | 'unsaved'
-    | 'temporary'
-    | 'temporary-combined'
-    | 'temporary-viewer'
-    | 'layout'
-    | 'narrow'
-    | 'large'
-    | 'sql-overrides'
+type FilterBarState = 'saved' | 'unsaved' | 'url-overrides' | 'layout' | 'narrow' | 'large' | 'sql-overrides'
 
 const DASHBOARD_ID = 955
 
@@ -110,8 +93,13 @@ function DashboardFilterBarStory({ state }: { state: FilterBarState }): JSX.Elem
     if (state === 'sql-overrides') {
         storyDashboard = sqlVariablesDashboard
     }
-    if (state === 'temporary-viewer') {
-        storyDashboard = { ...dashboard, user_access_level: AccessControlLevel.Viewer }
+    if (state === 'url-overrides') {
+        const filters = encodeURLFilters({ date_from: '-7d' })
+        router.actions.push(
+            `/dashboard/${DASHBOARD_ID}?${SEARCH_PARAM_FILTERS_KEY}=${filters[SEARCH_PARAM_FILTERS_KEY]}`
+        )
+    } else {
+        router.actions.push(`/dashboard/${DASHBOARD_ID}`)
     }
     const logic = dashboardLogic({ id: DASHBOARD_ID, dashboard: storyDashboard })
     logic.mount()
@@ -127,30 +115,6 @@ function DashboardFilterBarStory({ state }: { state: FilterBarState }): JSX.Elem
                 default_value: '',
             }))
         )
-    }
-
-    if (state === 'temporary' || state === 'temporary-combined' || state === 'temporary-viewer') {
-        const filters = encodeURLFilters(
-            state === 'temporary-combined'
-                ? {
-                      date_from: '-7d',
-                      properties: [
-                          {
-                              key: '$browser',
-                              type: PropertyFilterType.Event,
-                              operator: PropertyOperator.Exact,
-                              value: 'Chrome',
-                          },
-                      ],
-                      breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
-                  }
-                : { date_from: '-7d' }
-        )
-        router.actions.push(
-            `/dashboard/${DASHBOARD_ID}?${SEARCH_PARAM_FILTERS_KEY}=${filters[SEARCH_PARAM_FILTERS_KEY]}`
-        )
-    } else {
-        router.actions.push(`/dashboard/${DASHBOARD_ID}`)
     }
 
     if (state === 'unsaved' || state === 'narrow' || state === 'large') {
@@ -204,16 +168,8 @@ export const UnsavedFilters: Story = {
     args: { state: 'unsaved' },
 }
 
-export const TemporaryFilters: Story = {
-    args: { state: 'temporary' },
-}
-
-export const CombinedTemporaryFilters: Story = {
-    args: { state: 'temporary-combined' },
-}
-
-export const TemporaryFiltersWithoutEditAccess: Story = {
-    args: { state: 'temporary-viewer' },
+export const UrlOverridesAsUnsavedChanges: Story = {
+    args: { state: 'url-overrides' },
 }
 
 export const LayoutEditingWithUnsavedFilters: Story = {

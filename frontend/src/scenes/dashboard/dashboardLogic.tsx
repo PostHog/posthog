@@ -143,7 +143,6 @@ import {
     type DashboardConfigurationChange,
     type DashboardFilterChange,
 } from './dashboardFilterChanges'
-import { isDashboardFilterEmpty } from './dashboardFilterEmpty'
 import {
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
@@ -223,7 +222,7 @@ export interface DashboardConfiguration {
     variables: Record<string, HogQLVariable>
 }
 
-export type DashboardConfigurationState = 'temporaryView' | 'unsavedChanges' | 'saved'
+export type DashboardConfigurationState = 'unsavedChanges' | 'saved'
 
 function parseDashboardTileId(tileId: string | undefined): DashboardTileIdOrNew {
     const parsedTileId = Number(tileId)
@@ -355,7 +354,6 @@ export interface dashboardLogicValues {
     isRefreshing: (id: string) => boolean
     isRefreshingQueued: (id: string) => boolean
     isSavingTags: boolean
-    isTemporaryFilterView: boolean
     itemsLoading: boolean
     lastDashboardRefresh: Dayjs | null
     layout: Layout | undefined
@@ -1101,12 +1099,9 @@ export interface dashboardLogicMeta {
             dashboardConfigurationDraft: DashboardConfiguration | null
         ) => DashboardConfiguration
         dashboardConfigurationState: (
-            dashboardConfigurationDraft: DashboardConfiguration | null,
             savedDashboardConfiguration: DashboardConfiguration,
-            effectiveDashboardConfiguration: DashboardConfiguration,
-            initialDashboardConfigurationOverride: DashboardConfiguration
+            effectiveDashboardConfiguration: DashboardConfiguration
         ) => DashboardConfigurationState
-        isTemporaryFilterView: (dashboardConfigurationState: DashboardConfigurationState) => boolean
         showApplyFiltersBanner: (
             canAutoPreview: boolean,
             dashboardConfigurationState: DashboardConfigurationState
@@ -2749,36 +2744,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
         ],
         dashboardConfigurationState: [
-            (s) => [
-                s.dashboardConfigurationDraft,
-                s.savedDashboardConfiguration,
-                s.effectiveDashboardConfiguration,
-                s.initialDashboardConfigurationOverride,
-            ],
-            (
-                draft: DashboardConfiguration | null,
-                saved: DashboardConfiguration,
-                effective: DashboardConfiguration,
-                initialOverride: DashboardConfiguration
-            ): DashboardConfigurationState => {
-                if (draft && !equal(saved, effective)) {
+            (s) => [s.savedDashboardConfiguration, s.effectiveDashboardConfiguration],
+            (saved: DashboardConfiguration, effective: DashboardConfiguration): DashboardConfigurationState => {
+                if (!equal(saved, effective)) {
                     return 'unsavedChanges'
-                }
-                if (draft) {
-                    return 'saved'
-                }
-                if (
-                    !isDashboardFilterEmpty(initialOverride.filters) ||
-                    Object.keys(initialOverride.variables).length > 0
-                ) {
-                    return 'temporaryView'
                 }
                 return 'saved'
             },
-        ],
-        isTemporaryFilterView: [
-            (s) => [s.dashboardConfigurationState],
-            (state: DashboardConfigurationState): boolean => state === 'temporaryView',
         ],
         showApplyFiltersBanner: [
             (s) => [s.canAutoPreview, s.dashboardConfigurationState],
