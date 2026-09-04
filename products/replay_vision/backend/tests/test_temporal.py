@@ -90,7 +90,7 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
-from products.replay_vision.backend.temporal.gemini import classify_gemini_error
+from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
     REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
     REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
@@ -2906,10 +2906,33 @@ class TestClassifyGeminiError:
         # the same user story as a 5xx and must not land as internal_error.
         assert classify_gemini_error(error) is FailureKind.PROVIDER_TRANSIENT
 
-    def test_leaves_non_provider_exceptions_unclassified(self) -> None:
+    @parameterized.expand(
+        [
+            ("key_error_on_missing_file", KeyError("file")),
+            ("value_error_on_upload_status", ValueError("Failed to upload file: Upload status is not finalized.")),
+            (
+                "value_error_on_unfinalized_chunks",
+                ValueError("All content has been uploaded, but the upload status is not finalized."),
+            ),
+        ]
+    )
+    def test_maps_unfinalized_upload_to_provider_transient(self, _label: str, error: Exception) -> None:
+        # `google-genai` never checks the finalize request's HTTP status, so a failed upload reaches us as a bare
+        # builtin with no APIError attached. Unclassified, it lands as internal_error and sends the user to support
+        # over a hiccup a retry clears.
+        assert classify_gemini_error(error) is FailureKind.PROVIDER_TRANSIENT
+        assert describe_gemini_error(error) == "The AI provider did not finish the video upload"
+
+    @parameterized.expand(
+        [
+            ("bare_value_error", ValueError("bad arg")),
+            ("unrelated_key_error", KeyError("team_id")),
+        ]
+    )
+    def test_leaves_non_provider_exceptions_unclassified(self, _label: str, error: Exception) -> None:
         # Claiming a kind here would be worse than the status quo: a PostHog bug would be blamed on the provider,
         # and for the transient kinds it would burn the retry budget before failing anyway.
-        assert classify_gemini_error(ValueError("bad arg")) is None
+        assert classify_gemini_error(error) is None
 
 
 class TestGeminiErrorRedaction:
