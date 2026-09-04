@@ -68,6 +68,14 @@ function assertPresenceGatedClaim(payload: Record<string, unknown>): boolean {
     return presenceGated ?? false
 }
 
+function assertIsTerminalClaim(payload: Record<string, unknown>): boolean {
+    const isTerminal = payload['is_terminal']
+    if (isTerminal !== undefined && typeof isTerminal !== 'boolean') {
+        throw new Error('Token has invalid claim: is_terminal must be a boolean')
+    }
+    return isTerminal ?? false
+}
+
 function assertOriginProductClaim(payload: Record<string, unknown>): string {
     const originProduct = payload['origin_product']
     if (originProduct !== undefined && typeof originProduct !== 'string') {
@@ -104,6 +112,7 @@ async function verifyWithKeys(token: string, publicKeys: CryptoKey[], audience: 
 // Audience: posthog:stream_read
 // Required claims: run_id (string), task_id (string), team_id (integer)
 // Optional claims: presence_gated (boolean, absent means false),
+//                  is_terminal (boolean, absent means false),
 //                  origin_product (string, absent means "unknown")
 // Algorithm: RS256, no clockTolerance (matches Python leeway=0 default)
 //
@@ -116,6 +125,7 @@ export async function validateStreamReadToken(token: string, publicKeys: CryptoK
     return {
         ...assertStreamClaims(claims),
         presenceGated: assertPresenceGatedClaim(claims),
+        isTerminal: assertIsTerminalClaim(claims),
         originProduct: assertOriginProductClaim(claims),
     }
 }

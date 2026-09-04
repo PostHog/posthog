@@ -57,6 +57,7 @@ class StreamReadTokenPayload:
     task_id: str
     team_id: int
     presence_gated: bool = False
+    is_terminal: bool = False
     origin_product: str | None = None
 
 
@@ -320,7 +321,11 @@ def create_stream_read_token(task_run: TaskRun, ttl: timedelta = STREAM_READ_TOK
         task_run,
         STREAM_READ_AUDIENCE,
         ttl,
-        {"presence_gated": presence_gated, "origin_product": task_run.task.origin_product},
+        {
+            "presence_gated": presence_gated,
+            "is_terminal": task_run.is_terminal,
+            "origin_product": task_run.task.origin_product,
+        },
     )
 
 
@@ -331,11 +336,14 @@ def validate_stream_read_token(token: str) -> StreamReadTokenPayload:
     task_id = payload.get("task_id")
     team_id = payload.get("team_id")
     presence_gated = payload.get("presence_gated", False)
+    is_terminal = payload.get("is_terminal", False)
     origin_product = payload.get("origin_product")
 
     if not isinstance(run_id, str) or not isinstance(task_id, str) or type(team_id) is not int:
         raise jwt.InvalidTokenError("Stream read token has invalid claims")
     if not isinstance(presence_gated, bool):
+        raise jwt.InvalidTokenError("Stream read token has invalid claims")
+    if not isinstance(is_terminal, bool):
         raise jwt.InvalidTokenError("Stream read token has invalid claims")
     if origin_product is not None and not isinstance(origin_product, str):
         raise jwt.InvalidTokenError("Stream read token has invalid claims")
@@ -345,5 +353,6 @@ def validate_stream_read_token(token: str) -> StreamReadTokenPayload:
         task_id=task_id,
         team_id=team_id,
         presence_gated=presence_gated,
+        is_terminal=is_terminal,
         origin_product=origin_product,
     )

@@ -102,6 +102,7 @@ export interface StreamReadTokenPayload {
     taskId: string
     teamId: number
     presenceGated: boolean
+    isTerminal: boolean
     originProduct: string
 }
 
@@ -118,7 +119,13 @@ export interface SandboxEventIngestTokenPayload {
 // SSE stream connection outcome (matches Python StreamConnectionOutcome values)
 // ---------------------------------------------------------------------------
 
-export type StreamConnectionOutcome = 'completed' | 'stream_error' | 'unavailable' | 'client_disconnect' | 'rotated'
+export type StreamConnectionOutcome =
+    | 'completed'
+    | 'stream_error'
+    | 'unavailable'
+    | 'drained'
+    | 'client_disconnect'
+    | 'rotated'
 
 export type DisconnectClassification = 'run_over' | 'idle' | 'mid_turn'
 

@@ -47,7 +47,7 @@ KEY_B = _generate_private_key_pem()
 KID_A = _compute_kid(_derive_public_key_pem(KEY_A))
 
 
-def _fake_run(state: dict | None = None, origin_product: str = "user_created") -> TaskRun:
+def _fake_run(state: dict | None = None, origin_product: str = "user_created", *, is_terminal: bool = False) -> TaskRun:
     # Only the attributes the token helpers read are needed, so a lightweight stand-in
     # avoids the DB; cast keeps the call sites type-correct.
     return cast(
@@ -58,6 +58,7 @@ def _fake_run(state: dict | None = None, origin_product: str = "user_created") -
             team_id=1,
             mode="background",
             state={"sandbox_id": "sandbox-1", **(state or {})},
+            is_terminal=is_terminal,
             task=SimpleNamespace(origin_product=origin_product),
         ),
     )
@@ -169,10 +170,13 @@ class TestSandboxJwtRotation(SimpleTestCase):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
     def test_stream_read_token_carries_pinned_presence_gating(self, gated: bool) -> None:
         reset_sandbox_jwt_key_cache()
-        token = create_stream_read_token(_fake_run({"stream_presence_gated": gated}, "signals_scout"))
+        token = create_stream_read_token(
+            _fake_run({"stream_presence_gated": gated}, "signals_scout", is_terminal=gated)
+        )
 
         payload = validate_stream_read_token(token)
         self.assertIs(payload.presence_gated, gated)
+        self.assertIs(payload.is_terminal, gated)
         self.assertEqual(payload.origin_product, "signals_scout")
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
@@ -198,6 +202,7 @@ class TestSandboxJwtRotation(SimpleTestCase):
 
         self.assertEqual(payload.run_id, str(run.id))
         self.assertIs(payload.presence_gated, False)
+        self.assertIs(payload.is_terminal, False)
         self.assertIsNone(payload.origin_product)
 
     def test_ingest_token_validates_after_primary_rotation(self) -> None:
@@ -275,6 +280,7 @@ def _fake_task_run(origin_product: str = "user_created") -> TaskRun:
             task_id=_TASK_ID,
             team_id=7,
             state={"sandbox_id": "sandbox-1"},
+            is_terminal=False,
             task=SimpleNamespace(origin_product=origin_product),
         ),
     )
