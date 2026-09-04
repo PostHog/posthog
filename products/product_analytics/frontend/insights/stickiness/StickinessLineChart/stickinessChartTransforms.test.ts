@@ -7,7 +7,6 @@ import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipU
 import { ChartDisplayType } from '~/types'
 
 import {
-    buildStickinessLabels,
     buildStickinessLineTimeSeriesConfig,
     buildStickinessMainSeries,
     buildStickinessSeries,
@@ -170,26 +169,6 @@ describe('stickinessChartTransforms', () => {
         })
     })
 
-    describe('buildStickinessLabels', () => {
-        it.each([
-            ['day', 3, ['Day 0', 'Day 1', 'Day 2']],
-            ['week', 2, ['Week 0', 'Week 1']],
-            ['hour', 2, ['Hour 0', 'Hour 1']],
-            ['month', 2, ['Month 0', 'Month 1']],
-        ] as const)('emits "%s"-prefixed labels by index', (interval, count, expected) => {
-            expect(buildStickinessLabels(count, interval)).toEqual(expected)
-        })
-
-        it('defaults to "Day" when interval is null/undefined', () => {
-            expect(buildStickinessLabels(2, null)).toEqual(['Day 0', 'Day 1'])
-            expect(buildStickinessLabels(2, undefined)).toEqual(['Day 0', 'Day 1'])
-        })
-
-        it('returns empty array when count is 0', () => {
-            expect(buildStickinessLabels(0, 'day')).toEqual([])
-        })
-    })
-
     describe('stickinessPercentFormatter', () => {
         it.each([
             [0, '0.0%'],
@@ -243,7 +222,7 @@ describe('stickinessChartTransforms', () => {
             expect(yAxis.scale).toBe('log')
         })
 
-        it('omits an xAxis date config — labels are pre-formatted interval counts', () => {
+        it('omits an xAxis date config, since labels come from the API per bucket', () => {
             const config = buildStickinessLineTimeSeriesConfig({})
             expect(config.xAxis).toBeUndefined()
         })
