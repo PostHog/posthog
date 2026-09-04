@@ -116,7 +116,7 @@ To point the flags/analytics client at your local PostHog so locally-synced
 flags take effect:
 
 ```bash
-# In your PostHog repo: create + enable all frontend-defined flags locally
+# In your PostHog repo: create + enable frontend and Desktop flags locally
 python manage.py sync_feature_flags
 
 # In this repo: rewrite VITE_POSTHOG_* to your local instance, then restart dev
@@ -129,6 +129,9 @@ surrounding monorepo checkout (or pass it:
 `node scripts/use-local-posthog.mjs phc_xxx`, or set `POSTHOG_DIR`). This
 only affects the analytics/flags client — the data API still uses the **Dev**
 region you pick at login.
+
+The sync command reads the same flag-key manifest as the Desktop app. It adds
+missing flags without replacing local conditions or payloads on existing flags.
 
 > One-off override without changing `.env`: the dev build exposes the client on
 > `window.posthog`, so you can run

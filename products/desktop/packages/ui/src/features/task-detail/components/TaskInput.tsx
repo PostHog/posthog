@@ -22,6 +22,7 @@ import {
   type AgentRuntime,
   ANALYTICS_EVENTS,
   adapterForModelId,
+  PI_HARNESS_FLAG,
 } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
@@ -486,7 +487,7 @@ export function TaskInput({
     hasGithubIntegration,
   } = useUserRepositoryIntegration();
 
-  const piHarnessEnabled = useFeatureFlag("pi-harness", import.meta.env.DEV);
+  const piHarnessEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
   const flagsLoaded = useFeatureFlagsLoaded();
   const reposReady = areReposReady({
     isLoadingRepos,
@@ -722,6 +723,9 @@ export function TaskInput({
     fastModeOption,
     isLoading: isPreviewLoading,
     setConfigOption,
+    resetToDefault,
+    isDefaultSelection,
+    resetToDefaultDisabled,
   } = usePreviewConfig(adapter, { allHarnessModels: true });
 
   const lastAppliedDeepLinkConfigKey = useRef<string | undefined>(undefined);
@@ -1689,6 +1693,9 @@ export function TaskInput({
                         modelAccess={composerModelAccess}
                         showBillingMenu
                         workspaceMode={workspaceMode}
+                        isDefaultSelection={isDefaultSelection}
+                        onResetToDefault={resetToDefault}
+                        resetToDefaultDisabled={resetToDefaultDisabled}
                       />
                     )
                   }
