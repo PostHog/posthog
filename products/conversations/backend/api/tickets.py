@@ -133,6 +133,16 @@ class TicketMessageSerializer(serializers.Serializer):
     has_full_email_content = serializers.BooleanField(
         read_only=True, help_text="True when the complete inbound email body can be retrieved."
     )
+    internal_note_key = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Identifies the automation that left this internal note, e.g. "
+            "`signals_report:<report id>` for a Self-driving report pointer. Null for every "
+            "message a person wrote and for the AI reply pipeline's own suggested replies, so a "
+            "client can tell an agent's note from an unsent draft."
+        ),
+    )
     version = serializers.IntegerField(read_only=True, help_text="Edit count. 0 means never edited.")
     created_at = serializers.DateTimeField(read_only=True)
 
@@ -1401,6 +1411,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             "author_email": comment.created_by.email if comment.created_by else None,
             "is_private": item_context.get("is_private") is True,
             "has_full_email_content": item_context.get("has_full_email_content") is True,
+            "internal_note_key": item_context.get("internal_note_key") or None,
             "version": comment.version,
             "created_at": comment.created_at,
         }

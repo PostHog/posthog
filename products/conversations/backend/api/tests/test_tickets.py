@@ -2268,9 +2268,38 @@ class TestTicketMessagesAPI(APIBaseTest):
             "author_email",
             "is_private",
             "has_full_email_content",
+            "internal_note_key",
             "created_at",
             "version",
         }
+
+    def test_messages_expose_internal_note_key_of_agent_notes(self, mock_on_commit):
+        """A client reading the thread has to tell an agent's note from an unsent AI draft:
+        both are private and both are authored by "AI", and only the key says which."""
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Report: https://us.posthog.com/project/1/inbox/report-id",
+            item_context={
+                "author_type": "AI",
+                "is_private": True,
+                "internal_note_key": "signals_report:report-id",
+            },
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Suggested reply the pipeline did not send",
+            item_context={"author_type": "AI", "is_private": True},
+        )
+
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        agent_note, draft = response.json()["results"]
+        assert agent_note["internal_note_key"] == "signals_report:report-id"
+        assert draft["internal_note_key"] is None
 
     def test_messages_lookup_by_ticket_number(self, mock_on_commit):
         Comment.objects.create(
