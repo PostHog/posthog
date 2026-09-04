@@ -233,6 +233,14 @@ class TaskProcessingContext:
         return value if isinstance(value, str) else None
 
     @property
+    def service_tier(self) -> str | None:
+        """OpenAI service tier for a codex run ("default" | "priority" | "flex"), or None for the
+        provider default. Only the codex adapter reads it; codex drops a tier its model catalogue
+        does not advertise."""
+        value = (self.state or {}).get("service_tier")
+        return value if isinstance(value, str) else None
+
+    @property
     def context_window(self) -> str | None:
         value = (self.state or {}).get("context_window")
         return value if isinstance(value, str) else None
@@ -343,6 +351,7 @@ class TaskProcessingContext:
             "provider": self.provider,
             "model": self.model,
             "reasoning_effort": self.reasoning_effort,
+            "service_tier": self.service_tier,
             "initial_permission_mode": self.initial_permission_mode,
         }
 

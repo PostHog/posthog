@@ -268,6 +268,7 @@ def build_agent_runtime_env_prefix(
     provider: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    service_tier: str | None = None,
     context_window: str | None = None,
     fast_mode: bool | None = None,
     initial_permission_mode: str | None = None,
@@ -287,6 +288,9 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_PROVIDER": provider,
         "POSTHOG_CODE_MODEL": model,
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
+        # OpenAI service tier for codex runs ("default" | "priority" | "flex"); ignored by the
+        # claude adapter. Codex itself drops a tier the model catalogue doesn't advertise.
+        "POSTHOG_CODE_SERVICE_TIER": service_tier,
         "POSTHOG_CODE_CONTEXT_WINDOW": context_window,
         # Explicit false pins fast mode off even if a stale env value survives in a resumed sandbox.
         "POSTHOG_CODE_FAST_MODE": None if fast_mode is None else ("true" if fast_mode else "false"),
@@ -541,6 +545,7 @@ class SandboxBase(ABC):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         context_window: str | None = None,
         fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,

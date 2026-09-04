@@ -320,6 +320,11 @@ async def arun_signals_scout(
         runtime_adapter = None
         model = None
         reasoning_effort = None
+    # Resolved from the pipeline payload in every branch, unlike the triple above. The tier only
+    # picks which OpenAI queue a Codex turn joins, so pairing it with a configured model can't
+    # mis-route the way a mismatched runtime/model would, and Codex drops a tier its catalogue
+    # doesn't advertise. A claude-runtime run ignores it.
+    service_tier: str | None = agent_runtime.service_tier
     # Resolved here rather than inside `_spawn_and_run` so the failure and cancellation paths below
     # can report the same prompt shape the run actually got: a spawn that raises never returns, so a
     # value resolved in there would be unavailable to exactly the runs whose shape matters most.
@@ -364,6 +369,7 @@ async def arun_signals_scout(
             model=model,
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
+            service_tier=service_tier,
             triggered_by=triggered_by,
         )
         runtime_s = time.monotonic() - started
@@ -591,6 +597,7 @@ async def _spawn_and_run(
     model: str | None,
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
+    service_tier: str | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
@@ -661,6 +668,8 @@ async def _spawn_and_run(
         # Paired with `model`: the agent server derives the LLM provider from the runtime.
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
+        # Codex-only, and independent of the model pin: which OpenAI queue the run's turns join.
+        service_tier=service_tier,
     )
     governed_metric_names = await database_sync_to_async(_governed_metric_names_for_team, thread_sensitive=False)(
         team, user_id

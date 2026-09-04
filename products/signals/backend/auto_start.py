@@ -443,6 +443,7 @@ def _create_implementation_task_if_absent(
             runtime_adapter=agent_runtime.runtime_adapter,
             model=agent_runtime.model,
             reasoning_effort=agent_runtime.reasoning_effort,
+            service_tier=agent_runtime.service_tier,
         )
         if created.latest_run is None:
             raise RuntimeError(f"Task {created.task_id} auto-started without producing a TaskRun")

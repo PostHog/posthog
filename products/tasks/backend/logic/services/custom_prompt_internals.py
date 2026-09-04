@@ -115,6 +115,11 @@ class CustomPromptSandboxContext:
     """Reasoning-effort tier for ``model`` (e.g. ``"xhigh"``). Only meaningful alongside a pinned
     ``model`` + ``runtime_adapter``; ``None`` keeps the model's default effort. The supported tiers
     depend on the (runtime, model) pair — see ``get_reasoning_effort_error``."""
+    service_tier: str | None = None
+    """OpenAI service tier the run's turns request (``"default"`` | ``"priority"`` | ``"flex"``).
+    Codex-only: the claude adapter ignores it. ``None`` keeps the provider default. ``"flex"`` buys
+    a cheaper, slower queue, but codex omits any tier its model catalogue does not advertise, so a
+    tier the pinned model doesn't list is a no-op (codex logs it and sends the request untiered)."""
     initial_permission_mode: str | None = None
     """Agent approval mode. ``None`` lets ``_build_task`` pick the default (``"auto"`` for Codex). A
     headless run that calls MCP tools must set ``"full-access"`` (Codex) / ``"bypassPermissions"``
@@ -243,6 +248,7 @@ async def create_task_and_trigger(
         runtime=context.runtime,
         pending_user_message=description if context.runtime == "pi" else None,
         reasoning_effort=context.reasoning_effort,
+        service_tier=context.service_tier,
         initial_permission_mode=context.initial_permission_mode,
         internal=internal,
         sandbox_resources=context.sandbox_resources,
