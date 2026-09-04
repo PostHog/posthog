@@ -17,6 +17,7 @@ import { DashboardTemporaryFiltersNotice } from './DashboardTemporaryFiltersNoti
 function UnsavedFiltersIndicator(): JSX.Element | null {
     const {
         dashboardMode,
+        filterEditModeActive,
         hasIntermittentFilters,
         isTemporaryFilterView,
         layoutEditMode,
@@ -32,7 +33,7 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
     if (
         !canEditDashboard ||
         !filtersDirty ||
-        (dashboardMode !== DashboardMode.Edit && !hasIntermittentFilters) ||
+        (!filterEditModeActive && dashboardMode !== DashboardMode.Edit && !hasIntermittentFilters) ||
         isTemporaryFilterView
     ) {
         return null

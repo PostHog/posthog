@@ -137,6 +137,35 @@ describe('DashboardFilterBar', () => {
         logic.unmount()
     })
 
+    it('keeps edited temporary filters as unsaved after cancelling layout editing', async () => {
+        router.actions.push('/', {
+            [SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d' }),
+        })
+        const logic = dashboardLogic({ id: MOCK_DASHBOARD.id, dashboard: MOCK_DASHBOARD })
+        logic.mount()
+
+        render(
+            <BindLogic logic={dashboardLogic} props={{ id: MOCK_DASHBOARD.id, dashboard: MOCK_DASHBOARD }}>
+                <DashboardFilterBar />
+            </BindLogic>
+        )
+
+        await expectLogic(logic, () => {
+            logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+            logic.actions.setDates('-30d', null)
+        }).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+            logic.actions.cancelLayoutEdit()
+        }).toFinishAllListeners()
+
+        expect(document.querySelector('[data-attr="dashboard-temporary-filters"]')).not.toBeInTheDocument()
+        expect(document.querySelector('[data-attr="dashboard-filters-unsaved"]')).toBeInTheDocument()
+
+        logic.unmount()
+    })
+
     it('shows temporary URL filters to a viewer without save actions', () => {
         router.actions.push('/', {
             [SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d' }),

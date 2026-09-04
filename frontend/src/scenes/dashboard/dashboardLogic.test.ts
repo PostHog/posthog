@@ -712,6 +712,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
                 logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
             }).toFinishAllListeners()
 
@@ -730,6 +731,7 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboardMode).toBeNull()
             expect(logic.values.urlFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
             expect(logic.values.filtersDirty).toBe(true)
+            expect(logic.values.isTemporaryFilterView).toBe(false)
         })
 
         it('cancelling layout editing keeps unapplied filter changes', async () => {

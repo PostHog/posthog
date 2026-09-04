@@ -313,6 +313,7 @@ export interface dashboardLogicValues {
     error404: boolean
     externalFilters: DashboardFilter
     filterChanges: DashboardFilterChange[]
+    filterEditModeActive: boolean
     filtersDirty: boolean
     filtersOverrideForLoad: DashboardFilter
     hasIntermittentFilters: boolean
@@ -1023,7 +1024,7 @@ export interface dashboardLogicMeta {
         isTemporaryFilterView: (
             hasUrlFilters: boolean,
             hasIntermittentFilters: boolean,
-            dashboardMode: DashboardMode | null
+            filterEditModeActive: boolean
         ) => boolean
         showApplyFiltersBanner: (canAutoPreview: boolean, hasIntermittentFilters: boolean) => boolean
         urlFilters: (searchParams: Record<string, any>) => DashboardFilter
@@ -2223,6 +2224,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setDashboardMode: (_, { mode }) => mode,
             },
         ],
+        filterEditModeActive: [
+            false,
+            {
+                setDashboardMode: (state, { mode, source }) => {
+                    if (source !== DashboardEventSource.DashboardFilters) {
+                        return state
+                    }
+                    return mode === DashboardMode.Edit
+                },
+            },
+        ],
         layoutEditMode: [
             false,
             {
@@ -2563,9 +2575,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         // announces overrides while showing exactly its saved state.
         hasUrlFilters: [(s) => [s.urlFilters], (urlFilters: DashboardFilter) => !isDashboardFilterEmpty(urlFilters)],
         isTemporaryFilterView: [
-            (s) => [s.hasUrlFilters, s.hasIntermittentFilters, s.dashboardMode],
-            (hasUrlFilters: boolean, hasIntermittentFilters: boolean, dashboardMode: DashboardMode | null): boolean =>
-                hasUrlFilters && !hasIntermittentFilters && dashboardMode !== DashboardMode.Edit,
+            (s) => [s.hasUrlFilters, s.hasIntermittentFilters, s.filterEditModeActive],
+            (hasUrlFilters: boolean, hasIntermittentFilters: boolean, filterEditModeActive: boolean): boolean =>
+                hasUrlFilters && !hasIntermittentFilters && !filterEditModeActive,
         ],
         showApplyFiltersBanner: [
             (s) => [s.canAutoPreview, s.hasIntermittentFilters],
