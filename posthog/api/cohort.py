@@ -39,7 +39,11 @@ from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.services.flags_service import FlagVersionConflictError, batch_evaluate_flag_for_team
+from posthog.api.services.flags_service import (
+    FlagVersionConflictError,
+    PropertyMatchingVersionConflictError,
+    batch_evaluate_flag_for_team,
+)
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action
 from posthog.cdp.filters import build_behavioral_event_expr
@@ -102,6 +106,10 @@ from products.cohorts.backend.models.util import (
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.team_feature_flags_config import (
+    PropertyMatchingVersion,
+    TeamFeatureFlagsConfig,
+)
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -2145,6 +2153,7 @@ def _batch_evaluate_flag_page_with_retries(
     project_id: int,
     flag_key: str,
     expected_version: int,
+    expected_property_matching_version: int,
     cursor: int,
     limit: int,
 ) -> dict[str, Any]:
@@ -2159,11 +2168,12 @@ def _batch_evaluate_flag_page_with_retries(
                 project_id=project_id,
                 flag_key=flag_key,
                 expected_version=expected_version,
+                expected_property_matching_version=expected_property_matching_version,
                 cursor=cursor,
                 limit=limit,
             )
-        except FlagVersionConflictError:
-            # Permanent: the flag changed mid-run; retrying the same page cannot help.
+        except (FlagVersionConflictError, PropertyMatchingVersionConflictError):
+            # Permanent: the pinned evaluation inputs changed; retrying the same page cannot help.
             raise
         except requests.RequestException as err:
             if (
@@ -2216,6 +2226,12 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     # service refuses to evaluate under any other, so a run can never mix two
     # definitions of the flag. Nullable versions coerce to 0 on both sides.
     expected_version = feature_flag.version or 0
+    expected_property_matching_version = (
+        TeamFeatureFlagsConfig.objects.filter(team_id=team_id)
+        .values_list("property_matching_version", flat=True)
+        .first()
+        or PropertyMatchingVersion.LEGACY
+    )
 
     started_at = timezone.now()
     start_monotonic = time.monotonic()
@@ -2229,6 +2245,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
                 project_id=project_id,
                 flag_key=feature_flag.key,
                 expected_version=expected_version,
+                expected_property_matching_version=expected_property_matching_version,
                 cursor=cursor,
                 limit=batchsize,
             )
@@ -2281,7 +2298,9 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         )
         capture_exception(err, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
         error_code = (
-            CohortErrorCode.FLAG_CHANGED if isinstance(err, FlagVersionConflictError) else CohortErrorCode.UNKNOWN
+            CohortErrorCode.FLAG_CHANGED
+            if isinstance(err, (FlagVersionConflictError, PropertyMatchingVersionConflictError))
+            else CohortErrorCode.UNKNOWN
         )
         COHORT_FLAG_GENERATION_COMPLETED_COUNTER.labels(outcome=error_code.value).inc()
         COHORT_FLAG_GENERATION_DURATION_SECONDS.labels(outcome=error_code.value).observe(

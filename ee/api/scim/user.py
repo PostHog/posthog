@@ -136,9 +136,11 @@ class PostHogSCIMUser(SCIMUser):
         if self.display_name:
             base_dict["displayName"] = self.display_name
 
-        role_memberships = RoleMembership.objects.filter(
-            user=self.obj, role__organization=self._config.organization
-        ).select_related("role")
+        role_memberships = (
+            RoleMembership.objects.filter(user=self.obj, role__organization=self._config.organization)
+            .valid_for_authorization()
+            .select_related("role")
+        )
         base_dict["groups"] = [
             {
                 "value": str(rm.role.id),
