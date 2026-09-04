@@ -252,6 +252,15 @@ impl LocalSymbolResolver {
         stored: &[ErrorTrackingStackFrame],
         part_count: u64,
     ) -> Result<bool, UnhandledError> {
+        // The per-part upsert loop is not transactional, so a racing writer can
+        // leave a multi-part snapshot half written. A timestamp-only refresh
+        // spanning every part would mark that mixed snapshot fresh for a full
+        // TTL. A single-part save is atomic, so only single-part snapshots take
+        // the timestamp-only path.
+        if part_count != 1 {
+            return Ok(false);
+        }
+
         let now = Utc::now();
         if !unchanged_snapshot_needs_refresh(&self.ttl_policy, raw_id, stored, now) {
             record_frame_write(FrameWriteOutcome::Skipped, 0);
