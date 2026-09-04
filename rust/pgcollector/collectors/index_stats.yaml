@@ -4,9 +4,19 @@ interval: 10m
 scope: database
 kind: cumulative
 key: [schemaname, relname, indexrelname]
+# pg_stat_user_indexes and pg_statio_user_indexes differ only in their target list,
+# so joining them walks pg_index and pg_class twice for nothing. One pass instead.
 query: |
-  SELECT s.schemaname, s.relname, s.indexrelname, s.indexrelid::bigint AS indexrelid,
-         s.idx_scan, s.idx_tup_read, s.idx_tup_fetch,
-         io.idx_blks_read, io.idx_blks_hit
-  FROM pg_stat_user_indexes s
-  JOIN pg_statio_user_indexes io ON io.indexrelid = s.indexrelid
+  SELECT n.nspname AS schemaname, c.relname, i.relname AS indexrelname, i.oid::bigint AS indexrelid,
+         pg_stat_get_numscans(i.oid) AS idx_scan,
+         pg_stat_get_tuples_returned(i.oid) AS idx_tup_read,
+         pg_stat_get_tuples_fetched(i.oid) AS idx_tup_fetch,
+         pg_stat_get_blocks_fetched(i.oid) - pg_stat_get_blocks_hit(i.oid) AS idx_blks_read,
+         pg_stat_get_blocks_hit(i.oid) AS idx_blks_hit
+  FROM pg_index x
+  JOIN pg_class c ON c.oid = x.indrelid
+  JOIN pg_class i ON i.oid = x.indexrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE c.relkind IN ('r', 'm')
+    AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+    AND n.nspname !~ '^pg_toast'
