@@ -20,9 +20,21 @@ pub fn tls_policy(url: &str) -> tokio_postgres::config::SslMode {
     }
 }
 
-pub fn tls_connector() -> postgres_native_tls::MakeTlsConnector {
-    let connector = native_tls::TlsConnector::new().expect("failed to build TLS connector");
-    postgres_native_tls::MakeTlsConnector::new(connector)
+pub fn tls_connector() -> tokio_postgres_rustls::MakeRustlsConnect {
+    let mut roots = rustls::RootCertStore::empty();
+    let native = rustls_native_certs::load_native_certs();
+    for err in &native.errors {
+        tracing::warn!(error = %err, "failed to load a native certificate");
+    }
+    for cert in native.certs {
+        if let Err(e) = roots.add(cert) {
+            tracing::warn!(error = %e, "failed to add a native certificate to root store");
+        }
+    }
+    let tls_cfg = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    tokio_postgres_rustls::MakeRustlsConnect::new(tls_cfg)
 }
 
 pub async fn connect(
