@@ -28,6 +28,11 @@ import {
 // one click away via "Show steps".
 const HIDDEN_ROLES = new Set<string>(['system', AVAILABLE_TOOLS_ROLE])
 
+// Roles that survive conversation-only mode. The normalizer passes unknown roles
+// such as `developer` or `function` through unchanged, and those would otherwise
+// render as assistant speech.
+const CONVERSATION_ROLES = new Set<string>(['user', 'assistant'])
+
 function isUnrenderableContentItem(item: unknown): boolean {
     return extractTextContent(item) === undefined && !isToolStepItem(item)
 }
@@ -323,7 +328,10 @@ export function TranscriptBubbleStream({
     hideInternal?: boolean
 }): JSX.Element | null {
     const items = useMemo(
-        () => buildStreamItems([...inputs, ...outputs]).filter((item) => !hideInternal || item.kind === 'bubble'),
+        () =>
+            buildStreamItems([...inputs, ...outputs]).filter(
+                (item) => !hideInternal || (item.kind === 'bubble' && CONVERSATION_ROLES.has(item.message.role))
+            ),
         [inputs, outputs, hideInternal]
     )
 

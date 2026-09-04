@@ -439,6 +439,12 @@ function SessionTurnView({
     // Only a settled turn shows its summary, tools, errors, steps, and sidebar.
     const isComplete = phase === 'complete'
 
+    // The end user never saw a span-only trace, so conversation-only mode skips it
+    // unless it failed. Errors stay visible in every mode.
+    if (conversationOnly && isSpanOnly && turn.errors.length === 0) {
+        return null
+    }
+
     return (
         <div className="flex flex-col" ref={rootRef}>
             <div className="flex items-center gap-3 py-3 text-xs text-muted">
@@ -519,7 +525,7 @@ function SessionTurnView({
                         </div>
                     )}
 
-                    {isComplete && isSpanOnly && (
+                    {isComplete && isSpanOnly && !conversationOnly && (
                         <StepsPanel
                             fullTrace={fullTrace}
                             expandedEventIds={expandedGenerationIds}
