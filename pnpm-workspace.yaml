@@ -102,6 +102,7 @@ overrides:
     '@tiptap/extension-underline': 3.20.6
 
 patchedDependencies:
+    '@connectrpc/connect-node@2.1.1': patches/@connectrpc__connect-node@2.1.1.patch
     heatmap.js@2.0.5: patches/heatmap.js@2.0.5.patch
     dayjs@1.11.11: patches/dayjs@1.11.11.patch
     kea@4.0.0-pre.6: patches/kea@4.0.0-pre.6.patch
@@ -145,7 +146,7 @@ catalog:
     '@posthog/icons': ^0.38.0
     '@posthog/brand': 0.11.0
     '@posthog/react': ^1.10.5
-    posthog-js: ^1.425.1
+    posthog-js: ^1.427.0
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4
