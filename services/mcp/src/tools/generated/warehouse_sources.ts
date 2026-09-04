@@ -262,6 +262,9 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
         if (params.api_version !== undefined) {
             body['api_version'] = params.api_version
         }
+        if (params.backfill_on_sync_type_change !== undefined) {
+            body['backfill_on_sync_type_change'] = params.backfill_on_sync_type_change
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/incremental_fields/`,
@@ -355,6 +358,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         }
         if (params.api_version !== undefined) {
             body['api_version'] = params.api_version
+        }
+        if (params.backfill_on_sync_type_change !== undefined) {
+            body['backfill_on_sync_type_change'] = params.backfill_on_sync_type_change
         }
         const result = await context.api.request<Schemas.ExternalDataSchema>({
             method: 'PATCH',
