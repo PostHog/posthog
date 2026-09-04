@@ -26,6 +26,7 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -1272,6 +1273,18 @@ class _LogsValuesResponseSerializer(serializers.Serializer):
     )
 
 
+@frozen
+class _SingleFacetTarget:
+    """The one facet a request names.
+
+    The attribute targets are one-key lists because that is what the runner takes.
+    """
+
+    facet_field: str | None
+    resource_keys: list[str]
+    attribute_keys: list[str]
+
+
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
     serializer_class = _FallbackSerializer
@@ -1512,11 +1525,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             sessionId=query_data.get("sessionId", None),
         )
 
-    def _single_facet_target(self, query_data: dict) -> tuple[str | None, list[str], list[str]]:
-        """The one facet a request names, as (facet_field, resource_keys, attribute_keys).
-
-        Returns the attribute target as a one-key list because that is what the runner takes.
-        """
+    def _single_facet_target(self, query_data: dict) -> _SingleFacetTarget:
+        """The one facet a request names."""
         facet_field = query_data.get("facetField")
         facet_resource_attribute = query_data.get("facetResourceAttribute")
         facet_attribute = query_data.get("facetAttribute")
@@ -1524,10 +1534,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             raise ParseError("Provide exactly one of facetField, facetResourceAttribute or facetAttribute")
         if facet_field and facet_field not in FACET_FIELDS:
             raise ParseError(f"facetField must be one of {sorted(FACET_FIELDS)}")
-        return (
-            facet_field or None,
-            [str(facet_resource_attribute)] if facet_resource_attribute else [],
-            [str(facet_attribute)] if facet_attribute else [],
+        return _SingleFacetTarget(
+            facet_field=facet_field or None,
+            resource_keys=[str(facet_resource_attribute)] if facet_resource_attribute else [],
+            attribute_keys=[str(facet_attribute)] if facet_attribute else [],
         )
 
     @extend_schema(request=_LogsFacetValuesRequestSerializer, responses={200: _LogsFacetValuesResponseSerializer})
@@ -1569,7 +1579,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         # The runner takes key lists only. A singular field becomes a one-key list that excludes its
         # own filter, which is the behaviour that field promises.
         if single_targets:
-            facet_field, resource_keys, attribute_keys = self._single_facet_target(query_data)
+            target = self._single_facet_target(query_data)
+            facet_field = target.facet_field
+            resource_keys = target.resource_keys
+            attribute_keys = target.attribute_keys
 
         runner = LogFacetValuesQueryRunner(
             team=self.team,
@@ -1603,14 +1616,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         facet_search = query_data.get("facetSearch")
         if not isinstance(facet_search, str) or not facet_search.strip():
             raise ParseError("facetSearch is required and must be a non-empty string")
-        facet_field, resource_keys, attribute_keys = self._single_facet_target(query_data)
+        target = self._single_facet_target(query_data)
 
         runner = LogFacetValuesQueryRunner(
             team=self.team,
             query=self._facet_scope_query(query_data),
-            facet_field=facet_field,
-            facet_resource_attributes=resource_keys,
-            facet_attributes=attribute_keys,
+            facet_field=target.facet_field,
+            facet_resource_attributes=target.resource_keys,
+            facet_attributes=target.attribute_keys,
             exclude_own_filter=True,
             facet_search=facet_search,
         )
@@ -1622,7 +1635,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         # Flat, not grouped: the request named one facet, so the caller has nothing to disambiguate.
         results = response.results
         entries = results["facetResourceAttributes"] + results["facetAttributes"]
-        values = results["facetField"] if facet_field else (entries[0]["values"] if entries else [])
+        values = results["facetField"] if target.facet_field else (entries[0]["values"] if entries else [])
         return Response({"results": values}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_LogsCountRequestSerializer, responses={200: _LogsCountResponseSerializer})
