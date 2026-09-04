@@ -5192,12 +5192,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             const newUrlVariables = { ...parseURLVariables(currentLocation.searchParams) }
-            if (
-                dashboardVariableValuesEqual(
-                    { value, isNull },
-                    { value: currentVariable.default_value, isNull: currentVariable.isNull }
-                )
-            ) {
+            // An absent URL entry means "use the saved value", so the entry can only be dropped when
+            // the choice matches what the dashboard saved. A dashboard without a saved value shows the
+            // project default, which keeps the URL clean for the common case.
+            const savedValue = values.savedDashboardSettings.variables[variableId] ?? {
+                value: currentVariable.default_value,
+                isNull: currentVariable.isNull,
+            }
+            if (dashboardVariableValuesEqual({ value, isNull }, savedValue)) {
                 delete newUrlVariables[currentVariable.code_name]
             } else {
                 newUrlVariables[currentVariable.code_name] = value
