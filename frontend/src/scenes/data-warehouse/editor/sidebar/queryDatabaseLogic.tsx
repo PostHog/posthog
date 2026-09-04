@@ -197,6 +197,7 @@ const getTableFieldsState = (
 export type SidebarPropertyDefinitionTarget = {
     type: PropertyDefinitionsListType
     groupTypeIndex?: number
+    excludedProperties?: string[]
 }
 
 export type SidebarPropertyDefinitionList = {
@@ -209,6 +210,18 @@ export type SidebarPropertyDefinitionList = {
 }
 
 const PROPERTY_DEFINITIONS_PAGE_SIZE = 25
+
+// The ai_events materialized view moves these out of the properties JSON into their own columns,
+// so `properties.$ai_input` and friends read as empty. Keep them out of the sidebar.
+// Mirrors HEAVY_AI_PROPERTIES in posthog/models/ai_events/sql.py.
+const AI_EVENTS_HEAVY_PROPERTIES = [
+    '$ai_input',
+    '$ai_output',
+    '$ai_output_choices',
+    '$ai_input_state',
+    '$ai_output_state',
+    '$ai_tools',
+]
 
 export const getSidebarPropertyDefinitionTarget = (
     tableName: string,
@@ -244,7 +257,11 @@ export const getSidebarPropertyDefinitionTarget = (
         return { type: 'person' }
     }
 
-    if (['ai_events', 'events'].includes(unqualifiedTableName) && columnPath === 'properties') {
+    if (unqualifiedTableName === 'ai_events' && columnPath === 'properties') {
+        return { type: 'event', excludedProperties: AI_EVENTS_HEAVY_PROPERTIES }
+    }
+
+    if (unqualifiedTableName === 'events' && columnPath === 'properties') {
         return { type: 'event' }
     }
 
@@ -2752,6 +2769,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 const response = await propertyDefinitionsList(String(values.currentProjectId), {
                     exclude_hidden: true,
                     exclude_restricted: true,
+                    excluded_properties: target.excludedProperties
+                        ? JSON.stringify(target.excludedProperties)
+                        : undefined,
                     group_type_index: target.groupTypeIndex,
                     limit: PROPERTY_DEFINITIONS_PAGE_SIZE,
                     offset,
