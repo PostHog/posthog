@@ -1165,6 +1165,9 @@ tools:
         description:
             'DEPRECATED: renamed to scout-runs-retrieve. This alias forwards to the same endpoint and will be removed.
             Call scout-runs-retrieve directly with the same arguments.'
+    signals-scout-runs-token-costs:
+        operation: signals_scout_runs_token_costs
+        enabled: false
     signals-scout-scratchpad-forget:
         operation: signals_scout_scratchpad_forget
         enabled: true
