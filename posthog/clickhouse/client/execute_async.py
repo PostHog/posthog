@@ -356,11 +356,10 @@ def enqueue_process_query_task(
 
     if not refresh_requested:
         try:
-            # Join a run only while it is still going. Reaching here means the cache already decided
-            # this query has to run, so returning a finished record replays its result or error and
-            # dispatches nothing, holding the recompute back until the record expires. Keeping a
-            # query that keeps failing away from ClickHouse is the failure breaker's job in the
-            # query runner.
+            # Only join a query that is still running. We are here because the cache already
+            # decided this query needs to run, so handing back a finished record would replay the
+            # old result and start nothing, blocking the refresh until that record expires.
+            # Throttling a query that keeps failing is the query runner's job, not this one's.
             in_flight = manager.get_query_status()
             if not in_flight.complete:
                 return in_flight

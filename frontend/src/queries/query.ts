@@ -184,7 +184,7 @@ async function executeQuery<N extends DataNode>(
      * attached), return the cached results immediately instead of blocking on the recompute.
      */
     acceptStaleCache = false,
-    /** Set on the one retry below, so a query the server keeps forgetting cannot loop. */
+    /** True on the retry below, so a failed retry cannot start another one. */
     retriedAfterExpiry = false
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
@@ -228,17 +228,19 @@ async function executeQuery<N extends DataNode>(
     try {
         statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
     } catch (e: any) {
-        // The server has forgotten this query's status. A hidden tab holds pollForResults at
-        // waitForPageVisible without spending its deadline, so a poll can arrive after the status
-        // TTL has passed, on a run that may well have finished and cached its result. So ask again,
-        // once. The retry downgrades force_async to async because the first run already cached what
-        // it computed, and forcing again would recompute every card returning from a hidden tab. It
-        // reuses the query ID so a cancel on abort or a query log lookup still points at the run the
-        // user is waiting for, which is safe because enqueue joins a record only while its run is
-        // going. It submits rather than polls, which is the one thing a poll-only call skips, and a
-        // poll-only caller still holds the query to submit. Not every 404 belongs here: a managed
-        // warehouse whose connection is down answers with one too, and its message is the one the
-        // user needs.
+        // The server no longer knows about this query. Polling pauses while the tab is in the
+        // background, and the timeout only counts time the tab was visible, so a background tab
+        // waits indefinitely instead of giving up. The server is less patient: it forgets a query
+        // after 20 minutes. Come back to the tab after that and the poll asks about a query the
+        // server has dropped, even though it most likely finished and cached its result.
+        //
+        // So run it again, once. force_async becomes async, so the retry reads that cached result
+        // instead of recomputing every tile that comes back from a background tab. The original
+        // query ID is reused, so a cancel or a log lookup still finds the run the user is waiting
+        // for, which is safe because the server only joins a query that is still running.
+        //
+        // A warehouse that is down also answers 404, and there the user needs to see the real
+        // reason instead.
         if (retriedAfterExpiry || e?.status !== 404 || e?.code === MANAGED_WAREHOUSE_UNAVAILABLE_CODE) {
             throw e
         }
@@ -260,8 +262,8 @@ async function executeQuery<N extends DataNode>(
             try {
                 return await executeQuery(...args)
             } catch (resubmitError: any) {
-                // A shared or exported view may only GET, so its resubmission is refused. The
-                // expired status describes what happened better than a permission error does.
+                // A shared or exported dashboard is not allowed to start a query, so the retry is
+                // refused. Show the original error rather than the permission one.
                 if (resubmitError?.status === 401 || resubmitError?.status === 403) {
                     throw e
                 }

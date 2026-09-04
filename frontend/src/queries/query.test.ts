@@ -365,8 +365,8 @@ describe('query', () => {
             jest.spyOn(api, 'query').mockRejectedValueOnce(new ApiError('forbidden', 403))
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(forgotten())
 
-            // A shared or exported dashboard cannot submit, so the expired status is the better
-            // error to surface.
+            // A shared or exported dashboard is not allowed to start a query, so the original
+            // error is the one worth showing.
             await expect(
                 performQuery(query, undefined, 'async', 'shared', undefined, undefined, undefined, true)
             ).rejects.toMatchObject({ status: 404 })
