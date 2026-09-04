@@ -238,6 +238,10 @@ ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissi
 CodexPermissionMode = Literal["plan", "auto", "read-only", "full-access"]
 InitialPermissionMode = ClaudePermissionMode | CodexPermissionMode
 
+# Starting a task authorizes its selected PostHog project, not projects reached through connections.
+# Relay both connection wrappers so the client can require fresh approval before they run.
+POSTHOG_EXEC_PERMISSION_REGEX = r"^posthog-connection-(call|forward)$"
+
 INITIAL_PERMISSION_MODE_CHOICES: list[str] = list(get_args(ClaudePermissionMode))
 CODEX_INITIAL_PERMISSION_MODE_CHOICES: list[str] = list(get_args(CodexPermissionMode))
 ALL_INITIAL_PERMISSION_MODE_CHOICES: list[str] = [

@@ -1,8 +1,11 @@
+import shlex
+
 import pytest
 from unittest.mock import patch
 
 from parameterized import parameterized
 
+from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX
 from products.tasks.backend.exceptions import SandboxExecutionError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
@@ -71,12 +74,23 @@ def test_read_agent_server_boot_metrics_uses_pi_boot_total(sandbox: DockerSandbo
         assert sandbox.read_agent_server_boot_metrics() == (90, {"server_total": 140})
 
 
+def test_build_agent_server_command_gates_connected_project_operations(sandbox: DockerSandbox):
+    with_flag = sandbox._build_agent_server_command(
+        None, "t1", "r1", "interactive", True, posthog_exec_permission_regex=POSTHOG_EXEC_PERMISSION_REGEX
+    )
+    assert f"--posthogExecPermissionRegex {shlex.quote(POSTHOG_EXEC_PERMISSION_REGEX)}" in with_flag
+
+    without_flag = sandbox._build_agent_server_command(None, "t1", "r1", "interactive", True)
+    assert "--posthogExecPermissionRegex" not in without_flag
+
+
 def test_start_agent_server_launch_failure_is_captured(sandbox: DockerSandbox):
     failed = ExecutionResult(stdout="", stderr="boom", exit_code=1)
     with (
         patch.object(sandbox, "is_running", return_value=True),
         patch.object(sandbox, "write_file"),
-        patch.object(sandbox, "_build_agent_server_command", return_value="run-agent-server"),
+        patch.object(sandbox, "_build_agent_server_command", return_value="run-agent-server") as build_command,
+        patch.object(sandbox, "agent_server_supports_exec_permission_regex", return_value=True),
         patch.object(sandbox, "execute", return_value=failed),
         patch("products.tasks.backend.exceptions.capture_exception") as capture_exception,
         pytest.raises(SandboxExecutionError),
@@ -85,6 +99,7 @@ def test_start_agent_server_launch_failure_is_captured(sandbox: DockerSandbox):
 
     # A genuine non-zero launch is a real fault — it still gets captured.
     capture_exception.assert_called_once()
+    assert build_command.call_args.kwargs["posthog_exec_permission_regex"] == POSTHOG_EXEC_PERMISSION_REGEX
 
 
 @parameterized.expand([("empty", b""), ("with_content", b"GITHUB_TOKEN=ghs_x\x00")])

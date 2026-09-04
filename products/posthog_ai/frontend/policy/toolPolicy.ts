@@ -9,24 +9,35 @@ export { isPostHogExecTool } from '../components/tool/posthogExecDisplay'
  * Client-side sandbox tool-permission policy.
  *
  * The run's permission mode can relay manual approvals when a client is connected. This policy
- * auto-approves built-in tools and PostHog MCP calls. It keeps approval cards for external MCP
- * servers and requests that cannot be identified.
+ * auto-approves built-in tools and PostHog MCP calls in the task's project. It keeps approval cards
+ * for connected-project calls, external MCP servers, and requests that cannot be identified.
  */
 
-/** Full-auto modes answer every relayed tool request without prompting (questions and plan approvals still surface). */
+/** Whether the run auto-approves tools that stay inside its selected project. */
 export function isFullAutoMode(mode: string | null | undefined): boolean {
     return mode === 'bypassPermissions'
 }
 
 export type PermissionDecision = 'auto_allow' | 'prompt'
 
+const CONNECTED_PROJECT_SUB_TOOLS = new Set(['posthog-connection-call', 'posthog-connection-forward'])
+
+function isConnectedProjectSubTool(subTool: string): boolean {
+    return CONNECTED_PROJECT_SUB_TOOLS.has(subTool.toLowerCase())
+}
+
+export function isConnectedProjectTool(record: PermissionRequestRecord): boolean {
+    const { innerToolName } = resolveToolCall(record.rawToolCall)
+    return innerToolName != null && isConnectedProjectSubTool(innerToolName)
+}
+
 /**
  * Decide whether a permission request can be auto-approved or must prompt the user. The policy fails
  * closed: a request only auto-approves when it is positively identified as safe.
  *
- * PostHog `exec` is detected by canonical tool name and by the parsed command. All PostHog MCP
- * operations auto-approve inside tasks. A positively identified built-in also auto-approves. Other
- * MCP servers and frames that cannot be identified still prompt.
+ * PostHog `exec` is detected by canonical tool name and by the parsed command. Operations in the
+ * task's project auto-approve. Connected-project calls, other MCP servers, and frames that cannot be
+ * identified still prompt.
  */
 export function defaultPermissionDecision(record: PermissionRequestRecord): PermissionDecision {
     // An `AskUserQuestion` rides the permission framework but is not an approval — auto-approving it
@@ -40,6 +51,9 @@ export function defaultPermissionDecision(record: PermissionRequestRecord): Perm
 
     const isExec = isPostHogExecTool(toolName) || innerToolName != null || resolvedKey.startsWith('__posthog_exec_')
     if (isExec) {
+        if (innerToolName != null && isConnectedProjectSubTool(innerToolName)) {
+            return 'prompt'
+        }
         return 'auto_allow'
     }
 

@@ -68,13 +68,32 @@ describe('toolPolicy', () => {
             ],
             ['exec call with no sub-tool', makeRecord({ input: { command: 'call --json' } }), 'auto_allow'],
             [
+                'connection call running a read',
+                makeRecord({
+                    input: {
+                        command: 'call posthog-connection-call {"connection_id":"1","tool":"execute-sql"}',
+                    },
+                }),
+                'prompt',
+            ],
+            [
                 'connection call running a delete',
                 makeRecord({
                     input: {
                         command: 'call posthog-connection-call {"connection_id":"1","tool":"feature-flag-delete"}',
                     },
                 }),
-                'auto_allow',
+                'prompt',
+            ],
+            [
+                'connection forward',
+                makeRecord({
+                    input: {
+                        command:
+                            'call posthog-connection-forward {"connection_id":"1","method":"GET","path":"api/projects/2/insights/"}',
+                    },
+                }),
+                'prompt',
             ],
             // A permission frame carrying no canonical tool name isn't a positively-identified built-in.
             [

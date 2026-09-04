@@ -3369,6 +3369,32 @@ describe('runStreamLogic', () => {
                 })
             })
 
+            it('still surfaces a connected-project operation', async () => {
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                const source = MockStream.latest()
+
+                await source.emitMessage(
+                    notification('session/new', { _meta: { permissionMode: 'bypassPermissions' } })
+                )
+                await source.emitMessage({
+                    ...permissionFrame,
+                    requestId: 'req-connected-project',
+                    toolCall: {
+                        ...permissionFrame.toolCall,
+                        serverName: 'posthog',
+                        toolName: 'exec',
+                        _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
+                        rawInput: {
+                            command: 'call posthog-connection-call {"connection_id":"1","tool":"feature-flag-delete"}',
+                        },
+                    },
+                })
+
+                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-connected-project')
+                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+            })
+
             it('still surfaces a question in full-auto instead of picking an answer', async () => {
                 logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
                 await flushPromises()
