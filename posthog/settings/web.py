@@ -1149,6 +1149,14 @@ ID_JAG_ALLOWED_AUDIENCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_AUDI
 # e.g. "https://mcp.posthog.com,https://mcp.us.posthog.com" on Cloud. SITE_URL is always accepted.
 ID_JAG_ALLOWED_RESOURCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_RESOURCES", ""))
 
+# Extra accepted `aud` values for private_key_jwt client assertions. A client addresses its
+# assertion to the issuer it discovered, which on Cloud is the OAuth proxy rather than SITE_URL,
+# so without this every proxied assertion fails audience validation. Defaults to
+# ID_JAG_ALLOWED_AUDIENCES because both name the same set of advertised issuers.
+OAUTH_CLIENT_ASSERTION_ALLOWED_AUDIENCES: list[str] = get_list(
+    get_from_env("OAUTH_CLIENT_ASSERTION_ALLOWED_AUDIENCES", get_from_env("ID_JAG_ALLOWED_AUDIENCES", ""))
+)
+
 TOOLBAR_OAUTH_STATE_TTL_SECONDS = 60 * 5
 TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS = 10
 TOOLBAR_OAUTH_APPLICATION_NAME = "PostHog Toolbar"

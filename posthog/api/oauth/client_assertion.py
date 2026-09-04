@@ -139,9 +139,21 @@ def expected_assertion_audiences(*token_endpoint_paths: str) -> list[str]:
 
     RFC 7523 section 3 lets a client address either the issuer or the endpoint it is calling,
     so both are accepted. Callers pass the paths their own endpoint answers on.
+
+    A client mints ``aud`` from the issuer it discovered, which is not necessarily SITE_URL: on
+    Cloud the advertised authorization server is the OAuth proxy, and an assertion addressed to
+    it would fail here against SITE_URL alone. The extra issuers come from settings rather than
+    from the request, so the accepted set stays a fixed allowlist.
     """
-    site_url = settings.SITE_URL.rstrip("/")
-    return [site_url, *(f"{site_url}{path}" for path in token_endpoint_paths)]
+    issuers = [
+        settings.SITE_URL.rstrip("/"),
+        *(issuer.rstrip("/") for issuer in settings.OAUTH_CLIENT_ASSERTION_ALLOWED_AUDIENCES if issuer),
+    ]
+    audiences: list[str] = []
+    for issuer in dict.fromkeys(issuers):
+        audiences.append(issuer)
+        audiences.extend(f"{issuer}{path}" for path in token_endpoint_paths)
+    return audiences
 
 
 AGENTIC_TOKEN_ENDPOINT_PATH = "/api/agentic/oauth/token"
