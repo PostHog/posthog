@@ -182,11 +182,11 @@ tools:
             the project threshold. The other views are `needs_input` (waiting on a human), `monitoring` (an
             implementation PR is open), `resolved`, `dismissed`, `not_actionable`, and `all`. Narrow by reviewer with
             `scope=for_me`, or `scope=teammate` plus `teammate_uuid`; the default `scope=entire_project` searches every
-            report. `priority`, `source_product`, and `scout` each take a comma-separated list. To find the
-            self-driving reports for one source record — e.g. what the inbox already investigated for a specific
-            support ticket — pass that record's id as `source_id` together with exactly one `source_product` (for a
-            support ticket: `source_product=conversations` and the ticket's UUID as `source_id`); add
-            `include_all_statuses=true` to include dismissed ones.
+            report. `priority`, `source_product`, and `scout` each take a comma-separated list. To find the self-driving
+            reports for one source record — e.g. what the inbox already investigated for a specific support ticket —
+            pass that record's id as `source_id` together with exactly one `source_product` (for a support ticket:
+            `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to
+            include dismissed ones.
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
