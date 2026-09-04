@@ -6,7 +6,15 @@ import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import { AccessControlLevel, DashboardMode, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlLevel,
+    DashboardMode,
+    DashboardTile,
+    DashboardType,
+    PropertyFilterType,
+    PropertyOperator,
+    QueryBasedInsightModel,
+} from '~/types'
 
 type FilterBarState = 'saved' | 'unsaved' | 'narrow' | 'large' | 'previewing'
 
@@ -43,6 +51,22 @@ const largeDashboard: DashboardType<QueryBasedInsightModel> = {
     ),
 }
 
+function applyUnsavedFilters(logic: ReturnType<typeof dashboardLogic.build>): void {
+    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+    logic.actions.setDates('-7d', null)
+    logic.actions.setProperties([
+        {
+            key: 'browser',
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.Exact,
+            value: 'Chrome',
+        },
+    ])
+    logic.actions.setBreakdownFilter({ breakdown: '$browser', breakdown_type: 'event' })
+    logic.actions.setInterval('week')
+    logic.actions.setFilterTestAccounts(true)
+}
+
 function DashboardFilterBarStory({ state }: { state: FilterBarState }): JSX.Element {
     let storyDashboard = dashboard
     if (state === 'large' || state === 'previewing') {
@@ -52,8 +76,7 @@ function DashboardFilterBarStory({ state }: { state: FilterBarState }): JSX.Elem
     logic.mount()
 
     if (state === 'unsaved' || state === 'narrow' || state === 'large' || state === 'previewing') {
-        logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
-        logic.actions.setDates('-7d', null)
+        applyUnsavedFilters(logic)
     }
 
     if (state === 'previewing') {
