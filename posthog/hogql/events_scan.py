@@ -324,9 +324,15 @@ class _EventsScanVisitor(TraversingVisitor):
         self.database = database
         self.findings: list[EventsScanFinding] = []
         self._cte_scopes: list[set[str]] = []
+        self._branch_with_pushed_ctes: ast.SelectQuery | ast.SelectSetQuery | None = None
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        self._cte_scopes.append(set(node.ctes.keys()) if node.ctes else set())
+        # The set query above pushed this branch's CTE names already, so the other branches see
+        # them. A second copy here would survive the one `visit_cte` clears, and the CTE body would
+        # read its own name as the CTE instead of the events table.
+        already_pushed = node is self._branch_with_pushed_ctes
+        self._branch_with_pushed_ctes = None
+        self._cte_scopes.append(set() if already_pushed else set(node.ctes.keys()) if node.ctes else set())
         try:
             self._check(node)
             super().visit_select_query(node)
@@ -338,6 +344,7 @@ class _EventsScanVisitor(TraversingVisitor):
         initial = node.initial_select_query
         names = set(initial.ctes.keys()) if isinstance(initial, ast.SelectQuery) and initial.ctes else set()
         self._cte_scopes.append(names)
+        self._branch_with_pushed_ctes = initial if names else None
         try:
             super().visit_select_set_query(node)
         finally:

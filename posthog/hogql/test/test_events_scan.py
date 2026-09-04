@@ -159,6 +159,18 @@ class TestFindEventsScans(TestCase):
                 [],
             ),
             (
+                "a CTE named events still checks its own body across a UNION",
+                "WITH events AS (SELECT count() AS c FROM events WHERE properties.plan = 'pro' AND timestamp >= today()) "
+                "SELECT c FROM events UNION ALL SELECT 1 AS c",
+                [EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT],
+            ),
+            (
+                "a nested CTE named events reads the CTE around it, not the table",
+                "WITH events AS (SELECT 1 AS x) "
+                "SELECT c FROM (WITH events AS (SELECT count() AS c FROM events) SELECT c FROM events)",
+                [],
+            ),
+            (
                 "other tables are not checked",
                 "SELECT count() FROM persons WHERE properties.email = 'x'",
                 [],
