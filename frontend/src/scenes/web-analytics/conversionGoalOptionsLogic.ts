@@ -66,6 +66,9 @@ export const conversionGoalOptionsLogic = kea<conversionGoalOptionsLogicType>([
                     const response = await api.eventDefinitions.list({
                         limit: 1,
                         event_type: EventDefinitionType.EventCustom,
+                        // Same filter the picker's Custom Events list uses, so a project whose
+                        // custom events are all hidden counts as having none.
+                        exclude_hidden: true,
                     })
                     return response.count ?? 0
                 },

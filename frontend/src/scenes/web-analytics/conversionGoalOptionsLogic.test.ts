@@ -10,17 +10,23 @@ describe('conversionGoalOptionsLogic', () => {
     let logic: ReturnType<typeof conversionGoalOptionsLogic.build>
     let actionCount: number
     let customEventCount: number
+    let hiddenCustomEventCount: number
 
     beforeEach(() => {
         actionCount = 0
         customEventCount = 0
+        hiddenCustomEventCount = 0
         useMocks({
             get: {
                 '/api/projects/:team/actions/': () => [
                     200,
                     { count: actionCount, results: Array.from({ length: actionCount }, (_, id) => ({ id })) },
                 ],
-                '/api/projects/:team/event_definitions': () => [200, { count: customEventCount, results: [] }],
+                '/api/projects/:team/event_definitions': ({ request }) => {
+                    const excludesHidden = new URL(request.url).searchParams.get('exclude_hidden') === 'true'
+                    const count = excludesHidden ? customEventCount - hiddenCustomEventCount : customEventCount
+                    return [200, { count, results: [] }]
+                },
             },
         })
     })
@@ -58,5 +64,15 @@ describe('conversionGoalOptionsLogic', () => {
         mountLogic()
         await waitForCounts()
         expect(logic.values.hasNoConversionGoalOptions).toBe(false)
+    })
+
+    it('shows the zero state when every custom event is hidden', async () => {
+        // The picker lists custom events with exclude_hidden, so a count without it leaves the user
+        // on the empty list this zero state exists to replace.
+        customEventCount = 3
+        hiddenCustomEventCount = 3
+        mountLogic()
+        await waitForCounts()
+        expect(logic.values.hasNoConversionGoalOptions).toBe(true)
     })
 })
