@@ -27,7 +27,10 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from temporalio.exceptions import ApplicationError
 
+from posthog.event_usage import groups
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.team.team import Team
+from posthog.ph_client import ph_background_capture
 from posthog.redis import get_client
 
 from products.error_tracking.backend.logic.alerts import MAX_THROTTLE_SECONDS
@@ -81,6 +84,59 @@ PENDING_CLAIM_TTL = timedelta(seconds=240)
 
 class AlertThreadBusyError(Exception):
     """Another notification holds this thread's send claim; retry after it saves."""
+
+
+class AlertAlreadyHandled(Exception):
+    """An earlier attempt of this notification already finished with this thread."""
+
+
+DELIVERY_OUTCOME_EVENT = "error_tracking_alert_delivery_outcome"
+
+
+class _OutcomeReporter:
+    """Collects one product analytics event per planned delivery and sends them at the end.
+
+    Temporal only reports whether the activity ran; these say what each destination did with
+    the notification, so rollout can be watched per outcome and per channel type.
+    """
+
+    def __init__(self, inputs: AlertDeliveryWorkflowInputs, final_attempt: bool) -> None:
+        self._inputs = inputs
+        self._final_attempt = final_attempt
+        self._events: list[dict] = []
+
+    def record(self, delivery: "PlannedDelivery", outcome: str, **extra: str | None) -> None:
+        self._events.append(
+            {
+                "outcome": outcome,
+                "lifecycle_event": self._inputs.event,
+                "is_opener": delivery.is_opener,
+                "alert_id": str(delivery.alert.id),
+                "destination_id": str(delivery.destination.id),
+                "channel_type": delivery.destination.channel_type,
+                "issue_id": self._inputs.issue_id,
+                "notification_id": self._inputs.notification_id,
+                "final_attempt": self._final_attempt,
+                **extra,
+            }
+        )
+
+    def flush(self) -> None:
+        if not self._events:
+            return
+        try:
+            team = Team.objects.get(id=self._inputs.team_id)
+            capture = ph_background_capture()
+            for properties in self._events:
+                capture(
+                    distinct_id=str(team.uuid),
+                    event=DELIVERY_OUTCOME_EVENT,
+                    groups=groups(team=team),
+                    properties=properties,
+                )
+        except Exception:
+            # Analytics never decides delivery; a failed report is only a log line.
+            logger.exception("error_tracking_alert_outcome_report_failed", team_id=self._inputs.team_id)
 
 
 ALERT_THROTTLE_KEY_PREFIX = "error_tracking:alert_throttle:v1"
@@ -198,6 +254,14 @@ def _opener_filter_matches(
 
 
 def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs, *, final_attempt: bool = False) -> int:
+    reporter = _OutcomeReporter(inputs, final_attempt)
+    try:
+        return _deliver_all(inputs, reporter, final_attempt=final_attempt)
+    finally:
+        reporter.flush()
+
+
+def _deliver_all(inputs: AlertDeliveryWorkflowInputs, reporter: _OutcomeReporter, *, final_attempt: bool) -> int:
     planned = plan_alert_deliveries(inputs)
     filter_matches = _opener_filter_matches(planned, inputs)
     throttle_allowed: dict = {}
@@ -217,11 +281,13 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs, *, final_at
             if verdict is None:
                 # Undecided: the exception properties could not be fetched. Counted
                 # as a failure so the activity retries once the rest has delivered.
+                reporter.record(delivery, "undecided")
                 failures += 1
                 continue
             if not verdict:
                 # A filtered-out opener leaves no thread behind, so later replies for
                 # this issue stay unclaimed and a matching opener can still root one.
+                reporter.record(delivery, "filtered")
                 continue
         if delivery.is_opener and delivery.alert.throttle_seconds > 0:
             throttled_openers.setdefault(delivery.alert.id, delivery.alert)
@@ -235,12 +301,22 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs, *, final_at
             if delivery.alert.id not in throttle_allowed:
                 throttle_allowed[delivery.alert.id] = _opener_throttle_allows(delivery.alert, inputs)
             if not throttle_allowed[delivery.alert.id]:
+                reporter.record(delivery, "throttled")
                 continue
         try:
             if _deliver_one(delivery, inputs):
                 delivered += 1
+                reporter.record(delivery, "delivered")
                 if delivery.is_opener:
                     rooted.add(delivery.alert.id)
+            else:
+                # Nothing to post: the issue is gone, the destination has no usable
+                # integration or channel, or the transition has no reply text.
+                reporter.record(delivery, "skipped")
+        except AlertAlreadyHandled:
+            # A retry for a sibling destination: this one reported its outcome on the
+            # attempt that handled it.
+            continue
         except AlertThreadBusyError:
             # Expected contention, not a fault: the retry lands as a reply once the
             # holder has saved its root.
@@ -254,9 +330,11 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs, *, final_at
             )
             failures += 1
             retrying.add(delivery.alert.id)
+            reporter.record(delivery, "busy")
         except SlackApiError as error:
             code = _slack_error_code(error)
             _record_delivery_outcome(delivery.destination, error=f"Slack error: {code}")
+            reporter.record(delivery, "rejected" if code in SLACK_TERMINAL_ERRORS else "failed", slack_error=code)
             if code in SLACK_TERMINAL_ERRORS:
                 # A configuration gap, like the missing-integration path: retrying
                 # would burn every attempt for the same outcome.
@@ -295,6 +373,7 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs, *, final_at
             )
             # The exception text can name internal hosts; the log line above keeps it.
             _record_delivery_outcome(delivery.destination, error="Delivery failed unexpectedly")
+            reporter.record(delivery, "failed")
             failures += 1
             retrying.add(delivery.alert.id)
     for alert_id, alert in throttled_openers.items():
@@ -459,7 +538,7 @@ def _post_claimed(
     claimed_at: datetime,
 ) -> bool:
     if inputs.notification_id in (thread.delivered_notification_ids or []):
-        return False
+        raise AlertAlreadyHandled()
 
     external_ref = thread.external_ref
     root_headline = thread.root_headline
