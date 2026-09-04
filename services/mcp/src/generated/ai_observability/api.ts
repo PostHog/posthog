@@ -561,8 +561,6 @@ export const EvaluationsCreateParams = () => zod.object({
 export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
-export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
-export const evaluationsCreateBodyOutputConfigTrueIsFailureDefault = false
 export const evaluationsCreateBodyConditionsItemIdMax = 100
 
 export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
@@ -637,11 +635,11 @@ export const EvaluationsCreateBody = () => zod
             .object({
                 allows_na: zod
                     .boolean()
-                    .default(evaluationsCreateBodyOutputConfigAllowsNaDefault)
+                    .optional()
                     .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
                 true_is_failure: zod
                     .boolean()
-                    .default(evaluationsCreateBodyOutputConfigTrueIsFailureDefault)
+                    .optional()
                     .describe(
                         'Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                     ),
@@ -787,8 +785,6 @@ export const EvaluationsPartialUpdateParams = () => zod.object({
 export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
-export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
-export const evaluationsPartialUpdateBodyOutputConfigTrueIsFailureDefault = false
 export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
@@ -865,11 +861,11 @@ export const EvaluationsPartialUpdateBody = () => zod
             .object({
                 allows_na: zod
                     .boolean()
-                    .default(evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault)
+                    .optional()
                     .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
                 true_is_failure: zod
                     .boolean()
-                    .default(evaluationsPartialUpdateBodyOutputConfigTrueIsFailureDefault)
+                    .optional()
                     .describe(
                         'Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                     ),
