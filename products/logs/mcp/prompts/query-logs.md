@@ -2,6 +2,12 @@ Query log entries with filtering by severity, service name, date range, search t
 
 Use `logs-attributes-list` and `logs-attribute-values-list` to discover available attributes before building filters.
 
+All parameters are nested inside a `query` object — nothing is accepted at the top level:
+
+```json
+{ "query": { "serviceNames": ["<service>"], "severityLevels": ["error"], "dateRange": { "date_from": "-1h" } } }
+```
+
 # Workflow — follow this order every time
 
 1. **Discover services first.** Call `logs-attribute-values-list` with `key: "service.name"` and `attribute_type: "resource"` to see available services.

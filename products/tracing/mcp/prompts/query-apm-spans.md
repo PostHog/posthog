@@ -2,6 +2,12 @@ Query trace spans with filtering by service name, status code, date range, and s
 
 Use 'apm-attributes-list' and 'apm-attribute-values-list' to discover available attributes before building filters. Use 'apm-services-list' to discover available services.
 
+All parameters are nested inside a `query` object — nothing is accepted at the top level:
+
+```json
+{ "query": { "serviceNames": ["<service>"], "dateRange": { "date_from": "-1h" }, "limit": 50 } }
+```
+
 # Return shape
 
 Results are **grouped by trace**, not a flat list of matching spans. For each trace that contains at least one span matching your filters, the response includes spans from that trace (up to `prefetchSpans` per trace, root span first). Two fields tell you which spans actually matched:
