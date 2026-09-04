@@ -15,12 +15,14 @@ export function HogFlowTreeDropzone({
     edge,
     isBranchJoin = false,
     showConnector = true,
+    compact = false,
 }: {
     active: boolean
     draggedActionId: string | null
     edge: HogFlowEdge
     isBranchJoin?: boolean
     showConnector?: boolean
+    compact?: boolean
 }): JSX.Element {
     const { moveNodeToEdge, onDragOver, onDrop, setHighlightedDropzoneNodeId } = useActions(hogFlowEditorLogic)
     const [highlighted, setHighlighted] = useState(false)
@@ -28,10 +30,15 @@ export function HogFlowTreeDropzone({
         !!draggedActionId && (edge.to === draggedActionId || (!isBranchJoin && edge.from === draggedActionId))
 
     return (
-        <div className="flex h-7 w-full items-center justify-center">
+        <div className={cn('flex w-full items-center justify-center', compact ? 'h-2' : 'h-7')}>
             {!active || isNoOpTarget ? (
                 showConnector && (
-                    <svg className="h-full w-4 text-border" viewBox="0 0 16 28" fill="none" aria-hidden="true">
+                    <svg
+                        className="h-full w-4 text-muted-foreground"
+                        viewBox="0 0 16 28"
+                        fill="none"
+                        aria-hidden="true"
+                    >
                         <path d="M8 0v20m-5-2 5 5 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                     </svg>
                 )
