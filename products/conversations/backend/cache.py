@@ -15,7 +15,7 @@ from django.core.cache import cache
 
 import structlog
 
-from posthog.models.person.util import get_persons_by_distinct_ids
+from posthog.models.person.util import get_linked_distinct_ids
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 from products.conversations.backend.models.constants import Status
@@ -200,8 +200,8 @@ def get_person_distinct_ids(team_id: int, distinct_id: str) -> list[str]:
         logger.warning("conversations_cache_get_error", key=key)
 
     with personhog_caller_tag("conversations/widget-person-distinct-ids"):
-        persons = get_persons_by_distinct_ids(team_id, [distinct_id])
-    all_ids = persons[0].distinct_ids if persons and persons[0].distinct_ids else [distinct_id]
+        linked_ids = get_linked_distinct_ids(team_id, distinct_id)
+    all_ids = linked_ids or [distinct_id]
 
     try:
         cache.set(key, all_ids, timeout=PERSON_DISTINCT_IDS_CACHE_TTL)

@@ -42,7 +42,7 @@ from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES
 from posthog.models import PropertyDefinition, Team
 from posthog.models.group.util import get_groups_by_identifiers
 from posthog.models.group_type_mapping import get_group_types_for_project
-from posthog.models.person.util import get_persons_mapped_by_distinct_id
+from posthog.models.person.util import get_person_uuids_and_matched_distinct_ids
 from posthog.sync import database_sync_to_async
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
@@ -79,11 +79,11 @@ def _log_fields(binding: WarehouseBinding) -> dict[str, str]:
     return {"binding_kind": binding.kind, "binding_id": binding.id}
 
 
-# Identifiers per existence-lookup call. Both personhog helpers return whole Person/Group models,
-# properties included, and accumulate every model before returning. This activity only needs the
-# identifier back, so chunking here caps peak memory at one chunk's models instead of the entire
-# changed set — an organization group carries tens of KB of properties, so a six-figure changed set
-# would otherwise materialize gigabytes and get the worker OOM-killed.
+# Identifiers per existence-lookup call. The group helper returns whole Group models, properties
+# included, and accumulates every model before returning. This activity only needs the identifier
+# back, so chunking here caps peak memory at one chunk's models instead of the entire changed set —
+# an organization group carries tens of KB of properties, so a six-figure changed set would
+# otherwise materialize gigabytes and get the worker OOM-killed.
 _EXISTENCE_LOOKUP_CHUNK_SIZE = 1_000
 
 
@@ -334,8 +334,8 @@ def _filter_existing_ids(team_id: int, source: PersonPropertySyncSource, ids: li
     """The subset of ``ids`` that resolve to an existing person (or group, for group targets). We only
     enrich entities that already exist — the same rule for both, just a different lookup.
 
-    Chunked so only one chunk's models are alive at a time (see ``_EXISTENCE_LOOKUP_CHUNK_SIZE``);
-    each chunk's identifiers are kept and its models dropped before the next call."""
+    Chunked so only one chunk's results are alive at a time (see ``_EXISTENCE_LOOKUP_CHUNK_SIZE``);
+    each chunk's identifiers are kept and its results dropped before the next call."""
     if not ids:
         return set()
     # Stays None for person targets, so the loop below picks its lookup off this alone.
@@ -350,7 +350,8 @@ def _filter_existing_ids(team_id: int, source: PersonPropertySyncSource, ids: li
         if group_type_index is not None:
             existing.update(group.group_key for group in get_groups_by_identifiers(team_id, group_type_index, chunk))
         else:
-            existing.update(get_persons_mapped_by_distinct_id(team_id, chunk).keys())
+            _, matched = get_person_uuids_and_matched_distinct_ids(team_id, chunk)
+            existing.update(matched)
     return existing
 
 
