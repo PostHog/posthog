@@ -46,16 +46,18 @@ The internal route segment, query key, and component/hook names keep the
 `dismissed`/`suppressed` vocabulary (the backend status is `suppressed`); only
 the user-facing copy uses "Archive"/"archived".
 
-Each `DismissedReportCard` shows why the report was suppressed (`dismissal_reason`,
-labelled via `dismissalReasonLabel`, with `dismissal_note` as a tooltip). These
+Each dismissed report shows why it was suppressed (`dismissal_reason`), labelled
+via `dismissalReasonLabel` beside a red dot, with `dismissal_note` as a tooltip. These
 are denormalised onto the list `SignalReport` by the backend serializer — the
 same artefact-lift pattern as `priority`/`actionability`/`already_addressed` —
 so cards avoid an N+1 per-card artefact fetch. Unknown reason codes fall back to
-the raw value; cards with no dismissal artefact simply omit the chip.
+the raw value; cards with no dismissal artefact simply omit the label.
 
 Responder configuration is **not** an Inbox tab. It is the top-level Responders sidebar item at `/agents`. The legacy `/inbox/agents` route redirects there.
 
 Reviewer scope is a UI preference stored in `inboxReviewerScopeStore`. It filters the list between reports suggested for the current user and reports for someone else. It does not change tab membership; the tab predicates are independent.
+
+The Reports page keeps priority, report status, sort, triage, and reviewer scope above one flat list in the page body. Review and merge plus Needs decision are selected by default; Resolved and Dismissed can be added without switching tabs. PR-backed and resolved rows use a solid neutral border. Reports that need a decision and dismissed rows use a dotted neutral border. Terminal rows recede until hover. Hovered rows keep their solid or dotted treatment while gaining an accent border and stronger background. Report rows show PR repository context and source icons, and omit signal counts. Triage contains only reports that need a decision, not reports waiting for a PR review.
 
 ## Ownership Boundaries
 
@@ -94,7 +96,11 @@ Detail screens layer additional data on top of the base report:
 - `useInboxReportArtefacts(reportId)` for structured outputs such as suggested reviewers and repo selection.
 - `useReportTasks(reportId, status)` for linked research/implementation tasks.
 
+Ready and pending-input report details offer Resolve and Dismiss beside the other report actions. Resolve records why the work is done; Dismiss records why the report should leave the inbox. Reviewer detail lives in the sidebar, not the title header.
+
 List cards should prefer fields already present in the list response. Fetching per-card secondary data is acceptable only for small, clearly bounded adornments; avoid new N+1 request patterns without a batching plan.
+
+Report rows expose the same primary actions through a right-click menu. Reviewer data stays lazy until its submenu opens. Copy link is the menu's only link action; opening a report remains the row's primary interaction.
 
 ## Backend Contracts
 

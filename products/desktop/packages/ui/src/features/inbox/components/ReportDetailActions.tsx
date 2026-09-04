@@ -1,10 +1,13 @@
 import {
   ArrowSquareOutIcon,
+  CheckCircleIcon,
   DotsThreeIcon,
+  EyeSlashIcon,
   LinkIcon,
   ReceiptIcon,
   ShapesIcon,
 } from "@phosphor-icons/react";
+import { canResolveReport } from "@posthog/core/inbox/reportActions";
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import {
   Button,
@@ -27,6 +30,8 @@ import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/use
 import { RefundReportDialog } from "@posthog/ui/features/inbox/components/RefundReportDialog";
 import { ReportChatToggle } from "@posthog/ui/features/inbox/components/ReportChatToggle";
 import { useCreateCanvasReport } from "@posthog/ui/features/inbox/hooks/useCreateCanvasReport";
+import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
+import { useInboxReportResolveAction } from "@posthog/ui/features/inbox/hooks/useInboxReportResolveAction";
 import { useRefundReport } from "@posthog/ui/features/inbox/hooks/useRefundReport";
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
@@ -95,6 +100,8 @@ export function ReportDetailActions({
   const safePrUrl = prUrl && parsePrUrl(prUrl) ? prUrl : null;
   const refund = useRefundReport(report);
   const [refundOpen, setRefundOpen] = useState(false);
+  const dismiss = useInboxReportDismissAction(report);
+  const resolve = useInboxReportResolveAction(report);
 
   const [canvasOpen, setCanvasOpen] = useState(false);
   const [canvasDirection, setCanvasDirection] = useState("");
@@ -172,6 +179,34 @@ export function ReportDetailActions({
       <>
         {githubButton}
         <ReportChatToggle report={report} />
+        {canResolveReport(report) && (
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            className={HEADER_ACTION_CLASS}
+            loading={resolve.isPending}
+            disabled={resolve.isPending}
+            data-attr="inbox-report-resolve"
+            onClick={() => resolve.openDialog()}
+          >
+            <CheckCircleIcon size={14} />
+            Resolve
+          </Button>
+        )}
+        {!isResolved && report.status !== "suppressed" && (
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            className={HEADER_ACTION_CLASS}
+            data-attr="inbox-report-dismiss"
+            onClick={() => dismiss.openDialog()}
+          >
+            <EyeSlashIcon size={14} />
+            Dismiss
+          </Button>
+        )}
         <Tooltip>
           <TooltipTrigger
             render={
@@ -224,6 +259,8 @@ export function ReportDetailActions({
             }
           />
         )}
+        {resolve.dialog}
+        {dismiss.dialog}
       </>
     );
   }

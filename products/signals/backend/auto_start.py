@@ -39,9 +39,14 @@ from products.signals.backend.report_generation.research import (
     Priority,
     PriorityAssessment,
 )
-from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.signals.backend.report_generation.resolve_reviewers import (
+    get_org_member_github_logins_by_user_uuid,
+    resolve_org_github_login_to_users,
+)
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
+from products.signals.backend.scout_authorship import resolve_touching_scout_skills
+from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
 from products.signals.backend.signal_metadata import (
     SignalSourceReference,
     fetch_source_products_for_reports,
@@ -73,6 +78,9 @@ class ReviewerContent(TypedDict):
     # True when a scout's own reviewer pick matches a current `LLMSkillOwner` (editor-controlled) and
     # was stamped for it. These route the report but are never eligible to select the autostart task identity.
     is_skill_owner: bool
+    # The scout skill whose run wrote this entry (None when no scout did). Carried so the live owner
+    # exclusion still knows the writing scout when the run's best-effort edit tally was lost.
+    source_skill: str | None
 
 
 _PRIORITY_RANK: dict[Priority, int] = {
@@ -456,11 +464,41 @@ def _create_implementation_task_if_absent(
     return True
 
 
+def _live_skill_owner_logins(team: Team, report_id: str, reviewers_content: list[ReviewerContent]) -> set[str]:
+    """GitHub logins (lowercased) of the *current* owners of every scout that touched the report.
+
+    The `is_skill_owner` stamp on a stored reviewer entry is a write-time snapshot: an owner added
+    after the stamp (or racing the stamping transaction, whose owner read is not serialized with
+    `LLMSkillOwner` writes) leaves a stale `False`. Autostart resolves the live set again at identity
+    time so a now-owner can never become the runner through a stale stamp. The union spans every
+    touching scout, not just the report's author, because the stored reviewers follow whichever
+    scout last wrote them — a later editing scout's owner must be excluded too, and over-exclusion
+    only sends the report to the trusted reviewer-less fallback. Empty for reports no scout touched
+    (pipeline / custom agent) — their reviewers are commit-authorship-derived and carry no owner
+    exposure.
+
+    Touching scouts come from two sources, unioned: the run tallies (`emitted_report_ids` /
+    `edited_report_ids`) and each entry's own `source_skill` stamp. The tallies are best-effort
+    writes that swallow failures, so an identity guard cannot rest on them alone — the entry stamp
+    commits atomically with the pick it guards, and covers the entries that actually stand for
+    selection even when a tally write was lost."""
+    skill_names = resolve_touching_scout_skills(team.id, report_id)
+    skill_names |= {str(r["source_skill"]) for r in reviewers_content if r.get("source_skill")}
+    owner_uuids: set[str] = set()
+    for skill_name in skill_names:
+        owner_uuids.update(resolve_skill_owner_user_uuids(team, skill_name))
+    if not owner_uuids:
+        return set()
+    uuid_to_login = get_org_member_github_logins_by_user_uuid(team.id, list(owner_uuids))
+    return {login for login in uuid_to_login.values() if login}  # already lowercased by the resolver
+
+
 def _resolve_autostart_assignee(
     team_id: int,
     report_priority: Priority,
     reviewers_content: list[ReviewerContent],
     team_default_priority: Priority,
+    live_owner_logins: set[str] | None = None,
 ) -> User | None:
     """Return the first suggested reviewer whose effective priority threshold allows auto-start.
 
@@ -474,16 +512,25 @@ def _resolve_autostart_assignee(
     is stamped on the way in — treating that pick as a trusted commit-authorship signal would let a
     skill editor name a privileged teammate as owner, steer the scout to pick them, and have the
     implementation agent mint an OAuth session under that teammate. They still route the report (they
-    remain in the artefact); they just can't be the runner.
+    remain in the artefact); they just can't be the runner. The stored stamp is a write-time snapshot,
+    so *live_owner_logins* (the authoring scout's current owner set, resolved by the caller at
+    identity time) is excluded too — an owner added after the stamp must not slip through as a stale
+    ``False``.
 
     Walks *reviewers_content* in order (most relevant first). A reviewer's effective threshold is
     their personal autonomy setting when present, otherwise the team default (itself "all
     priorities"/P4 when the team has no config row). A lower rank means higher priority. Returns
     the first matching ``User``, or ``None`` if no reviewer maps to an org member.
     """
-    # Owner-stamped entries never select the task identity (see docstring). Filter before resolving
-    # so their logins aren't even looked up as candidates.
-    identity_candidates = [r for r in reviewers_content if not r.get("is_skill_owner")]
+    # Owner-stamped entries — by the stored stamp or the live owner set — never select the task
+    # identity (see docstring). Filter before resolving so their logins aren't even looked up as
+    # candidates.
+    owner_logins = live_owner_logins or set()
+    identity_candidates = [
+        r
+        for r in reviewers_content
+        if not r.get("is_skill_owner") and str(r.get("github_login") or "").strip().lower() not in owner_logins
+    ]
     login_to_user = resolve_org_github_login_to_users(
         team_id, (str(r["github_login"]) for r in identity_candidates if r.get("github_login"))
     )
@@ -720,8 +767,18 @@ async def maybe_autostart_implementation_task(
             team_id, triggering_user_id, priority.priority, team_default_priority
         )
     else:
+        # Resolve the authoring scout's current owners at identity time — the stored
+        # `is_skill_owner` stamp is a write-time snapshot and can be stale (see
+        # `_live_skill_owner_logins`). Skipped when no reviewer is up for selection.
+        live_owner_logins = (
+            await database_sync_to_async(_live_skill_owner_logins, thread_sensitive=False)(
+                team, report_id, reviewers_content
+            )
+            if reviewers_content
+            else set()
+        )
         task_user = await database_sync_to_async(_resolve_autostart_assignee, thread_sensitive=False)(
-            team_id, priority.priority, reviewers_content, team_default_priority
+            team_id, priority.priority, reviewers_content, team_default_priority, live_owner_logins
         )
         if (
             task_user is None
@@ -816,6 +873,7 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
     reviewers: list[ReviewerContent] = []
     for entry in data:
         if isinstance(entry, dict) and entry.get("github_login"):
+            source_skill = entry.get("source_skill")
             reviewers.append(
                 ReviewerContent(
                     github_login=str(entry["github_login"]),
@@ -823,6 +881,7 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
                     relevant_commits=entry.get("relevant_commits") or [],
                     reason=entry.get("reason"),
                     is_skill_owner=bool(entry.get("is_skill_owner")),
+                    source_skill=str(source_skill) if source_skill else None,
                 )
             )
     return reviewers, editor_user_id

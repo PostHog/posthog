@@ -71,6 +71,8 @@ from posthog.schema_enums import (
     CountPerActorMathType as CountPerActorMathType,
     CurrencyCode as CurrencyCode,
     Curve as Curve,
+    CustomBotField as CustomBotField,
+    CustomBotMatcher as CustomBotMatcher,
     CustomChannelField as CustomChannelField,
     CustomChannelOperator as CustomChannelOperator,
     DatabaseSchemaManagedViewTableKind as DatabaseSchemaManagedViewTableKind,
@@ -189,8 +191,11 @@ from posthog.schema_enums import (
     Metric as Metric,
     MetricsAggregation as MetricsAggregation,
     MetricsAttributeScope as MetricsAttributeScope,
+    MetricsAxisScale as MetricsAxisScale,
+    MetricsDisplayType as MetricsDisplayType,
     MetricsFilterOp as MetricsFilterOp,
     MetricsOtelType as MetricsOtelType,
+    MetricsStatSummary as MetricsStatSummary,
     MetricSummary as MetricSummary,
     MultipleBreakdownType as MultipleBreakdownType,
     MultipleVariantHandling as MultipleVariantHandling,
@@ -2318,6 +2323,32 @@ class MetricsQuerySeries(BaseModel):
     )
     metricName: str | None = None
     points: list[MetricsQueryPoint]
+
+
+class MetricsYAxisSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    max: float | None = Field(
+        default=None,
+        description=(
+            "Pins the top of the axis; unset means automatic. Pinning both ends drops"
+            " the automatic stretch that keeps an off-scale goal line on-plot."
+        ),
+    )
+    min: float | None = Field(
+        default=None,
+        description=("Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on."),
+    )
+    scale: MetricsAxisScale | None = MetricsAxisScale.LINEAR
+    startAtZero: bool | None = Field(
+        default=True,
+        description=(
+            "When false the axis floats to the data range instead of starting at zero."
+            " Ignored on a logarithmic scale, and on the bar display, where a bar's"
+            " length encodes magnitude from zero."
+        ),
+    )
 
 
 class MinimalHedgehogConfig(BaseModel):
@@ -4747,6 +4778,24 @@ class CohortPropertyFilter(BaseModel):
     value: int
 
 
+class CustomBotDefinition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    category: str | None = Field(
+        default=None,
+        description="Reported by `$virt_traffic_category`. Defaults to `custom`.",
+    )
+    id: str
+    key: CustomBotField = Field(..., description="The event property this rule reads.")
+    matcher: CustomBotMatcher
+    name: str = Field(
+        ...,
+        description=("Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches."),
+    )
+    pattern: str = Field(..., description="Matched against the property named by `key`.")
+
+
 class CustomChannelCondition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5527,6 +5576,7 @@ class HogQLQueryModifiers(BaseModel):
     bounceRateDurationSeconds: float | None = None
     bounceRatePageViewMode: BounceRatePageViewMode | None = None
     convertToProjectTimezone: bool | None = None
+    customBotDefinitions: list[CustomBotDefinition] | None = None
     customChannelTypeRules: list[CustomChannelRule] | None = None
     dataWarehouseEventsModifiers: list[DataWarehouseEventsModifier] | None = None
     debug: bool | None = None
@@ -6137,6 +6187,19 @@ class MetricPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class MetricsDisplaySettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    goalLines: list[GoalLine] | None = None
+    statSummary: MetricsStatSummary | None = Field(
+        default=MetricsStatSummary.LATEST,
+        description="`stat` display only: which summary the headline value shows.",
+    )
+    type: MetricsDisplayType | None = MetricsDisplayType.LINE
+    yAxis: MetricsYAxisSettings | None = None
+
+
 class MetricsQueryClause(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6668,6 +6731,16 @@ class RecordingsQueryExperimentExposureFilter(BaseModel):
         ...,
         description=(
             "Experiment whose exposed persons' sessions to show. Must belong to the environment the query runs in."
+        ),
+    )
+    in_session: bool | None = Field(
+        default=None,
+        description=(
+            "Only sessions carrying in-session exposure evidence: an event matching the"
+            " experiment's exposure criteria inside the session (with the stamped"
+            " `$feature/<flag_key>` property standing in when the exposure event was"
+            " never captured with a session id). Defaults to all exposed persons'"
+            " sessions from first exposure onward."
         ),
     )
     variant: str | None = Field(
@@ -8644,6 +8717,13 @@ class WebGoalsQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -8745,6 +8825,13 @@ class WebOverviewQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -8848,6 +8935,13 @@ class WebStatsTableQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStale: bool | None = Field(
         default=None,
         description=(
@@ -15061,6 +15155,13 @@ class CachedWebGoalsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -15184,6 +15285,13 @@ class CachedWebOverviewQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -15309,6 +15417,13 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStale: bool | None = Field(
         default=None,
         description=(
@@ -15377,6 +15492,13 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -15475,6 +15597,13 @@ class ChartSettings(BaseModel):
     goalLines: list[GoalLine] | None = None
     heatmap: HeatmapSettings | None = None
     leftYAxisSettings: YAxisSettings | None = None
+    legendPosition: LegendPosition | None = Field(
+        default=None,
+        description=(
+            "Where the legend sits relative to the chart. Unset falls back per chart"
+            " type: right for pie, top for the rest."
+        ),
+    )
     pie: PieChartSettings | None = None
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
@@ -15686,6 +15815,13 @@ class Response4(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -15739,6 +15875,13 @@ class Response5(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStale: bool | None = Field(
         default=None,
         description=(
@@ -15905,6 +16048,13 @@ class Response8(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -15955,6 +16105,13 @@ class Response9(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -19903,6 +20060,13 @@ class QueryResponseAlternative23(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -19956,6 +20120,13 @@ class QueryResponseAlternative24(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStale: bool | None = Field(
         default=None,
         description=(
@@ -20122,6 +20293,13 @@ class QueryResponseAlternative28(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -20172,6 +20350,13 @@ class QueryResponseAlternative29(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -20887,6 +21072,13 @@ class QueryResponseAlternative43(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -20940,6 +21132,13 @@ class QueryResponseAlternative44(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStale: bool | None = Field(
         default=None,
         description=(
@@ -21106,6 +21305,13 @@ class QueryResponseAlternative47(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -21156,6 +21362,13 @@ class QueryResponseAlternative48(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -24643,6 +24856,13 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -27354,6 +27574,10 @@ class MetricsQuery(BaseModel):
     dateRange: DateRange | None = Field(
         default=None,
         description=("Defaults to the last 24 hours when omitted; dashboard date filters override it"),
+    )
+    display: MetricsDisplaySettings | None = Field(
+        default=None,
+        description="Chart presentation. A node without it renders as a line chart.",
     )
     formula: str | None = Field(
         default=None,

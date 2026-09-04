@@ -524,6 +524,7 @@ export interface HogQLQueryModifiers {
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
+    customBotDefinitions?: CustomBotDefinition[]
     useWebAnalyticsPreAggregatedTables?: boolean
     /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
     webAnalyticsFirstPageviewFilters?: boolean
@@ -699,6 +700,12 @@ export interface RecordingsQueryExperimentExposureFilter {
     experiment_id: integer
     /** Narrow to persons exposed to this variant. Defaults to all of the experiment's variants. */
     variant?: string
+    /**
+     * Only sessions carrying in-session exposure evidence: an event matching the experiment's exposure criteria
+     * inside the session (with the stamped `$feature/<flag_key>` property standing in when the exposure event was
+     * never captured with a session id). Defaults to all exposed persons' sessions from first exposure onward.
+     */
+    in_session?: boolean
 }
 
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
@@ -1400,6 +1407,8 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showAnnotations?: boolean
+    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     showValuesOnSeries?: boolean
     // Deprecated: superseded by `pie.showTotal`. Retained so pre-existing pie-chart insights still
     // validate (ChartSettings is `extra="forbid"`). Read as a fallback in the pie chart components.
@@ -3300,6 +3309,8 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
     dateFrom?: string
     dateTo?: string
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
@@ -3823,6 +3834,8 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
     /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
     preComputeStale?: boolean
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 
@@ -3924,6 +3937,8 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
     limit?: integer
     offset?: integer
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
@@ -3973,6 +3988,8 @@ export type WebVitalsPathBreakdownResult = Record<WebVitalsMetricBand, WebVitals
 export interface WebVitalsPathBreakdownQueryResponse extends AnalyticsQueryResponseBase {
     results: [WebVitalsPathBreakdownResult]
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string
 }
 export type CachedWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<WebVitalsPathBreakdownQueryResponse>
 
@@ -4589,6 +4606,42 @@ export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
 }
 export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryResponse>
 
+/** How a metrics result is charted. `stat` is a single headline value plus sparkline, not a time series. */
+export type MetricsDisplayType = 'line' | 'area' | 'bar' | 'stat'
+
+/** Matches quill's `YAxisConfig.scale` verbatim, so no vocabulary translation is needed.
+ * Deliberately not `YAxisSettings['scale']` ('logarithmic') or `TrendsFilter['yAxisScaleType']` ('log10'). */
+export type MetricsAxisScale = 'linear' | 'log'
+
+/** Which summary the `stat` display's headline value shows. */
+export type MetricsStatSummary = 'latest' | 'average' | 'total'
+
+export interface MetricsYAxisSettings {
+    /** @default linear */
+    scale?: MetricsAxisScale
+    /** When false the axis floats to the data range instead of starting at zero. Ignored on a
+     * logarithmic scale, and on the bar display, where a bar's length encodes magnitude from zero.
+     * @default true */
+    startAtZero?: boolean
+    /** Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on. */
+    min?: number
+    /** Pins the top of the axis; unset means automatic. Pinning both ends drops the automatic
+     * stretch that keeps an off-scale goal line on-plot. */
+    max?: number
+}
+
+/** Presentation only. The query engine never reads this, and it's stripped from the result cache
+ * key, so changing any of it re-renders without re-running the query. */
+export interface MetricsDisplaySettings {
+    /** @default line */
+    type?: MetricsDisplayType
+    goalLines?: GoalLine[]
+    yAxis?: MetricsYAxisSettings
+    /** `stat` display only: which summary the headline value shows.
+     * @default latest */
+    statSummary?: MetricsStatSummary
+}
+
 export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
     kind: NodeKind.MetricsQuery
     clauses: MetricsQueryClause[]
@@ -4598,6 +4651,8 @@ export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
     interval?: string
     /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
     formula?: string
+    /** Chart presentation. A node without it renders as a line chart. */
+    display?: MetricsDisplaySettings
 }
 
 export interface SessionEventsItem {
@@ -6746,6 +6801,45 @@ export interface CustomChannelRule {
     combiner: FilterLogicalOperator
     channel_type: string
     id: string // the ID is only needed for the drag and drop, so only needs to be unique with one set of rules
+}
+
+/** The event properties a project's own bot rule can match on. */
+export enum CustomBotField {
+    RawUserAgent = '$raw_user_agent',
+    IP = '$ip',
+    Lib = '$lib',
+    Host = '$host',
+    Pathname = '$pathname',
+    CurrentURL = '$current_url',
+    Browser = '$browser',
+    OS = '$os',
+    BrowserLanguage = '$browser_language',
+    ScreenWidth = '$screen_width',
+    ScreenHeight = '$screen_height',
+    CountryCode = '$geoip_country_code',
+    Referrer = '$referrer',
+    ReferringDomain = '$referring_domain',
+}
+
+export enum CustomBotMatcher {
+    Contains = 'contains',
+    Regex = 'regex',
+    /** Matches an IP against a network range, e.g. `192.0.2.0/24`. Only valid with `$ip`. */
+    Cidr = 'cidr',
+}
+
+/** A bot a project defines itself, on top of PostHog's built-in bot list. */
+export interface CustomBotDefinition {
+    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+    name: string
+    /** The event property this rule reads. */
+    key: CustomBotField
+    /** Matched against the property named by `key`. */
+    pattern: string
+    matcher: CustomBotMatcher
+    /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
+    category?: string
+    id: string // the ID is only needed for the settings editor, so only needs to be unique within one set of definitions
 }
 
 export enum DefaultChannelTypes {
@@ -9465,6 +9559,10 @@ export const externalDataSources = [
     'Coolify',
     'SocialPilot',
     'RoktAds',
+    'Strato',
+    'Medusa',
+    'Membrain',
+    'RecallAI',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -10010,6 +10108,7 @@ export enum ProductKey {
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
+    POSTHOG_AI_ONBOARDING = 'posthog_ai_onboarding',
     PRODUCT_ANALYTICS = 'product_analytics',
     PRODUCT_TOURS = 'product_tours',
     PULSE = 'pulse',

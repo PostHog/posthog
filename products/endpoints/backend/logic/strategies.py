@@ -32,7 +32,7 @@ from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.query_tagging import Product
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models.team import Team
 from posthog.schema_migrations.upgrade import upgrade
 

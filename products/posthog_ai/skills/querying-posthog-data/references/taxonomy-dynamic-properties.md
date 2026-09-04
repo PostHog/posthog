@@ -28,9 +28,8 @@ Use these queries to find the IDs, then construct the property name.
 ### Find survey IDs
 
 ```sql
-SELECT id, name, description, type
+SELECT id, name, type
 FROM system.surveys
-WHERE NOT archived
 ORDER BY created_at DESC
 LIMIT 20
 ```
@@ -54,7 +53,6 @@ Then query event properties like `$feature/{key}` or person properties like `$fe
 ```sql
 SELECT id, name, feature_flag_id
 FROM system.early_access_features
-WHERE NOT deleted
 ORDER BY created_at DESC
 LIMIT 20
 ```

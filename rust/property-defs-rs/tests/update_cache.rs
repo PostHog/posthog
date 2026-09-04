@@ -184,10 +184,13 @@ fn test_uncache_batch_evicts_unresolved_entry_for_group_prop() {
 // (post - pre) instead of absolute values because the recorder is shared
 // across all tests in the binary and parallel tests touch the same labels.
 fn assert_miss_then_hit(label: &'static str, update: Update) {
-    let cache = Cache::new(64, 64, 64);
-
+    // Read counters (which installs the recorder) before building the cache:
+    // Cache::new resolves its counter handles once, against whatever recorder
+    // is installed at that moment.
     let pre_miss = counter_value(CACHE_MISSES, label);
     let pre_hit = counter_value(CACHE_HITS, label);
+
+    let cache = Cache::new(64, 64, 64);
 
     assert!(!cache.contains_key(&update), "fresh cache should miss");
     cache.insert(update.clone());
@@ -217,15 +220,50 @@ fn test_contains_key_emits_hit_miss_metrics(#[case] label: &'static str, #[case]
     assert_miss_then_hit(label, update);
 }
 
+// Guards the recency contract of `Cache::contains_key`: a lookup must mark the
+// entry referenced (quick_cache `get`), so a key that was checked survives the
+// next eviction pass by promotion into the protected segment. quick_cache's
+// own `contains_key` skips that marking, which degrades S3-FIFO to FIFO; in
+// production that evicts the working set on a fixed schedule and re-issues a
+// useless Postgres upsert per cycle.
+//
+// The filler prelude matters: a nearly-empty cache admits inserts straight
+// into the protected (hot) segment, where eviction pressure never reaches
+// them and the assertion would pass with or without recency marking. Filling
+// the cache first forces the probe key into the probationary (cold) segment,
+// where only a referenced entry survives.
+#[test]
+fn test_checked_key_survives_eviction_pressure() {
+    let cache = Cache::new(2, 2, 2);
+
+    for i in 0..40 {
+        cache.insert(make_event_def(&format!("recency_fill_{i}")));
+    }
+
+    let probe = make_event_def("recency_probe");
+    cache.insert(probe.clone());
+    assert!(cache.contains_key(&probe), "probe should be resident");
+
+    for i in 0..100 {
+        cache.insert(make_event_def(&format!("recency_flood_{i}")));
+    }
+
+    assert!(
+        cache.contains_key(&probe),
+        "checked key was evicted instead of promoted"
+    );
+}
+
 // quick_cache enforces a minimum of 32 items per shard (`sync.rs` ~134:
 // `while shard_items_cap < 32 && num_shards > 1 { num_shards /= 2; ... }`),
 // so even with `Cache::new(2, 2, 2)` we get a single 32-slot shard per
 // subcache. We need >32 distinct inserts to provoke at least one eviction.
 #[test]
 fn test_overflowing_subcache_emits_eviction_metric() {
-    let cache = Cache::new(2, 2, 2);
-
+    // Recorder install must precede Cache::new; see assert_miss_then_hit.
     let pre = counter_value(CACHE_EVICTIONS, "eventdefs");
+
+    let cache = Cache::new(2, 2, 2);
     for i in 0..200 {
         cache.insert(make_event_def(&format!("evict_test_evt_{i}")));
     }

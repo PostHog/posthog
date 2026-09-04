@@ -27,6 +27,14 @@ export const PostgreSQLSetupModal = (props: PostgreSQLSetupModalLogicProps): JSX
         >
             <Form logic={postgreSQLSetupModalLogic} props={props} formKey="postgreSQLIntegration">
                 <div className="gap-4 flex flex-col">
+                    <LemonField
+                        name="name"
+                        label="Name"
+                        info="What this connection is called wherever PostHog lists it. Optional — without one it shows the user and host."
+                    >
+                        <LemonInput placeholder="Customer database" />
+                    </LemonField>
+
                     <LemonField name="host" label="Host">
                         <LemonInput placeholder="my-host" />
                     </LemonField>

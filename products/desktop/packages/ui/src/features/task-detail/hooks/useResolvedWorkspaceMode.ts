@@ -22,6 +22,7 @@ export interface UseResolvedWorkspaceModeInput {
 
 export interface ResolvedWorkspaceMode {
   workspaceMode: WorkspaceMode;
+  isResolved: boolean;
   setWorkspaceMode: (mode: WorkspaceMode) => void;
   overrideWorkspaceMode: (mode: WorkspaceMode) => void;
 }
@@ -59,6 +60,8 @@ export function useResolvedWorkspaceMode({
       lastUsedLocalWorkspaceMode: localFallback,
     });
   });
+  const initiallyResolved = pinCloud || !localWorkspaces;
+  const [isResolved, setIsResolved] = useState(initiallyResolved);
 
   const cloudSignalsSettled = areCloudSignalsSettled({
     cloudModeEnabled,
@@ -66,16 +69,18 @@ export function useResolvedWorkspaceMode({
     isLoadingIntegrations,
   });
 
-  const didResolveRef = useRef(false);
+  const didResolveRef = useRef(initiallyResolved);
   useEffect(() => {
     if (didResolveRef.current) return;
     if (!settingsHydrated) return;
     if (pinCloud) {
       didResolveRef.current = true;
+      setIsResolved(true);
       return;
     }
     if (preferredMode === "cloud" && !cloudSignalsSettled) return;
     didResolveRef.current = true;
+    setIsResolved(true);
     if (!localWorkspaces) return;
     setWorkspaceModeState(
       resolveWorkspaceModePreference({
@@ -99,6 +104,7 @@ export function useResolvedWorkspaceMode({
   const setWorkspaceMode = useCallback(
     (mode: WorkspaceMode) => {
       didResolveRef.current = true;
+      setIsResolved(true);
       setWorkspaceModeState(mode);
       setLastUsedWorkspaceMode(mode);
       if (mode !== "cloud") setLastUsedLocalWorkspaceMode(mode);
@@ -108,8 +114,14 @@ export function useResolvedWorkspaceMode({
 
   const overrideWorkspaceMode = useCallback((mode: WorkspaceMode) => {
     didResolveRef.current = true;
+    setIsResolved(true);
     setWorkspaceModeState(mode);
   }, []);
 
-  return { workspaceMode, setWorkspaceMode, overrideWorkspaceMode };
+  return {
+    workspaceMode,
+    isResolved,
+    setWorkspaceMode,
+    overrideWorkspaceMode,
+  };
 }

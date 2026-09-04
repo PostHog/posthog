@@ -5,13 +5,13 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@posthog/quill";
+import { HARNESS_DISPLAY_NAMES } from "@posthog/shared";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
 
 export type AgentHarness = AgentAdapter | "pi";
 
 const harnessLabels: Record<AgentHarness, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
+  ...HARNESS_DISPLAY_NAMES,
   pi: "Pi",
 };
 

@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const ErrorTrackingAssignmentRulesListParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingAssignmentRulesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,12 +16,12 @@ export const ErrorTrackingAssignmentRulesListParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const ErrorTrackingAssignmentRulesListQueryParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingAssignmentRulesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const ErrorTrackingAssignmentRulesCreateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingAssignmentRulesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -63,7 +63,7 @@ export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwofiveEv
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwofiveTypeDefault = `behavioral`
 export const errorTrackingAssignmentRulesCreateBodyOrderKeyDefault = 0
 
-export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
     filters: zod
         .object({
             type: zod.enum(['AND', 'OR']),
@@ -1613,7 +1613,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
         ),
 })
 
-export const ErrorTrackingBypassRulesListParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingBypassRulesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1621,12 +1621,12 @@ export const ErrorTrackingBypassRulesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ErrorTrackingBypassRulesListQueryParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingBypassRulesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const ErrorTrackingBypassRulesCreateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingBypassRulesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1667,7 +1667,7 @@ export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwofiveEventF
 export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
 export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwofiveTypeDefault = `behavioral`
 
-export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
     filters: zod
         .object({
             type: zod.enum(['AND', 'OR']),
@@ -3200,7 +3200,7 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ErrorTrackingBypassRulesUpdateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingBypassRulesUpdateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -3242,7 +3242,7 @@ export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwofiveEventF
 export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
 export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwofiveTypeDefault = `behavioral`
 
-export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
     filters: zod
         .object({
             type: zod.enum(['AND', 'OR']),
@@ -4776,7 +4776,7 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ErrorTrackingExternalReferencesCreateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingExternalReferencesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -4784,7 +4784,7 @@ export const ErrorTrackingExternalReferencesCreateParams = /* @__PURE__ */ zod.o
         ),
 })
 
-export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod
+export const ErrorTrackingExternalReferencesCreateBody = () => zod
     .object({
         integration_id: zod
             .number()
@@ -4800,7 +4800,7 @@ export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod
     })
     .describe('Payload for creating a new provider issue and linking it to an error tracking issue.')
 
-export const ErrorTrackingGroupingRulesListParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingGroupingRulesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -4808,7 +4808,7 @@ export const ErrorTrackingGroupingRulesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ErrorTrackingGroupingRulesCreateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingGroupingRulesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -4849,7 +4849,7 @@ export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwofiveEven
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwofiveTypeDefault = `behavioral`
 
-export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
     filters: zod
         .object({
             type: zod.enum(['AND', 'OR']),
@@ -6401,7 +6401,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
         .describe('Optional human-readable description of what this grouping rule is for.'),
 })
 
-export const ErrorTrackingGroupingRulesUpdateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingGroupingRulesUpdateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -6443,7 +6443,7 @@ export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwofiveEven
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwofiveTypeDefault = `behavioral`
 
-export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
     filters: zod
         .union([
             zod.object({
@@ -7999,7 +7999,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ErrorTrackingIssuesPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingIssuesPartialUpdateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -8008,7 +8008,7 @@ export const ErrorTrackingIssuesPartialUpdateParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingIssuesPartialUpdateBody = () => zod.object({
     status: zod
         .enum(['active', 'resolved', 'suppressed'])
         .describe('\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed')
@@ -8024,7 +8024,7 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
     description: zod.string().nullish().describe('Optional issue description.'),
 })
 
-export const ErrorTrackingIssuesAssignPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingIssuesAssignPartialUpdateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -8033,7 +8033,7 @@ export const ErrorTrackingIssuesAssignPartialUpdateParams = /* @__PURE__ */ zod.
         ),
 })
 
-export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingIssuesAssignPartialUpdateBody = () => zod.object({
     assignee: zod
         .union([
             zod.object({
@@ -8049,7 +8049,7 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod.ob
         .describe('Assignment target. Set to null or omit to remove the current assignment.'),
 })
 
-export const ErrorTrackingIssuesMergeCreateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingIssuesMergeCreateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -8058,11 +8058,11 @@ export const ErrorTrackingIssuesMergeCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ErrorTrackingIssuesMergeCreateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingIssuesMergeCreateBody = () => zod.object({
     ids: zod.array(zod.string()).describe('IDs of the issues to merge into the current issue.'),
 })
 
-export const ErrorTrackingIssuesSplitCreateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingIssuesSplitCreateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -8071,7 +8071,7 @@ export const ErrorTrackingIssuesSplitCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ErrorTrackingIssuesSplitCreateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingIssuesSplitCreateBody = () => zod.object({
     fingerprints: zod
         .array(
             zod.object({
@@ -8094,7 +8094,7 @@ export const ErrorTrackingIssuesSplitCreateBody = /* @__PURE__ */ zod.object({
  * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline.
  * @summary Get compact error tracking issue details
  */
-export const ErrorTrackingQueryIssueCreateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingQueryIssueCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -8109,7 +8109,7 @@ export const errorTrackingQueryIssueCreateBodyVolumeResolutionMax = 200
 
 export const errorTrackingQueryIssueCreateBodyIncludeSparklineDefault = false
 
-export const ErrorTrackingQueryIssueCreateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingQueryIssueCreateBody = () => zod.object({
     issueId: zod.string().describe('Error tracking issue ID.'),
     dateRange: zod
         .object({
@@ -8144,7 +8144,7 @@ export const ErrorTrackingQueryIssueCreateBody = /* @__PURE__ */ zod.object({
  * Fetch sampled exception events, stack traces, browser/SDK context, URL, and $session_id values for one issue.
  * @summary List sampled exception events for an error tracking issue
  */
-export const ErrorTrackingQueryIssueEventsCreateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingQueryIssueEventsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -8166,7 +8166,7 @@ export const errorTrackingQueryIssueEventsCreateBodyOffsetMin = 0
 
 export const errorTrackingQueryIssueEventsCreateBodyOnlyAppFramesDefault = true
 
-export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingQueryIssueEventsCreateBody = () => zod.object({
     issueId: zod.string().describe('Error tracking issue ID.'),
     dateRange: zod
         .object({
@@ -8331,7 +8331,7 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
  * List error tracking issues with typed filters and compact aggregate counts.
  * @summary List compact error tracking issues
  */
-export const ErrorTrackingQueryIssuesListCreateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingQueryIssuesListCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -8365,7 +8365,7 @@ export const errorTrackingQueryIssuesListCreateBodyUrlMax = 1000
 
 export const errorTrackingQueryIssuesListCreateBodyFilePathMax = 1000
 
-export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingQueryIssuesListCreateBody = () => zod.object({
     dateRange: zod
         .object({
             date_from: zod
@@ -8568,7 +8568,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .describe('Search stack-frame source\/file path text.'),
 })
 
-export const ErrorTrackingRecommendationsListParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingRecommendationsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -8576,12 +8576,12 @@ export const ErrorTrackingRecommendationsListParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const ErrorTrackingRecommendationsListQueryParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingRecommendationsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const ErrorTrackingSettingsRetrieveSettingsRetrieveParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSettingsRetrieveSettingsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -8589,7 +8589,7 @@ export const ErrorTrackingSettingsRetrieveSettingsRetrieveParams = /* @__PURE__ 
         ),
 })
 
-export const ErrorTrackingSettingsUpdateSettingsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSettingsUpdateSettingsPartialUpdateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -8597,7 +8597,7 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateParams = /* @__PURE
         ),
 })
 
-export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = () => zod.object({
     project_rate_limit_value: zod
         .number()
         .min(1)
@@ -8624,7 +8624,7 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__
         .describe('Bucket window over which the per-issue rate limit applies, in minutes.'),
 })
 
-export const ErrorTrackingSeverityRulesListParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSeverityRulesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -8632,7 +8632,7 @@ export const ErrorTrackingSeverityRulesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ErrorTrackingSeverityRulesCreateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSeverityRulesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -8674,7 +8674,7 @@ export const errorTrackingSeverityRulesCreateBodyFiltersOneValuesItemTwofiveEven
 export const errorTrackingSeverityRulesCreateBodyFiltersOneValuesItemTwofiveTypeDefault = `behavioral`
 export const errorTrackingSeverityRulesCreateBodyOrderKeyDefault = 0
 
-export const ErrorTrackingSeverityRulesCreateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
     filters: zod
         .object({
             type: zod.enum(['AND', 'OR']),
@@ -10215,7 +10215,7 @@ export const ErrorTrackingSeverityRulesCreateBody = /* @__PURE__ */ zod.object({
         .describe('Evaluation priority. Lower values run first. Defaults to 0.'),
 })
 
-export const ErrorTrackingSeverityRulesUpdateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSeverityRulesUpdateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -10257,7 +10257,7 @@ export const errorTrackingSeverityRulesUpdateBodyFiltersOneValuesItemTwofiveEven
 export const errorTrackingSeverityRulesUpdateBodyFiltersOneValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
 export const errorTrackingSeverityRulesUpdateBodyFiltersOneValuesItemTwofiveTypeDefault = `behavioral`
 
-export const ErrorTrackingSeverityRulesUpdateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
     filters: zod
         .object({
             type: zod.enum(['AND', 'OR']),
@@ -11796,7 +11796,7 @@ export const ErrorTrackingSeverityRulesUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ErrorTrackingSuppressionRulesListParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSuppressionRulesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -11804,12 +11804,12 @@ export const ErrorTrackingSuppressionRulesListParams = /* @__PURE__ */ zod.objec
         ),
 })
 
-export const ErrorTrackingSuppressionRulesListQueryParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSuppressionRulesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const ErrorTrackingSuppressionRulesCreateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSuppressionRulesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -11853,7 +11853,7 @@ export const errorTrackingSuppressionRulesCreateBodySamplingRateDefault = 1
 export const errorTrackingSuppressionRulesCreateBodySamplingRateMin = 0
 export const errorTrackingSuppressionRulesCreateBodySamplingRateMax = 1
 
-export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
     filters: zod
         .object({
             type: zod.enum(['AND', 'OR']),
@@ -13395,7 +13395,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
         ),
 })
 
-export const ErrorTrackingSuppressionRulesUpdateParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSuppressionRulesUpdateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -13439,7 +13439,7 @@ export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwofiveT
 export const errorTrackingSuppressionRulesUpdateBodySamplingRateMin = 0
 export const errorTrackingSuppressionRulesUpdateBodySamplingRateMax = 1
 
-export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
     filters: zod
         .object({
             type: zod.enum(['AND', 'OR']),
@@ -14981,7 +14981,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
         ),
 })
 
-export const ErrorTrackingSymbolSetsListParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSymbolSetsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -14991,7 +14991,7 @@ export const ErrorTrackingSymbolSetsListParams = /* @__PURE__ */ zod.object({
 
 export const errorTrackingSymbolSetsListQueryStatusDefault = `all`
 
-export const ErrorTrackingSymbolSetsListQueryParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSymbolSetsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
@@ -15017,7 +15017,7 @@ export const ErrorTrackingSymbolSetsListQueryParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const ErrorTrackingSymbolSetsRetrieveParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSymbolSetsRetrieveParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -15029,7 +15029,7 @@ export const ErrorTrackingSymbolSetsRetrieveParams = /* @__PURE__ */ zod.object(
 /**
  * Return a presigned URL for downloading the symbol set's source map.
  */
-export const ErrorTrackingSymbolSetsDownloadRetrieveParams = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSymbolSetsDownloadRetrieveParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
