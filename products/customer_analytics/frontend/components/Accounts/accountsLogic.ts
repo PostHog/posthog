@@ -178,9 +178,9 @@ export interface accountsLogicValues {
     accountsTableQueryPlan: AccountsTableQueryPlan
     accountsTableQueryPlanInput: BuildAccountsTableQueryPlanInput
     activeFilterCount: number
-    assignmentStatus: AssignmentStatus
     assignedToCurrentUser: boolean
     assignedToFilter: RoleFilterValue
+    assignmentStatus: AssignmentStatus
     awaitingSavedView: boolean
     canSortClientSide: boolean
     currentUserId: number | null
@@ -401,14 +401,14 @@ export interface accountsLogicActions {
     setAccountIdFilter: (accountId: string | null) => {
         accountId: string | null
     }
-    setAssignmentStatus: (status: AssignmentStatus) => {
-        status: AssignmentStatus
-    }
     setAssignedToCurrentUser: (value: boolean) => {
         value: boolean
     }
     setAssignedToFilter: (value: RoleFilterValue) => {
         value: RoleFilterValue
+    }
+    setAssignmentStatus: (status: AssignmentStatus) => {
+        status: AssignmentStatus
     }
     setAwaitingSavedView: (awaiting: boolean) => {
         awaiting: boolean

@@ -38,8 +38,8 @@ export interface accountsViewsLogicValues {
     columnDisplay: AccountColumnDisplayState // accountsColumnConfigLogic
     selectColumns: string[] // accountsColumnConfigLogic
     accountFilters: AccountFilter[] // accountsLogic
-    assignmentStatus: AssignmentStatus // accountsLogic
     assignedToFilter: RoleFilterValue // accountsLogic
+    assignmentStatus: AssignmentStatus // accountsLogic
     searchQuery: string // accountsLogic
     sortOrder: AccountSortOrder // accountsLogic
     tagsFilter: string[] // accountsLogic
@@ -122,11 +122,11 @@ export interface accountsViewsLogicActions {
     setAccountFilters: (filters: AccountFilter[]) => {
         filters: AccountFilter[]
     } // accountsLogic
-    setAssignmentStatus: (status: AssignmentStatus) => {
-        status: AssignmentStatus
-    } // accountsLogic
     setAssignedToFilter: (value: RoleFilterValue) => {
         value: RoleFilterValue
+    } // accountsLogic
+    setAssignmentStatus: (status: AssignmentStatus) => {
+        status: AssignmentStatus
     } // accountsLogic
     setAwaitingSavedView: (awaiting: boolean) => {
         awaiting: boolean
