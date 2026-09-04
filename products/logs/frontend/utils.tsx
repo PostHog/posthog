@@ -146,26 +146,40 @@ const SESSION_ID_KEYS = [
     'posthog.session_id',
 ]
 
-function matchesKey(key: string, candidates: string[]): boolean {
-    return candidates.some((candidate) => key === candidate || key.endsWith(`.${candidate}`))
+// Built once at module scope: this runs per attribute key of every log row, and per attribute
+// of every span of an open trace.
+const DISTINCT_ID_EXACT_KEYS = new Set(DISTINCT_ID_KEYS)
+const DISTINCT_ID_SUFFIXES = DISTINCT_ID_KEYS.map((candidate) => `.${candidate}`)
+const SESSION_ID_EXACT_KEYS = new Set(SESSION_ID_KEYS)
+const SESSION_ID_SUFFIXES = SESSION_ID_KEYS.map((candidate) => `.${candidate}`)
+
+function matchesKey(key: string, exactKeys: Set<string>, suffixes: string[]): boolean {
+    return exactKeys.has(key) || suffixes.some((suffix) => key.endsWith(suffix))
 }
 
 // Configured keys (the team's `logs_distinct_id_attribute_keys` setting) match exactly;
 // only the built-in convention list gets dot-suffix matching.
 export function isDistinctIdKey(key: string, configuredKeys?: string[]): boolean {
-    return (configuredKeys ?? []).includes(key) || matchesKey(key, DISTINCT_ID_KEYS)
+    return !!configuredKeys?.includes(key) || matchesKey(key, DISTINCT_ID_EXACT_KEYS, DISTINCT_ID_SUFFIXES)
 }
 
 // Configured keys (the team's `logs_session_id_attribute_keys` setting) match exactly;
 // only the built-in convention list gets dot-suffix matching.
 export function isSessionIdKey(key: string, configuredKeys?: string[]): boolean {
-    return (configuredKeys ?? []).includes(key) || matchesKey(key, SESSION_ID_KEYS)
+    return !!configuredKeys?.includes(key) || matchesKey(key, SESSION_ID_EXACT_KEYS, SESSION_ID_SUFFIXES)
 }
 
 export interface LogIdentityMatch {
     key: string
     value: string
     source: 'attribute' | 'resource_attribute'
+}
+
+// A configured key is an arbitrary team setting, so read it as an own property. Bare bracket
+// access resolves a key like `constructor` or `valueOf` to the Object.prototype member, which is
+// truthy and would be returned as though the attribute held it.
+function ownValue(attributes: Record<string, unknown> | undefined, key: string): unknown {
+    return attributes && Object.hasOwn(attributes, key) ? attributes[key] : undefined
 }
 
 function getIdentityMatch(
@@ -177,24 +191,26 @@ function getIdentityMatch(
     // Configured keys win over the built-in conventions, in list order: for each key,
     // attributes are checked before resource_attributes, and the first value found wins.
     for (const key of configuredKeys ?? []) {
-        const attributeValue = attributes?.[key]
+        const attributeValue = ownValue(attributes, key)
         if (attributeValue) {
             return { key, value: String(attributeValue), source: 'attribute' }
         }
-        const resourceAttributeValue = resourceAttributes?.[key]
+        const resourceAttributeValue = ownValue(resourceAttributes, key)
         if (resourceAttributeValue) {
             return { key, value: String(resourceAttributeValue), source: 'resource_attribute' }
         }
     }
     // Built-in convention fallback only — the configured-key pass already ran above, so
     // isConventionKey is deliberately called without the configured keys here.
-    for (const [key, value] of Object.entries(attributes || {})) {
-        if (isConventionKey(key) && value) {
+    for (const key of Object.keys(attributes || {})) {
+        const value = attributes?.[key]
+        if (value && isConventionKey(key)) {
             return { key, value: String(value), source: 'attribute' }
         }
     }
-    for (const [key, value] of Object.entries(resourceAttributes || {})) {
-        if (isConventionKey(key) && value) {
+    for (const key of Object.keys(resourceAttributes || {})) {
+        const value = resourceAttributes?.[key]
+        if (value && isConventionKey(key)) {
             return { key, value: String(value), source: 'resource_attribute' }
         }
     }

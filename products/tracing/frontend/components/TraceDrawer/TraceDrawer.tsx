@@ -18,6 +18,7 @@ import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
 import { useKeepMountedWhileOpen } from '../../hooks/useKeepMountedWhileOpen'
 import { getQueryText } from '../../spanSummary'
+import type { TraceIdentity } from '../../traceIdentity'
 import { absoluteTraceUrl } from '../../traceLinks'
 import { buildServiceColorMap, formatDuration, TraceWaterfallView } from '../../TraceWaterfallView'
 import type { Span } from '../../types'
@@ -25,6 +26,7 @@ import { ExpandedSpanContent } from '../VirtualizedSpanList/ExpandedSpanContent'
 import { SpanLogsTab } from './SpanLogsTab'
 import { SpanMetricsTab } from './SpanMetricsTab'
 import { SpanSummaryHeader } from './SpanSummaryHeader'
+import { TraceIdentityChips } from './TraceIdentityChips'
 
 type InspectorTab = 'attributes' | 'query' | 'logs' | 'metrics' | 'raw'
 
@@ -38,6 +40,8 @@ export interface TraceDrawerProps {
     /** Timestamp hint echoed into copy-links so cold loads can bound the lookup. */
     ts: string | null
     spans: Span[]
+    /** The person and session the trace belongs to, resolved by tracingViewerLogic. */
+    identity: TraceIdentity
     loading: boolean
     /** The open trace has more spans than the loaded pages — drives the waterfall's infinite scroll. */
     hasMoreSpans?: boolean
@@ -58,6 +62,7 @@ export function TraceDrawer({
     traceId,
     ts,
     spans,
+    identity,
     loading,
     hasMoreSpans = false,
     loadingMoreSpans = false,
@@ -143,6 +148,7 @@ export function TraceDrawer({
                 </div>
             }
         >
+            <TraceIdentityChips identity={identity} timestamp={rootSpan?.timestamp ?? ts} />
             <div className="relative min-h-32 flex gap-4 items-start">
                 {loading && <SpinnerOverlay />}
                 <div className="flex-1 min-w-0">
