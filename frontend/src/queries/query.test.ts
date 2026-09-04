@@ -388,6 +388,21 @@ describe('query', () => {
             expect(statusSpy).toHaveBeenCalledTimes(1)
         })
 
+        it('does not follow up on a timeout the app answered with itself', async () => {
+            // A ClickHouse timeout is a 504 too, and the failure breaker replays it at once, so
+            // there is no run left to wait for and no record to wait for it under.
+            jest.spyOn(api, 'query').mockRejectedValueOnce(
+                new ApiError('timed out', 504, undefined, {
+                    detail: 'Query has hit the max execution time before completing.',
+                })
+            )
+            const statusSpy = jest.spyOn(api.queryStatus, 'get')
+
+            await expect(performQuery(query, undefined, 'blocking')).rejects.toMatchObject({ status: 504 })
+
+            expect(statusSpy).not.toHaveBeenCalled()
+        })
+
         it('does not follow up on a failed async submission', async () => {
             jest.spyOn(api, 'query').mockRejectedValueOnce(gatewayTimeout())
             const statusSpy = jest.spyOn(api.queryStatus, 'get')

@@ -84,9 +84,14 @@ export interface QueryRecoveryOutcome {
  * The gateway gave up waiting for a response it had already accepted, so the server may still be
  * running the query. A 502 or 503 means the request never reached a worker, and waiting on those
  * would only add minutes of silence to an error the user should see now.
+ *
+ * 504 is also an answer the app gives: a ClickHouse timeout carries it, and the failure breaker
+ * replays that answer in milliseconds. Those come with the API's error body and describe a query
+ * that has already stopped, so only a 504 without one is a request the gateway dropped.
  */
 function isDroppedRequest(error: unknown): boolean {
-    return (error as { status?: number } | null)?.status === 504
+    const failure = error as { status?: number; detail?: unknown; data?: { detail?: unknown } } | null
+    return failure?.status === 504 && (failure.data?.detail ?? failure.detail) == null
 }
 
 /**
