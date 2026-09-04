@@ -125,20 +125,30 @@ export enum GraphSeriesAddedSource {
 
 /**
  * How much of the experiment's recordings tab works for this viewer, captured once the session
- * linkability check has resolved. The exposure population is resolved server-side per person,
- * so the list itself always has a source; an empty selectable-metric list is what still makes
- * the tab a weaker page, and these numbers say how often that happens rather than how often
- * the tab is opened.
+ * linkability and in-session availability checks have resolved. The exposure population is
+ * resolved server-side per person, so the list itself always has a source; an empty
+ * selectable-metric list is what still makes the tab a weaker page, and these numbers say how
+ * often that happens rather than how often the tab is opened. The scope and availability fields
+ * live here and not only on the opened-recording context, because a session whose list came back
+ * empty opens nothing, and empty lists are the outcome the in-session scope most affects.
  */
 export interface ExperimentRecordingsTabContext {
     variant_count: number
     metric_count: number
     linkable_metric_count: number
+    /** Kept as a string rather than the tab's union so telemetry doesn't import from the scene. */
+    exposure_scope: string
+    /** Null when the availability check failed, so a transient error never reads as unavailable. */
+    in_session_available: boolean | null
+    in_session_unavailable_reason: string | null
+    in_session_uses_stamped_fallback: boolean | null
 }
 
 /** The facets the recordings list was narrowed by when a recording was opened from it. */
 export interface ExperimentRecordingsFilterContext {
     variant: string | null
+    /** Kept as a string rather than the tab's union so telemetry doesn't import from the scene. */
+    exposure_scope: string
     /** Kept as a string rather than the tab's union so telemetry doesn't import from the scene. */
     metric_filter_mode: string
     selected_metric_count: number
