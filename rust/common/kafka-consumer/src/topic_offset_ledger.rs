@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use metrics::{counter, gauge};
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::charge::Charge;
 use crate::partition_offset_ledger::{Held, LedgerError, PartitionOffsetLedger};
@@ -15,6 +15,9 @@ const UNCOMMITTED_OFFSETS: &str = "kafka_consumer_ledger_uncommitted_offsets";
 const UNCOMMITTED_EVENTS: &str = "kafka_consumer_ledger_uncommitted_events";
 /// Bytes those offsets carry.
 const UNCOMMITTED_BYTES: &str = "kafka_consumer_ledger_uncommitted_bytes";
+/// Redelivered offsets the window already held, which the ledger recognised
+/// and did not charge again.
+const DEDUPLICATED: &str = "kafka_consumer_ledger_deduplicated_total";
 /// Charges and settlements dropped because their partition was reassigned
 /// while they were in flight.
 const STALE_SLICES: &str = "kafka_consumer_ledger_stale_slices_total";
@@ -47,6 +50,17 @@ pub enum Rejection {
     /// unknown after this, so its ledger was reset to a new generation: work
     /// in flight drops as stale, and the next delivery founds a fresh ledger.
     Violation(LedgerError),
+}
+
+/// What one charge did to a partition's window.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ChargeOutcome {
+    /// What the window holds after the charge.
+    pub held: Held,
+    /// Offsets of the slice the window already held. The ledger charged
+    /// nothing for them, so the caller must drop those messages: the window's
+    /// charge states what the owner holds.
+    pub duplicates: Vec<Offset>,
 }
 
 /// One batch's settled view of its partition ledger: the frontier after its
@@ -108,14 +122,19 @@ impl TopicOffsetLedger {
 
     /// Record one slice of delivered offsets on the partition's ledger,
     /// founding the ledger when the slice is the partition's first delivery.
-    /// Returns what the partition's window holds after the charge, or why
-    /// the slice was rejected. Publishes the outcome either way.
+    /// Returns what the partition's window holds after the charge and the
+    /// offsets of the slice it already held, or why the slice was rejected.
+    /// Publishes the outcome either way.
+    ///
+    /// A returned duplicate is a message the caller must drop before it
+    /// reaches any consumer of the slice. The ledger holds one slot and one
+    /// charge for that offset, and the charge states what the owner holds.
     pub fn charge(
         &self,
         topic_partition: &TopicPartition,
         stamp: u64,
         offset_charges: impl IntoIterator<Item = (Offset, Charge)>,
-    ) -> Result<Held, Rejection> {
+    ) -> Result<ChargeOutcome, Rejection> {
         let result = {
             let mut partitions = self.partitions.lock().unwrap();
             let ledger = partitions
@@ -126,7 +145,10 @@ impl TopicOffsetLedger {
                 Err(Rejection::Stale { stamp, generation })
             } else {
                 match ledger.charge(offset_charges) {
-                    Ok(_) => Ok(ledger.held()),
+                    Ok(charged) => Ok(ChargeOutcome {
+                        held: ledger.held(),
+                        duplicates: charged.duplicates,
+                    }),
                     Err(error) => {
                         *ledger = PartitionOffsetLedger::new(generation + 1);
                         self.generations_version.fetch_add(1, Ordering::Relaxed);
@@ -136,9 +158,14 @@ impl TopicOffsetLedger {
             }
         };
         // Outside the lock, and on every path, so no caller has to remember.
-        match result {
-            Ok(held) => publish_held(topic_partition, held),
-            Err(rejection) => count_rejection("charge", topic_partition, rejection),
+        match &result {
+            Ok(outcome) => {
+                publish_held(topic_partition, outcome.held);
+                if !outcome.duplicates.is_empty() {
+                    count_duplicates(topic_partition, &outcome.duplicates);
+                }
+            }
+            Err(rejection) => count_rejection("charge", topic_partition, *rejection),
         }
         result
     }
@@ -269,6 +296,23 @@ fn publish_held(topic_partition: &TopicPartition, held: Held) {
     .set(held.charge.bytes as f64);
 }
 
+/// Count and log one partition's redeliveries, one line per charge. Reached
+/// only when a charge recognised at least one, so a poll that delivers each
+/// offset once pays nothing.
+fn count_duplicates(topic_partition: &TopicPartition, duplicates: &[Offset]) {
+    let (topic, partition) = labels(topic_partition);
+    counter!(DEDUPLICATED, "topic" => topic, "partition" => partition)
+        .increment(duplicates.len() as u64);
+    info!(
+        topic = %topic_partition.topic,
+        partition = topic_partition.partition,
+        first = %duplicates[0],
+        last = %duplicates[duplicates.len() - 1],
+        count = duplicates.len(),
+        "Offset ledger recognised redelivered offsets its window already holds"
+    );
+}
+
 /// Count one charge or settlement the ledger rejected. A stale slice is
 /// expected around a rebalance; a violation is a bug in the accounting.
 fn count_rejection(stage: &'static str, topic_partition: &TopicPartition, rejection: Rejection) {
@@ -299,10 +343,28 @@ fn labels(topic_partition: &TopicPartition) -> (Arc<str>, Arc<str>) {
 
 #[cfg(test)]
 mod tests {
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
+
     use super::*;
 
     fn tp(topic: &str, partition: i32) -> TopicPartition {
         TopicPartition::new(topic, partition)
+    }
+
+    /// One counter's total across its label sets; `None` when nothing
+    /// incremented it. The recorder is thread-local, so each test reads only
+    /// what its own body emitted.
+    fn counter_value(snapshotter: &Snapshotter, name: &str) -> Option<u64> {
+        let mut total = None;
+        for (key, _, _, value) in snapshotter.snapshot().into_vec() {
+            if key.key().name() != name {
+                continue;
+            }
+            if let DebugValue::Counter(count) = value {
+                total = Some(total.unwrap_or(0) + count);
+            }
+        }
+        total
     }
 
     fn charge(ledger: &TopicOffsetLedger, tp: &TopicPartition, stamp: u64, offsets: &[i64]) {
@@ -364,7 +426,7 @@ mod tests {
         assert_eq!(
             ledger
                 .charge(&p0, 1, [(Offset(10), Charge::ZERO)])
-                .map(|held| held.offsets),
+                .map(|outcome| outcome.held.offsets),
             Ok(1)
         );
     }
@@ -615,45 +677,91 @@ mod tests {
         assert_eq!(
             ledger
                 .charge(&p0, 2, [(Offset(10), Charge::ZERO)])
-                .map(|held| held.offsets),
+                .map(|outcome| outcome.held.offsets),
             Ok(1)
         );
     }
 
     #[test]
-    fn a_violating_charge_resets_the_partition_to_a_new_generation() {
+    fn a_redelivered_offset_inside_the_window_is_returned_and_counted() {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
         let ledger = TopicOffsetLedger::new();
         let p0 = tp("events", 0);
-        charge(&ledger, &p0, 0, &[10, 11]);
 
-        // A duplicate delivery under the same generation is a contract
-        // violation, not a rebalance: the ledger cannot trust its window.
-        assert_eq!(
-            ledger.charge(&p0, 0, [(Offset(11), Charge::ZERO)]),
-            Err(Rejection::Violation(LedgerError::OffsetNotAboveWindow {
-                offset: Offset(11),
-                next: Offset(12),
-            }))
-        );
+        metrics::with_local_recorder(&recorder, || {
+            charge(&ledger, &p0, 0, &[10, 11]);
+            let outcome = ledger
+                .charge(&p0, 0, [(Offset(11), Charge::ZERO)])
+                .expect("a redelivery inside the window is not a violation");
+            assert_eq!(outcome.duplicates, vec![Offset(11)]);
+            assert_eq!(outcome.held.offsets, 2, "no slot is added for it");
+        });
+
+        assert_eq!(ledger.generation(&p0), 0, "the partition is not reset");
+        assert_eq!(counter_value(&snapshotter, DEDUPLICATED), Some(1));
+        assert_eq!(counter_value(&snapshotter, ERRORS), None);
+
+        // The partition settles and commits as if the repeat never arrived.
+        let settlement = ledger
+            .settle(&p0, 0, [Offset(10), Offset(11)])
+            .expect("live ledger settles");
+        assert_eq!(settlement.frontier, Some(Offset(12)));
+        assert_eq!(ledger.take_frontier(&p0), Some(Offset(12)));
+    }
+
+    #[test]
+    fn a_violating_charge_resets_the_partition_to_a_new_generation() {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let ledger = TopicOffsetLedger::new();
+        let p0 = tp("events", 0);
+
+        metrics::with_local_recorder(&recorder, || {
+            charge(&ledger, &p0, 0, &[10, 11]);
+            ledger
+                .settle(&p0, 0, [Offset(10)])
+                .expect("live ledger settles");
+            ledger.take_frontier(&p0);
+
+            // Offset 10 is below the base the take left behind, so the ledger
+            // cannot tell a repeat from a message it never saw.
+            assert_eq!(
+                ledger.charge(&p0, 0, [(Offset(10), Charge::ZERO)]),
+                Err(Rejection::Violation(LedgerError::OffsetNotAboveWindow {
+                    offset: Offset(10),
+                    next: Offset(12),
+                }))
+            );
+        });
+
         assert_eq!(ledger.held(&p0).offsets, 0, "the window is discarded");
         assert_eq!(ledger.generation(&p0), 1);
         assert_eq!(ledger.generations_version(), 1);
+        assert_eq!(counter_value(&snapshotter, ERRORS), Some(1));
 
-        // In-flight work from before the reset drops as stale; the next
-        // delivery under the new generation founds a fresh ledger.
+        // In-flight work from before the reset drops as stale.
         assert_eq!(
-            ledger.settle(&p0, 0, [Offset(10)]),
+            ledger.settle(&p0, 0, [Offset(11)]),
             Err(Rejection::Stale {
                 stamp: 0,
                 generation: 1
             })
         );
+
+        // The next delivery under the new generation founds a fresh ledger,
+        // and the partition commits again from there.
         assert_eq!(
             ledger
                 .charge(&p0, 1, [(Offset(12), Charge::ZERO)])
-                .map(|held| held.offsets),
+                .map(|outcome| outcome.held.offsets),
             Ok(1)
         );
+        let settlement = ledger
+            .settle(&p0, 1, [Offset(12)])
+            .expect("the new generation settles");
+        assert_eq!(settlement.frontier, Some(Offset(13)));
+        assert_eq!(ledger.take_frontier(&p0), Some(Offset(13)));
     }
 
     #[test]
