@@ -18,13 +18,13 @@ class TestGenerateAIReportResult:
     def test_query_error_types_are_derived_for_new_results(self) -> None:
         result = GenerateAIReportResult(
             query_errors=[
-                {"type": "ResolutionError", "code": "hogql_resolution_error", "message": "Unknown field"},
+                {"type": "QueryError", "code": "hogql_query_error", "message": "Unknown field"},
                 {"type": "ExposedHogQLError", "code": "hogql_error", "message": "Invalid query"},
-                {"type": "ResolutionError", "code": "hogql_resolution_error", "message": "Unknown field"},
+                {"type": "QueryError", "code": "hogql_query_error", "message": "Unknown field"},
             ]
         )
 
-        assert result.query_error_types == ["ExposedHogQLError", "ResolutionError"]
+        assert result.query_error_types == ["ExposedHogQLError", "QueryError"]
 
     # all_queries_failed is the single source of truth for the workflow's FAILED-vs-COMPLETED decision,
     # so a regression here (dropping the zero-steps guard, or flipping >= ) would silently mislabel a
@@ -70,9 +70,9 @@ class TestGenerateAIReportResult:
             (
                 "multiple_with_types",
                 2,
-                ["ExposedHogQLError", "ResolutionError"],
+                ["ExposedHogQLError", "QueryError"],
                 [],
-                "All 2 queries the AI generated failed to run (ExposedHogQLError, ResolutionError), so the report could not be computed.",
+                "All 2 queries the AI generated failed to run (ExposedHogQLError, QueryError), so the report could not be computed.",
             ),
             (
                 "memory_limit_has_actionable_reason",
@@ -98,12 +98,12 @@ class TestGenerateAIReportResult:
                         "message": ClickHouseQueryTimeOut.default_detail,
                     },
                     {
-                        "type": "ResolutionError",
-                        "code": "hogql_resolution_error",
+                        "type": "QueryError",
+                        "code": "hogql_query_error",
                         "message": "Unknown field",
                     },
                 ],
-                "All 2 queries the AI generated failed to run (ClickHouseQueryTimeOut, ResolutionError), so the report could not be computed.",
+                "All 2 queries the AI generated failed to run (ClickHouseQueryTimeOut, QueryError), so the report could not be computed.",
             ),
             (
                 "legacy_memory_limit_without_details_stays_generic",

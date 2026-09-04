@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from parameterized import parameterized
 from rest_framework.exceptions import APIException
 
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
 
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
@@ -135,13 +135,10 @@ def _wrap(
                 "message": ClickHouseQueryTimeOut.default_detail,
             },
         ),
+        (ResolutionError("Database is not set"), None),
         (
-            ResolutionError("Unknown field: signups"),
-            {
-                "type": "ResolutionError",
-                "code": "hogql_resolution_error",
-                "message": "Unknown field: signups",
-            },
+            QueryError("Unknown field: signups"),
+            {"type": "QueryError", "code": "hogql_query_error", "message": "Unknown field: signups"},
         ),
         (
             ExposedHogQLError("Unable to resolve field 'operaton'"),
@@ -159,14 +156,7 @@ def _wrap(
                 "message": "Invalid aggregate",
             },
         ),
-        (
-            _wrap(Exception("outer"), cause=ResolutionError("Unknown field: signups")),
-            {
-                "type": "ResolutionError",
-                "code": "hogql_resolution_error",
-                "message": "Unknown field: signups",
-            },
-        ),
+        (_wrap(Exception("outer"), cause=ResolutionError("Database is not set")), None),
         (
             _wrap(RuntimeError("outer"), context=ExposedHogQLError("Unknown field: revenue")),
             {"type": "ExposedHogQLError", "code": "hogql_error", "message": "Unknown field: revenue"},
@@ -189,10 +179,6 @@ def test_safe_query_error_details_uses_exception_safety_marker() -> None:
         "code": "safe_query_error",
         "message": "Safe detail",
     }
-
-
-def test_resolution_error_owns_its_stable_error_code() -> None:
-    assert ResolutionError.code_name == "hogql_resolution_error"
 
 
 def _slo_completed(capture_mock: MagicMock) -> dict:
@@ -428,14 +414,12 @@ async def test_run_steps_keeps_wrapped_error_out_of_recipient_copy_and_records_s
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
 @patch(f"{_RP}.AssistantQueryExecutor")
-async def test_run_steps_forwards_resolution_error_message_to_fix(
+async def test_run_steps_forwards_exposed_query_error_message_to_fix(
     mock_executor_cls: MagicMock, mock_fix: AsyncMock
 ) -> None:
-    # ResolutionError names the field the planner referenced — its message, not just the type name,
-    # must reach the fix LLM so it can actually repair the query.
     mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
         side_effect=[
-            ResolutionError("Unable to resolve field 'operaton'"),
+            QueryError("Unable to resolve field 'operaton'"),
             FormattedQueryResult(formatted="formatted table", fallback_used=False, response=_RESPONSE),
         ]
     )
@@ -556,14 +540,14 @@ async def test_run_steps_bounds_concurrent_query_execution(mock_executor_cls: Ma
     "exc,expected",
     [
         (ExposedHogQLError("Unable to resolve field 'operaton'"), "Unable to resolve field 'operaton'"),
-        (ResolutionError("Unknown field: signups"), "Unknown field: signups"),
+        (QueryError("Unknown field: signups"), "Unknown field: signups"),
         (ClickHouseQueryMemoryLimitExceeded(), ClickHouseQueryMemoryLimitExceeded.default_detail),
-        # A plain InternalHogQLError (not a ResolutionError) can echo team-scoped data — stays type-only.
+        (ResolutionError("Database is not set"), None),
         (InternalHogQLError("internal detail with a team-scoped id"), None),
         (ValueError("boom"), None),
         # A generic error wrapping a safe error surfaces the wrapped message (executors wrap like this).
         (
-            _wrap(Exception("wrapper"), cause=ResolutionError("Unable to resolve field 'x'")),
+            _wrap(Exception("wrapper"), cause=QueryError("Unable to resolve field 'x'")),
             "Unable to resolve field 'x'",
         ),
         (_wrap(RuntimeError("boom"), context=ExposedHogQLError("bad thing")), "bad thing"),

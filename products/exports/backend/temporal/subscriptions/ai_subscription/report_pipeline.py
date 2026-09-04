@@ -573,8 +573,7 @@ async def _run_steps(
                 error_details = safe_query_error_details(exc)
                 fixed = await _arequest_hogql_fix(
                     original_hogql=current_hogql,
-                    # Forward the safe message (exposed/resolution errors describe the field/property the
-                    # planner referenced, which is what the fixer needs); fall back to the type name.
+                    # Forward explicitly safe detail when available; fall back to the type name.
                     error_message=(error_details["message"] if error_details else None) or type(exc).__name__,
                     step_description=safe_description,
                     # The planner's project schema (event/property names) — a schema-blind fixer just
