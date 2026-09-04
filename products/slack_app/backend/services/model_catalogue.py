@@ -18,8 +18,8 @@ from products.tasks.backend.facade.model_catalogue import (
     ModelChoice,
     RuntimeGroup,
     catalog_model_choices,
+    display_name_for_model,
     filter_unsupported_effort,
-    format_model_id,
     group_by_runtime,
     label_for,
     runtime_adapter_for,
@@ -40,7 +40,7 @@ def available_model_choices() -> tuple[ModelChoice, ...]:
 def describe_run_model(model: str | None, reasoning_effort: str | None) -> str:
     """Render the model a run is on, in one phrasing shared by the App Home card and
     the progress message in the Slack thread."""
-    label = format_model_id(model) if model else "—"
+    label = display_name_for_model(model) if model else "—"
     if not reasoning_effort:
         return f"*{label}*"
     return f"*{label}* · Reasoning: *{label_for(reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}*"
@@ -54,7 +54,7 @@ __all__ = [
     "available_model_choices",
     "describe_run_model",
     "filter_unsupported_effort",
-    "format_model_id",
+    "display_name_for_model",
     "group_by_runtime",
     "label_for",
     "runtime_adapter_for",
