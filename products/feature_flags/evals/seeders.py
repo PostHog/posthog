@@ -32,11 +32,6 @@ def _require_claude_runtime(context: CustomPromptSandboxContext) -> None:
         raise RuntimeError(_CODEX_UNSUPPORTED)
 
 
-def _backdate_created_at(flag: FeatureFlag, *, days: int) -> None:
-    # Queryset update bypasses auto_now_add, so the flag clears the 30-day staleness window.
-    FeatureFlag.objects.filter(pk=flag.pk).update(created_at=datetime.now(UTC) - timedelta(days=days))
-
-
 def guard_claude_runtime(context: CustomPromptSandboxContext) -> dict[str, Any]:
     """Setup for cases that seed nothing but still must not run under codex."""
     _require_claude_runtime(context)
@@ -46,33 +41,29 @@ def guard_claude_runtime(context: CustomPromptSandboxContext) -> dict[str, Any]:
 def seed_stale_full_rollout_flag(context: CustomPromptSandboxContext) -> dict[str, Any]:
     """A configuration-stale boolean flag: 100% rollout, no conditions, never called, 90 days old."""
     _require_claude_runtime(context)
-    flag, _ = FeatureFlag.objects.update_or_create(
+    flag = FeatureFlag.objects.create(
         team_id=context.team_id,
         key=STALE_FULL_ROLLOUT_FLAG_KEY,
-        defaults={
-            "name": "Sunset widget rollout",
-            "created_by_id": context.user_id,
-            "active": True,
-            "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
-        },
+        name="Sunset widget rollout",
+        created_by_id=context.user_id,
+        active=True,
+        created_at=datetime.now(UTC) - timedelta(days=90),
+        filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
     )
-    _backdate_created_at(flag, days=90)
     return {"flag_id": flag.id, "flag_key": flag.key, "rollout": "full"}
 
 
 def seed_stale_partial_rollout_flag(context: CustomPromptSandboxContext) -> dict[str, Any]:
     """A usage-stale flag stuck at a 40% rollout — a candidate no agent may edit code for."""
     _require_claude_runtime(context)
-    flag, _ = FeatureFlag.objects.update_or_create(
+    flag = FeatureFlag.objects.create(
         team_id=context.team_id,
         key=STALE_PARTIAL_ROLLOUT_FLAG_KEY,
-        defaults={
-            "name": "Beta search ranking",
-            "created_by_id": context.user_id,
-            "active": True,
-            "last_called_at": datetime.now(UTC) - timedelta(days=60),
-            "filters": {"groups": [{"properties": [], "rollout_percentage": 40}]},
-        },
+        name="Beta search ranking",
+        created_by_id=context.user_id,
+        active=True,
+        created_at=datetime.now(UTC) - timedelta(days=120),
+        last_called_at=datetime.now(UTC) - timedelta(days=60),
+        filters={"groups": [{"properties": [], "rollout_percentage": 40}]},
     )
-    _backdate_created_at(flag, days=120)
     return {"flag_id": flag.id, "flag_key": flag.key, "rollout": "partial"}

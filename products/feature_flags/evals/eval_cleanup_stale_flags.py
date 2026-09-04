@@ -7,28 +7,34 @@ is not coverable here without depending on specific flag-key usages in an extern
 that can drift. What is coverable, with invented flag keys seeded into the case team:
 
 * ``cleanup_request_executes`` — a generic "clean up our stale flags" ask. The skill must
-  load, and because the seeded key appears nowhere in hedgebox, a correct run ends in a
-  reported no-op: no code edits and no flag mutation.
+  load, the agent must look the seeded flag up in PostHog, and because the seeded key
+  appears nowhere in hedgebox, a correct run ends with no code edits and no flag mutation.
 * ``unrelated_task_stays_quiet`` — an ordinary edit task that mentions a flag in passing.
-  The skill must not load, and the agent must still edit a file (the stale-premise guard
-  borrowed from ``eval_instrument_flags``) without touching any flag.
+  The skill must not load, no flag read tool may be called, and the agent must still edit
+  a file (the stale-premise guard borrowed from ``eval_instrument_flags``).
 * ``no_references_is_noop`` — a direct "remove this flag from the repo" ask for a key with
-  zero references. The skill's no-op rule: report, no edits, no empty PR, no mutation.
-* ``partial_flag_untouched`` — a direct removal ask for a 40%-rollout flag. The skill's
-  partial rule: explain the decision, change nothing.
+  zero references. Graded: skill load, flag lookup, no edits, no mutation. The "report the
+  no-op, open no empty PR" half of the rule is not graded; no scorer reads branch, commit,
+  or PR state.
+* ``partial_flag_untouched`` — a direct removal ask for a 40%-rollout flag. Graded the
+  same way as ``no_references_is_noop``: the scorers cannot tell a partial-rule refusal
+  from a no-references no-op, because hedgebox has no flag call sites either way. The case
+  earns its keep by feeding the partial-rollout shape through the lookup.
 
-Every case shares ``NoToolCall`` over the flag lifecycle verbs — Phase A of the skill
-never mutates a flag, whatever else happens. Edit direction is graded by the suite-local
-``CodeEditDirection``, which reads ``expected[<name>]["should_edit"]`` the way
-``SkillTriggered`` reads ``should_load``, so one scorer list spans positive and negative
-cases without half the scorecard self-skipping.
+Every case shares ``NoToolCall`` over the flag write verbs — Phase A of the skill never
+mutates a flag, whatever else happens. Direction over a tool group is graded by
+``scorers.ToolGroupDirection``, which reads ``expected[<name>][<key>]`` the way
+``SkillTriggered`` reads ``should_load``: one instance over Claude's file-edit tools
+(``should_edit``) and one over the flag read tools (``should_look_up``), so one scorer
+list spans positive and negative cases without half the scorecard self-skipping, and a
+run that loads the skill and then never contacts PostHog fails the positive cases.
 
 All scorers are deterministic — no LLM judge — so the suite is cheap to rerun while
 iterating on the skill text. ``SandboxedPrivateEval`` runs without a Braintrust key.
 
-**Claude runtime only.** ``CodeEditDirection`` matches Claude's named file tools, which
-codex does not carry, so the seeders refuse ``--agent-runtime codex`` as an infra error
-(see ``seeders._require_claude_runtime``).
+**Claude runtime only.** The edit-direction scorer matches Claude's named file tools,
+which codex does not carry, so the seeders refuse ``--agent-runtime codex`` as an infra
+error (see ``seeders._require_claude_runtime``).
 
 To run:
     flox activate -- bash -c "hogli evals eval_cleanup_stale_flags"
@@ -36,6 +42,7 @@ To run:
 
 from __future__ import annotations
 
+from products.feature_flags.evals.scorers import FILE_EDIT_TOOLS, FLAG_LOOKUP_TOOLS, ToolGroupDirection
 from products.feature_flags.evals.seeders import (
     STALE_FULL_ROLLOUT_FLAG_KEY,
     STALE_PARTIAL_ROLLOUT_FLAG_KEY,
@@ -46,14 +53,13 @@ from products.feature_flags.evals.seeders import (
 from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
-from products.posthog_ai.eval_harness.log_parser import LogParser
 from products.posthog_ai.eval_harness.scorers import NoToolCall
-from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 from products.posthog_ai.evals.retrieval.scorers import SkillTriggered
 
 SKILL_NAME = "cleaning-up-stale-feature-flags"
 TRIGGER_SCORER_NAME = "cleanup_skill_triggered"
 EDIT_SCORER_NAME = "code_edit_direction"
+LOOKUP_SCORER_NAME = "flag_lookup_direction"
 
 # Every write verb the current MCP surface offers for a flag. Phase A of the skill must
 # not call any of them on any case — archival belongs to a deployment-confirmed
@@ -67,39 +73,14 @@ FLAG_MUTATION_TOOLS = frozenset(
         "delete-feature-flag",
         "update-feature-flag",
         "create-feature-flag",
+        "feature-flags-bulk-delete-create",
+        "feature-flags-bulk-update-tags-create",
+        "feature-flags-copy-flags-create",
+        "scheduled-changes-create",
+        "scheduled-changes-update",
+        "scheduled-changes-delete",
     }
 )
-
-_FILE_EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit"})
-
-
-class CodeEditDirection(Scorer):
-    """Binary: did the agent's file editing match the direction the case expects?
-
-    ``expected[<name>] = {"should_edit": <bool>}`` on every case; an undeclared direction
-    skips rather than assuming one. Counts only successful named file-tool calls, so a
-    failed edit attempt doesn't flip a no-edit case.
-    """
-
-    def _name(self) -> str:
-        return EDIT_SCORER_NAME
-
-    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        if not output or not output.get("raw_log"):
-            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
-        direction = (expected or {}).get(self._name())
-        if not isinstance(direction, dict) or "should_edit" not in direction:
-            return Score(name=self._name(), score=None, metadata={"reason": "No should_edit declared"})
-
-        parser = LogParser.cached(output["raw_log"], initial_prompt=output.get("prompt", "") or "")
-        edits = [call.name for call in parser.get_tool_calls() if not call.is_error and call.name in _FILE_EDIT_TOOLS]
-        should_edit = bool(direction["should_edit"])
-        matched = bool(edits) == should_edit
-        return Score(
-            name=self._name(),
-            score=1.0 if matched else 0.0,
-            metadata={"should_edit": should_edit, "edit_calls": edits[:10]},
-        )
 
 
 async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
@@ -111,6 +92,7 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
             expected={
                 TRIGGER_SCORER_NAME: {"should_load": True},
                 EDIT_SCORER_NAME: {"should_edit": False},
+                LOOKUP_SCORER_NAME: {"should_look_up": True},
             },
             metadata={"trigger": "positive", "skill": SKILL_NAME},
         ),
@@ -125,6 +107,7 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
             expected={
                 TRIGGER_SCORER_NAME: {"should_load": False},
                 EDIT_SCORER_NAME: {"should_edit": True},
+                LOOKUP_SCORER_NAME: {"should_look_up": False},
             },
             metadata={"trigger": "negative", "skill": SKILL_NAME},
         ),
@@ -138,6 +121,7 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
             expected={
                 TRIGGER_SCORER_NAME: {"should_load": True},
                 EDIT_SCORER_NAME: {"should_edit": False},
+                LOOKUP_SCORER_NAME: {"should_look_up": True},
             },
             metadata={"trigger": "positive", "skill": SKILL_NAME, "rollout": "full"},
         ),
@@ -151,6 +135,7 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
             expected={
                 TRIGGER_SCORER_NAME: {"should_load": True},
                 EDIT_SCORER_NAME: {"should_edit": False},
+                LOOKUP_SCORER_NAME: {"should_look_up": True},
             },
             metadata={"trigger": "positive", "skill": SKILL_NAME, "rollout": "partial"},
         ),
@@ -162,7 +147,8 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
         scorers=[
             SkillTriggered(SKILL_NAME, name=TRIGGER_SCORER_NAME),
             NoToolCall(FLAG_MUTATION_TOOLS, name="no_flag_mutation"),
-            CodeEditDirection(),
+            ToolGroupDirection(FILE_EDIT_TOOLS, name=EDIT_SCORER_NAME, key="should_edit"),
+            ToolGroupDirection(FLAG_LOOKUP_TOOLS, name=LOOKUP_SCORER_NAME, key="should_look_up"),
         ],
         ctx=ctx,
     )
