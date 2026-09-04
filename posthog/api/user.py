@@ -47,7 +47,8 @@ from two_factor.utils import default_device
 
 from posthog.schema import UserUIConfiguration
 
-from posthog.api.email_verification import email_verification_code_verifier
+from posthog.api.credential_reconciliation import reconcile_email_claim_credentials
+from posthog.api.email_verification import SIGNUP_EMAIL_PROOF_SESSION_KEY, email_verification_code_verifier
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
     ToolbarOAuthState,
@@ -1280,23 +1281,52 @@ class UserViewSet(
             )
         email_verification_code_verifier.invalidate(user)
 
-        # An unverified user's code proves the account address, not the staged one, so their
-        # staged change stays pending until they verify it with a code sent to the new address.
-        # A legacy account (is_email_verified None) counts as verified, like in the login flow
-        # and in the verifier.
-        if user.pending_email and user.is_email_verified is not False:
+        email_changed = bool(user.pending_email and user.is_email_verified is not False)
+        same_user_session = bool(request.user.is_authenticated and request.user.pk == user.pk)
+
+        if email_changed:
             old_email = user.email
             with transaction.atomic():
-                user.email = user.pending_email
+                user.email = cast(str, user.pending_email)
                 user.pending_email = None
                 user.save(update_fields=["email", "pending_email"])
-                # Delete social auth so the old external identity can't keep logging in.
-                UserSocialAuth.objects.filter(user=user).delete()
+                if same_user_session:
+                    UserSocialAuth.objects.filter(user=user).delete()
+                else:
+                    reconcile_email_claim_credentials(user)
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
-            revoke_other_sessions_for_request(request, user)
+            if same_user_session:
+                revoke_other_sessions_for_request(request, user)
+            else:
+                revoke_other_sessions(user, keep_session_key=None)
 
-        user.is_email_verified = True
-        user.save()
+        if user.is_email_verified is False:
+            signup_proof = request.session.get(SIGNUP_EMAIL_PROOF_SESSION_KEY)
+            proof_matches_user = isinstance(signup_proof, dict) and signup_proof.get("user_uuid") == str(user.uuid)
+            trusted_password = proof_matches_user and signup_proof.get("credential_type") == "password"
+            proof_passkey_id = signup_proof.get("credential_id") if proof_matches_user else None
+            trusted_passkey_id = (
+                proof_passkey_id
+                if proof_matches_user
+                and signup_proof.get("credential_type") == "passkey"
+                and isinstance(proof_passkey_id, str)
+                else None
+            )
+            with transaction.atomic():
+                reconcile_email_claim_credentials(
+                    user,
+                    trusted_password=trusted_password,
+                    trusted_passkey_id=trusted_passkey_id,
+                )
+                user.is_email_verified = True
+                user.save(update_fields=["is_email_verified"])
+            if proof_matches_user:
+                request.session.pop(SIGNUP_EMAIL_PROOF_SESSION_KEY, None)
+            if not trusted_password and trusted_passkey_id is None:
+                revoke_other_sessions(user, keep_session_key=None)
+        else:
+            user.is_email_verified = True
+            user.save(update_fields=["is_email_verified"])
         report_user_verified_email(user)
 
         user_has_passkeys = has_passkeys(user)

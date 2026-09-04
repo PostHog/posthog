@@ -21,6 +21,11 @@ VERIFICATION_DISABLED_FLAG = "email-verification-disabled"
 EMAIL_CODE_STATE_REDIS_KEY_PREFIX = "email_verification_code_state"
 EMAIL_CODE_ATTEMPTS_REDIS_KEY_PREFIX = "email_verification_code_attempts"
 
+# Marks the browser session that performed a signup whose email still needs a code. A passkey
+# minted by that session only becomes usable for login once this same session enters the code,
+# so a pre-registered credential cannot outlive the address being claimed by someone else.
+SIGNUP_EMAIL_PROOF_SESSION_KEY = "signup_email_proof_pending"
+
 
 def is_email_verification_disabled(user: User) -> bool:
     # using disabled here so that the default state (if no flag exists) is that verification defaults to ON.
