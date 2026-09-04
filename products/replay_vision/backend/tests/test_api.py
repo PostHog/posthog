@@ -1131,12 +1131,18 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("drafted", None, 200, True),
-            ("model_failed", DraftError(), 503, False),
+            ("drafted", None, 200, True, None),
+            ("model_failed", DraftError("model_call_failed"), 503, False, "model_call_failed"),
+            ("bad_draft", DraftError("config_invalid", "tags are required"), 503, False, "config_invalid"),
         ]
     )
     def test_draft_reports_outcome(
-        self, _name: str, error: Exception | None, expected_status: int, expected_success: bool
+        self,
+        _name: str,
+        error: Exception | None,
+        expected_status: int,
+        expected_success: bool,
+        expected_reason: str | None,
     ) -> None:
         # A draft that reports nothing would read as user abandonment instead of a model failure.
         self.organization.is_ai_data_processing_approved = True
@@ -1166,6 +1172,8 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         properties = drafted_events[0].args[2]
         self.assertEqual(properties["success"], expected_success)
         self.assertEqual(properties["goal_length"], len(goal))
+        # A uniform 503 can't be triaged, so the failure mode has to reach telemetry.
+        self.assertEqual(properties.get("failure_reason"), expected_reason)
         # The goal is customer text; only its length may ride along.
         self.assertNotIn("goal", properties)
 
