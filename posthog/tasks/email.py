@@ -2264,26 +2264,29 @@ def send_organization_deleted_email(
     """
     timestamp = timezone.now().timestamp()
     user = User.objects.filter(id=user_id).first()
+    if not user:
+        logger.warning(f"User {user_id} not found for organization deletion email")
+
+    other_member_ids = [member_id for member_id in (member_user_ids or []) if member_id != user_id]
+    other_members = list(User.objects.filter(id__in=other_member_ids))
+
+    # Build both messages before queueing either. A raise between the two sends retries the whole
+    # task, and each attempt stamps a new timestamp into the campaign key, so MessagingRecord
+    # cannot suppress the message already on its way.
+    actor_message: EmailMessage | None = None
     if user:
-        message = _organization_deleted_message(
+        actor_message = _organization_deleted_message(
             campaign_key=f"organization_deleted_{user_id}_{timestamp}",
             subject=f"Your organization '{organization_name}' has been deleted",
             organization_name=organization_name,
             project_names=project_names,
             requested_by_you=True,
         )
-        message.add_user_recipient(user)
-        message.send()
-        logger.info(
-            f"Sent organization deletion confirmation email to user {user_id} for organization {organization_name}"
-        )
-    else:
-        logger.warning(f"User {user_id} not found for organization deletion email")
+        actor_message.add_user_recipient(user)
 
-    other_member_ids = [member_id for member_id in (member_user_ids or []) if member_id != user_id]
-    other_members = list(User.objects.filter(id__in=other_member_ids))
+    member_message: EmailMessage | None = None
     if other_members:
-        message = _organization_deleted_message(
+        member_message = _organization_deleted_message(
             campaign_key=f"organization_deleted_members_{user_id}_{timestamp}",
             subject=f"The organization '{organization_name}' has been deleted",
             organization_name=organization_name,
@@ -2293,8 +2296,15 @@ def send_organization_deleted_email(
             requested_by_you=False,
         )
         for member in other_members:
-            message.add_user_recipient(member)
-        message.send()
+            member_message.add_user_recipient(member)
+
+    if actor_message:
+        actor_message.send()
+        logger.info(
+            f"Sent organization deletion confirmation email to user {user_id} for organization {organization_name}"
+        )
+    if member_message:
+        member_message.send()
         logger.info(f"Sent organization deletion notice to {len(other_members)} other members of {organization_name}")
 
 
