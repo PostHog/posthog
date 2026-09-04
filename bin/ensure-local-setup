@@ -86,10 +86,7 @@ def ensure_wizard_oauth_app() -> None:
 STEPS = [
     ("dev personal API key", lambda: call_command("setup_local_api_key")),
     ("wizard cloud-run OAuth app", ensure_wizard_oauth_app),
-    # Sandbox agent OAuth apps (Array / PostHog AI / Signals). `hogli start`'s migrate-postgres
-    # unit runs `bin/migrate --scope=postgres`, which skips the `tasks-oauth` scope that calls this
-    # command, so a fresh local setup that restores the pre-migrated schema never seeds them. The
-    # command is idempotent and no-ops in the US/EU regions, so running it here is safe.
+    # Local migrate runs use --scope=postgres, which skips bin/migrate's tasks-oauth scope, so seed the sandbox agent OAuth apps here.
     ("task sandbox OAuth apps", lambda: call_command("setup_tasks_oauth")),
 ]
 
