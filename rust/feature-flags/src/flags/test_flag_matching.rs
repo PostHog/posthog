@@ -18,7 +18,7 @@ mod tests {
         },
         flags::{
             feature_flag_list::PreparedFlags,
-            flag_group_type_mapping::GroupTypeCacheManager,
+            flag_group_type_mapping::{GroupTypeCacheManager, GroupTypeMapping},
             flag_match_reason::FeatureFlagMatchReason,
             flag_matching::{FeatureFlagMatch, FeatureFlagMatcher, PropertyContext},
             flag_matching_utils::{
@@ -1776,6 +1776,193 @@ mod tests {
             "acme is not mecklenburgische, so is_not should match"
         );
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
+    }
+
+    /// Builds a matcher that knows about a single group type ("organization" at index 0)
+    /// and, optionally, has that group supplied in the request context. Group-property DB
+    /// prep is deliberately never run, so `group_properties_pending(0)` holds.
+    async fn group_matcher_without_group_prep(
+        with_group_key: bool,
+    ) -> (TestContext, FeatureFlagMatcher) {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let groups =
+            with_group_key.then(|| HashMap::from([("organization".to_string(), json!("acme"))]));
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            context.create_postgres_router(),
+            cohort_cache,
+            mock_group_type_cache(HashMap::from([("organization".to_string(), 0)])),
+            groups,
+        );
+        // Populated in production by `initialize_group_type_mappings_if_needed`, which a
+        // bare `is_condition_match` test doesn't reach.
+        matcher.set_group_type_mapping_for_test(GroupTypeMapping::new(HashMap::from([(
+            "organization".to_string(),
+            0,
+        )])));
+        (context, matcher)
+    }
+
+    fn organization_tier_is_not_condition() -> FlagPropertyGroup {
+        FlagPropertyGroup {
+            variant: None,
+            properties: Some(vec![PropertyFilter {
+                key: "tier".to_string(),
+                value: Some(json!("enterprise")),
+                operator: Some(OperatorType::IsNot),
+                prop_type: PropertyType::Group,
+                group_type_index: Some(0),
+                negation: None,
+                compiled_regex: None,
+                extra: Default::default(),
+            }]),
+            rollout_percentage: Some(100.0),
+            ..Default::default()
+        }
+    }
+
+    /// Regression test: the group-property analogue of the person `Pending` guard. When
+    /// group-property DB prep never ran for a group type the request *does* supply a key
+    /// for, a negative operator like `is_not` must not read the resulting empty map as
+    /// "this group has no tier" — that would grant the flag to precisely the enterprise
+    /// organizations the condition excludes, purely because of a fetch miss.
+    #[tokio::test]
+    async fn test_is_condition_match_group_is_not_fails_closed_when_group_properties_pending() {
+        let (_context, matcher) = group_matcher_without_group_prep(true).await;
+        let flag = mock!(FeatureFlag);
+        assert!(matcher.flag_evaluation_state.group_properties_pending(0));
+
+        // Mirrors what the lazy loader caches for an unfetched index: an empty map.
+        let empty_groups = HashMap::from([(0, HashMap::new())]);
+        let ctx = PropertyContext {
+            person_properties: None,
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
+        let (is_match, reason) = matcher
+            .is_condition_match(
+                &flag,
+                &organization_tier_is_not_condition(),
+                &ctx,
+                None,
+                &None,
+            )
+            .unwrap();
+        assert!(
+            !is_match,
+            "an unfetched group property must not satisfy is_not"
+        );
+        assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
+    }
+
+    /// Companion to the test above: once group-property prep has run, an empty property map
+    /// is authoritative — the group simply has no `posthog_group` row, or no `tier` — so
+    /// `is_not` must evaluate normally and match. The fail-closed handling for the pending
+    /// case must not swallow this legitimate path.
+    #[tokio::test]
+    async fn test_is_condition_match_group_is_not_matches_when_group_properties_fetched_empty() {
+        let (_context, mut matcher) = group_matcher_without_group_prep(true).await;
+        let flag = mock!(FeatureFlag);
+        matcher
+            .flag_evaluation_state
+            .mark_group_properties_fetched(0);
+        assert!(!matcher.flag_evaluation_state.group_properties_pending(0));
+
+        let empty_groups = HashMap::from([(0, HashMap::new())]);
+        let ctx = PropertyContext {
+            person_properties: None,
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
+        let (is_match, reason) = matcher
+            .is_condition_match(
+                &flag,
+                &organization_tier_is_not_condition(),
+                &ctx,
+                None,
+                &None,
+            )
+            .unwrap();
+        assert!(
+            is_match,
+            "a fetched-and-genuinely-empty group has no tier, so is_not should match"
+        );
+        assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
+    }
+
+    /// When the request supplies no key for the filter's group type there is no group
+    /// context at all, which is a different situation from a fetch miss: the caller never
+    /// claimed to be in an organization. Failing closed there would stop matching for every
+    /// caller that doesn't send `groups`, so this deliberately keeps the existing behavior.
+    #[tokio::test]
+    async fn test_is_condition_match_group_is_not_matches_when_no_group_key_supplied() {
+        let (_context, matcher) = group_matcher_without_group_prep(false).await;
+        let flag = mock!(FeatureFlag);
+        assert!(matcher.flag_evaluation_state.group_properties_pending(0));
+
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: None,
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
+        let (is_match, _) = matcher
+            .is_condition_match(
+                &flag,
+                &organization_tier_is_not_condition(),
+                &ctx,
+                None,
+                &None,
+            )
+            .unwrap();
+        assert!(
+            is_match,
+            "no group context should keep pre-existing behavior rather than fail closed"
+        );
+    }
+
+    /// Regression test: a group filter carrying its own `group_type_index` must be counted
+    /// as a referenced group type even when no condition aggregates on it, otherwise its
+    /// properties are never fetched and it always resolves against an empty map.
+    #[test]
+    fn test_referenced_group_type_indexes_includes_filter_level_index() {
+        let flag = mock!(FeatureFlag,
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![
+                        mock!(PropertyFilter,
+                            key: "tier".mock_into(),
+                            value: Some(json!("enterprise")),
+                            prop_type: PropertyType::Group,
+                            group_type_index: Some(3)
+                        ),
+                        mock!(PropertyFilter,
+                            key: "plan".mock_into(),
+                            value: Some(json!("pro")),
+                            prop_type: PropertyType::Person
+                        ),
+                    ]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    // Person-aggregated: index 3 is referenced only by the filter.
+                    aggregation_group_type_index: Some(None),
+                    extra: Default::default(),
+                }],
+                ..Default::default()
+            }
+        );
+
+        assert_eq!(
+            FeatureFlagMatcher::referenced_group_type_indexes(&flag),
+            HashSet::from([3])
+        );
     }
 
     /// Regression test: a `NOT_IN` cohort filter must not match when person-property DB prep

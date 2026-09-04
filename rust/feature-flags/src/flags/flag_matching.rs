@@ -159,6 +159,12 @@ pub struct FlagEvaluationState {
     person_property_state: PersonPropertyState,
     /// Properties for each group type involved in flag evaluation
     group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
+    /// Group type indexes whose properties DB prep actually ran for this evaluation.
+    /// This is the group-level analogue of `PersonPropertyState`: an index in this set
+    /// but absent from `group_properties` means the group genuinely has no properties
+    /// (no `posthog_group` row), while an index missing from this set means the fetch
+    /// never happened, so nothing about that group type's properties is known.
+    group_properties_fetched: HashSet<GroupTypeIndex>,
     /// Cohorts for the current request, shared via `Arc` either from the
     /// preloaded hypercache slice or wrapped from a `CohortCacheManager`
     /// fetch.
@@ -228,6 +234,23 @@ impl FlagEvaluationState {
         properties: HashMap<String, Value>,
     ) {
         self.group_properties.insert(group_type_index, properties);
+        // Having properties to store implies the fetch ran for this index.
+        self.mark_group_properties_fetched(group_type_index);
+    }
+
+    /// Record that group-property DB prep ran for this group type. Must be called for
+    /// every requested index once the fetch succeeds, including indexes the query
+    /// returned no row for — that is an authoritative "this group has no properties",
+    /// not a missing fetch.
+    pub fn mark_group_properties_fetched(&mut self, group_type_index: GroupTypeIndex) {
+        self.group_properties_fetched.insert(group_type_index);
+    }
+
+    /// True when group-property DB prep never ran for this group type, so an absent
+    /// key in the resolved property map carries no information — see
+    /// `group_properties_fetched`.
+    pub(crate) fn group_properties_pending(&self, group_type_index: GroupTypeIndex) -> bool {
+        !self.group_properties_fetched.contains(&group_type_index)
     }
 
     pub fn set_cohort_matches(&mut self, matches: HashMap<CohortId, bool>) {
@@ -1455,17 +1478,7 @@ impl FeatureFlagMatcher {
             // This checks the group key directly rather than calling hashed_identifier,
             // which will be called again later in check_rollout/get_matching_variant.
             if let Some(group_type_index) = aggregation {
-                let has_group_key = self
-                    .group_type_mapping
-                    .as_ref()
-                    .and_then(|m| m.group_indexes_to_types().get(&group_type_index))
-                    .and_then(|name| self.groups.get(name))
-                    .is_some_and(|v| match v {
-                        Value::String(s) => !s.is_empty(),
-                        Value::Number(_) => true,
-                        _ => false,
-                    });
-                if !has_group_key {
+                if !self.has_group_key(group_type_index) {
                     inc(
                         FLAG_CONDITION_SKIPPED_COUNTER,
                         &[("reason".to_string(), "missing_group_type".to_string())],
@@ -1708,9 +1721,9 @@ impl FeatureFlagMatcher {
                     // flags out before evaluation, so the guard protects any path that reaches
                     // evaluation with the state still Pending. Cohort filters get the same
                     // treatment below, refusing to evaluate outright since cohort membership
-                    // is unknowable under Pending.
-                    let partial_props = filter.prop_type != PropertyType::Group
-                        && self.flag_evaluation_state.person_properties_pending();
+                    // is unknowable under Pending. Group filters get the equivalent guard
+                    // keyed on their own group type — see `filter_needs_partial_props`.
+                    let partial_props = self.filter_needs_partial_props(filter, property_context);
                     if !match_property(
                         filter,
                         props,
@@ -1787,6 +1800,61 @@ impl FeatureFlagMatcher {
             hash_key_overrides,
             request_hash_key_override,
         )
+    }
+
+    /// Seeds the group type mapping that `initialize_group_type_mappings_if_needed` loads
+    /// in production, for tests that exercise matching without running DB prep.
+    #[cfg(test)]
+    pub(crate) fn set_group_type_mapping_for_test(&mut self, mapping: GroupTypeMapping) {
+        self.group_type_mapping = Some(mapping);
+    }
+
+    /// Whether the request supplied a usable group key for this group type. Without one
+    /// there is no group to load properties for, so group filters on that type have no
+    /// context at all — distinct from having a key whose properties weren't fetched.
+    fn has_group_key(&self, group_type_index: GroupTypeIndex) -> bool {
+        self.group_type_mapping
+            .as_ref()
+            .and_then(|m| m.group_indexes_to_types().get(&group_type_index))
+            .and_then(|name| self.groups.get(name))
+            .is_some_and(|v| match v {
+                Value::String(s) => !s.is_empty(),
+                Value::Number(_) => true,
+                _ => false,
+            })
+    }
+
+    /// Whether a filter must be matched with `partial_props`, i.e. treat an absent key as
+    /// "unknown" (an error, which the caller turns into no-match) rather than as
+    /// "the property is not set" (which would make negative operators match by accident).
+    ///
+    /// This is only true when the relevant property source was never fetched. Fetched and
+    /// deliberately-skipped property maps are authoritative, so an absent key there
+    /// genuinely means the property is unset.
+    fn filter_needs_partial_props(
+        &self,
+        filter: &PropertyFilter,
+        property_context: &PropertyContext,
+    ) -> bool {
+        if filter.prop_type != PropertyType::Group {
+            return self.flag_evaluation_state.person_properties_pending();
+        }
+
+        // A group filter with no resolvable group type index can't be routed to a group
+        // property map at all, so there is nothing to fail closed on.
+        let Some(gti) = filter.group_type_index.or(property_context.aggregation) else {
+            return false;
+        };
+
+        // No group key means no group context whatsoever — the request never claimed to be
+        // in a group of this type. Failing closed there would silently stop matching for
+        // every caller that doesn't send `groups`, which is a much broader behavior change
+        // than the fetch-miss this guard is for, so keep the existing semantics.
+        if !self.has_group_key(gti) {
+            return false;
+        }
+
+        self.flag_evaluation_state.group_properties_pending(gti)
     }
 
     /// Checks if a condition requires person/group properties to evaluate.
@@ -2286,22 +2354,36 @@ impl FeatureFlagMatcher {
 
     /// Builds a paired mapping from group type index to group key for flag
     /// evaluation, filtered to only the group types required by the given flags.
+    /// Every group type index a flag can read during evaluation: flag-level aggregation,
+    /// per-condition aggregation, and the explicit `group_type_index` on individual group
+    /// property filters.
+    ///
+    /// The filter-level indexes matter for mixed targeting, where a person-aggregated
+    /// condition still carries a group filter with its own index.
+    /// `PropertyContext::resolve_for_filter` resolves such a filter against exactly that
+    /// index, so omitting it from the fetch would silently resolve the filter against an
+    /// empty map instead of the group's real properties.
+    pub(crate) fn referenced_group_type_indexes(flag: &FeatureFlag) -> HashSet<GroupTypeIndex> {
+        let mut indexes: HashSet<GroupTypeIndex> = HashSet::new();
+        indexes.extend(flag.get_group_type_index());
+        for condition in flag.get_conditions() {
+            indexes.extend(condition.aggregation_group_type_index.flatten());
+            for prop in condition.properties.iter().flatten() {
+                if prop.prop_type == PropertyType::Group {
+                    indexes.extend(prop.group_type_index);
+                }
+            }
+        }
+        indexes
+    }
+
     fn prepare_group_data(
         &mut self,
         flags: &[&FeatureFlag],
     ) -> Result<HashMap<GroupTypeIndex, String>, FlagError> {
-        // Collect group type indexes from both flag-level and per-condition aggregation,
-        // so we fetch data for all group types referenced by any condition.
         let required_type_indexes: HashSet<GroupTypeIndex> = flags
             .iter()
-            .flat_map(|flag| {
-                let flag_level = flag.get_group_type_index();
-                let condition_level = flag
-                    .get_conditions()
-                    .iter()
-                    .filter_map(|c| c.aggregation_group_type_index.flatten());
-                flag_level.into_iter().chain(condition_level)
-            })
+            .flat_map(|flag| Self::referenced_group_type_indexes(flag))
             .collect();
 
         if required_type_indexes.is_empty() {
@@ -2399,7 +2481,10 @@ impl FeatureFlagMatcher {
                 log.eval.property_cache_misses += 1;
                 log.eval.group_properties_not_cached = true;
             });
-            // Return empty HashMap instead of error - no properties is a valid state
+            // Return an empty HashMap instead of an error: a group with no `posthog_group`
+            // row genuinely has no properties. Whether the fetch actually ran is tracked
+            // separately by `FlagEvaluationState::group_properties_pending`, which
+            // `is_condition_match` consults so a fetch miss can't be read as "unset".
             Ok(HashMap::new())
         }
     }
@@ -2493,14 +2578,13 @@ impl FeatureFlagMatcher {
     /// This function checks if any of the feature flags have group type indices and initializes the group type mapping cache if needed.
     /// It returns a boolean indicating if there were any errors while initializing the group type mapping cache.
     async fn initialize_group_type_mappings_if_needed(&mut self, flags: &[&FeatureFlag]) -> bool {
-        // Check if we need to fetch group type mappings — any flag or condition uses group aggregation
+        // Check if we need to fetch group type mappings — any flag references a group type,
+        // whether through aggregation or through an individual group property filter. The
+        // filter case must be included: without the mapping, `prepare_group_data` returns
+        // an empty map and those filters evaluate against no properties at all.
         let has_type_indexes = flags.iter().any(|flag| {
             !self.filtered_out_flag_ids.contains(&flag.id)
-                && (flag.get_group_type_index().is_some()
-                    || flag
-                        .get_conditions()
-                        .iter()
-                        .any(|c| matches!(c.aggregation_group_type_index, Some(Some(_)))))
+                && !Self::referenced_group_type_indexes(flag).is_empty()
         });
 
         if !has_type_indexes {
