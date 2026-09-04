@@ -109,24 +109,16 @@ class TestQueryStatusManager(SimpleTestCase):
             self.manager.get_query_status_with_result()
         assert self.manager.get_query_status().complete is True
 
-    @parameterized.expand(
-        [
-            ("nothing_under_that_id", None, True, False),
-            ("a_run_still_going", {"complete": False}, False, False),
-            ("an_earlier_run_that_failed", {"complete": True, "error": True}, True, False),
-        ]
-    )
-    def test_a_blocking_outcome_never_takes_over_a_run_that_is_still_going(
-        self, _name, existing, expected_complete, expected_error
-    ):
-        if existing is not None:
-            self.manager.store_query_status(QueryStatus(id=self.query_id, team_id=self.team_id, **existing))
+    def test_a_blocking_outcome_never_takes_over_a_run_under_the_same_id(self):
+        self.manager.store_query_status(QueryStatus(id=self.query_id, team_id=self.team_id, complete=False))
 
         record_blocking_query_result(self.team_id, self.query_id, {"cache_key": "cache_of_the_blocking_run"})
 
-        status = self.manager.get_query_status()
-        assert status.complete is expected_complete
-        assert status.error is expected_error
+        assert self.manager.get_query_status().complete is False
+        blocking = QueryStatusManager(
+            self.query_id, self.team_id, key_prefix=QueryStatusManager.KEY_PREFIX_BLOCKING_RESULTS
+        )
+        assert blocking.get_query_status().complete is True
 
     def test_delete_forgets_the_query(self):
         self.manager.store_query_status(self.query_status)
@@ -278,12 +270,16 @@ class TestExecuteProcessQuery(TestCase):
         assert status.error is False
         assert status.results == {"results": [{"count": 1}], "cache_key": cache_key, "is_cached": True}
 
+    @parameterized.expand([("cached", True), ("not_cached", False)])
     @patch("posthog.api.services.query.process_query_dict")
-    def test_execute_process_query(self, mock_process_query_dict):
+    def test_execute_process_query(self, _name, cached, mock_process_query_dict):
         task_id = uuid.uuid4()
         self.manager.store_query_status(QueryStatus(id=self.query_id, team_id=self.team.id, task_id=str(task_id)))
         cache_key = f"cache_execute_{self.team.id}"
-        mock_process_query_dict.return_value = {"results": [1.0, "👍"], "cache_key": cache_key, "is_cached": False}
+        response = {"results": [1.0, "👍"], "cache_key": cache_key, "is_cached": False}
+        mock_process_query_dict.return_value = response
+        if cached:
+            QueryCache(team_id=self.team.id, cache_key=cache_key).store_result(response=response, target_age=None)
 
         execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
 
@@ -297,8 +293,9 @@ class TestExecuteProcessQuery(TestCase):
         raw_record = get_client().get(self.manager.status_key)
         assert raw_record is not None
         record = json.loads(raw_record)
-        assert record["cache_key"] == cache_key
-        assert record["results"] is None
+        # A cached result is a pointer; one the cache never took has to ride in the record itself.
+        assert record["cache_key"] == (cache_key if cached else None)
+        assert record["results"] == (None if cached else response)
 
     @parameterized.expand(
         [

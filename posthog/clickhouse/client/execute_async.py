@@ -67,16 +67,22 @@ class QueryStatusManager:
     POLL_INTERVAL_SECONDS = 20
     HEARTBEAT_TTL_SECONDS = POLL_INTERVAL_SECONDS * 3
     KEY_PREFIX_ASYNC_RESULTS = "query_async"
+    # A blocking request files its outcome under the query ID its client chose, and an async run
+    # is filed under an ID the client can read off any response, so one namespace would let a
+    # client's own record answer a poll that is waiting for a different run. Two namespaces make
+    # that impossible, which a check before the write could only make unlikely.
+    KEY_PREFIX_BLOCKING_RESULTS = "query_blocking"
     KEY_PREFIX_RUNNING_QUERIES = "running_queries"
 
-    def __init__(self, query_id: str, team_id: int):
+    def __init__(self, query_id: str, team_id: int, key_prefix: Optional[str] = None):
         self.redis_client = redis.get_client()
         self.query_id = query_id
         self.team_id = team_id
+        self.key_prefix = key_prefix or self.KEY_PREFIX_ASYNC_RESULTS
 
     @property
     def status_key(self) -> str:
-        return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}"
+        return f"{self.key_prefix}:{self.team_id}:{self.query_id}"
 
     @property
     def clickhouse_query_status_key(self) -> str:
@@ -223,6 +229,17 @@ class QueryStatusManager:
         self.redis_client.hdel(self.running_queries_key, cache_key)
 
 
+def _result_reached_the_cache(team_id: int, cache_key: Optional[str]) -> bool:
+    """Whether a finished query's result is in the query cache, so the record can point at it.
+
+    This asks the cache rather than restating the rules about what gets cached, which live in the
+    query runner and would go stale here.
+    """
+    if not cache_key:
+        return False
+    return QueryCache(team_id=team_id, cache_key=cache_key).freshness() is not None
+
+
 def _shared_link_user_for(sharing_configuration_id: int, team: "Team") -> Optional["User"]:
     """Rebuild the anonymous viewer of a public share so an async recalculation runs as the same
     principal the request did. None if the share was disabled, expired, or deleted, or the
@@ -324,6 +341,12 @@ def execute_process_query(
         logger.info("Got results for team %s query %s", team_id, query_id)
         query_status.error = False
         cache_key = results.get("cache_key")
+        if not _result_reached_the_cache(team_id, cache_key):
+            # Not every result is cached: a debug or explain response is deliberately skipped, a
+            # store can fail, and an entry can be evicted under the team's cache limit. The record
+            # then has to carry the result, because a cache key would point at nothing.
+            query_status.results = results
+            cache_key = None
         process_duration = (datetime.datetime.now(datetime.UTC) - query_status.pickup_time) / datetime.timedelta(
             seconds=1
         )
@@ -361,7 +384,11 @@ def execute_process_query(
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)
-        manager.store_query_status(query_status, cache_key=cache_key)
+        # A record that carries the result keeps the short life. The day-long one is worth its
+        # size only while it is a pointer, and a copy of a result in the app Redis is what this
+        # design exists to avoid.
+        ttl = None if query_status.results is None else settings.INLINE_RESULT_STATUS_TTL_SECONDS
+        manager.store_query_status(query_status, ttl_seconds=ttl, cache_key=cache_key)
         try:
             if cache_key:
                 manager.unregister_cache_key_mapping(cache_key)
@@ -486,7 +513,15 @@ def get_query_status(team_id: int, query_id: str, show_progress: bool = False) -
     This is what the poll endpoints answer with. Callers that only need to know whether a query
     is still running should use `QueryStatusManager.get_query_status` instead.
     """
-    return QueryStatusManager(query_id, team_id).get_query_status_with_result(show_progress=show_progress)
+    try:
+        return QueryStatusManager(query_id, team_id).get_query_status_with_result(show_progress=show_progress)
+    except QueryResultExpiredError:
+        # The async run is the one this ID names, so its expiry is the answer.
+        raise
+    except QueryNotFoundError:
+        # No async run under this ID, so look where a blocking request records its outcome.
+        blocking = QueryStatusManager(query_id, team_id, key_prefix=QueryStatusManager.KEY_PREFIX_BLOCKING_RESULTS)
+        return blocking.get_query_status_with_result(show_progress=show_progress)
 
 
 def record_blocking_query_result(team_id: int, query_id: str, result: dict) -> None:
@@ -522,19 +557,9 @@ def record_blocking_query_failure(team_id: int, query_id: str, error: Exception)
 def _record_blocking_query_status(
     team_id: int, query_id: str, query_status: QueryStatus, cache_key: Optional[str]
 ) -> None:
-    """Store the outcome under the query ID the client sent.
-
-    The client picks that ID, and an async run of the same query is filed under an ID the client
-    can also see, so the two can name the same record. A run that is still going owns it: the
-    poller is waiting for that run's outcome, and this one would answer with a different result.
-    """
-    manager = QueryStatusManager(query_id, team_id)
+    """Store the outcome in the namespace that belongs to client-chosen query IDs."""
+    manager = QueryStatusManager(query_id, team_id, key_prefix=QueryStatusManager.KEY_PREFIX_BLOCKING_RESULTS)
     try:
-        try:
-            if not manager.get_query_status().complete:
-                return
-        except QueryNotFoundError:
-            pass
         manager.store_query_status(
             query_status, ttl_seconds=settings.BLOCKING_QUERY_STATUS_TTL_SECONDS, cache_key=cache_key
         )

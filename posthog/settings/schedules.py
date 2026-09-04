@@ -45,13 +45,17 @@ CACHED_RESULTS_TTL = CACHED_RESULTS_TTL_DAYS * 24 * 60 * 60
 # a browser tab can sit in the background that long before it polls again. A blocking request only
 # needs it for the window in which the server can still be finishing a query whose HTTP request
 # was dropped, and blocking requests are far more numerous, so theirs is short.
-ASYNC_QUERY_STATUS_TTL_SECONDS = get_from_env("ASYNC_QUERY_STATUS_TTL_SECONDS", 24 * 60 * 60, type_cast=int)
-BLOCKING_QUERY_STATUS_TTL_SECONDS = get_from_env("BLOCKING_QUERY_STATUS_TTL_SECONDS", 15 * 60, type_cast=int)
+ASYNC_QUERY_STATUS_TTL_SECONDS = 24 * 60 * 60
+BLOCKING_QUERY_STATUS_TTL_SECONDS = 15 * 60
+
+# A record that carries the result itself, because the result never reached the query cache, keeps
+# a short life. The day-long one is worth its size only while it is a pointer.
+INLINE_RESULT_STATUS_TTL_SECONDS = 20 * 60
 
 # A blocking request only gets a record once it has run this long, because only a request the
 # ingress could have dropped needs one. Blocking requests are most of the query traffic, so
 # recording every one of them would fill the app Redis with records nothing ever reads.
-BLOCKING_QUERY_RECORD_AFTER_SECONDS = get_from_env("BLOCKING_QUERY_RECORD_AFTER_SECONDS", 60, type_cast=int)
+BLOCKING_QUERY_RECORD_AFTER_SECONDS = 60
 
 # TTL for cache entries written by API keys or OAuth clients outside any insight or dashboard.
 # retention_ttl in posthog/query_cache/cache.py decides which writes get it.
