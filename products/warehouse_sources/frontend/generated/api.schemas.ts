@@ -194,10 +194,10 @@ export const CdcTableModeEnumApi = {
  * * `missing_primary_key` - Missing primary key
  * * `duplicate_primary_key` - Duplicate primary key
  */
-export type IncrementalSyncBlockedEnumApi =
-    (typeof IncrementalSyncBlockedEnumApi)[keyof typeof IncrementalSyncBlockedEnumApi]
+export type IncrementalSyncBlockedReasonEnumApi =
+    (typeof IncrementalSyncBlockedReasonEnumApi)[keyof typeof IncrementalSyncBlockedReasonEnumApi]
 
-export const IncrementalSyncBlockedEnumApi = {
+export const IncrementalSyncBlockedReasonEnumApi = {
     MissingPrimaryKey: 'missing_primary_key',
     DuplicatePrimaryKey: 'duplicate_primary_key',
 } as const
@@ -338,7 +338,7 @@ export interface ExternalDataSchemaApi {
      *
      * * `missing_primary_key` - Missing primary key
      * * `duplicate_primary_key` - Duplicate primary key */
-    readonly incremental_sync_blocked: IncrementalSyncBlockedEnumApi | null
+    readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnumApi | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
@@ -506,7 +506,7 @@ export interface PatchedExternalDataSchemaApi {
      *
      * * `missing_primary_key` - Missing primary key
      * * `duplicate_primary_key` - Duplicate primary key */
-    readonly incremental_sync_blocked?: IncrementalSyncBlockedEnumApi | null
+    readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnumApi | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable

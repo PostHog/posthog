@@ -36343,10 +36343,10 @@ export namespace Schemas {
      * * `missing_primary_key` - Missing primary key
      * * `duplicate_primary_key` - Duplicate primary key
      */
-    export type IncrementalSyncBlockedEnum = typeof IncrementalSyncBlockedEnum[keyof typeof IncrementalSyncBlockedEnum];
+    export type IncrementalSyncBlockedReasonEnum = typeof IncrementalSyncBlockedReasonEnum[keyof typeof IncrementalSyncBlockedReasonEnum];
 
 
-    export const IncrementalSyncBlockedEnum = {
+    export const IncrementalSyncBlockedReasonEnum = {
       MissingPrimaryKey: 'missing_primary_key',
       DuplicatePrimaryKey: 'duplicate_primary_key',
     } as const;
@@ -36450,7 +36450,7 @@ export namespace Schemas {
        *
        * * `missing_primary_key` - Missing primary key
        * * `duplicate_primary_key` - Duplicate primary key */
-      readonly incremental_sync_blocked: IncrementalSyncBlockedEnum | null;
+      readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnum | null;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
@@ -63359,7 +63359,7 @@ export namespace Schemas {
        *
        * * `missing_primary_key` - Missing primary key
        * * `duplicate_primary_key` - Duplicate primary key */
-      readonly incremental_sync_blocked?: IncrementalSyncBlockedEnum | null;
+      readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnum | null;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
