@@ -747,6 +747,58 @@ describe('dashboardLogic', () => {
             expect(logic.values.filterEditModeActive).toBe(false)
         })
 
+        const filterEditExitCases: [string, () => void][] = [
+            ['saving them', () => logic.actions.saveDashboardChanges()],
+            ['discarding them', () => logic.actions.discardDashboardChanges()],
+            ['undoing them by hand', () => logic.actions.setInterval(null)],
+        ]
+
+        it.each(filterEditExitCases)('leaves filter edit mode after %s', async (_name, resolveChanges) => {
+            await expectLogic(logic).toFinishAllListeners()
+            const update = jest.spyOn(api, 'update').mockResolvedValue({
+                ...logic.values.dashboard!,
+                persisted_filters: { interval: 'week' },
+            })
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    logic.actions.setInterval('week')
+                }).toFinishAllListeners()
+
+                expect(logic.values.dashboardMode).toBe(DashboardMode.Edit)
+
+                await expectLogic(logic, resolveChanges).toFinishAllListeners()
+
+                expect(logic.values.dashboardSettingsState).toBe('saved')
+                expect(logic.values.dashboardMode).toBeNull()
+            } finally {
+                update.mockRestore()
+            }
+        })
+
+        it('stays in layout editing when a filter change is saved', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const update = jest.spyOn(api, 'update').mockResolvedValue({
+                ...logic.values.dashboard!,
+                persisted_filters: { interval: 'week' },
+            })
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                    logic.actions.setInterval('week')
+                    logic.actions.saveDashboardChanges()
+                }).toFinishAllListeners()
+
+                expect(logic.values.dashboardSettingsState).toBe('saved')
+                expect(logic.values.dashboardMode).toBe(DashboardMode.Edit)
+                expect(logic.values.layoutEditMode).toBe(true)
+            } finally {
+                update.mockRestore()
+            }
+        })
+
         it('cancelling layout editing keeps auto-previewed filter changes', async () => {
             await expectLogic(logic).toFinishAllListeners()
 

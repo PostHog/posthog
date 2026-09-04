@@ -1299,6 +1299,21 @@ export type dashboardLogicType = MakeLogicType<
     dashboardLogicMeta
 >
 
+// Filter edit mode only exists to hold the unsaved-settings controls, so it ends once nothing is
+// unsaved. Layout editing carries its own Save and Cancel, so it keeps the dashboard in edit mode.
+function exitFilterEditModeWhenSaved(
+    values: dashboardLogicType['values'],
+    actions: dashboardLogicType['actions']
+): void {
+    if (
+        values.dashboardSettingsState === 'saved' &&
+        values.dashboardMode === DashboardMode.Edit &&
+        !values.layoutEditMode
+    ) {
+        actions.setDashboardMode(null, DashboardEventSource.DashboardFilters)
+    }
+}
+
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
     connect(() => ({
@@ -4520,6 +4535,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 action: RefreshDashboardItemsAction.Preview,
                 forceRefresh: false,
             })
+            exitFilterEditModeWhenSaved(values, actions)
+        },
+        saveDashboardChangesSuccess: () => {
+            exitFilterEditModeWhenSaved(values, actions)
+        },
+        setDashboardSettingsDraft: () => {
+            exitFilterEditModeWhenSaved(values, actions)
         },
         saveLayoutChanges: () => {
             actions.saveEditModeChanges('layout')
@@ -4939,7 +4961,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     forceRefresh: false,
                 })
             }
-            if (values.dashboardMode !== DashboardMode.Edit) {
+            if (values.dashboardSettingsState === 'unsavedChanges' && values.dashboardMode !== DashboardMode.Edit) {
                 actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardVariableOverride)
             }
         },
