@@ -8,6 +8,8 @@ import structlog
 
 from posthog.egress.slack.transport import slack_request
 
+from products.slack_app.backend.services.slack_messages import SlackFileRef, SlackThreadMessage
+
 logger = structlog.get_logger(__name__)
 
 MAX_SLACK_ATTACHMENTS_PER_MESSAGE = 15
@@ -125,9 +127,9 @@ def _normalize_content_type(value: Any) -> str:
     return value.split(";")[0].strip().lower()
 
 
-def _safe_filename(file: dict[str, Any]) -> str:
-    raw_name = file.get("name") or file.get("title") or file.get("id") or "slack-attachment"
-    name = os.path.basename(str(raw_name)).strip()
+def _safe_filename(file: SlackFileRef) -> str:
+    raw_name = file.name or file.title or file.id or "slack-attachment"
+    name = os.path.basename(raw_name).strip()
     return name or "slack-attachment"
 
 
@@ -139,7 +141,7 @@ def _is_allowed_slack_file_url(url: str) -> bool:
     return any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in _ALLOWED_SLACK_FILE_HOST_SUFFIXES)
 
 
-def _is_allowed_metadata(filename: str, content_type: str, slack_filetype: Any) -> bool:
+def _is_allowed_metadata(filename: str, content_type: str, slack_filetype: str) -> bool:
     """Every signal present must be allowed, and at least one positive signal must exist.
 
     Fails closed on contradiction (a ``.png`` name with a script mimetype) and on
@@ -148,7 +150,7 @@ def _is_allowed_metadata(filename: str, content_type: str, slack_filetype: Any) 
     allows nor blocks on its own.
     """
     extension = os.path.splitext(filename.lower())[1]
-    filetype = slack_filetype.lower() if isinstance(slack_filetype, str) else ""
+    filetype = slack_filetype.lower()
     extension_allowed = extension in _ALLOWED_EXTENSIONS
     mime_allowed = content_type in _ALLOWED_MIME_TYPES
     filetype_allowed = filetype in _ALLOWED_SLACK_FILETYPES
@@ -168,21 +170,8 @@ def _is_dangerous_payload(payload: bytes) -> bool:
     return any(payload.startswith(prefix) for prefix in _EXECUTABLE_MAGIC_PREFIXES)
 
 
-def _source_url(file: dict[str, Any]) -> str | None:
-    url = file.get("url_private_download") or file.get("url_private")
-    return url if isinstance(url, str) and url else None
-
-
-def _file_size(file: dict[str, Any]) -> int | None:
-    size = file.get("size")
-    if isinstance(size, int) and not isinstance(size, bool):
-        return size
-    if isinstance(size, str):
-        try:
-            return int(size)
-        except ValueError:
-            return None
-    return None
+def _source_url(file: SlackFileRef) -> str:
+    return file.url_private_download or file.url_private
 
 
 def _download_slack_file(url: str, bot_token: str) -> bytes | None:
@@ -252,20 +241,17 @@ def _download_slack_file(url: str, bot_token: str) -> bytes | None:
     return None
 
 
-def _file_dedupe_key(file: dict[str, Any]) -> str:
+def _file_dedupe_key(file: SlackFileRef) -> str:
     """What identifies a file across the messages it appears in.
 
     Slack gives every upload a workspace-unique id that a re-share carries with it, so
     the id is the answer wherever there is one. The download url stands in for the rare
     file that arrives without one.
     """
-    file_id = file.get("id")
-    if isinstance(file_id, str) and file_id:
-        return file_id
-    return _source_url(file) or ""
+    return file.id or _source_url(file)
 
 
-def prepare_slack_file_artifacts(files: Any, bot_token: str | None) -> PreparedSlackAttachments:
+def prepare_slack_file_artifacts(files: list[SlackFileRef], bot_token: str | None) -> PreparedSlackAttachments:
     """Fetch the attachments on one Slack message, ready to upload to the agent's workspace."""
     return _prepare_files(
         files,
@@ -278,10 +264,10 @@ def prepare_slack_file_artifacts(files: Any, bot_token: str | None) -> PreparedS
 
 
 def prepare_slack_thread_file_artifacts(
-    thread_messages: list[dict[str, Any]],
+    thread_messages: list[SlackThreadMessage],
     bot_token: str | None,
     *,
-    already_requested: Any = None,
+    already_requested: list[SlackFileRef] | None = None,
 ) -> PreparedSlackAttachments:
     """Fetch the attachments posted elsewhere in the thread, oldest first.
 
@@ -294,12 +280,10 @@ def prepare_slack_thread_file_artifacts(
     ``already_requested`` is that triggering message's file list, whose attachments the
     caller prepares separately. Anything in it is left alone rather than downloaded twice.
     """
-    seen = {_file_dedupe_key(file) for file in already_requested or [] if isinstance(file, dict)}
-    files: list[dict[str, Any]] = []
+    seen = {_file_dedupe_key(file) for file in already_requested or []}
+    files: list[SlackFileRef] = []
     for message in thread_messages:
-        for file in message.get("files") or []:
-            if not isinstance(file, dict):
-                continue
+        for file in message.files:
             key = _file_dedupe_key(file)
             if key in seen:
                 continue
@@ -327,13 +311,13 @@ def merge_prepared_attachments(*parts: PreparedSlackAttachments) -> PreparedSlac
 
 
 def _prepare_files(
-    files: Any,
+    files: list[SlackFileRef],
     bot_token: str | None,
     *,
     max_files: int,
     over_limit_message: str,
 ) -> PreparedSlackAttachments:
-    if not isinstance(files, list) or not files:
+    if not files:
         return PreparedSlackAttachments(artifacts=[], skipped_messages=[], requested_count=0)
 
     requested_count = len(files)
@@ -351,18 +335,14 @@ def _prepare_files(
         if index >= max_files:
             skipped_messages.append(over_limit_message)
             break
-        if not isinstance(file, dict):
-            skipped_messages.append("A Slack attachment was skipped because its metadata was invalid.")
-            continue
 
         filename = _safe_filename(file)
-        content_type = _normalize_content_type(file.get("mimetype")) or "application/octet-stream"
-        if not _is_allowed_metadata(filename, content_type, file.get("filetype")):
+        content_type = _normalize_content_type(file.mimetype) or "application/octet-stream"
+        if not _is_allowed_metadata(filename, content_type, file.filetype):
             skipped_messages.append(f"{filename} was skipped because {_ATTACHMENT_TYPE_SKIP_REASON}.")
             continue
 
-        size = _file_size(file)
-        if size is not None and size > MAX_SLACK_ATTACHMENT_BYTES:
+        if file.size is not None and file.size > MAX_SLACK_ATTACHMENT_BYTES:
             skipped_messages.append(f"{filename} was skipped because it exceeds the 10 MB Slack attachment limit.")
             continue
 
@@ -377,7 +357,7 @@ def _prepare_files(
         try:
             payload = _download_slack_file(url, bot_token)
         except Exception:
-            logger.exception("slack_attachment_download_exception", file_id=file.get("id"))
+            logger.exception("slack_attachment_download_exception", file_id=file.id)
             payload = None
 
         if payload is None:
@@ -397,9 +377,8 @@ def _prepare_files(
         # A deterministic id (keyed on Slack's globally-unique file id) makes the
         # manifest append an upsert: activity retries after a partial failure
         # re-upload to the same id instead of appending duplicate entries.
-        file_id = file.get("id")
-        if isinstance(file_id, str) and file_id:
-            artifact["id"] = uuid.uuid5(uuid.NAMESPACE_URL, f"posthog:slack_user_attachment:{file_id}").hex
+        if file.id:
+            artifact["id"] = uuid.uuid5(uuid.NAMESPACE_URL, f"posthog:slack_user_attachment:{file.id}").hex
         artifacts.append(artifact)
 
     return PreparedSlackAttachments(

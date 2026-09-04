@@ -1,6 +1,10 @@
 import pytest
 
+from temporalio.converter import DataConverter
+
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, coerce_mention_workflow_inputs
+
+from products.slack_app.backend.services.slack_messages import SlackFileRef, SlackThreadMessage
 
 
 def test_coerce_returns_dataclass_unchanged():
@@ -45,3 +49,26 @@ def test_coerce_raises_with_context_when_required_fields_missing(payload):
 def test_coerce_raises_on_unexpected_type():
     with pytest.raises(TypeError, match="Unexpected activity inputs type"):
         coerce_mention_workflow_inputs("not-a-dict")
+
+
+def _round_trip(value: object, hint: type) -> object:
+    converter = DataConverter.default.payload_converter
+    return converter.from_payloads(converter.to_payloads([value]), [hint])[0]
+
+
+def test_thread_snapshot_survives_the_temporal_payload_boundary():
+    messages = [
+        SlackThreadMessage(user="mira", user_id="U_MIRA", text="", ts="1.0", files=[SlackFileRef(id="F1", size=9)]),
+        SlackThreadMessage(user="mira", user_id="U_MIRA", text="what is this", ts="2.0"),
+    ]
+    assert _round_trip(messages, list[SlackThreadMessage]) == messages
+
+
+def test_thread_snapshot_recorded_before_a_field_existed_still_decodes():
+    # The snapshot is an activity result, so a rolling deploy replays histories written
+    # by the previous build against the current type. A field added without a default
+    # would fail that decode and wedge every in-flight mention.
+    recorded = [{"user": "mira", "user_id": "U_MIRA", "text": "hi", "ts": "1.0"}]
+    assert _round_trip(recorded, list[SlackThreadMessage]) == [
+        SlackThreadMessage(user="mira", user_id="U_MIRA", text="hi", ts="1.0")
+    ]
