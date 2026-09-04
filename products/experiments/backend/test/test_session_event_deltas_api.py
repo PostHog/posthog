@@ -11,13 +11,17 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import EventProperty, Team, User
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.actions.backend.models.action import Action
 from products.experiments.backend import session_event_deltas
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.replay_linkage import ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES
 from products.experiments.backend.session_event_deltas import EXPERIMENT_BEHAVIOR_COMPARISON_FLAG
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -133,8 +137,8 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         """
         distinct_id = distinct_id or f"person{len(self._people)}"
         if distinct_id not in self._people:
-            # Without a person row every event resolves to a random person_id, which would put each
-            # of a person's sessions in its own variant total.
+            # Without a person row the distinct id maps to no person, so their exposures would be
+            # left out of the exposed population.
             _create_person(team=self.team, distinct_ids=[distinct_id])
             self._people.add(distinct_id)
 
@@ -186,6 +190,19 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         for events in sessions:
             self._session(variants=[variant], events=events)
 
+    def _server_exposed_variant(self, variant: str, sessions: list[list[str]]) -> None:
+        """One person per session, exposed server-side, behaving in a later browser session."""
+        for events in sessions:
+            distinct_id = self._unsessioned_exposure(variant)
+            self._session(
+                variants=[],
+                # A session with no comparable events still needs an event row to exist as a
+                # session; $pageview is never compared.
+                events=events or ["$pageview"],
+                distinct_id=distinct_id,
+                at=EXPOSED_AT + timedelta(minutes=30),
+            )
+
     def _post_deltas(self, experiment: Experiment, **body: Any) -> Any:
         return self.client.post(
             f"/api/projects/{self.team.id}/experiments/{experiment.id}/session_event_deltas/",
@@ -196,14 +213,27 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     def _cards(self, data: dict[str, Any], kind: Optional[str] = None) -> list[dict[str, Any]]:
         return [card for card in data["cards"] if kind is None or card["kind"] == kind]
 
+    def _enable_precomputation(self) -> None:
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.experiment_precomputation_enabled = True
+        config.save()
+
+    @parameterized.expand(
+        [
+            ("in_session", False),
+            # Every exposure captured server-side; the behavior lives in later browser sessions.
+            ("server_side", True),
+        ]
+    )
     @patch.object(session_event_deltas, "MIN_VARIANT_PERSONS", 20)
-    def test_variants_that_behave_the_same_earn_no_finding_cards(self) -> None:
+    def test_variants_that_behave_the_same_earn_no_finding_cards(self, _name: str, server_side: bool) -> None:
         # The A/A case, under the real evidence floors: variants doing the same things with a person
         # or two of sampling jitter must leave every finding shelf empty. This is the tripwire for
         # threshold work — a change that lets jitter card fails here, on whichever shelf it leaks
         # onto, before it ships noise as findings.
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-        self._variant(
+        expose = self._server_exposed_variant if server_side else self._variant
+        expose(
             "control",
             [["pricing_faq", "purchase"]] * 10
             + [["pricing_faq"]] * 8
@@ -211,7 +241,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             + [["$rageclick"]] * 3
             + [[]] * 4,
         )
-        self._variant(
+        expose(
             "test",
             [["pricing_faq", "purchase"]] * 11
             + [["pricing_faq"]] * 7
@@ -267,6 +297,28 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert data["empty_reason"] is None
         assert data["too_early"] is False
         assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 30), ("test", 30)]
+        # The MCP tool and the frontend read exactly these fields; a dropped or renamed one fails
+        # here before it fails in a generated client. `used_exposure_fallback` is kept for
+        # compatibility and is always false now that the population is person-scoped.
+        assert set(data.keys()) == {
+            "cards",
+            "variants",
+            "multiple_variant_persons",
+            "multiple_variant_handling",
+            "metric_events",
+            "date_from",
+            "date_to",
+            "filter_test_accounts",
+            "used_exposure_fallback",
+            "sessions_truncated",
+            "events_truncated",
+            "min_variant_persons",
+            "max_card_recordings",
+            "dropped_duplicate_cards",
+            "too_early",
+            "empty_reason",
+        }
+        assert data["used_exposure_fallback"] is False
 
     @rank_anything
     def test_cards_carry_only_sessions_that_were_actually_recorded(self) -> None:
@@ -299,6 +351,18 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
                 at=EXPOSED_AT + timedelta(hours=index + 1),
             )
         self._session(variants=["test"], events=["checkout_start"], distinct_id="visits_once")
+        # Exposed server-side after their only session ended: nothing of theirs is comparable, so
+        # they must not count toward control at all.
+        left_before = self._unsessioned_exposure("control", distinct_id="left_before", at=EXPOSED_AT)
+        self._session(variants=[], events=["stale_event"], distinct_id=left_before, at=EXPOSED_AT - timedelta(hours=2))
+        # Exposed server-side between two sessions: read from the session at or after the exposure.
+        returns_after = self._unsessioned_exposure("test", distinct_id="returns_after", at=EXPOSED_AT)
+        self._session(
+            variants=[], events=["before_event"], distinct_id=returns_after, at=EXPOSED_AT - timedelta(hours=3)
+        )
+        self._session(
+            variants=[], events=["after_event"], distinct_id=returns_after, at=EXPOSED_AT + timedelta(hours=1)
+        )
         flush_persons_and_events()
 
         data = self._post_deltas(experiment).json()
@@ -308,27 +372,42 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         # difference on the *test* side, even though control's later sessions are full of it.
         checkout = next(card for card in self._cards(data, "behavior") if card["event"] == "checkout_start")
         assert checkout["variant"] == "test"
+        # A session that ended before its person was exposed is never compared, and a person whose
+        # sessions all ended before their exposure is not counted at all.
+        carded_events = {card["event"] for card in self._cards(data, "behavior")}
+        assert "after_event" in carded_events
+        assert {"stale_event", "before_event"}.isdisjoint(carded_events)
         # People counted once; the sessions total still says how much material sits behind the variant.
-        assert [(variant["persons"], variant["sessions"]) for variant in data["variants"]] == [(1, 4), (1, 1)]
+        assert [(variant["persons"], variant["sessions"]) for variant in data["variants"]] == [(1, 4), (2, 2)]
 
     @parameterized.expand(
         [
-            # (name, multiple_variant_handling, expected people per variant, expected excluded)
-            ("exclude", "exclude", [1, 1], 1),
+            # (name, multiple_variant_handling, server_side, expected people per variant, expected excluded)
+            ("exclude", "exclude", False, [1, 1], 1),
             # First-seen puts the person in the variant they saw first, so nobody is set aside.
-            ("first_seen", "first_seen", [1, 2], 0),
+            ("first_seen", "first_seen", False, [1, 2], 0),
+            # The same split when both exposures were captured server-side and the behavior lives
+            # in a browser session: attribution comes from the exposed population, never from a
+            # session's own exposure rows.
+            ("exclude_server_side", "exclude", True, [1, 1], 1),
+            ("first_seen_server_side", "first_seen", True, [1, 2], 0),
         ]
     )
     @rank_anything
     def test_a_person_who_saw_both_variants_is_split_the_way_the_analysis_splits_them(
-        self, _name: str, handling: str, expected_variants: list[int], expected_multiple: int
+        self, _name: str, handling: str, server_side: bool, expected_variants: list[int], expected_multiple: int
     ) -> None:
         experiment = self._create_experiment(
             metrics=[PURCHASE_METRIC], exposure_criteria={"multiple_variant_handling": handling}
         )
         self._session(variants=["control"], events=["pricing_faq"])
         self._session(variants=["test"], events=["pricing_faq"])
-        self._session(variants=["test", "control"], events=["pricing_faq"])
+        if server_side:
+            both = self._unsessioned_exposure("test", at=EXPOSED_AT)
+            self._unsessioned_exposure("control", distinct_id=both, at=EXPOSED_AT + timedelta(seconds=1))
+            self._session(variants=[], events=["pricing_faq"], distinct_id=both, at=EXPOSED_AT + timedelta(hours=1))
+        else:
+            self._session(variants=["test", "control"], events=["pricing_faq"])
         flush_persons_and_events()
 
         data = self._post_deltas(experiment).json()
@@ -654,35 +733,81 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         # reason of "2 errors, did this 2 times" would say one fact twice.
         assert [highlight["reason"] for highlight in friction[0]["highlights"]] == ["2 errors", "1 error"]
 
-    def _unsessioned_exposure(self, variant: str, *, flag_key: str = "checkout-cta") -> None:
-        # No `$session_id` and no EventProperty row for it: the trace a backend SDK's exposure leaves.
-        distinct_id = f"unsessioned{len(self._people)}"
-        _create_person(team=self.team, distinct_ids=[distinct_id])
-        self._people.add(distinct_id)
-        _create_event(
-            team=self.team,
-            event="$feature_flag_called",
-            distinct_id=distinct_id,
-            timestamp=EXPOSED_AT,
-            properties={"$feature_flag": flag_key, "$feature_flag_response": variant},
+    def _unsessioned_exposure(
+        self,
+        variant: str,
+        *,
+        flag_key: str = "checkout-cta",
+        event: str = "$feature_flag_called",
+        distinct_id: Optional[str] = None,
+        at: datetime = EXPOSED_AT,
+    ) -> str:
+        # No `$session_id` and no EventProperty row for it: the trace a backend SDK's exposure
+        # leaves. A custom exposure event resolves its variant from the stamped flag property, the
+        # default event from $feature_flag_response.
+        distinct_id = distinct_id or f"unsessioned{len(self._people)}"
+        if distinct_id not in self._people:
+            _create_person(team=self.team, distinct_ids=[distinct_id])
+            self._people.add(distinct_id)
+        properties = (
+            {"$feature_flag": flag_key, "$feature_flag_response": variant}
+            if event == "$feature_flag_called"
+            else {f"$feature/{flag_key}": variant}
         )
+        _create_event(team=self.team, event=event, distinct_id=distinct_id, timestamp=at, properties=properties)
+        return distinct_id
 
-    def test_exposures_that_never_carried_a_session_are_reported_rather_than_read_as_too_early(self) -> None:
+    @parameterized.expand(
+        [
+            # Nobody in the population has a browser session at all: the residual empty state,
+            # dated to the window the response reports.
+            ("no_browser_sessions", False),
+            # The same people, each with a recorded browser session after their exposure: a
+            # comparison, exactly as if the exposures had been captured in those sessions.
+            ("browser_sessions_after_exposure", True),
+        ]
+    )
+    @rank_anything
+    def test_server_side_exposures_compare_when_their_people_have_sessions(
+        self, _name: str, with_sessions: bool
+    ) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
         for index in range(4):
-            self._unsessioned_exposure("control" if index % 2 else "test")
+            variant = "control" if index % 2 else "test"
+            distinct_id = self._unsessioned_exposure(variant)
+            if with_sessions:
+                self._session(
+                    variants=[],
+                    events=["checkout_start"] if variant == "control" else ["pricing_faq"],
+                    distinct_id=distinct_id,
+                    at=EXPOSED_AT + timedelta(hours=1),
+                )
         # Another flag's exposures carry a session, so the project-level taxonomy says
-        # `$feature_flag_called` is session-linked and the exposure fallback does not engage. Only
-        # a per-experiment check tells this experiment apart from a healthy one.
+        # `$feature_flag_called` is session-linked. The person-scoped population makes that fact
+        # irrelevant; this documents it rather than changing the outcome.
         self._session(variants=["control"], flag_key="other-flag", recorded=False)
         flush_persons_and_events()
 
         data = self._post_deltas(experiment).json()
 
-        assert data["cards"] == []
-        assert data["empty_reason"] == "no_session_linked_exposures"
-        # Still true: the variants are below the floor. The reason, not this flag, decides the copy.
-        assert data["too_early"] is True
+        if with_sessions:
+            cards = {(card["event"], card["variant"]) for card in self._cards(data, "behavior")}
+            assert {("pricing_faq", "test"), ("checkout_start", "control")} <= cards
+            assert data["empty_reason"] is None
+            assert data["used_exposure_fallback"] is False
+            assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [
+                ("control", 2),
+                ("test", 2),
+            ]
+        else:
+            assert data["cards"] == []
+            assert data["empty_reason"] == "no_session_linked_exposures"
+            # Still true: the variants are below the floor. The reason, not this flag, decides the copy.
+            assert data["too_early"] is True
+            # Nothing was covered, so the response reports the requested window, which is what the
+            # frontend's dated copy renders.
+            assert datetime.fromisoformat(data["date_from"]) == EXPERIMENT_START
+            assert datetime.fromisoformat(data["date_to"]) == NOW
 
     def test_too_early_is_reported_rather_than_an_empty_shelf(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
@@ -712,55 +837,37 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         # Only the most recent session fits, so the experiment's own start date would claim eight
         # days of coverage that was never read — and the scan itself would read them for nothing.
         # What's left is that session's own day, plus the longest a session it began in could run.
+        # Coverage is resolved from the session's last activity, which is its one behavior event.
         assert data["sessions_truncated"] is True
-        assert datetime.fromisoformat(data["date_from"]) == EXPOSED_AT - timedelta(
+        last_activity = EXPOSED_AT + timedelta(minutes=1)
+        assert datetime.fromisoformat(data["date_from"]) == last_activity - timedelta(
             hours=session_event_deltas.MAX_SESSION_DURATION_HOURS
         )
 
     @rank_anything
-    def test_default_exposure_falls_back_to_the_stamped_flag_property(self) -> None:
+    def test_a_server_side_default_exposure_event_is_compared_over_the_full_window(self) -> None:
+        # No exposure event ever carried a $session_id here (no EventProperty row), the shape that
+        # used to engage the stamped-property fallback and its 2-day clamp. The population is
+        # person-scoped now: the exposed people's browser sessions carry the comparison, over the
+        # whole 14-day window.
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-        # No exposure event carries a $session_id here, the shape of an experiment whose flag is
-        # only ever evaluated server-side. The property posthog-js stamps on every client event has
-        # to stand in, or the whole shelf compares nothing.
-        recorded = self._session(variants=[], events=["pricing_faq"], properties={"$feature/checkout-cta": "test"})
-        self._session(variants=[], events=["pricing_faq"], properties={"$feature/checkout-cta": "test"})
-        self._session(variants=[], events=["checkout_start"], properties={"$feature/checkout-cta": "control"})
-        flush_persons_and_events()
-
-        data = self._post_deltas(experiment).json()
-
-        assert data["used_exposure_fallback"] is True
-        assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 1), ("test", 2)]
-        pricing_faq = next(card for card in self._cards(data, "behavior") if card["event"] == "pricing_faq")
-        assert pricing_faq["variant"] == "test"
-        assert recorded in pricing_faq["session_ids"]
-
-    @rank_anything
-    def test_fallback_comparison_is_clamped_to_its_own_tighter_window(self) -> None:
-        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-        # The stamped flag property rides on every client event, so on the fallback path there is
-        # no event name for the scan to prune on and the window is the only thing bounding it. A
-        # session inside the experiment's window but past the fallback clamp must fall out of the
-        # comparison rather than be read.
-        self._session(variants=[], events=["pricing_faq"], properties={"$feature/checkout-cta": "test"})
-        self._session(variants=[], events=["checkout_start"], properties={"$feature/checkout-cta": "control"})
-        self._session(
-            variants=[],
-            events=["old_event"],
-            properties={"$feature/checkout-cta": "control"},
-            at=NOW - timedelta(days=4),
+        test_id = self._unsessioned_exposure("test", at=NOW - timedelta(days=5))
+        self._session(variants=[], events=["pricing_faq"], distinct_id=test_id, at=NOW - timedelta(days=4, hours=1))
+        control_id = self._unsessioned_exposure("control", at=NOW - timedelta(days=5))
+        old_session = self._session(
+            variants=[], events=["old_event"], distinct_id=control_id, at=NOW - timedelta(days=4)
         )
         flush_persons_and_events()
 
         data = self._post_deltas(experiment).json()
 
-        assert data["used_exposure_fallback"] is True
-        assert datetime.fromisoformat(data["date_from"]) == NOW - timedelta(
-            days=session_event_deltas.MAX_FALLBACK_DELTA_SCAN_DAYS
-        )
+        assert data["used_exposure_fallback"] is False
         assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 1), ("test", 1)]
-        assert all(card["event"] != "old_event" for card in data["cards"])
+        # The retired fallback clamped the scan to 2 days; a session 4 days back is compared now.
+        old_event = next(card for card in self._cards(data, "behavior") if card["event"] == "old_event")
+        assert old_event["variant"] == "control"
+        assert old_session in old_event["session_ids"]
+        assert datetime.fromisoformat(data["date_from"]) <= NOW - timedelta(days=4)
 
     @parameterized.expand([("exclude", "exclude"), ("first_seen", "first_seen")])
     @rank_anything
@@ -855,7 +962,11 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert pricing_faq["variant"] == "test"
         assert recorded in pricing_faq["session_ids"]
 
-    def test_server_side_exposure_event_is_refused_rather_than_silently_empty(self) -> None:
+    @rank_anything
+    def test_a_custom_server_side_exposure_event_compares_through_the_person(self) -> None:
+        # The custom exposure event has no $session_id anywhere (no EventProperty row), the shape
+        # this endpoint used to refuse as uncomparable. The population is person-scoped now, so
+        # the exposed people's browser sessions carry the comparison.
         experiment = self._create_experiment(
             metrics=[PURCHASE_METRIC],
             exposure_criteria={
@@ -866,15 +977,96 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
                 }
             },
         )
-        self._session(variants=[], events=["purchase"], properties={"$feature/checkout-cta": "test"})
+        for variant, events in (("test", ["pricing_faq"]), ("test", ["pricing_faq"]), ("control", ["checkout_start"])):
+            distinct_id = self._unsessioned_exposure(variant, event="server exposure")
+            self._session(variants=[], events=events, distinct_id=distinct_id, at=EXPOSED_AT + timedelta(minutes=30))
         flush_persons_and_events()
 
         response = self._post_deltas(experiment)
 
-        # An exposure event no session can carry compares nothing, and an empty shelf reads as
-        # "the variants behaved identically" rather than "this can't be answered from recordings".
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        pricing_faq = next(card for card in self._cards(data, "behavior") if card["event"] == "pricing_faq")
+        assert pricing_faq["variant"] == "test"
+        assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 1), ("test", 2)]
+
+    def test_a_group_aggregated_experiment_is_refused_like_the_recordings_list(self) -> None:
+        # Group-aggregated exposures never match a person's recordings, so the linkage refuses
+        # them; the shelf must surface that refusal rather than silently compare by session.
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        flag = experiment.feature_flag
+        flag.filters = {**flag.filters, "aggregation_group_type_index": 0}
+        flag.save()
+
+        response = self._post_deltas(experiment)
+
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "captured server-side" in response.json()["detail"]
+        assert "aggregates by group" in response.json()["detail"]
+
+    @rank_anything
+    def test_a_precomputing_team_reads_the_population_from_the_preaggregated_table(self) -> None:
+        # The experiment started past the minimum precompute runtime, so on a precomputing team
+        # the preaggregated read is the required path. The live builder raising proves the
+        # population came from that table; the ensure-side insert builds from its own query
+        # template, so it is unaffected.
+        self._enable_precomputation()
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        self._variant("control", [["checkout_start"]] * 2)
+        self._variant("test", [["pricing_faq"]] * 2)
+        flush_persons_and_events()
+
+        with patch.object(
+            ExposureQueryBuilder,
+            "_build_exposure_select_query",
+            side_effect=AssertionError("live exposure scan used despite precomputation"),
+        ):
+            data = self._post_deltas(experiment).json()
+
+        assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 2), ("test", 2)]
+        assert {card["event"] for card in self._cards(data, "behavior")} == {"checkout_start", "pricing_faq"}
+
+    @rank_anything
+    def test_an_activation_mode_experiment_compares_with_the_lists_memory_ceiling(self) -> None:
+        # Activation exposures have no preaggregated form, so on a precomputing team they scan
+        # live under the linkage's explicit memory ceiling, without touching ensure_precomputed.
+        self._enable_precomputation()
+        experiment = self._create_experiment(
+            metrics=[PURCHASE_METRIC],
+            exposure_criteria={
+                "activation_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "task_completed",
+                    "properties": [],
+                }
+            },
+        )
+        self._session(variants=["test"], events=["task_completed", "pricing_faq"])
+        self._session(variants=["control"], events=["task_completed", "checkout_start"])
+        # Exposed to the flag but never activated: not in the analysis's population, so not
+        # compared here either.
+        self._session(variants=["test"], events=["never_activated_noise"])
+        flush_persons_and_events()
+
+        seen_settings: list[Any] = []
+        real_execute = session_event_deltas.execute_hogql_query
+
+        def record_settings(query: Any, **kwargs: Any) -> Any:
+            seen_settings.append(kwargs.get("settings"))
+            return real_execute(query, **kwargs)
+
+        with (
+            patch("products.experiments.backend.replay_linkage.ensure_precomputed") as ensure_precomputed,
+            patch.object(session_event_deltas, "execute_hogql_query", side_effect=record_settings),
+        ):
+            data = self._post_deltas(experiment).json()
+
+        ensure_precomputed.assert_not_called()
+        assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 1), ("test", 1)]
+        assert {card["event"] for card in self._cards(data, "behavior")} == {"checkout_start", "pricing_faq"}
+        assert seen_settings and all(
+            settings is not None and settings.max_memory_usage == ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES
+            for settings in seen_settings
+        )
 
     @rank_anything
     def test_recordings_the_viewer_cannot_open_are_left_off_the_cards(self) -> None:
