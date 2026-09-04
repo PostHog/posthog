@@ -106,6 +106,11 @@ TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
     "TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES", 5, type_cast=int
 )
 
+# Diagnostic per-hour flag request counts, written to app_metrics2 next to the billing counters.
+# The counts cannot be backfilled, because the Redis buckets they are drained from are consumed as
+# they are read, so this is on by default and the variable acts as a kill switch.
+FLAG_REQUEST_METRICS_ENABLED: bool = get_from_env("FLAG_REQUEST_METRICS_ENABLED", True, type_cast=str_to_bool)
+
 # Feature flag limits to prevent memory issues during flag evaluation/caching.
 # These limits are configurable via environment variables and can be overridden
 # in Helm charts per environment.

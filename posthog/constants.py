@@ -327,6 +327,20 @@ class FlagRequestType(StrEnum):
     REMOTE_CONFIG = "remote-config"
 
 
+# How many billable requests one request of each type counts as. A local evaluation request is
+# weighted because one poll returns the definitions of every flag in the project, and remote config
+# requests are not billed at all.
+#
+# `usage_report.py` builds the billable total from these weights, and the flag request metrics API
+# returns them, so the number a project reads in the product cannot drift from the number it is
+# billed on.
+FLAG_REQUEST_BILLING_WEIGHTS: dict[FlagRequestType, int] = {
+    FlagRequestType.DECIDE: 1,
+    FlagRequestType.LOCAL_EVALUATION: 10,
+    FlagRequestType.REMOTE_CONFIG: 0,
+}
+
+
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 PRODUCT_TOUR_TARGETING_FLAG_PREFIX = "product-tour-targeting-"
 

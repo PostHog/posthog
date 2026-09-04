@@ -27,8 +27,9 @@ from products.feature_flags.backend.api.feature_flag import _create_usage_dashbo
 from products.feature_flags.backend.flag_analytics import (
     SDK_LIBRARIES,
     _enriched_flag_key_expr_sql,
-    _extract_sdk_breakdown_from_redis,
+    _extract_sdk_counts_by_time_from_redis,
     _flag_key_filter_sql,
+    _sum_by_library,
     capture_team_decide_usage,
     capture_usage_for_all_teams,
     find_flags_with_enriched_analytics,
@@ -667,7 +668,7 @@ class TestSdkBreakdown(BaseTest):
         team_id = 999
 
         with freeze_time("2022-05-07 12:23:07"):
-            result = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
+            result = _sum_by_library(_extract_sdk_counts_by_time_from_redis(client, team_id, FlagRequestType.DECIDE))
             self.assertEqual(result, {})
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
@@ -690,7 +691,7 @@ class TestSdkBreakdown(BaseTest):
             # Move time forward so bucket 2 is no longer "current"
             frozen_datetime.tick(datetime.timedelta(seconds=15))
 
-            result = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
+            result = _sum_by_library(_extract_sdk_counts_by_time_from_redis(client, team_id, FlagRequestType.DECIDE))
             # Only bucket 1 should be extracted (bucket 2 is skipped as it's most recent)
             self.assertEqual(result, {"posthog-js": 100, "posthog-node": 50})
 
@@ -869,7 +870,7 @@ class TestSdkBreakdown(BaseTest):
             # Move time forward so bucket 2 is no longer "current"
             frozen_datetime.tick(datetime.timedelta(seconds=15))
 
-            result = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
+            result = _sum_by_library(_extract_sdk_counts_by_time_from_redis(client, team_id, FlagRequestType.DECIDE))
 
             # Verify all SDKs were extracted with correct counts from bucket 1
             self.assertEqual(result, test_sdks)
@@ -894,7 +895,7 @@ class TestSdkBreakdown(BaseTest):
             client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-js", time_bucket, 100)
             client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-node", time_bucket, 50)
 
-            result = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
+            result = _sum_by_library(_extract_sdk_counts_by_time_from_redis(client, team_id, FlagRequestType.DECIDE))
 
             # Should return empty dict since there's only one bucket (still being filled)
             self.assertEqual(result, {})

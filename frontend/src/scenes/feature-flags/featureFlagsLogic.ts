@@ -111,6 +111,7 @@ export enum FeatureFlagsTab {
     OVERVIEW = 'overview',
     HISTORY = 'history',
     NOTIFICATIONS = 'notifications',
+    REQUESTS = 'requests',
     EXPOSURE = 'exposure',
     Analysis = 'analysis',
     USAGE = 'usage',
