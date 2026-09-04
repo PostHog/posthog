@@ -16,9 +16,9 @@ on:
         # that ci-backend / ci-dagster restore for sharding. The timing data comes from
         # the hourly scheduled master runs of those workflows (see "The hourly master
         # lane" in .agents/skills/authoring-ci-workflows/SKILL.md for the cron offsets),
-        # so an hourly refresh here follows every new run. The minute gives the backend
-        # run that started at :23 most of the hour to finish. Cheap: it merges artifacts
-        # without executing any tests.
+        # so an hourly refresh here follows every new run. The minute is offset from the
+        # ci-backend cron so that run has most of the hour to finish. Cheap: it merges
+        # artifacts without executing any tests.
         - cron: '17 * * * *'
 
 permissions:
@@ -88,12 +88,13 @@ jobs:
                   # Calculate date 14 days ago in ISO 8601 format
                   cutoff_date=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-14d +%Y-%m-%dT%H:%M:%SZ)
                   # Newest first: runs that ran tests (>5 min) and uploaded a full set of timing
-                  # artifacts (>=38), up to N. Scan a few more than N so a run with expired or
-                  # partial artifacts does not end the search early.
+                  # artifacts (>=38), up to N. Scan N plus a margin so a run with expired or
+                  # partial artifacts does not end the search early; the margin also bounds
+                  # the artifact API calls when nothing qualifies.
                   run_ids=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&branch=master&event=schedule&per_page=100&created=>=$cutoff_date" \
                       --jq '.workflow_runs[] | select(
                           (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
-                      ) | .id' | head -25 | \
+                      ) | .id' | head -n "$((N + 20))" | \
                       while read id; do
                           count=$(gh api "repos/${{ github.repository }}/actions/runs/$id/artifacts?per_page=100" \
                               --jq '[.artifacts[] | select(.name | startswith("timing_data-")) | select(.expired == false)] | length' 2>/dev/null)
