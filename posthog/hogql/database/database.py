@@ -507,6 +507,17 @@ def _scoped_system_tables() -> Mapping[str, PostgresTable]:
 
 
 @cache
+def all_system_table_access_scopes() -> frozenset[str]:
+    """Every access scope declared by an access-controlled system table.
+
+    A principal that holds all of them sees the full system schema. Only give it to a caller that
+    reads the schema and not the rows — schema introspection, for example. Entitlement gating stays
+    in effect, because `_unentitled_system_tables` applies to every principal.
+    """
+    return frozenset(table.access_scope for table in _scoped_system_tables().values() if table.access_scope)
+
+
+@cache
 def _system_table_required_features() -> Mapping[str, str]:
     """Table name -> required AvailableFeature for system tables behind a billing entitlement.
 

@@ -3,7 +3,7 @@ import json
 import uuid
 import logging
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, cast
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import models
@@ -11,6 +11,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import all_system_table_access_scopes
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor
 
@@ -20,6 +21,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.schema_enums import ProductKey
+from posthog.synthetic_user import SyntheticUser
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,15 @@ class _ReplacePlaceholdersWithDummies(CloningVisitor):
 
 
 _PLACEHOLDER_REPLACER = _ReplacePlaceholdersWithDummies()
+
+
+class _IntrospectionPrincipal(SyntheticUser):
+    """Service principal for column introspection: there is no request user, and a principal with no
+    scopes loses every access-controlled system table. Holding all of them is safe here, because
+    DESCRIBE returns column names and types only, never rows."""
+
+    def readable_system_table_access_scopes(self) -> set[str]:
+        return set(all_system_table_access_scopes())
 
 
 # Matches Nullable(...) and LowCardinality(...) — single-arg wrappers
@@ -260,21 +271,23 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         return f"{self.endpoint.name} v{self.version}"
 
     def get_columns(self) -> list[dict]:
-        """Return columns, lazily populating from ClickHouse if not yet computed."""
-        if self.columns is None:
-            columns: list[dict] = []
-            exc: Exception | None = None
-            try:
-                columns = EndpointVersion.extract_columns(self.query, self.endpoint.team_id)
-            except Exception as e:
-                exc = e
-            # Save before capture_exception (which can hang serializing large AST objects)
-            self.refresh_from_db(fields=["columns"])
-            if self.columns is None:
-                self.columns = columns
-                self.save(update_fields=["columns", "updated_at"])
-            if exc is not None:
-                capture_exception(exc)
+        """Return columns, lazily populating from ClickHouse if not yet computed.
+
+        An empty cache counts as not computed. A failed extraction is indistinguishable from a real
+        empty result, so caching it would keep the endpoint blank for good."""
+        if self.columns:
+            return self.columns
+        try:
+            columns = EndpointVersion.extract_columns(self.query, self.endpoint.team_id)
+        except Exception as e:
+            capture_exception(e)
+            columns = []
+        if not columns:
+            return columns
+        self.refresh_from_db(fields=["columns"])
+        if not self.columns:
+            self.columns = columns
+            self.save(update_fields=["columns", "updated_at"])
         return self.columns
 
     @property
@@ -330,10 +343,15 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         cleaned = _PLACEHOLDER_REPLACER.visit(parsed)
 
         team = Team.objects.get(pk=team_id)
-        # Bypass warehouse access control: DESCRIBE exposes only column names/types, never rows, and
-        # `columns` is a shared cache that must be the same for every reader.
+        # Bypass access control on both warehouse and system tables: DESCRIBE exposes only column
+        # names/types, never rows, and `columns` is a shared cache that must be the same for every
+        # reader.
         executor = HogQLQueryExecutor(
-            query=cleaned, team=team, limit_context=None, bypass_warehouse_access_control=True
+            query=cleaned,
+            team=team,
+            limit_context=None,
+            bypass_warehouse_access_control=True,
+            user=cast(User, _IntrospectionPrincipal(team, distinct_id=f"endpoints-introspection-{team.pk}")),
         )
         clickhouse_sql, clickhouse_context = executor.generate_clickhouse_sql()
 
