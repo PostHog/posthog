@@ -2,10 +2,21 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 
-import { DashboardPlacement, DashboardTile, DashboardType, InsightModel, QueryBasedInsightModel } from '~/types'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
+import {
+    AnyPropertyFilter,
+    DashboardPlacement,
+    DashboardTile,
+    DashboardType,
+    InsightModel,
+    PropertyFilterType,
+    PropertyOperator,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import {
     dashboardToSaveableTemplate,
+    searchParamsWithUrlFilters,
     getDashboardTileDisplayName,
     getInsightWithRetry,
     isWidgetTileVisibleOnPlacement,
@@ -15,6 +26,48 @@ import {
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     shouldSharedDashboardAutoForceForStaleTime,
 } from './dashboardUtils'
+
+describe('searchParamsWithUrlFilters', () => {
+    const propertyFilter: AnyPropertyFilter[] = [
+        {
+            key: '$browser',
+            value: 'Chrome',
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.Exact,
+        },
+    ]
+    const breakdownFilter: BreakdownFilter = { breakdown: '$browser', breakdown_type: 'event' }
+
+    it.each([
+        ['property filter', { properties: [] }, { properties: propertyFilter }],
+        ['breakdown', { breakdown_filter: null }, { breakdown_filter: breakdownFilter }],
+    ])('keeps an empty %s override that clears a saved value', (_name, filters, persistedFilters) => {
+        const searchParams = searchParamsWithUrlFilters({}, filters, persistedFilters)
+
+        expect(parseURLFilters(searchParams)).toEqual(filters)
+    })
+
+    it('removes an empty override when the dashboard has no saved filters', () => {
+        const searchParams = searchParamsWithUrlFilters(
+            { [SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ properties: propertyFilter }) },
+            { properties: [] }
+        )
+
+        expect(searchParams[SEARCH_PARAM_FILTERS_KEY]).toBeUndefined()
+    })
+
+    it('keeps an explicit date mode override', () => {
+        const searchParams = searchParamsWithUrlFilters({}, { explicitDate: false }, { explicitDate: true })
+
+        expect(parseURLFilters(searchParams)).toEqual({ explicitDate: false })
+    })
+
+    it('keeps an override that clears an external filter', () => {
+        const searchParams = searchParamsWithUrlFilters({}, { properties: [] }, { properties: propertyFilter })
+
+        expect(parseURLFilters(searchParams)).toEqual({ properties: [] })
+    })
+})
 
 describe('getDashboardTileDisplayName', () => {
     it('uses widget header title when no custom name is set', () => {
