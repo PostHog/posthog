@@ -604,6 +604,7 @@ export interface OrganizationType extends OrganizationBasicType {
     default_experiment_stats_method: ExperimentStatsMethod
     default_anonymize_ips?: boolean
     default_role_id?: string | null
+    uses_most_specific_access_resolution?: boolean | null
 }
 
 export interface OrganizationDomainType {
