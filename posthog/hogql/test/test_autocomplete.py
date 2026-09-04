@@ -279,6 +279,16 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
 
         assert "ai_events" in [x.label for x in results.suggestions]
 
+    def test_autocomplete_table_name_namespace_partial_leaf(self):
+        query = "select * from posthog.a"
+        results = self._select(query=query, start=22, end=23)
+
+        labels = [x.label for x in results.suggestions]
+        insert_texts = [x.insertText for x in results.suggestions]
+        assert "ai_events" in labels
+        assert "posthog.ai_events" not in labels
+        assert "posthog.ai_events" not in insert_texts
+
     def test_autocomplete_table_name_dot_notation(self):
         query = "select event from events."
         results = self._select(query=query, start=25, end=25)

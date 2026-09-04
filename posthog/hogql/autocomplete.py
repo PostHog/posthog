@@ -901,7 +901,14 @@ def get_hogql_autocomplete(
                     else:
                         node_chain_arr = [str(x) for x in node.chain if x != MATCH_ANY_CHARACTER]
                         node_chain = ".".join(node_chain_arr)
-                        filtered_table_names = [x.replace(f"{node_chain}.", "") for x in table_names if node_chain in x]
+                        # The editor replaces only the word after the last dot, so a suggestion must
+                        # not repeat the namespace. After a trailing dot the whole chain is the
+                        # namespace; after a partial name it is the chain without that name.
+                        namespace_arr = node_chain_arr if node.chain[-1] == MATCH_ANY_CHARACTER else node_chain_arr[:-1]
+                        namespace_prefix = f"{'.'.join(namespace_arr)}." if namespace_arr else ""
+                        filtered_table_names = [
+                            x.removeprefix(namespace_prefix) for x in table_names if node_chain in x
+                        ]
 
                         extend_responses(
                             keys=filtered_table_names,
