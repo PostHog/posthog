@@ -105,6 +105,21 @@ class AgentServerLaunchMixin(SandboxBase):
     def supports_combined_agent_server_start_and_health(self) -> bool:
         return True
 
+    def _write_required_file(self, path: str, payload: bytes) -> None:
+        result = self.write_file(path, payload)
+        if result.exit_code != 0:
+            write_stage = (result.error or "unknown")[:100]
+            raise SandboxExecutionError(
+                "Failed to write required sandbox file",
+                {
+                    "sandbox_id": self.id,
+                    "path": path,
+                    "exit_code": str(result.exit_code),
+                    "write_stage": write_stage,
+                },
+                cause=RuntimeError(f"write_file returned {result.exit_code} during {write_stage}"),
+            )
+
     def _build_agent_server_command(
         self,
         repo_path: str | None,
@@ -303,11 +318,11 @@ class AgentServerLaunchMixin(SandboxBase):
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        self.write_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
+        self._write_required_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
         # Install the gh shim at runtime too (see agentsh.GH_GUARD_INSTALL_PATH): a resume from a
         # pre-shim filesystem snapshot — or any window where the base image lags this backend —
         # would otherwise leave gh with no token once the frozen launch-env token is unset.
-        self.write_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
+        self._write_required_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
         self.execute(f"chmod +x {shlex.quote(GH_GUARD_INSTALL_PATH)}", timeout_seconds=30)
 
         if allowed_domains is not None:
@@ -437,9 +452,9 @@ class AgentServerLaunchMixin(SandboxBase):
 
         self.execute("pkill -f 'agentsh server' || true", timeout_seconds=5)
         self.execute("mkdir -p /etc/agentsh/policies /var/log/agentsh /var/lib/agentsh/sessions", timeout_seconds=5)
-        self.write_file("/etc/agentsh/config.yaml", config_yaml.encode())
-        self.write_file("/etc/agentsh/policies/default.yaml", policy_yaml.encode())
-        self.write_file(ENV_WRAPPER_SCRIPT, generate_env_wrapper().encode())
+        self._write_required_file("/etc/agentsh/config.yaml", config_yaml.encode())
+        self._write_required_file("/etc/agentsh/policies/default.yaml", policy_yaml.encode())
+        self._write_required_file(ENV_WRAPPER_SCRIPT, generate_env_wrapper().encode())
         self.execute(f"chmod +x {ENV_WRAPPER_SCRIPT}", timeout_seconds=5)
 
         setup_script = build_setup_script(workspace_path)

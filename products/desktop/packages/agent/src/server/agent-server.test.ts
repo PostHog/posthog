@@ -232,6 +232,7 @@ interface TestableServer {
   detectedPrUrl: string | null;
   slackArtifactDelivery: "none" | "message" | "canvas_file" | null;
   slackChartDelivery: boolean;
+  slackReplyContext: boolean;
   buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
@@ -396,11 +397,9 @@ describe("AgentServer HTTP Mode", () => {
   let appendLogCalls: unknown[][];
   let port: number;
 
-  beforeEach(async () => {
-    repo = await createTestRepo("agent-server-http");
-    appendLogCalls = [];
-    // Use a unique high port per test to avoid reuse and browser-blocked ports.
-    port = getNextTestPort();
+  // msw patches fetch process-wide. A second listen() on an already-patched
+  // fetch throws, so patch once per file and reset the handlers per test.
+  beforeAll(() => {
     mswServer = setupServer(
       ...createPostHogHandlers({
         baseUrl: "http://localhost:8000",
@@ -410,13 +409,26 @@ describe("AgentServer HTTP Mode", () => {
     mswServer.listen({ onUnhandledRequest: "bypass" });
   });
 
-  afterEach(async () => {
-    if (server) {
-      await server.stop();
-      server = undefined;
-    }
+  afterAll(() => {
     mswServer.close();
-    await repo.cleanup();
+  });
+
+  beforeEach(async () => {
+    repo = await createTestRepo("agent-server-http");
+    appendLogCalls = [];
+    // Use a unique high port per test to avoid reuse and browser-blocked ports.
+    port = getNextTestPort();
+  });
+
+  afterEach(async () => {
+    const runningServer = server;
+    server = undefined;
+    try {
+      await runningServer?.stop();
+    } finally {
+      mswServer.resetHandlers();
+      await repo.cleanup();
+    }
   });
 
   const createServer = (
@@ -1555,6 +1567,42 @@ describe("AgentServer HTTP Mode", () => {
 
       testServer.broadcastTurnComplete("end_turn");
       expect(appendRawLine).toHaveBeenCalledTimes(1);
+    });
+
+    it("stamps console and turn-failure fan-outs with the id persisted to the log", () => {
+      const appendRawLine = vi.fn();
+      const testServer = new AgentServer({
+        port,
+        jwtPublicKey: TEST_PUBLIC_KEY,
+        repositoryPath: repo.path,
+        apiUrl: "http://localhost:8000",
+        apiKey: "test-api-key",
+        projectId: 1,
+        mode: "interactive",
+        taskId: "test-task-id",
+        runId: "test-run-id",
+      }) as unknown as {
+        session: unknown;
+        pendingEvents: Array<Record<string, unknown>>;
+        emitConsoleLog(level: string, scope: string, message: string): void;
+        broadcastTurnFailure(classification: string, message: string): void;
+      };
+      testServer.session = {
+        acpSessionId: "session-1",
+        payload: { run_id: "run-1" },
+        logWriter: { appendRawLine },
+        sseController: null,
+      };
+
+      testServer.emitConsoleLog("info", "scope", "hello");
+      testServer.broadcastTurnFailure("unknown", "boom");
+
+      expect(appendRawLine).toHaveBeenCalledTimes(2);
+      expect(testServer.pendingEvents).toHaveLength(2);
+      testServer.pendingEvents.forEach((event, index) => {
+        expect(event.event_id).toEqual(expect.any(String));
+        expect(appendRawLine.mock.calls[index]?.[2]).toBe(event.event_id);
+      });
     });
 
     it("recognizes adapter turn_complete notifications on the tapped stream", () => {
@@ -5797,6 +5845,17 @@ describe("AgentServer HTTP Mode", () => {
     });
 
     describe("identity instructions", () => {
+      it("injects Slack identity for workflow Slack replies", () => {
+        delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
+        const s = createServer() as unknown as TestableServer;
+        s.slackReplyContext = true;
+
+        const prompt = s.buildCloudSystemPrompt();
+
+        expect(prompt).toContain("# Identity");
+        expect(prompt).toContain("You are replying in a Slack thread");
+      });
+
       it.each([
         {
           label: "no repository, no PR",

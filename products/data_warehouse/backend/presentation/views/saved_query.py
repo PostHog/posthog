@@ -872,7 +872,7 @@ class DataWarehouseSavedQuerySerializer(
                     }
                     view.set_columns(columns)
 
-                view.external_tables = view.s3_tables
+                view.external_tables = view.get_s3_tables(database=self.context["database"])
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to retrieve types for view %s", view.name)
@@ -1056,7 +1056,7 @@ class DataWarehouseSavedQuerySerializer(
                         }
                         view.set_columns(columns)
 
-                    view.external_tables = view.s3_tables
+                    view.external_tables = view.get_s3_tables(database=self.context["database"])
                 except RecursionError:
                     raise serializers.ValidationError("Model contains a cycle")
                 except Exception as e:
