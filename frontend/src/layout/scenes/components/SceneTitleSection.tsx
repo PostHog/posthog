@@ -440,6 +440,20 @@ type SceneNameProps = {
     suffix?: React.ReactNode
 }
 
+/**
+ * Enter edit mode on the press instead of waiting for the click.
+ *
+ * `click` only fires on release, so a press-and-drag that starts on a view mode field never
+ * reaches it. The press lands on a `<button>`, which is never a text selection anchor, so the
+ * page claims nothing at all — and a browser that drags its own window from the page surface
+ * (Arc, when its toolbar is hidden) is then free to read the drag as a window move. Preventing
+ * the default claims the press for the page and puts the caret in the field.
+ */
+function enterEditOnPress(e: React.MouseEvent, startEditing: () => void): void {
+    e.preventDefault()
+    startEditing()
+}
+
 export function SceneName({
     name: initialName,
     isLoading = false,
@@ -514,25 +528,24 @@ export function SceneName({
         }
     }
 
+    // The field is narrower and shorter than the row that holds it, so a press can land on the
+    // padding beside it. Nothing there is a selection anchor either, so claim the press for the
+    // page rather than leaving it for the browser, and put the caret in the field.
+    const claimStrayPress = (e: React.MouseEvent): void => {
+        if ((e.target as HTMLElement).closest('button, a, input, textarea, [role="button"]')) {
+            return
+        }
+        e.preventDefault()
+        nameInputRef.current?.focus()
+    }
+
     // If onBlur is provided, we want to show a button that allows the user to edit the name
     // Otherwise, we want to show the name as a text
     const Element =
         onChange && canEdit ? (
             <>
                 {isEditing ? (
-                    <div
-                        ref={containerRef}
-                        className="flex items-center gap-1 w-full"
-                        data-attr="scene-name-edit-row"
-                        onMouseDown={(e) => {
-                            // A press on the row around the field leaves the gesture unclaimed by the page,
-                            // which some browsers read as a window drag instead of a text selection.
-                            if (e.target === e.currentTarget) {
-                                e.preventDefault()
-                                nameInputRef.current?.focus()
-                            }
-                        }}
-                    >
+                    <div ref={containerRef} className="flex items-center gap-1 w-full" data-attr="scene-name-edit-row">
                         <TextareaPrimitive
                             ref={nameInputRef}
                             variant="default"
@@ -608,6 +621,12 @@ export function SceneName({
                                 buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
                                 'flex text-left [&_.LemonIcon]:size-4 focus-visible:z-20'
                             )}
+                            onMouseDown={(e) => {
+                                if (!isGeneratingMetadata) {
+                                    enterEditOnPress(e, () => setIsEditing(true))
+                                }
+                            }}
+                            // Keyboard activation produces a click with no preceding press
                             onClick={() => {
                                 if (!isGeneratingMetadata) {
                                     setIsEditing(true)
@@ -647,6 +666,7 @@ export function SceneName({
                 'scene-name flex items-center flex-1 min-w-0 max-w-full',
                 !isEditing && onChange && canEdit && 'truncate'
             )}
+            onMouseDown={claimStrayPress}
         >
             {Element}
             {!isEditing && suffix}
@@ -780,6 +800,12 @@ function SceneDescription({
                         arrowOffset={10}
                     >
                         <ButtonPrimitive
+                            onMouseDown={(e) => {
+                                if (!isGeneratingMetadata) {
+                                    enterEditOnPress(e, () => setIsEditing(true))
+                                }
+                            }}
+                            // Keyboard activation produces a click with no preceding press
                             onClick={() => {
                                 if (!isGeneratingMetadata) {
                                     setIsEditing(true)

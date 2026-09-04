@@ -65,4 +65,26 @@ describe('SceneName', () => {
 
         expect(press.defaultPrevented).toBe(false)
     })
+    // The reported Arc behaviour: the view mode title is a <button> that opened the editor on
+    // `click`, which only fires on release. A press-and-drag never reached it, and a button is
+    // never a text selection anchor, so the page claimed nothing and the browser took the drag.
+    test('a press on the view mode title enters edit mode and is consumed', () => {
+        render(<SceneName name="Paying users" canEdit onChange={jest.fn()} />)
+
+        const title = screen.getByRole('button')
+        const press = createEvent.mouseDown(title)
+        fireEvent(title, press)
+
+        expect(press.defaultPrevented).toBe(true)
+        expect(screen.getByRole('textbox')).toBeInTheDocument()
+    })
+
+    // Enter and Space produce a click with no preceding press, so the click path has to stay.
+    test('keyboard activation still enters edit mode', () => {
+        render(<SceneName name="Paying users" canEdit onChange={jest.fn()} />)
+
+        fireEvent.click(screen.getByRole('button'))
+
+        expect(screen.getByRole('textbox')).toBeInTheDocument()
+    })
 })
