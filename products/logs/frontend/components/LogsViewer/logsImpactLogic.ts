@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -76,11 +76,17 @@ export const logsImpactLogic = kea<logsImpactLogicType>([
         ],
         actions: [logsViewerDataLogic({ id }), ['fetchSparkline']],
     })),
-    loaders(({ values }) => ({
+    loaders(({ cache, values }) => ({
         impact: [
             null as _LogsImpactResponseApi | null,
             {
                 loadImpact: async (_, breakpoint) => {
+                    // The person Logs tab pins a person scope that the impact query does not
+                    // carry, so its counts would cover the whole project. The strip does not
+                    // render there, so skip the query instead of discarding its result.
+                    if (values.personId) {
+                        return null
+                    }
                     await breakpoint(300)
                     // The serializer models `filterGroup` as a flat filter list, but the endpoint
                     // also accepts the nested group the viewer holds (the view normalizes both),
@@ -90,13 +96,39 @@ export const logsImpactLogic = kea<logsImpactLogicType>([
                         searchTerm: values.filters.searchTerm,
                         filterGroup: values.queryFilterGroup,
                     } as unknown as _LogsCountBodyApi
-                    const response = await logsImpactCreate(String(values.currentTeamId), { query })
+                    // Re-adding the key aborts the superseded in-flight request, and unmount
+                    // aborts the current one. A request is one-shot work, not background work,
+                    // so a hidden tab must not abort it.
+                    const controller = new AbortController()
+                    cache.disposables.add(() => () => controller.abort(), 'impactRequest', {
+                        pauseOnPageHidden: false,
+                    })
+                    let response: _LogsImpactResponseApi
+                    try {
+                        response = await logsImpactCreate(
+                            String(values.currentTeamId),
+                            { query },
+                            { signal: controller.signal }
+                        )
+                    } catch {
+                        // The strip is passive decoration. On failure, show nothing instead of
+                        // stale counts or the global error toast.
+                        breakpoint()
+                        return null
+                    }
                     breakpoint()
                     return response
                 },
             },
         ],
     })),
+    reducers({
+        impact: {
+            // Clear on refresh so counts from the previous query never render next to the
+            // new query's results.
+            loadImpact: () => null,
+        },
+    }),
     listeners(({ actions }) => ({
         // The data logic dispatches fetchSparkline exactly once per executed query
         // (after its own debounce), so it doubles as the "query changed" signal

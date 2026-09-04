@@ -28,7 +28,11 @@ export function LogsImpactCounts({ impact }: LogsImpactCountsProps): JSX.Element
         )
     }
 
-    const percentOfLogs = (count: number): number => Math.round((count / impact.total) * 100)
+    const percentOfLogs = (count: number): string => {
+        const percent = Math.round((count / impact.total) * 100)
+        // A count only renders when it is above zero, so a rounded 0% would contradict it.
+        return percent === 0 ? '<1%' : `${percent}%`
+    }
 
     return (
         <span className="flex items-center gap-2 text-muted text-xs" data-attr="logs-impact-counts">
@@ -36,7 +40,7 @@ export function LogsImpactCounts({ impact }: LogsImpactCountsProps): JSX.Element
                 <Tooltip
                     title={`Estimated unique session IDs on the matching logs. ${percentOfLogs(
                         impact.logsWithSessionId
-                    )}% of them carry a session ID.`}
+                    )} of them carry a session ID.`}
                 >
                     <span data-attr="logs-impact-sessions">{humanFriendlyLargeNumber(impact.sessions)} sessions</span>
                 </Tooltip>
@@ -45,7 +49,7 @@ export function LogsImpactCounts({ impact }: LogsImpactCountsProps): JSX.Element
                 <Tooltip
                     title={`Estimated unique people on the matching logs. ${percentOfLogs(
                         impact.logsWithDistinctId
-                    )}% of them carry a distinct ID.`}
+                    )} of them carry a distinct ID.`}
                 >
                     <span data-attr="logs-impact-users">{humanFriendlyLargeNumber(impact.users)} users</span>
                 </Tooltip>
