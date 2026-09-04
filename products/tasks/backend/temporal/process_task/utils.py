@@ -1427,9 +1427,12 @@ def ai_gateway_env_vars(
 
     When the run's product is on the allowlist and a mint credential is
     configured, a per-run `phe_` scoped token is minted and injected as
-    ``AI_GATEWAY_TOKEN``; the agent server routes to the Go gateway only when
-    the token is present, so a missing token (mint failure, or a caller that
-    cannot supply run context) degrades the run to the Python gateway.
+    ``AI_GATEWAY_TOKEN``, with the product it is pinned to and the run's stage as
+    ``AI_GATEWAY_PRODUCT`` / ``AI_GATEWAY_AI_STAGE``; the agent routes on those and
+    treats its own task-run fetch as the fallback. The agent server routes to the
+    Go gateway only when the token is present, so a missing token (mint failure,
+    or a caller that cannot supply run context) degrades the run to the Python
+    gateway.
     """
     if not (settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS):
         return {}
@@ -1445,6 +1448,9 @@ def ai_gateway_env_vars(
             token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id)
             if token:
                 env_vars["AI_GATEWAY_TOKEN"] = token
+                env_vars["AI_GATEWAY_PRODUCT"] = ai_product
+                if ai_stage:
+                    env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage
     return env_vars
 
 

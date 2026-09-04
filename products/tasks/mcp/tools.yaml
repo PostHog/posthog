@@ -79,7 +79,9 @@ tools:
         title: List channels
         description: >
             List the project's channels (public channels plus the requester's personal #me channel). Use this to resolve
-            a channel id from its name before creating or listing canvases or reading instructions.
+            a channel id from its name before creating or listing canvases or reading instructions. A project can hold
+            hundreds of channels, so pass `limit` (with `offset`) to read one page: the paged response carries `count`
+            and `next`, and without `limit` you get every channel in one array.
     channel-retrieve:
         operation: task_channels_retrieve
         enabled: true

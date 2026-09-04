@@ -2230,6 +2230,25 @@ def _build_xmin_query(
     return ordered
 
 
+def _column_is_not_null(table: Table[PostgreSQLColumn], column_name: str) -> bool:
+    """Whether `column_name` is declared NOT NULL.
+
+    `Column.nullable` is annotated `bool`, but `_get_table` fills it straight from
+    `information_schema.columns.is_nullable` for a table, which Postgres returns as the string
+    "YES"/"NO"; only the materialised-view branch produces a real boolean. A bare truth test
+    therefore reads every column of every table as nullable, because "NO" is truthy. Sibling
+    sources normalise at construction (Redshift, Trino), but doing that here would change the Arrow
+    field nullability this source has always emitted, so interpret both shapes at the point of use.
+    """
+
+    def is_not_null(nullable: object) -> bool:
+        if isinstance(nullable, str):
+            return nullable.strip().upper() == "NO"
+        return not nullable
+
+    return any(is_not_null(column.nullable) for column in table.columns if column.name == column_name)
+
+
 def _build_keyset_query(
     schema: str,
     table_name: str,
@@ -3983,16 +4002,17 @@ def postgres_source(
 
             # Seeking needs a key that is unique and never NULL. A page boundary inside a run of
             # equal keys drops the rest of that run, and `key > last` never matches NULL, so a NULL
-            # row is dropped unless it lands on the first page. A declared primary key is both. The
-            # assumed `id` is neither until checked, and its duplicate probe groups NULLs together,
-            # so a single NULL row passes it. A partitioned parent's key is unique only per child.
-            not_null_columns = {column.name for column in full_table.columns if not column.nullable}
+            # row is dropped unless it lands on the first page. Postgres guarantees both for a
+            # declared primary key, so that needs no further check. The assumed `id` is neither
+            # until proven: its duplicate probe groups NULLs together, so one NULL row alone passes
+            # it, and the column has to be NOT NULL as well. A partitioned parent's key is unique
+            # only per child.
+            assumed_id_is_seekable = not has_duplicate_primary_keys and all(
+                _column_is_not_null(full_table, key) for key in primary_keys or []
+            )
             keyset_primary_keys = (
                 primary_keys
-                if primary_keys
-                and not is_partitioned
-                and not (used_id_pk_fallback and has_duplicate_primary_keys)
-                and all(key in not_null_columns for key in primary_keys)
+                if primary_keys and not is_partitioned and (not used_id_pk_fallback or assumed_id_is_seekable)
                 else None
             )
 

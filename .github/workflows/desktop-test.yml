@@ -109,10 +109,6 @@ jobs:
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
                   restore-keys: desktop-pnpm-${{ runner.os }}-
 
-            # Only dependency builds are cached, tests themselves always run.
-            - name: Restore turbo cache
-              uses: ./.github/actions/desktop-restore-turbo-cache
-
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
               env:
@@ -183,10 +179,6 @@ jobs:
                   key: electron-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
                   restore-keys: |
                       electron-${{ runner.os }}-
-
-            # Seeded on Linux; turbo artifacts are plain JS, so cross-OS restore is fine.
-            - name: Restore turbo cache
-              uses: ./.github/actions/desktop-restore-turbo-cache
 
             - name: Install dependencies
               run: pnpm install --frozen-lockfile

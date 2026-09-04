@@ -820,6 +820,33 @@ class TestFacadeReadsAndMappers(TestCase):
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
 
+    def test_run_task_resume_of_a_pipeline_task_stays_unstamped(self):
+        # The predecessor's stage is deliberately not carried forward: a stage makes the run
+        # read as pipeline-started and drops it out of the interactive duration ceiling.
+        from products.signals.backend.models import SignalReport
+
+        # The report link is present so only `internal` can withhold the stamp here.
+        report = SignalReport.objects.create(team=self.team)
+        task = self._make_task(origin_product=Task.OriginProduct.SIGNAL_REPORT, signal_report=report, internal=True)
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"ai_stage": "implementation"},
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        self.assertNotIn("ai_stage", new_run.state)
+
     @parameterized.expand(
         [
             # The inbox "Create PR" button sends no branch, so the team's configured base branch is

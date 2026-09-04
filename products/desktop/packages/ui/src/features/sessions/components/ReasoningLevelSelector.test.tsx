@@ -694,6 +694,103 @@ describe("ReasoningLevelSelector", () => {
     expect(onChange).toHaveBeenCalledWith("medium");
   });
 
+  it("resets through onNotchSelect atomically when the caller wants the pair", async () => {
+    const onChange = vi.fn();
+    const onModelChange = vi.fn();
+    const onNotchSelect = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption({ currentValue: "max" })}
+          modelOption={claudeModelOption("claude-fable-5")}
+          adapter="claude"
+          onChange={onChange}
+          onModelChange={onModelChange}
+          onNotchSelect={onNotchSelect}
+        />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    await user.click(await screen.findByRole("button", { name: "Advanced" }));
+    await user.click(await screen.findByText("Reset to default"));
+
+    await pollUntil(() => onNotchSelect.mock.calls.length > 0);
+    // The pair lands in one call, never the split changeModel/onChange that
+    // would let the effort persist against the previously-shown model.
+    expect(onNotchSelect).toHaveBeenCalledWith({
+      model: "claude-opus-5",
+      effort: "medium",
+    });
+    expect(onModelChange).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("hands reset to onResetToDefault instead of moving to the notch", async () => {
+    const onChange = vi.fn();
+    const onModelChange = vi.fn();
+    const onResetToDefault = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption({ currentValue: "max" })}
+          modelOption={claudeModelOption("claude-fable-5")}
+          adapter="claude"
+          onChange={onChange}
+          onModelChange={onModelChange}
+          onResetToDefault={onResetToDefault}
+        />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    await user.click(await screen.findByRole("button", { name: "Advanced" }));
+    await user.click(await screen.findByText("Reset to default"));
+
+    await pollUntil(() => onResetToDefault.mock.calls.length > 0);
+    expect(onModelChange).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "shows a disabled reset on the slider face while on the default",
+      fastOption("off"),
+      "true",
+    ],
+    ["keeps reset live while fast mode deviates", fastOption("on"), "false"],
+  ])("%s", async (_label, fast, ariaDisabled) => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption({ currentValue: "max" })}
+          modelOption={claudeModelOption("claude-fable-5")}
+          adapter="claude"
+          fastModeOption={fast}
+          resetToDefaultDisabled
+          onResetToDefault={vi.fn()}
+          onConfigOptionChange={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    // No Advanced click: the reset row sits under the slider face too.
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    const item = (await screen.findByText("Reset to default")).closest(
+      "[role=menuitem]",
+    );
+    expect(item?.getAttribute("aria-disabled") ?? "false").toBe(ariaDisabled);
+  });
+
   it.each([
     ["undefined option", undefined],
     ["non-select type", thoughtOption({ type: "boolean" })],

@@ -6,8 +6,17 @@ from posthog.models.user import User
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.exceptions import TaskInvalidStateError
-from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, MCPBuiltInAgentKey, Task
-from products.tasks.backend.temporal.oauth import create_oauth_access_token, create_oauth_access_token_for_run
+from products.tasks.backend.models import (
+    INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN,
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
+    MCPBuiltInAgentKey,
+    Task,
+)
+from products.tasks.backend.temporal.oauth import (
+    INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS,
+    create_oauth_access_token,
+    create_oauth_access_token_for_run,
+)
 
 
 @pytest.mark.parametrize(
@@ -113,10 +122,18 @@ def test_default_task_uses_array_oauth_application(mock_create: MagicMock) -> No
     )
 
 
+# is_interactive_signals_run short-circuits on origin, so an omitted one reads as
+# pipeline-started and leaves an interactive-mode run with no ceiling.
+def test_every_stamped_origin_is_an_interactive_signals_origin() -> None:
+    assert set(INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN) <= set(INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS)
+
+
 @pytest.mark.parametrize(
     ("origin_product", "internal", "run_state", "application", "interactive"),
     [
-        # Inbox CTA: a person creates the task, so no pipeline stage is ever stamped.
+        # Inbox CTA: a person creates the task; create_run stamps the interactive `inbox` stage.
+        (Task.OriginProduct.SIGNAL_REPORT, False, {"ai_stage": "inbox"}, "signals", True),
+        # A bare signal_report task (no report link) gets no stamp and stays interactive.
         (Task.OriginProduct.SIGNAL_REPORT, False, None, "signals", True),
         # Auto-started implementation: the pipeline stamps the run it started.
         (Task.OriginProduct.SIGNAL_REPORT, True, {"ai_stage": "implementation"}, "signals", False),
@@ -127,8 +144,11 @@ def test_default_task_uses_array_oauth_application(mock_create: MagicMock) -> No
         (Task.OriginProduct.SIGNAL_REPORT, True, {"ai_stage": ""}, "signals", True),
         (Task.OriginProduct.SIGNAL_REPORT, True, {"ai_stage": "research"}, "signals", False),
         (Task.OriginProduct.SIGNAL_REPORT, True, {"ai_stage": "custom_agent"}, "signals", False),
+        (Task.OriginProduct.SIGNALS_CHAT, False, {"ai_stage": "chat"}, "signals", True),
         (Task.OriginProduct.SIGNALS_CHAT, False, None, "signals", True),
         (Task.OriginProduct.SIGNALS_SCOUT, True, {"ai_stage": "scout"}, "signals", False),
+        # The interactive stamp never reaches a scheduled origin, and would not make it interactive.
+        (Task.OriginProduct.SIGNALS_SCOUT, True, {"ai_stage": "inbox"}, "signals", False),
         (Task.OriginProduct.USER_CREATED, False, None, "array", False),
     ],
 )
