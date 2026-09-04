@@ -821,6 +821,39 @@ describe('experimentReplayTabLogic', () => {
         filled.unmount()
     })
 
+    it('tells a refused metric filter apart from one that matched nothing, once it has answered', async () => {
+        // Both leave the list with an empty session set, since a refusal must never widen the list
+        // back out. Folded together, a broken endpoint would inflate the count of filters that
+        // legitimately match nothing — the reason a reader would act on.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        ;(experimentsSessionBucketsCreate as jest.Mock).mockReturnValue(new Promise(() => {}))
+        const failing = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 113, start_date: daysAgo(10), end_date: null } as Experiment,
+        })
+        failing.mount()
+        failing.actions.setMetricFilterMode('no_metric_activity')
+
+        // While the request is out the list is empty because the filter hasn't answered yet, and
+        // the caption says so. Reported, that provisional empty would be counted twice.
+        failing.actions.recordingsLoaded([])
+        expect(listsRendered(captureSpy, 113)).toHaveLength(0)
+        ;(experimentsSessionBucketsCreate as jest.Mock).mockRejectedValue(
+            Object.assign(new Error('boom'), { detail: 'Pick exactly one funnel metric' })
+        )
+        failing.actions.loadSessionBucket()
+        await expectLogic(failing).toFinishAllListeners()
+        failing.actions.recordingsLoaded([])
+        await expectLogic(failing).toFinishAllListeners()
+
+        expect(listsRendered(captureSpy, 113)).toHaveLength(1)
+        expect(listsRendered(captureSpy, 113)[0][1]).toMatchObject({
+            result_count: 0,
+            empty_reason: 'metric_filter_failed',
+            is_bucketed: true,
+        })
+        failing.unmount()
+    })
+
     it('leaves the pages scrolling adds out of the report', async () => {
         // Counted too, one visit would look like several lists, and a later page that comes back
         // empty would read as an empty list rather than the end of a list with rows.

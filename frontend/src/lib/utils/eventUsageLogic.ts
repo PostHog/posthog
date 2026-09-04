@@ -176,7 +176,11 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
     days_since_start: number | null
     /** Null while the experiment runs. */
     days_since_end: number | null
-    /** The project's replay retention setting, null when it has none. */
+    /**
+     * The project's current replay retention setting, null when it has none. A recording expires on
+     * the period it was stored under, so this is the assumption `ended_past_retention` was decided
+     * on rather than proof of what expired.
+     */
     retention_period: string | null
     replay_opt_in: boolean
     /** Replay's default floor drops sessions under 5 active seconds, so it can empty a list. */
@@ -1369,18 +1373,18 @@ export interface eventUsageLogicActions {
         context: ExperimentRecordingsBucketFailedContext
         experimentId: ExperimentIdType
     }
-    reportExperimentRecordingsListRendered: (
-        experimentId: ExperimentIdType,
-        context: ExperimentRecordingsListRenderedContext
-    ) => {
-        context: ExperimentRecordingsListRenderedContext
-        experimentId: ExperimentIdType
-    }
     reportExperimentRecordingsBucketLoaded: (
         experimentId: ExperimentIdType,
         context: ExperimentRecordingsBucketLoadedContext
     ) => {
         context: ExperimentRecordingsBucketLoadedContext
+        experimentId: ExperimentIdType
+    }
+    reportExperimentRecordingsListRendered: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsListRenderedContext
+    ) => {
+        context: ExperimentRecordingsListRenderedContext
         experimentId: ExperimentIdType
     }
     reportExperimentRecordingsTabViewed: (

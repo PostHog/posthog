@@ -166,9 +166,16 @@ export enum ExperimentReplayListEmptyReason {
     /** The project does not record sessions, so no experiment on it can have any. */
     ReplayDisabled = 'replay_disabled',
     NotLaunched = 'not_launched',
+    /** The request behind the metric filter was refused, so the list has no session set to show. */
+    MetricFilterFailed = 'metric_filter_failed',
     /** The selected metrics resolved to an empty session set, so the list can only be empty. */
     MetricFilterMatchedNothing = 'metric_filter_matched_nothing',
-    /** The whole run window predates retention: every recording it had has since expired. */
+    /**
+     * The whole run window predates retention: every recording it had has since expired. Measured
+     * against the project's current retention setting, while a recording expires on the period it
+     * was stored under, so a project that has just changed the setting can be misread. The setting
+     * rides along on the report as `retention_period` for exactly that reason.
+     */
     EndedPastRetention = 'ended_past_retention',
     /** Launched within the last few days, so recordings may not have been captured yet. */
     TooEarly = 'too_early',
@@ -530,6 +537,7 @@ export interface experimentReplayTabLogicMeta {
         listEmptyReason: (
             currentTeam: TeamPublicType | TeamType | null,
             bucketSessionIds: string[] | undefined,
+            sessionBucketError: string | null,
             arg: any
         ) => ExperimentReplayListEmptyReason
         filterContext: (
@@ -1008,10 +1016,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
          * tab, so on a list with rows it is meaningless rather than wrong.
          */
         listEmptyReason: [
-            (s) => [s.currentTeam, s.bucketSessionIds, (_, props) => props.experiment],
+            (s) => [s.currentTeam, s.bucketSessionIds, s.sessionBucketError, (_, props) => props.experiment],
             (
                 currentTeam: TeamPublicType | TeamType | null,
                 bucketSessionIds: string[] | undefined,
+                sessionBucketError: string | null,
                 experiment: Experiment
             ): ExperimentReplayListEmptyReason => {
                 if (!currentTeam?.session_recording_opt_in) {
@@ -1020,10 +1029,14 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 if (!experiment.start_date) {
                     return ExperimentReplayListEmptyReason.NotLaunched
                 }
-                // A failed bucket request also lands here as an empty session set (it must never
-                // widen the list back out); `experiment recordings bucket failed` tells the two apart.
+                // A refused request leaves the same empty session set as a filter that matched
+                // nothing, because it must never widen the list back out. Told apart here rather
+                // than left to a join against `experiment recordings bucket failed`, so a broken
+                // endpoint can't inflate the count of filters that legitimately match nothing.
                 if (bucketSessionIds?.length === 0) {
-                    return ExperimentReplayListEmptyReason.MetricFilterMatchedNothing
+                    return sessionBucketError !== null
+                        ? ExperimentReplayListEmptyReason.MetricFilterFailed
+                        : ExperimentReplayListEmptyReason.MetricFilterMatchedNothing
                 }
                 const retention = retentionDays(currentTeam.session_recording_retention_period)
                 const daysSinceStart = dayjs().diff(dayjs(experiment.start_date), 'day')
@@ -1440,6 +1453,12 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             // a later page that comes back empty is the end of a list that has rows, not an empty
             // one. `recording list fetched` covers every page for anyone asking about paging.
             if (!isFirstPage) {
+                return
+            }
+            // An empty list under an in-flight metric filter is the filter not having answered yet,
+            // which the caption says out loud. Reported, it would count twice: once here and once
+            // when the answer lands and the list reloads.
+            if (recordings.length === 0 && values.sessionBucketLoading) {
                 return
             }
             actions.reportExperimentRecordingsListRendered(props.experiment.id, {
