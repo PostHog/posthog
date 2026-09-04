@@ -52,6 +52,7 @@ export class HogFlowFunctionsService {
                 email_sending_rate_limit: hogFlow.email_sending_rate_limit ?? null,
                 email_sending_paused_at: hogFlow.email_sending_paused_at ?? null,
                 email_sending_paused_reason: hogFlow.email_sending_paused_reason ?? null,
+                email_sending_paused_by: hogFlow.email_sending_paused_by ?? null,
             },
         }
 
