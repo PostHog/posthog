@@ -225,12 +225,12 @@ function resolveSuggestedFiltersGroup(
 export function injectAutoMetaGroups(
     groupTypes: TaxonomicFilterGroupType[],
     availableGroupTypes: Set<TaxonomicFilterGroupType>,
-    singleSubstantiveGroup: boolean
+    hasSingleSubstantiveGroup: boolean
 ): TaxonomicFilterGroupType[] {
     const withMetaGroups = [...groupTypes]
     for (const metaType of AUTO_INJECTED_META_GROUP_TYPES) {
         if (availableGroupTypes.has(metaType) && !withMetaGroups.includes(metaType)) {
-            const insertAt = singleSubstantiveGroup
+            const insertAt = hasSingleSubstantiveGroup
                 ? withMetaGroups.length
                 : indexAfterLastMetaGroup(withMetaGroups, META_GROUP_ORDER)
             withMetaGroups.splice(insertAt, 0, metaType)
@@ -2178,7 +2178,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
 
                 const pillVariant = featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN] === 'pill'
                 const substantiveGroupCount = filtered.filter((t) => !META_GROUP_TYPES.has(t)).length
-                const singleSubstantiveGroup = substantiveGroupCount === 1
+                const hasSingleSubstantiveGroup = substantiveGroupCount === 1
 
                 const withSuggested = resolveSuggestedFiltersGroup(
                     filtered,
@@ -2186,11 +2186,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     substantiveGroupCount,
                     pillVariant
                 )
-                const withMetaGroups = injectAutoMetaGroups(withSuggested, availableGroupTypes, singleSubstantiveGroup)
+                const withMetaGroups = injectAutoMetaGroups(
+                    withSuggested,
+                    availableGroupTypes,
+                    hasSingleSubstantiveGroup
+                )
 
                 // With a single substantive group there's nothing to reorder above it, and promoting
                 // the shortcut groups would push the group below its own Recent/Pinned tabs.
-                if (singleSubstantiveGroup) {
+                if (hasSingleSubstantiveGroup) {
                     return withMetaGroups
                 }
                 return promoteShortcutGroups(withMetaGroups, eventNames)
