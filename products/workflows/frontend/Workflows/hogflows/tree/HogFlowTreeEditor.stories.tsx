@@ -10,6 +10,7 @@ import { Workflow } from '../../Workflow'
 import { WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import type { HogFlow, HogFlowAction } from '../types'
+import { EXAMPLE_WORKFLOWS, EXAMPLE_WORKFLOW_IDS } from './exampleWorkflows'
 import { HogFlowTreeEditor } from './HogFlowTreeEditor'
 
 const LOGIC_PROPS: WorkflowLogicProps = { id: 'new' }
@@ -78,7 +79,6 @@ const WORKFLOW: Pick<HogFlow, 'actions' | 'edges'> = {
 }
 
 const COMPLEX_WORKFLOW_ID = 'storybook-complex-workflow'
-const COMPLEX_LOGIC_PROPS: WorkflowLogicProps = { id: COMPLEX_WORKFLOW_ID }
 const COMPLEX_WORKFLOW: HogFlow = {
     id: COMPLEX_WORKFLOW_ID,
     team_id: 1,
@@ -378,25 +378,40 @@ const Template: StoryFn = () => {
 
 export const BranchesRejoin: StoryFn = Template.bind({})
 
-export const ComplexInteractive: StoryFn = () => (
-    <BindLogic logic={workflowLogic} props={COMPLEX_LOGIC_PROPS}>
+// The story's `example` arg is also the workflow id, so the mock resolves the picked workflow
+// straight off the request path.
+const PICKABLE_WORKFLOWS: Record<string, HogFlow> = { [COMPLEX_WORKFLOW_ID]: COMPLEX_WORKFLOW, ...EXAMPLE_WORKFLOWS }
+
+export const ComplexInteractive: StoryFn<{ example: string }> = ({ example }) => (
+    <BindLogic logic={workflowLogic} props={{ id: example }}>
         <div className="h-screen p-4">
-            <Workflow {...COMPLEX_LOGIC_PROPS} />
+            <Workflow id={example} />
         </div>
     </BindLogic>
 )
 
+ComplexInteractive.args = { example: COMPLEX_WORKFLOW_ID }
+ComplexInteractive.argTypes = {
+    example: {
+        name: 'Workflow',
+        options: [COMPLEX_WORKFLOW_ID, ...EXAMPLE_WORKFLOW_IDS],
+        control: { type: 'select' },
+    },
+}
 ComplexInteractive.decorators = [
     mswDecorator({
         get: {
-            '/api/environments/:team_id/hog_flows/:id/': COMPLEX_WORKFLOW,
+            '/api/environments/:team_id/hog_flows/:id/': ({ params }) => [
+                200,
+                PICKABLE_WORKFLOWS[String(params.id)] ?? COMPLEX_WORKFLOW,
+            ],
             '/api/environments/:team_id/messaging_categories': { count: 0, results: [] },
         },
         patch: {
-            '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => [
+            '/api/environments/:team_id/hog_flows/:id/': async ({ request, params }) => [
                 200,
                 {
-                    ...COMPLEX_WORKFLOW,
+                    ...(PICKABLE_WORKFLOWS[String(params.id)] ?? COMPLEX_WORKFLOW),
                     ...((await request.json()) as Partial<HogFlow>),
                     updated_at: '2026-09-04T12:01:00.000Z',
                 },
