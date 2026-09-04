@@ -2220,15 +2220,31 @@ export class PostgresPersonRepository
             // 1. Update cohorts.
             // 2. Update (delete+insert) feature flags.
             //
+            // A cohort row for a cohort the target already belongs to cannot move: the unique
+            // (cohort_id, person_id) index rejects it. Drop those source rows instead, so the
+            // merge does not leave them pointing at a person that is about to disappear.
+            //
             // NOTE: Every override is unique for a team-personID-featureFlag combo. In case we run
             // into a conflict we would ideally use the override from most recent personId used, so
             // the user experience is consistent, however that's tricky to figure out this also
             // happens rarely, so we're just going to do the performance optimal thing i.e. do
             // nothing on conflicts, so we keep using the value that the person merged into had
-            `WITH cohort_update AS (
+            `WITH colliding_cohorts AS (
+                SELECT cp.id
+                FROM posthog_cohortpeople cp
+                WHERE cp.person_id = $2
+                  AND EXISTS (
+                      SELECT 1 FROM posthog_cohortpeople other
+                      WHERE other.cohort_id = cp.cohort_id AND other.person_id = $1 AND other.id <> cp.id
+                  )
+            ),
+            cohort_drop AS (
+                DELETE FROM posthog_cohortpeople WHERE id IN (SELECT id FROM colliding_cohorts)
+            ),
+            cohort_update AS (
                 UPDATE posthog_cohortpeople
                 SET person_id = $1
-                WHERE person_id = $2
+                WHERE person_id = $2 AND id NOT IN (SELECT id FROM colliding_cohorts)
                 RETURNING person_id
             ),
             deletions AS (
@@ -2259,10 +2275,27 @@ export class PostgresPersonRepository
         // two operations, one round-trip for all folded source persons.
         await this.postgres.query(
             tx ?? PostgresUse.PERSONS_WRITE,
-            `WITH cohort_update AS (
+            `WITH colliding_cohorts AS (
+                SELECT cp.id
+                FROM posthog_cohortpeople cp
+                WHERE cp.person_id = ANY($2::bigint[])
+                  AND EXISTS (
+                      SELECT 1 FROM posthog_cohortpeople other
+                      WHERE other.cohort_id = cp.cohort_id
+                        AND other.id <> cp.id
+                        AND (
+                            other.person_id = $1
+                            OR (other.person_id = ANY($2::bigint[]) AND other.id < cp.id)
+                        )
+                  )
+            ),
+            cohort_drop AS (
+                DELETE FROM posthog_cohortpeople WHERE id IN (SELECT id FROM colliding_cohorts)
+            ),
+            cohort_update AS (
                 UPDATE posthog_cohortpeople
                 SET person_id = $1
-                WHERE person_id = ANY($2::bigint[])
+                WHERE person_id = ANY($2::bigint[]) AND id NOT IN (SELECT id FROM colliding_cohorts)
                 RETURNING person_id
             ),
             deletions AS (

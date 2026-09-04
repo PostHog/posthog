@@ -12,10 +12,12 @@ use crate::storage::error::StorageResult;
 use crate::storage::traits::CohortStorage;
 use crate::storage::types::CohortMembership;
 
-/// Insert one bounded chunk of cohort members. NOT EXISTS makes re-running the same
-/// person_ids (e.g. on retry) idempotent without a unique index; the bare ON CONFLICT DO
-/// NOTHING is a forward-safeguard — if a unique (cohort_id, person_id) constraint is later
-/// added, a concurrent same-key insert is skipped cleanly instead of erroring.
+/// Insert one bounded chunk of cohort members. The unique (cohort_id, person_id) index makes
+/// this idempotent: a bare ON CONFLICT DO NOTHING arbitrates on every unique index of the
+/// table, so a re-sent person_id, a person_id repeated inside one array, and a concurrent
+/// call for the same cohort are all skipped. It stays untargeted so a binary that reaches a
+/// database where the index build is still pending keeps its old behavior instead of failing
+/// every insert.
 async fn insert_cohort_members_chunk(
     pool: &sqlx::PgPool,
     cohort_id: i64,
@@ -28,10 +30,6 @@ async fn insert_cohort_members_chunk(
         INSERT INTO posthog_cohortpeople (person_id, cohort_id, version)
         SELECT pid, $1::bigint, $3
         FROM UNNEST($2::bigint[]) AS t(pid)
-        WHERE NOT EXISTS (
-            SELECT 1 FROM posthog_cohortpeople cp
-            WHERE cp.person_id = pid AND cp.cohort_id = $1::bigint
-        )
         ON CONFLICT DO NOTHING
         "#,
         cohort_id,
@@ -252,8 +250,8 @@ impl CohortStorage for PostgresStorage {
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         // Split into fixed-size chunks inserted concurrently on the bulk pool, mirroring
-        // delete_persons. Each chunk dedups with NOT EXISTS, so a retry of the full list
-        // sees the already-committed rows and skips them — idempotent without a unique index.
+        // delete_persons. The unique (cohort_id, person_id) index makes each chunk idempotent,
+        // so a retry of the full list skips the already-committed rows.
         let pool = self.bulk_primary_pool.clone();
         let chunks: Vec<Vec<i64>> = person_ids
             .chunks(self.bulk_chunk_size)
