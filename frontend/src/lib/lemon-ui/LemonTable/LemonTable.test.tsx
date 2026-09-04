@@ -99,6 +99,30 @@ describe('LemonTable', () => {
         expect(onResizeEnd).toHaveBeenCalledTimes(1)
     })
 
+    it('caps a resizable column at its width so the content crops', () => {
+        render(
+            <LemonTable
+                rowKey="id"
+                dataSource={DATA}
+                columns={[
+                    {
+                        title: 'Value',
+                        key: 'value',
+                        dataIndex: 'value',
+                        width: 90,
+                        resizable: true,
+                        onResize: jest.fn(),
+                    },
+                    { title: 'Name', key: 'name', dataIndex: 'name', width: 90 },
+                ]}
+            />
+        )
+
+        expect(screen.getByText('Value').closest('th')).toHaveStyle({ maxWidth: '90px' })
+        expect(document.querySelector('tbody tr:first-child > td')).toHaveStyle({ maxWidth: '90px' })
+        expect(screen.getByText('Name').closest('th')).not.toHaveStyle({ maxWidth: '90px' })
+    })
+
     it('keeps headers, expanded rows, and empty states aligned when the row expansion toggle is hidden', () => {
         const { rerender } = render(
             <LemonTable

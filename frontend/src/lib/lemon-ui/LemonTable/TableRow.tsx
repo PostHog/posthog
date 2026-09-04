@@ -6,7 +6,7 @@ import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 
-import { getStickyColumnInfo } from './columnLayoutUtils'
+import { getColumnWidthCap, getStickyColumnInfo } from './columnLayoutUtils'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, TableCellRepresentation } from './types'
 
 export interface TableRowProps<T extends Record<string, any>> {
@@ -144,6 +144,7 @@ function TableRowRaw<T extends Record<string, any>>({
                                 columns
                             )
 
+                            const widthCap = getColumnWidthCap(column)
                             const extraCellProps =
                                 isTableCellRepresentation(contents) && contents.props ? contents.props : {}
                             return (
@@ -151,6 +152,8 @@ function TableRowRaw<T extends Record<string, any>>({
                                     key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
                                     className={clsx(
                                         columnIndex === 0 && 'LemonTable__boundary',
+                                        // A column held at a width crops its content on one line, rather than growing taller
+                                        widthCap && 'whitespace-nowrap',
                                         isSticky && 'LemonTable__cell--sticky',
                                         isColumnSticky && 'LemonTable__cell--pinned',
                                         column.align && `text-${column.align}`,
@@ -163,6 +166,7 @@ function TableRowRaw<T extends Record<string, any>>({
                                         ...(typeof column.style === 'function'
                                             ? column.style(value as T[keyof T], record, recordIndex)
                                             : column.style),
+                                        ...(widthCap ? { maxWidth: widthCap } : {}),
                                         ...(isColumnSticky ? { left: `${leftPosition}px` } : {}),
                                     }}
                                     {...extraCellProps}
