@@ -1132,16 +1132,13 @@ class SignalReportViewSet(
                 created_at__gt=OuterRef("created_at"),
             )
         )
-        return (
-            SignalReportArtefact.objects.filter(
-                team=self.team,
-                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-            )
-            # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-            .extra(where=[containment], params=params)
-            .filter(~has_newer)
-            .values("report_id")
+        reviewer_artefacts = SignalReportArtefact.objects.filter(
+            team=self.team,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
         )
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+        reviewer_artefacts = reviewer_artefacts.extra(where=[containment], params=params)
+        return reviewer_artefacts.filter(~has_newer).values("report_id")
 
     def _implementation_pr_report_filter(self):
         # Reports with a shipped implementation PR, as a `Q` on `SignalReport.id`. Decorrelated:
