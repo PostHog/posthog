@@ -27,6 +27,7 @@ from posthog.clickhouse.client.execute_async import (
     QueryResultExpiredError,
     QueryStatusManager,
     execute_process_query,
+    record_blocking_query_failure,
     record_blocking_query_result,
 )
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
@@ -43,6 +44,8 @@ from posthog.models.user import User
 from posthog.query_cache.cache import QueryCache
 from posthog.redis import get_client
 from posthog.shared_link_user import SharedLinkUser
+
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
 
 def build_query(sql):
@@ -120,6 +123,24 @@ class TestQueryStatusManager(SimpleTestCase):
             self.query_id, self.team_id, key_prefix=QueryStatusManager.KEY_PREFIX_BLOCKING_RESULTS
         )
         assert blocking.get_query_status().complete is True
+
+    @parameterized.expand(
+        [
+            ("access_control", UserAccessControlError("metrics", "viewer"), True),
+            ("exposed_hogql", ExposedHogQLError("bad query"), True),
+            ("internal", ValueError("something broke"), False),
+        ]
+    )
+    def test_a_blocking_failure_keeps_only_a_user_safe_message(self, _name, error, keeps_message):
+        record_blocking_query_failure(self.team_id, self.query_id, error)
+
+        blocking = QueryStatusManager(
+            self.query_id, self.team_id, key_prefix=QueryStatusManager.KEY_PREFIX_BLOCKING_RESULTS
+        )
+        status = blocking.get_query_status()
+
+        assert status.error is True
+        assert status.error_message == (str(error) if keeps_message else None)
 
     def test_delete_forgets_the_query(self):
         self.manager.store_query_status(self.query_status)

@@ -572,9 +572,11 @@ def _record_blocking_query_status(
 def _user_safe_error_message(error: Exception) -> Optional[str]:
     # Same rule as the async path: only errors we already show to the user may be stored
     # in the record, everything else stays a generic failure.
+    from products.access_control.backend.facade.user_access_control import UserAccessControlError
+
     if isinstance(error, APIException):
         return str(error.detail)
-    if isinstance(error, ExposedHogQLError | ExposedCHQueryError):
+    if isinstance(error, ExposedHogQLError | ExposedCHQueryError | UserAccessControlError):
         return str(error)
     return None
 
