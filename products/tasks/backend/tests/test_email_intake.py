@@ -217,7 +217,7 @@ class TestStartTaskFromEmail(APIBaseTest):
             "Auto-Submitted": "auto-replied",
         }
         assert kwargs["subject"] == "Started: Find out why signups dropped"
-        assert kwargs["template_context"]["task_url"].endswith(f"/code/task/{intake.task_id}")
+        assert kwargs["template_context"]["task_url"].endswith(f"/project/{self.team.id}/tasks/{intake.task_id}")
         message_cls.return_value.add_recipient.assert_called_once_with(email=self.user.email, name="Alice")
         message_cls.return_value.send.assert_called_once()
 

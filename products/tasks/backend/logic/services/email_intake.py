@@ -229,7 +229,7 @@ def _send_started_email(email: InboundTaskEmail, team: Team, title: str, task_id
             campaign_key=f"task_email_started_{task_id}",
             template_name="task_email_started",
             subject=f"Started: {title}",
-            template_context={"task_title": title, "task_url": absolute_uri(f"/code/task/{task_id}")},
+            template_context={"task_title": title, "task_url": absolute_uri(f"/project/{team.id}/tasks/{task_id}")},
             headers={"In-Reply-To": message_id, "References": message_id, "Auto-Submitted": "auto-replied"},
         )
         message.add_recipient(email=email.sender_email, name=email.sender_name or email.sender_email)
