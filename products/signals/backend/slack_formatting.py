@@ -75,18 +75,29 @@ def escape_slack_mrkdwn(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+# The Slack tokens that can address somebody or lie about where they point: the mentions
+# (`<@U…>`, `<#C…>`, `<!here>`, `<!subteam^S…>`) and the labelled link form, whose `<dest|label>`
+# shape lets the label say one thing while the link goes somewhere else. A bare `<https://…>` is
+# neither — it links to exactly what it displays — so it is left for Slack to render.
+_SLACK_TOKEN_RE = re.compile(r"<(?:[@#!][^<>]*|[^<>|]*\|[^<>]*)>")
+
+
 def defuse_slack_tokens(text: str) -> str:
-    """Neutralize Slack's tokens in untrusted Markdown, leaving the rest of the text alone.
+    """Neutralize Slack's own tokens in untrusted Markdown, leaving the rest of the text alone.
 
-    Slack parses its own `<…>` tokens inside a markdown block, so raw text reaches a reader as a
-    live `@here`, a live mention, or a link whose label hides where it points. Escaping the angle
-    brackets is enough to stop all three, and Slack renders the escaped form back as the literal
-    characters.
+    Slack parses these tokens inside a markdown block, so raw content from a report, a GitHub
+    issue, or a support ticket reaches a reader as a live `@here`, a live mention, or a link whose
+    label hides its destination. Escaping the angle brackets stops all three, and Slack renders the
+    escaped form back as the literal characters.
 
-    `&` is deliberately left alone. Slack decodes an entity for display without re-reading the
-    result as a token, so escaping it buys no safety, and it does not decode inside a link
-    destination, where `&amp;` would corrupt every query string a report links to."""
-    return text.replace("<", "&lt;").replace(">", "&gt;")
+    Only a token is rewritten. Escaping every `<` instead corrupts the three things that carry
+    angle brackets innocently: a code span (`Vec<T>`), a CommonMark autolink, and an angle-bracket
+    link destination, none of which decode the entity back.
+
+    `&` is left alone throughout. Slack decodes an entity for display without re-reading the result
+    as a token, so escaping it buys no safety, and it does not decode inside a link destination,
+    where `&amp;` would corrupt every query string a report links to."""
+    return _SLACK_TOKEN_RE.sub(lambda m: m.group(0).replace("<", "&lt;").replace(">", "&gt;"), text)
 
 
 def is_safe_slack_http_url(value: object) -> bool:
@@ -266,23 +277,39 @@ def group_segments_to_limit(segments: list[str], limit: int = MAX_THREAD_SEGMENT
 # End of a sentence, allowing a closing quote or bracket before the space that follows it.
 _SENTENCE_END_RE = re.compile(r"[.!?…][\"')\]]*\s")
 _WHITESPACE_RUN_RE = re.compile(r"\s+")
+# A Markdown construct left open at the end of a candidate chunk: a link whose destination has not
+# closed (`[label](https://ex`), or a label that has not (`[the failing`). Slack renders each half
+# of a split link as visible junk, so a cut here moves back before the `[` that opened it.
+_OPEN_MARKDOWN_LINK_RE = re.compile(r"\[[^\[\]]*\]\([^()]*$|\[[^\[\]]*$")
 # A break earlier than this share of the limit spends a whole reply on a stub, so the ladder in
 # `_line_break_index` prefers the next (later-breaking) rung over an early sentence or word end.
 _MIN_LINE_BREAK_FILL = 0.6
+
+
+def _pull_back_before_open_link(window: str, index: int) -> int:
+    """Move a cut back before a Markdown link it would otherwise split, or leave it alone."""
+    match = _OPEN_MARKDOWN_LINK_RE.search(window[:index])
+    return match.start() if match else index
 
 
 def _line_break_index(line: str, limit: int) -> int:
     """Index to cut a line that exceeds the limit on its own, preferring the most readable boundary.
 
     Tries a sentence end, then any whitespace, so a reply never opens mid-word. Falls back to the
-    limit only for an unbreakable run such as a long URL or an encoded blob."""
+    limit only for an unbreakable run such as a long URL or an encoded blob. Every rung stays out of
+    a Markdown link, because half a link is worse to read than an early break."""
     window = line[:limit]
     floor = int(limit * _MIN_LINE_BREAK_FILL)
     for pattern in (_SENTENCE_END_RE, _WHITESPACE_RUN_RE):
         matches = list(pattern.finditer(window))
-        if matches and matches[-1].end() >= floor:
-            return matches[-1].end()
-    return limit
+        if not matches:
+            continue
+        index = _pull_back_before_open_link(window, matches[-1].end())
+        if index >= floor:
+            return index
+    hard_cut = _pull_back_before_open_link(window, limit)
+    # A link longer than the whole window has nowhere safe to break, so it is split anyway.
+    return hard_cut if hard_cut > 0 else limit
 
 
 def chunk_slack_text(text: str, limit: int) -> list[str]:

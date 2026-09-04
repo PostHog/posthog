@@ -7,6 +7,7 @@ from parameterized import parameterized
 from products.signals.backend.slack_formatting import (
     SLACK_MARKDOWN_TEXT_MAX_LEN,
     chunk_slack_text,
+    defuse_slack_tokens,
     escape_slack_mrkdwn,
     group_segments_to_limit,
     split_markdown_by_headings,
@@ -91,6 +92,44 @@ class TestStripChartReferences(SimpleTestCase):
         strip_chart_references(summary)
 
         assert time.perf_counter() - started < 0.5
+
+
+class TestDefuseSlackTokens(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("user_mention", "ping <@U12345678> now"),
+            ("channel_link", "see <#C12345678> for more"),
+            ("broadcast", "heads up <!here> everyone"),
+            ("subteam", "ask <!subteam^S12345678> about it"),
+            ("labelled_link_hides_its_target", "click <https://evil.example.com|your bank> now"),
+            ("labelled_link_without_a_scheme", "click <evil.example.com|your bank> now"),
+        ]
+    )
+    def test_a_token_that_pings_or_misleads_is_defused(self, _name: str, text: str) -> None:
+        # Slack parses these inside a markdown block, so untrusted content reaches a reader as a
+        # live ping or as a label that hides where the link goes.
+        defused = defuse_slack_tokens(text)
+
+        assert "<" not in defused
+        assert ">" not in defused
+        assert "&lt;" in defused and "&gt;" in defused
+
+    @parameterized.expand(
+        [
+            ("code_span_generic", "the type is `Vec<T>` here"),
+            ("code_span_comparison", "the guard is `count < 5` here"),
+            ("autolink", "see <https://example.com/plain> for more"),
+            ("angle_bracket_link_destination", "see [the run](<https://example.com/p?q=1&x=2>)"),
+            ("bare_comparison", "fires when count < 5 and count > 1"),
+            ("ampersand_in_prose", "research & development"),
+            ("ampersand_in_a_link", "see [the run](https://example.com/i?a=1&b=2)"),
+        ]
+    )
+    def test_text_that_only_looks_like_a_token_is_left_alone(self, _name: str, text: str) -> None:
+        # Escaping every angle bracket instead corrupts all of these: Slack decodes the entity in
+        # prose but not inside a code span or a link destination, so the escape shows through as
+        # `&lt;` or breaks the link outright.
+        assert defuse_slack_tokens(text) == text
 
 
 class TestSplitMarkdownByHeadings(SimpleTestCase):
@@ -283,6 +322,23 @@ class TestChunkSlackText(SimpleTestCase):
         assert len(chunks) > 1
         assert all(len(chunk) <= SLACK_MARKDOWN_TEXT_MAX_LEN for chunk in chunks)
         assert " ".join(chunks).split() == line.split()
+
+    @parameterized.expand(
+        [
+            ("in_prose", "[the failing request](https://example.com/a/very/long/path?trace=1)", ""),
+            ("in_a_table_row", "[#93147 the failing request](https://example.com/pull/93147)", "| "),
+        ]
+    )
+    def test_markdown_link_spanning_the_limit_is_kept_whole(self, _name: str, link: str, prefix: str) -> None:
+        # A cut inside `[label](url)` leaves half the syntax in each message, and Slack renders both
+        # halves as visible junk instead of a link. A summary may run to 20,000 characters, so a link
+        # can sit across the chunk boundary. The row's own pipes are not held together: a table row
+        # that long has nowhere safe to break, and the link is what a reader loses.
+        line = "x" * (SLACK_MARKDOWN_TEXT_MAX_LEN - 20) + prefix + link + " | ready | and more prose."
+        chunks = chunk_slack_text(line, SLACK_MARKDOWN_TEXT_MAX_LEN)
+
+        assert all(len(chunk) <= SLACK_MARKDOWN_TEXT_MAX_LEN for chunk in chunks)
+        assert any(link in chunk for chunk in chunks)
 
 
 class TestGroupSegmentsToLimit(SimpleTestCase):
