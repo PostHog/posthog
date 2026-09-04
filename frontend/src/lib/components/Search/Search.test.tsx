@@ -104,11 +104,36 @@ describe('Search', () => {
         expect(onItemSelect).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'inbox' }), false)
     })
 
-    it('cancels the selection when the pointer is dragged off the result', () => {
+    // Each of these ends the gesture without a release on the pressed result, so the release that
+    // does arrive must select nothing.
+    test.each([
+        [
+            'the pointer is dragged off the result',
+            (): void => {
+                fireEvent.pointerUp(document.body, { pointerId: 1, clientX: 10, clientY: 300 })
+            },
+        ],
+        [
+            'the window loses focus while the press is held',
+            (): void => {
+                // A pointer that leaves the window can take both release events with it, so the
+                // release below is the first one the hook sees.
+                fireEvent.blur(window)
+                fireEvent.pointerUp(screen.getByText('Inbox'), { pointerId: 1, clientX: 10, clientY: 10 })
+            },
+        ],
+        [
+            'a second press starts before the release',
+            (): void => {
+                fireEvent.pointerDown(document.body, { button: 0, pointerId: 1, clientX: 10, clientY: 10 })
+                fireEvent.pointerUp(screen.getByText('Inbox'), { pointerId: 1, clientX: 10, clientY: 10 })
+            },
+        ],
+    ])('cancels the selection when %s', (_case, release) => {
         renderResults([INBOX, SETTINGS])
 
         fireEvent.pointerDown(screen.getByText('Inbox'), { button: 0, pointerId: 1, clientX: 10, clientY: 10 })
-        fireEvent.pointerUp(document.body, { pointerId: 1, clientX: 10, clientY: 300 })
+        release()
 
         expect(onItemSelect).not.toHaveBeenCalled()
     })

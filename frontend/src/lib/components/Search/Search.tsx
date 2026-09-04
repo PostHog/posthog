@@ -404,17 +404,26 @@ function usePointerActivation(activate: (item: SearchItem, openInNewTab: boolean
             activatedIdRef.current = press.item.id
             activate(press.item, event.metaKey || event.ctrlKey)
         }
-        // A native link drag suppresses the pointer stream, so the press must not survive it.
+        // The press must not survive anything that ends the gesture without a release. A native
+        // link drag suppresses the pointer stream, a focus loss can drop both release events, and
+        // a later press is a gesture of its own.
         const cancel = (): void => {
             pressRef.current = null
         }
+        // Capture, so a press on a result cancels the previous one before the result records its own.
+        window.addEventListener('pointerdown', cancel, true)
         window.addEventListener('pointerup', release, true)
         window.addEventListener('pointercancel', cancel, true)
         window.addEventListener('dragstart', cancel, true)
+        // `blur` does not bubble, so a non-capturing listener hears the window and not the elements
+        // inside it. A capturing one would cancel the press on every focus move within the page.
+        window.addEventListener('blur', cancel)
         return () => {
+            window.removeEventListener('pointerdown', cancel, true)
             window.removeEventListener('pointerup', release, true)
             window.removeEventListener('pointercancel', cancel, true)
             window.removeEventListener('dragstart', cancel, true)
+            window.removeEventListener('blur', cancel)
         }
     }, [activate])
 
