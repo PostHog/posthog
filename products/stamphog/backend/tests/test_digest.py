@@ -33,8 +33,11 @@ from products.stamphog.backend.logic.digest import (
     GRAZE_CHANGED_FILES,
     MAX_DIGEST_PRS,
     MAX_FALLBACK_PRS,
+    SCOPE_YOUR_FILES,
     DigestPRSummary,
     DigestSummary,
+    _build_headline_prompt,
+    _build_selection_prompt,
     _build_summary,
     _parse_selection,
     summarize_merged_prs,
@@ -783,6 +786,15 @@ def test_the_digest_call_names_its_product_team_and_source() -> None:
     assert "extra_headers" not in selection_call and "user" not in selection_call
 
 
+def _audience(owned_count: int, reason: AudienceReason = AudienceReason.OWNED) -> PullRequestAudience:
+    return PullRequestAudience(
+        audience_key=AUDIENCE,
+        reason=reason,
+        owned_files=[f"a{i}.py" for i in range(owned_count)],
+        owned_file_count=owned_count,
+    )
+
+
 @pytest.mark.parametrize(
     "owned_count,changed_files,dropped",
     [
@@ -802,16 +814,10 @@ def test_a_merge_that_only_grazed_the_team_never_reaches_the_model(
     grazed = _pr_stub("o/r", 1, "Swept in", "https://github.com/o/r/pull/1")
     grazed.changed_files = changed_files
     owned = _pr_stub("o/r", 2, "Ours", "https://github.com/o/r/pull/2")
-    audiences = [
-        PullRequestAudience(
-            audience_key=AUDIENCE,
-            reason=AudienceReason.OWNED,
-            owned_files=[f"a{i}.py" for i in range(count)],
-            owned_file_count=count,
-        )
-        for count in (owned_count, 1)
-    ]
-    selection = json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "The first one."}]})
+    audiences = [_audience(owned_count), _audience(1)]
+    selection = json.dumps(
+        {"prs": [{"index": 0, "rule": "contract", "scope": SCOPE_YOUR_FILES, "summary": "The first one."}]}
+    )
     client = _recording_llm_client([selection, json.dumps({"headline": "Something shipped."})])
 
     with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client):
@@ -822,6 +828,94 @@ def test_a_merge_that_only_grazed_the_team_never_reaches_the_model(
     # The scope line still counts every merge the audience claimed. Counting only what survived
     # would tell a swept team that nothing landed in its area at all.
     assert summary.considered == 2
+
+
+@pytest.mark.parametrize(
+    "audience,claim,kept",
+    [
+        (_audience(3), {"scope": "whole_pr"}, False),
+        (_audience(3), {}, False),
+        (_audience(3), {"scope": 42}, False),
+        (_audience(3), {"scope": SCOPE_YOUR_FILES}, True),
+        (_audience(8), {}, True),
+        (_audience(0, AudienceReason.REPO_DECLARED), {}, True),
+    ],
+    ids=[
+        "a_line_about_the_whole_pr_is_not_this_teams_news",
+        "and_neither_is_one_that_claims_no_perspective",
+        "nor_one_whose_claim_is_not_even_a_string",
+        "a_line_written_from_the_owned_files_stays",
+        "a_team_owning_every_changed_file_claims_nothing",
+        "and_a_repo_declared_audience_has_no_files_to_claim",
+    ],
+)
+def test_a_line_about_another_teams_half_of_a_merge_is_dropped(
+    audience: PullRequestAudience, claim: dict[str, Any], kept: bool
+) -> None:
+    # A merge added a facade under a team's product and touched three of its eight files. That team
+    # read the other team's feature announcement in its own channel. The prompt already carried the
+    # counts and already asked for the team's own side, and the model wrote about the pull request
+    # anyway, so the perspective is named in the answer and checked here.
+    #
+    # The partly owned merge goes first so a check that dropped by position rather than by the index
+    # the model was given would take the wrong entry with it.
+    partly = _pr_stub("o/r", 1, "Adds a facade the other product calls", "https://github.com/o/r/pull/1")
+    partly.changed_files = 8
+    ours = _pr_stub("o/r", 2, "Ours", "https://github.com/o/r/pull/2")
+    ours.changed_files = 2
+    entry = {"index": 0, "rule": "contract", "summary": "The other team's feature ships.", **claim}
+    selection = json.dumps(
+        {
+            "prs": [
+                entry,
+                {"index": 1, "rule": "contract", "scope": SCOPE_YOUR_FILES, "summary": "Our own area changed."},
+            ]
+        }
+    )
+    client = _recording_llm_client([selection, json.dumps({"headline": "Something shipped."})])
+
+    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client):
+        summary = summarize_merged_prs([partly, ours], [audience, _audience(2)])
+
+    ours_line = (2, "Our own area changed.")
+    expected = [(1, "The other team's feature ships."), ours_line] if kept else [ours_line]
+    assert [(pr.pr_number, pr.summary) for pr in summary.prs] == expected
+
+
+def test_the_selection_prompt_asks_for_the_perspective_the_code_checks() -> None:
+    # The two halves of this rule sit in different files. The code drops a partly owned merge whose
+    # line does not claim the team's own files, so a prompt that stopped asking for that claim would
+    # empty those teams' digests without failing anything.
+    pr = _pr_stub("o/r", 1, "Ship it", "https://github.com/o/r/pull/1")
+    pr.changed_files = 8
+
+    prompt = _build_selection_prompt([pr], [_audience(3)])
+
+    assert SCOPE_YOUR_FILES in prompt
+    assert "whole_pr" in prompt
+    assert '"scope": "your_files"' in prompt  # the shape the answer is read out of
+
+
+def test_the_headline_prompt_asks_for_a_paragraph_every_time() -> None:
+    # The headline call is shown only what the selection call kept, so nothing it sees is routine
+    # and the escape hatch had one thing left to fire on: a single change. An empty headline there
+    # makes the renderer promote that change's own line, and the channel post and the first thread
+    # line become the same sentence word for word.
+    picked = [
+        DigestPRSummary(
+            pr_number=1,
+            title="Ship it",
+            url="https://github.com/o/r/pull/1",
+            author_login="dev",
+            summary="The scanner stops at 24 months.",
+            repository="o/r",
+        )
+    ]
+
+    prompt = _build_headline_prompt(picked, {})
+
+    assert "empty string" not in prompt
+    assert "do not restate its line" in prompt
 
 
 def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() -> None:
@@ -903,7 +997,7 @@ def test_only_a_string_becomes_a_change_line(raw_summary: Any, expected: str) ->
     pr.summary_line = "The reviewer's own sentence."
     content = json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": raw_summary}]})
 
-    picked = _parse_selection(content, {0: pr})
+    picked = _parse_selection(content, {0: pr}, frozenset())
 
     assert [p.summary for p in picked] == [expected]
 
@@ -932,10 +1026,10 @@ def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, a
     # an empty post instead of falling back to the deterministic list.
     prs_by_index = {0: _pr_stub("PostHog/posthog", 1, "Title", "https://example.com/1")}
     if accepted:
-        assert _parse_selection(content, prs_by_index) == []
+        assert _parse_selection(content, prs_by_index, frozenset()) == []
     else:
         with pytest.raises(ValueError):
-            _parse_selection(content, prs_by_index)
+            _parse_selection(content, prs_by_index, frozenset())
 
 
 @pytest.mark.parametrize(

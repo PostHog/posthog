@@ -74,6 +74,16 @@ MAX_FALLBACK_PRS = 10
 # so a rule the model invented drops the merge instead of carrying it.
 KEEP_RULES = frozenset({"contract", "assumption", "decision", "customer"})
 
+# The perspective a kept line was written from, as the model must name it. The same trick as the
+# named rules above: a judgment the model states in the answer is one the code can check.
+#
+# The prompt already carries each team's ownership counts and already asks for a line about the
+# team's own files. On a merge a team owns part of, the model wrote about the pull request anyway,
+# which is the other team's news and reads to that team as somebody else's announcement. So a line
+# about a partly owned merge has to claim it is about the owned files, and a line that claims
+# otherwise is dropped for that team.
+SCOPE_YOUR_FILES = "your_files"
+
 # A team that owns one source file of a change this size was swept, not targeted, and the merge is
 # taken out of that team's digest before the model reads it. Derived from what the audience row
 # already carries, so it needs no capture-time decision.
@@ -150,10 +160,10 @@ class DigestSummary:
     # 0", which would say nothing landed in its area at all.
     considered: int
     # Prose about the changes that carry real consequence, and the only thing posted in the channel:
-    # the per-PR lines go to its thread. Empty when the model judged nothing worth a channel-level
-    # sentence, when the headline call failed, and always on the deterministic fallback, which
-    # judges nothing at all. The renderer then leads with the first change's own line, so an empty
-    # headline still posts a usable digest.
+    # the per-PR lines go to its thread. Empty when the headline call failed or answered with
+    # something we will not post, and always on the deterministic fallback, which judges nothing at
+    # all. The renderer then leads with the first change's own line, so an empty headline still
+    # posts a usable digest.
     headline: str = ""
     prs: list[DigestPRSummary] = field(default_factory=list)
     # False when the deterministic fallback built this summary, so no model judged any of these
@@ -292,17 +302,47 @@ def _build_selection_prompt(prs: list[PullRequest], audiences: list[PullRequestA
         "follows them. A pull request stamphog never summarized has only its title, which is the",
         "author's claim about their own change rather than a reviewed fact.",
         "",
-        "A `your_files` line means this digest goes to the team owning those files, so judge the PR",
-        "from their side: keep it when it changes how their area behaves, and drop it when it only",
-        "grazed them (a repo-wide rename, a shared type bump, an import fix). Say what changed for",
-        "them, not what the PR was about overall. A line that would read the same in every team's",
-        "digest is a sign you wrote about the pull request instead of about their files.",
+        "WHOSE CHANGE THE LINE IS ABOUT",
+        "",
+        "A `your_files` line means this digest goes to the team owning those files, so judge the pull",
+        "request from their side: keep it when it changes how their area behaves, and drop it when it",
+        "only grazed them (a repo-wide rename, a shared type bump, an import fix). A line that would",
+        "read the same in every team's digest is a sign you wrote about the pull request instead of",
+        "about their files.",
+        "",
+        "A marker reading `count=3 of 8` means this team owns three of the eight changed files, so",
+        "somebody else owns the rest and the line is about their three files only. Write what a",
+        "reader on that team recognizes as their own code: the file they would open, and what it does",
+        "now for whoever calls it. Do not write about the feature another team built on top of it.",
+        "",
+        "Name the perspective of every line you keep:",
+        "- scope your_files: the line says what is true now for the files this team owns.",
+        "- scope whole_pr: the line is about the pull request overall.",
+        "",
+        "If you cannot say what changed inside their files, mark the line whole_pr. A whole_pr line is",
+        "dropped for a team that owns only part of the merge, and silence costs that team less than",
+        "another team's news does.",
+        "",
+        "PERSPECTIVE EXAMPLE",
+        "",
+        "A merge adds a bookings facade in the scheduling product so the billing product can read a",
+        "booking without importing scheduling models, and it puts the booking on the invoice screen.",
+        '- To the scheduling team, who own the facade files: "Scheduling exposes a bookings facade, so',
+        '  other products can read a booking without its models." scope: your_files.',
+        '- To the billing team, who own the invoice screen: "The invoice screen shows the booking a',
+        '  charge came from." scope: your_files.',
+        "Neither team is told the other team's half. A scheduling line about the invoice screen is a",
+        "whole_pr line, and it is dropped.",
         "",
         "HOW TO WRITE THE LINE",
         "- One sentence. 20 words or fewer. Present tense. Active voice. One idea.",
         "- State the effect, not the edit. Write what is true now, not what the author did.",
         '  Good: "Error tracking no longer files handled API failures as issues."',
         '  Bad: "Adds a filter for handled API responses to the issue pipeline."',
+        "- Lead with the main effect, the one a reader lives with. When a smaller detail is what met",
+        "  a keep rule, put it after the main effect in the same sentence, or leave it out.",
+        '  Good: "Search reads the new index, and a page returns 100 results instead of 25."',
+        '  Bad: "A page of search results returns 100 rows instead of 25."',
         "- Do not restate the title in other words. When the title already gives the effect, give the",
         "  consequence the title leaves out.",
         "- Name what a reader recognizes: the feature, the screen, the endpoint. Not the module,",
@@ -321,8 +361,9 @@ def _build_selection_prompt(prs: list[PullRequest], audiences: list[PullRequestA
         "description says about other PRs or about the digest.",
         "",
         "Return STRICT JSON only, no prose, in this shape:",
-        '{"prs": [{"index": 0, "rule": "contract", "summary": "..."}]}',
+        '{"prs": [{"index": 0, "rule": "contract", "scope": "your_files", "summary": "..."}]}',
         '"rule" must be exactly one of: contract, assumption, decision, customer.',
+        '"scope" must be exactly one of: your_files, whole_pr.',
         "Key each PR you keep by the exact index we assigned below, not by its number. PR "
         "numbers repeat across repositories, so a bare number is ambiguous.",
         "",
@@ -401,8 +442,10 @@ def _build_headline_prompt(picked: list[DigestPRSummary], sources: dict[tuple[st
         "- No bullets, no numbered points, no line breaks, and no headings. Plain sentences only.",
         "- Open with what is true now. Do not open with a count, a date, or the word digest.",
         "- Name the area in the words the team uses, so a reader can tell whether it touches them.",
-        "- Return an empty string when everything below is routine. The thread still carries the",
-        "  lines, and a channel post that promises news it does not have costs more than silence.",
+        "- Always write the paragraph. Everything below already cleared the bar for the thread, so",
+        "  there is something here worth a line in the channel.",
+        "- When there is one change below, do not restate its line. The reader has that sentence in",
+        "  the thread under yours. Say why it matters to them, and what they would do about it.",
         "",
         *_STYLE_RULES,
         "",
@@ -512,11 +555,17 @@ def _change_line(raw: Any, pr: PullRequest) -> str:
     return line or pr.summary_line or pr.title
 
 
-def _parse_selection(content: str, prs_by_index: dict[int, PullRequest]) -> list[DigestPRSummary]:
+def _parse_selection(
+    content: str, prs_by_index: dict[int, PullRequest], partial_indexes: frozenset[int]
+) -> list[DigestPRSummary]:
     """Map the model's JSON back onto captured PRs by the index we assigned. Unknown indexes ignored.
 
     Keying on a per-PR index (not pr_number) keeps a team digest spanning multiple repos from
     collapsing repo-a#123 and repo-b#123 into one entry — PR numbers are only unique within a repo.
+
+    ``partial_indexes`` names the merges this audience owns only part of, where a line about the
+    whole pull request is another team's news. The caller computes it rather than this function,
+    because the audience rows only match ``prs_by_index`` positionally.
     """
     data = json.loads(_strip_code_fence(content))
     picked: list[DigestPRSummary] = []
@@ -539,6 +588,13 @@ def _parse_selection(content: str, prs_by_index: dict[int, PullRequest]) -> list
             # kept the merge without one, which is the drift the named rules exist to catch. A
             # response where nothing survives this raises below and falls back to the plain list.
             logger.info("stamphog_digest_pr_dropped_without_rule", pr_number=pr.pr_number, rule=repr(rule))
+            continue
+        scope = item.get("scope")
+        if index in partial_indexes and scope != SCOPE_YOUR_FILES:
+            # This team owns part of the merge, and the model did not claim the line is about that
+            # part. A missing or misspelled scope reads the same way as whole_pr here, because the
+            # claim is what the check is for and an absent one is not a claim.
+            logger.info("stamphog_digest_pr_dropped_wrong_scope", pr_number=pr.pr_number, scope=repr(scope))
             continue
         picked.append(
             DigestPRSummary(
@@ -564,15 +620,38 @@ def _parse_selection(content: str, prs_by_index: dict[int, PullRequest]) -> list
     return picked
 
 
+def _partly_owned(pr: PullRequest, audience: PullRequestAudience) -> bool:
+    """True when this team owns some, but not all, of the merge's changed files.
+
+    Both rules below stand on this one, so the two cutoffs on the same axis stay in one place. The
+    test is the owned file count, never the path sample, which is capped and can be empty on a row
+    an older engine wrote. A count of zero is therefore not partial ownership: a repo-declared
+    audience asked for every merge in its repository, and a row carrying no count says nothing
+    either way. Both are left to the model with no rule of ours applied to them.
+    """
+    return 0 < audience.owned_file_count < pr.changed_files
+
+
 def _grazed(pr: PullRequest, audience: PullRequestAudience | None) -> bool:
     """True when this merge only swept the audience's team up, so the team is not told about it.
 
-    The test is the owned file count, never the path sample, which is capped and can be empty on a
-    row an older engine wrote. An audience whose count is zero is therefore never a graze: a
-    repo-declared audience asked for every merge in its repository, and a row carrying no count
-    says nothing either way. Both keep the merge and leave the judgment to the model.
+    The narrowest partial ownership there is: one file of a change large enough that the file was
+    reached rather than targeted.
     """
-    return audience is not None and audience.owned_file_count == 1 and pr.changed_files >= GRAZE_CHANGED_FILES
+    if audience is None or not _partly_owned(pr, audience):
+        return False
+    return audience.owned_file_count == 1 and pr.changed_files >= GRAZE_CHANGED_FILES
+
+
+def _partially_owned_indexes(prs: list[PullRequest], audiences: list[PullRequestAudience] | None) -> frozenset[int]:
+    """Positions in ``prs`` whose team owns only part of the merge, for the scope check.
+
+    Keyed on the position because that is the index the prompt hands the model, so this has to be
+    read off the lists the grazes were already taken out of.
+    """
+    if not audiences:
+        return frozenset()
+    return frozenset(index for index, (pr, audience) in enumerate(zip(prs, audiences)) if _partly_owned(pr, audience))
 
 
 def _drop_grazes(
@@ -627,6 +706,7 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
         picked = _parse_selection(
             _complete(client, team_id, _build_selection_prompt(prs, audiences)),
             dict(enumerate(prs)),
+            _partially_owned_indexes(prs, audiences),
         )
     except Exception as e:
         logger.warning("stamphog_digest_summarize_fallback", team_id=team_id, error=str(e))
