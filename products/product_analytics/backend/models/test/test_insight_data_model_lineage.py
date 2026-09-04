@@ -322,6 +322,35 @@ class TestInsightDataModelDependencySynchronization(BaseTest):
         assert self._dependency_ids(on_dashboard) == {saved_query.id}
         assert self._dependency_ids(loose) == set()
 
+    def test_backfill_covers_a_deleted_insight_so_a_restore_keeps_its_lineage(self) -> None:
+        saved_query = self._saved_query("orders")
+        query = {"kind": "HogQLQuery", "query": "SELECT * FROM orders"}
+        insight = Insight.objects_including_soft_deleted.create(team=self.team, query=query, deleted=True)
+
+        call_command(
+            "backfill_insight_data_model_dependencies",
+            apply=True,
+            team_id=self.team.id,
+            stdout=StringIO(),
+        )
+
+        assert self._dependency_ids(insight) == {saved_query.id}
+        assert (
+            insight_data_model_dependencies_by_saved_query_ids(
+                team_id=self.team.id,
+                saved_query_ids=[saved_query.id],
+            )
+            == []
+        )
+
+        Insight.objects_including_soft_deleted.filter(id=insight.id).update(deleted=False)
+        restored = insight_data_model_dependencies_by_saved_query_ids(
+            team_id=self.team.id,
+            saved_query_ids=[saved_query.id],
+        )
+
+        assert [dependency.insight_id for dependency in restored] == [insight.id]
+
     def test_backfill_reports_failure_after_processing_the_batch(self) -> None:
         saved_query = self._saved_query("orders")
         Insight.objects.create(

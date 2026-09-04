@@ -36,9 +36,11 @@ class Command(BaseCommand):
 
         # Matches how the list endpoint decides an insight is saved: `saved=True`, or a tile
         # on a listed dashboard. Legacy rows and some API writes leave `saved=False`.
+        # Deleted insights are included on purpose. A soft delete never removes edges on the live
+        # path, and the read facade hides the edges of a deleted insight, so backfilling them keeps
+        # a restored insight complete without showing anything while it stays deleted.
         insights = Insight.objects_including_soft_deleted.filter(
             Q(saved=True) | insight_has_listed_tile(),
-            deleted=False,
             query__isnull=False,
         ).only("id", "team_id", "query")
         if options["team_id"] is not None:
