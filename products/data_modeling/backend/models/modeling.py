@@ -653,6 +653,7 @@ where
     from (
       select id, row_number() over (partition by team_id, path) as row_number
       from posthog_datawarehousemodelpath
+      where team_id = %(team_id)s
     ) partitioned
     where partitioned.row_number > 1
 );
@@ -1016,6 +1017,9 @@ class DataWarehouseModelPath(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
             models.Index(fields=("team_id", "path"), name="team_id_path"),
             models.Index(fields=("team_id", "saved_query_id"), name="team_id_saved_query_id"),
             pg_indexes.GistIndex("path", name="model_path_path"),
+            # ltree pattern matches are always scoped to one team, so the team column has to be
+            # inside the GiST index for Postgres to seek instead of scanning every team's paths.
+            pg_indexes.GistIndex(fields=("team_id", "path"), name="model_path_team_id_path"),
         ]
         constraints = [
             models.UniqueConstraint(

@@ -113,6 +113,7 @@ def disable_migrations() -> None:
             with connection.cursor() as cursor:
                 cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
                 cursor.execute("CREATE EXTENSION IF NOT EXISTS ltree")
+                cursor.execute("CREATE EXTENSION IF NOT EXISTS btree_gist")
 
             return super().handle(*args, **kwargs)
 
