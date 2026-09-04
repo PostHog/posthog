@@ -1739,7 +1739,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated log"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid log entries"),
             404: OpenApiResponse(description="Run not found"),
-            413: OpenApiResponse(description="Log batch exceeds the request body limit"),
+            413: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Log batch exceeds the request body limit"
+            ),
         },
         summary="Append log entries",
         description="Append one or more log entries to the task run log array",
