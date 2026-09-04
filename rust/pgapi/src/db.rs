@@ -20,10 +20,16 @@ impl Db {
     pub async fn connect(url: &str) -> Result<Self> {
         let mut cfg: tokio_postgres::Config = url.parse().context("parsing PGAPI_DATABASE_URL")?;
         cfg.ssl_mode(tokio_postgres::config::SslMode::Require);
+        let mut roots = rustls::RootCertStore::empty();
+        let native = rustls_native_certs::load_native_certs();
+        for cert in native.certs {
+            drop(roots.add(cert));
+        }
+        if roots.is_empty() {
+            roots.roots = webpki_roots::TLS_SERVER_ROOTS.to_vec();
+        }
         let tls_cfg = rustls::ClientConfig::builder()
-            .with_root_certificates(rustls::RootCertStore {
-                roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-            })
+            .with_root_certificates(roots)
             .with_no_client_auth();
         let tls = tokio_postgres_rustls::MakeRustlsConnect::new(tls_cfg);
         let mgr = Manager::from_config(
