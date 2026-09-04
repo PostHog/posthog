@@ -4560,7 +4560,7 @@ class FeatureFlagViewSet(
         condition = request.data.get("condition") or {}
         group_type_index = request.data.get("group_type_index", None)
 
-        result = get_user_blast_radius(self.team, condition, group_type_index)
+        result = get_user_blast_radius(self.team, condition, group_type_index, recently_active_only=True)
 
         return Response({"affected": result.affected, "total": result.total})
 

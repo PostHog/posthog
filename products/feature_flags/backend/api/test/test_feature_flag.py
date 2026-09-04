@@ -9446,22 +9446,35 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         _create_person(team_id=self.team.pk, distinct_ids=["inactive-match"], properties={"group": "match"})
         # Active but does not match, so it keeps the total above the matched count.
         _create_active_person(team_id=self.team.pk, distinct_ids=["active-nonmatch"], properties={"group": "other"})
+        # A corrupt far-future timestamp must not keep a person "active" past the window's end.
+        _create_person(team_id=self.team.pk, distinct_ids=["future-match"], properties={"group": "match"})
+        _create_event(
+            team_id=self.team.pk,
+            event="$pageview",
+            distinct_id="future-match",
+            timestamp=now() + timedelta(days=365),
+        )
         flush_persons_and_events()
 
+        condition = {
+            "properties": [{"key": "group", "type": "person", "value": ["match"], "operator": "exact"}],
+            "rollout_percentage": 100,
+        }
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
-            {
-                "condition": {
-                    "properties": [{"key": "group", "type": "person", "value": ["match"], "operator": "exact"}],
-                    "rollout_percentage": 100,
-                }
-            },
+            {"condition": condition},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Only the two active matches count; the inactive match is excluded, and the active
-        # non-match keeps the total at three.
+        # Only the two active matches count; the inactive and far-future matches are excluded, and
+        # the active non-match keeps the total at three.
         self.assertLessEqual({"affected": 2, "total": 3}.items(), response.json().items())
+
+        # The window is an opt-in for the flags endpoint only. The workflows audience preview calls
+        # this function without it and must keep counting every matching person, because the batch
+        # send it previews enumerates persons with no activity window.
+        unwindowed = get_user_blast_radius(self.team, condition)
+        self.assertEqual((unwindowed.affected, unwindowed.total), (4, 5))
 
     @parameterized.expand(
         [
