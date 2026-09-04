@@ -166,4 +166,33 @@ describe("prepareContextWiki", () => {
 
     vi.useRealTimers();
   });
+
+  // The organization lookup carries its own budget, so a slow one must eat into
+  // the mount budget rather than extend what a session start waits in total.
+  it("holds a session start to the budget when the lookup is slow", async () => {
+    vi.useFakeTimers();
+    const options = makeOptions({
+      authenticatedFetch: async (input) => {
+        if (input.includes("/context_layer/export/")) {
+          return new Promise<Response>(() => {});
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10_000));
+        return new Response(JSON.stringify({ organization: "org-1" }), {
+          status: 200,
+        });
+      },
+    });
+
+    let settled = false;
+    const mount = prepareContextWiki(options).then((value) => {
+      settled = true;
+      return value;
+    });
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(settled).toBe(true);
+    await expect(mount).resolves.toBeNull();
+
+    vi.useRealTimers();
+  });
 });
