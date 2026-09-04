@@ -182,7 +182,51 @@ export const isFetchResponseRetriable = (response: FetchResponse | null, error: 
     return canRetry
 }
 
-export const getNextRetryTime = (backoffBaseMs: number, backoffMaxMs: number, tries: number): DateTime => {
-    const backoffMs = Math.min(backoffBaseMs * tries + Math.floor(Math.random() * backoffBaseMs), backoffMaxMs)
+// Cap a destination-supplied Retry-After. Honoring it is the point - it says exactly when the
+// rate-limit window resets - but a hostile or misconfigured value must not park an invocation for hours.
+export const MAX_FETCH_RETRY_AFTER_MS = 5 * 60 * 1000
+
+// A 429 without a Retry-After still has to be able to span a per-minute rate-limit window, so
+// rate-limited retries get exponential backoff with a ceiling above the generic fetch backoff cap.
+export const RATE_LIMIT_BACKOFF_MAX_MS = 60 * 1000
+
+// Linear backoff with the default 3 retries finishes every attempt within ~6s - inside the
+// per-minute window that rejected the first one. Rate-limited requests get enough attempts
+// for exponential growth to actually reach past the window. Callers that explicitly pass
+// maxFetchRetries (e.g. backfills) keep their own ceiling.
+export const RATE_LIMIT_MIN_RETRIES = 6
+
+// Retry-After is delta-seconds or an HTTP-date. Return a bounded millisecond delay, or undefined if the
+// header is absent or unparseable so the caller falls back to backoff.
+export function parseRetryAfterMs(response: FetchResponse | null): number | undefined {
+    const header = response?.headers?.['retry-after']
+    if (!header) {
+        return undefined
+    }
+    const seconds = Number(header)
+    const ms = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now()
+    if (!Number.isFinite(ms) || ms <= 0) {
+        return undefined
+    }
+    return Math.min(ms, MAX_FETCH_RETRY_AFTER_MS)
+}
+
+export const getNextRetryTime = (
+    backoffBaseMs: number,
+    backoffMaxMs: number,
+    tries: number,
+    options?: { retryAfterMs?: number; isRateLimited?: boolean }
+): DateTime => {
+    const jitterMs = Math.floor(Math.random() * backoffBaseMs)
+    if (options?.retryAfterMs !== undefined) {
+        // The destination said exactly when to come back - jitter only, so a fleet of invocations
+        // sharing one rate-limit window does not stampede the moment it resets.
+        return DateTime.utc().plus({ milliseconds: options.retryAfterMs + jitterMs })
+    }
+    // Linear backoff (base * tries) lands every attempt inside the same per-minute window that
+    // rejected the first one, so 429s get exponential growth and a ceiling that can span it.
+    const backoffMs = options?.isRateLimited
+        ? Math.min(backoffBaseMs * 2 ** (tries - 1) + jitterMs, Math.max(backoffMaxMs, RATE_LIMIT_BACKOFF_MAX_MS))
+        : Math.min(backoffBaseMs * tries + jitterMs, backoffMaxMs)
     return DateTime.utc().plus({ milliseconds: backoffMs })
 }

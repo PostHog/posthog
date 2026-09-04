@@ -16,6 +16,7 @@ import type { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, I
 import { createAddLogFunction } from '../../utils'
 import { EncryptedFields } from '../../utils/encryption-utils'
 import { createInvocationResult } from '../../utils/invocation-utils'
+import { getNextRetryTime, parseRetryAfterMs } from '../../utils/cdp-fetch'
 import { getDevicePushSubscriptionToken } from '../../utils/push-subscription-utils'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { MessageAssetsService } from './message-assets.service'
@@ -79,33 +80,8 @@ const APNS_JWT_LOCAL_CACHE_MAX = 500
 // push targets a handful of provider integrations, not thousands.
 const MAX_PUSH_CHANNELS = 10
 
-// Cap a provider-supplied Retry-After. FCM returns one on QUOTA_EXCEEDED and honoring it is the point,
-// but a hostile or misconfigured value must not park an invocation for hours.
-const MAX_RETRY_AFTER_MS = 5 * 60 * 1000
-
 function stringifyBody(body: unknown): string {
     return typeof body === 'string' ? body : JSON.stringify(body)
-}
-
-// Retry-After is delta-seconds or an HTTP-date. Return a bounded millisecond delay, or undefined if the
-// header is absent or unparseable so the caller falls back to exponential backoff.
-function parseRetryAfterMs(response: FetchResponse | null): number | undefined {
-    const header = response?.headers?.['retry-after']
-    if (!header) {
-        return undefined
-    }
-    const seconds = Number(header)
-    const ms = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now()
-    if (!Number.isFinite(ms) || ms <= 0) {
-        return undefined
-    }
-    return Math.min(ms, MAX_RETRY_AFTER_MS)
-}
-
-// Exponential-ish backoff with jitter for a retry when the provider didn't give a Retry-After.
-function backoffAt(baseMs: number, maxMs: number, tries: number): DateTime {
-    const delay = Math.min(baseMs * tries + Math.floor(Math.random() * baseMs), maxMs)
-    return DateTime.utc().plus({ milliseconds: delay })
 }
 
 // Correlation ids stamped into every notification's data payload. An open happens on the device, so the
@@ -308,7 +284,7 @@ export class PushNotificationService {
             result.invocation.queueScheduledAt =
                 retryAfterValues.length > 0
                     ? DateTime.utc().plus({ milliseconds: Math.max(...retryAfterValues) })
-                    : backoffAt(this.fetchUtils.backoffBaseMs, this.fetchUtils.backoffMaxMs, nextTries)
+                    : getNextRetryTime(this.fetchUtils.backoffBaseMs, this.fetchUtils.backoffMaxMs, nextTries)
             result.finished = false
             // Count each distinct throttled platform so the metric shows which provider is rate-limiting.
             for (const platform of new Set(retriableErrors.map((e) => e.platform))) {
