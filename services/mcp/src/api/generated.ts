@@ -39102,6 +39102,11 @@ export namespace Schemas {
       latest_error: string | null;
     }
 
+    export interface ExternalDataSourceExistsResponse {
+      /** Whether the project has at least one visible external data source. */
+      exists: boolean;
+    }
+
     export interface ExternalDataSourceRevenueAnalyticsConfig {
       enabled?: boolean;
       include_invoiceless_charges?: boolean;

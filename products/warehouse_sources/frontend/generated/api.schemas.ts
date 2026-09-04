@@ -9028,6 +9028,11 @@ export interface DraftCustomManifestResponseApi {
     error: string | null
 }
 
+export interface ExternalDataSourceExistsResponseApi {
+    /** Whether the project has at least one visible external data source. */
+    exists: boolean
+}
+
 /**
  * A selectable account/resource exposed by an OAuth integration, in the shared shape every ad
  * platform produces (see ``IntegrationAccount`` in the data-imports common module). One serializer

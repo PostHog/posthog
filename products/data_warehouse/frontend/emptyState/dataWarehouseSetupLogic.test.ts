@@ -11,19 +11,18 @@ import * as warehouseSourcesApi from 'products/warehouse_sources/frontend/genera
 import { dataWarehouseSetupLogic } from './dataWarehouseSetupLogic'
 
 describe('dataWarehouseSetupLogic', () => {
-    it('requests one source row for setup detection', async () => {
+    it('checks source existence without loading source rows', async () => {
         initKeaTests()
-        const sourcesSpy = jest.spyOn(warehouseSourcesApi, 'externalDataSourcesList').mockResolvedValue({
-            count: 1,
-            results: [],
-        })
+        const sourcesSpy = jest
+            .spyOn(warehouseSourcesApi, 'externalDataSourcesExistsRetrieve')
+            .mockResolvedValue({ exists: true })
         jest.spyOn(api.dataWarehouseTables, 'list').mockResolvedValue({ results: [] })
 
         const logic = dataWarehouseSetupLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(sourcesSpy).toHaveBeenCalledWith(expect.any(String), { limit: 1 })
+        expect(sourcesSpy).toHaveBeenCalledWith(expect.any(String))
         expect(productSetupStatusLogic({ productKey: ProductKey.DATA_WAREHOUSE }).values.status).toBe('has-data')
     })
 })

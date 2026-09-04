@@ -441,6 +441,9 @@ tools:
     external-data-sources-enable-cdc-create:
         operation: external_data_sources_enable_cdc_create
         enabled: false
+    external-data-sources-exists-retrieve:
+        operation: external_data_sources_exists_retrieve
+        enabled: false
     external-data-sources-jobs:
         operation: external_data_sources_jobs_retrieve
         enabled: false

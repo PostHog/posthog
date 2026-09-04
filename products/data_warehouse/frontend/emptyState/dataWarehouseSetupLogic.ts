@@ -4,7 +4,7 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { externalDataSourcesList } from 'products/warehouse_sources/frontend/generated/api'
+import { externalDataSourcesExistsRetrieve } from 'products/warehouse_sources/frontend/generated/api'
 
 /**
  * Setup detection for the data warehouse empty state. A managed source counts
@@ -17,9 +17,9 @@ export const dataWarehouseSetupLogic = createSetupDetectionLogic({
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const [sources, tables] = await Promise.all([
-            externalDataSourcesList(projectId, { limit: 1 }),
+            externalDataSourcesExistsRetrieve(projectId),
             api.dataWarehouseTables.list({ limit: 1 }),
         ])
-        return sources.count > 0 || tables.results.length > 0 ? 'has-data' : 'needs-setup'
+        return sources.exists || tables.results.length > 0 ? 'has-data' : 'needs-setup'
     },
 })
