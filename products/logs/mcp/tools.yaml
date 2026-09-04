@@ -373,6 +373,9 @@ tools:
     logs-export-create:
         operation: logs_export_create
         enabled: false
+    logs-facet-values-batch-create:
+        operation: logs_facet_values_batch_create
+        enabled: false
     logs-facet-values-create:
         operation: logs_facet_values_create
         enabled: true
