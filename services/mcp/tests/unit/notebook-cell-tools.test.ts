@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 
 import { addCellHandler, NotebooksAddCellSchema } from '@/tools/notebooks/addCell'
 import { createMarkdownHandler } from '@/tools/notebooks/createMarkdown'
@@ -114,7 +115,10 @@ describe('notebook cell tools', () => {
     })
 
     it('describes generated widget permission attributes to notebook-building agents', () => {
-        const schemaDescription = NotebooksAddCellSchema.shape.props.description
+        const schema = z.toJSONSchema(NotebooksAddCellSchema, { io: 'input', reused: 'inline' }) as {
+            properties?: { props?: { description?: string } }
+        }
+        const schemaDescription = schema.properties?.props?.description ?? ''
 
         expect(schemaDescription).toContain('noDataFrames disables notebook dataframes')
         expect(schemaDescription).toContain('allowSQL enables arbitrary HogQL')
