@@ -37,6 +37,12 @@
             ],
             "description": "Date range for the query."
         },
+        "detail": {
+            "default": "summary",
+            "description": "How much of each event to return. \"summary\" (default) returns trace and event metadata (IDs, timestamps, model, latency, tokens, cost, tools called, errors) with short previews of prompts and outputs. \"full\" returns complete event properties and is much larger, so ask for it only once you know which trace you need to read.",
+            "enum": ["summary", "full"],
+            "type": "string"
+        },
         "kind": {
             "const": "TraceQuery",
             "default": "TraceQuery",

@@ -432,6 +432,8 @@ describe('createQueryWrapper trace compaction', () => {
         events: [{ properties: { $ai_input: 'x'.repeat(20_000) } }],
     }
 
+    const fullDetailParams = { kind: 'TraceQuery', detail: 'full' } as { kind: string }
+
     it('compacts oversized string values for TraceQuery results', async () => {
         const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery' })()
 
@@ -446,6 +448,35 @@ describe('createQueryWrapper trace compaction', () => {
         const result = (await tool.handler(contextWithResults([oversizedTrace]), { kind: 'HogQLQuery' })) as any
 
         expect(result.results[0].events[0].properties.$ai_input).toBe('x'.repeat(20_000))
+    })
+
+    it('previews event content by default and returns it in full only on request', async () => {
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery' })()
+        const trace = { id: 'trace-1', events: [{ properties: { custom_payload: 'x'.repeat(5_000) } }] }
+
+        const byDefault = (await tool.handler(contextWithResults([trace]), { kind: 'TraceQuery' })) as any
+        // The factory adds `detail` to the advertised schema, so it is not on the
+        // handler's declared param type, which comes from the schema passed in.
+        const full = (await tool.handler(contextWithResults([trace]), fullDetailParams)) as any
+
+        expect(byDefault.results[0].events[0].properties.custom_payload.length).toBeLessThan(1_000)
+        expect(full.results[0].events[0].properties.custom_payload).toBe('x'.repeat(5_000))
+    })
+
+    it('strips detail from the trace query body, which the backend rejects unknown fields on', async () => {
+        const runQuery = vi.fn().mockResolvedValue({ results: [] })
+        const context = {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery' })()
+        await tool.handler(context, fullDetailParams)
+
+        expect(runQuery).toHaveBeenCalledWith({ query: { kind: 'TraceQuery' } })
     })
 })
 

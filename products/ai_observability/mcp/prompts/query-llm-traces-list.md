@@ -1,5 +1,7 @@
 List LLM traces to inspect AI/LLM usage across your application. Returns traces with their events, latency, token usage, costs, errors, and other metadata. Use this tool for AI observability — debugging slow generations, investigating errors, analyzing token spend, and auditing LLM behavior.
 
+Event content is previewed rather than returned in full, because this tool is for picking candidate traces. Read the one you pick with `query-llm-trace`.
+
 Use 'read-data-schema' to discover available event properties for filtering (e.g. `$ai_model`, `$ai_provider`).
 
 Examples of use cases include:
@@ -94,7 +96,7 @@ Each trace in the results contains:
 - `errorCount` — number of errors in the trace
 - `isSupportTrace` — whether the trace was from a support impersonation session
 - `tools` — list of tool names called during the trace
-- `events` — list of direct child events (generations, metrics, feedback). Each event's `properties` contains the full event data — see "Event types and their properties" below.
+- `events` — list of direct child events (generations, metrics, feedback). Each event's `properties` contains the event data, previewed by default and complete under `detail: "full"`. See "Event types and their properties" below.
 
 ## Event types and their properties
 
@@ -126,9 +128,18 @@ Generations (`$ai_generation`) and embeddings (`$ai_embedding`) are always leaf 
 
 **Important:** This list tool only returns **direct children** of the trace (events where `$ai_parent_id` = trace ID) plus all `$ai_metric` and `$ai_feedback` events — NOT deeply nested events. For the full event tree with all nested children, use `query-llm-trace` with the trace's `id`.
 
+## Detail level
+
+`detail` controls how much of each event you get back.
+
+- `"summary"` (default) keeps every trace-level field and each event's identity, timing, model, cost, tool, and error properties, and previews prompts, outputs, and any other property. A summarized trace carries `_detail: { "mode": "summary" }`.
+- `"full"` returns every property in full and is much larger.
+
+Leave `detail` alone here. A list is for finding candidate traces from their metadata; read the one you picked with `query-llm-trace`.
+
 ## Response size
 
-To protect the agent's context window, the response is bounded before it reaches you. Long string values are truncated (with a `… [truncated N chars]` marker) and oversized arrays/objects have their tail members dropped. If the combined list is still too large, trailing traces are dropped and a final `{ "_truncated": { "omittedTraces": N, ... } }` entry reports how many. When you see these markers, narrow the query (shorter date range, filters, or a smaller `limit`) or fetch a specific trace with `query-llm-trace`. The underlying data is never altered — only this response is bounded.
+To protect the agent's context window, the response is bounded before it reaches you. Long string values are truncated (with a `… [truncated N chars]` marker) and oversized arrays/objects have their tail members dropped. If the combined list is still too large, trailing traces are dropped and a final `{ "_truncated": { "omittedTraces": N, ... } }` entry reports how many. When you see these markers, narrow the query (shorter date range, filters, or a smaller `limit`) or fetch a specific trace with `query-llm-trace`. The underlying data is never altered, only this response is bounded.
 
 ## Pagination
 
