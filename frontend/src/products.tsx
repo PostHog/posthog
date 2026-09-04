@@ -264,6 +264,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
     '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
     '/heatmaps/:id': ['Heatmap', 'heatmap'],
+    '/wizard/runs': ['WizardRuns', 'wizardRuns'],
     '/workflows': ['Workflows', 'workflows'],
     '/workflows/:tab': ['Workflows', 'workflows'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
@@ -1002,6 +1003,7 @@ export const productConfiguration: Record<string, any> = {
     Heatmap: { name: 'Heatmap', projectBased: true, iconType: 'heatmap' },
     HeatmapNew: { name: 'New heatmap', projectBased: true, iconType: 'heatmap' },
     HeatmapRecording: { name: 'Heatmap recording', projectBased: true, iconType: 'heatmap' },
+    WizardRuns: { projectBased: true, name: 'Wizard runs', layout: 'app-container' },
     Workflows: {
         name: 'Workflows',
         iconType: 'workflows',
@@ -1556,6 +1558,7 @@ export const productUrls = {
     heatmapRecording: (params?: string): string =>
         `/heatmaps/recording${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     heatmap: (id: string | number): string => `/heatmaps/${id}`,
+    wizardRuns: (): string => '/wizard/runs',
     workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',
@@ -1935,6 +1938,7 @@ export type ProductTreePath =
     | 'Visual review'
     | 'Web analytics'
     | 'Web scripts'
+    | 'Wizard'
     | 'Workflows'
 
 /** This const is auto-generated, as is the whole file */
@@ -2686,6 +2690,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.webScripts(),
         sceneKey: 'WebScripts',
         sceneKeys: ['WebScripts'],
+    },
+    {
+        path: 'Wizard',
+        intents: [],
+        category: ProductItemCategory.ANALYTICS,
+        type: 'wizard',
+        iconType: 'llm_prompts' as FileSystemIconType,
+        href: '/wizard/runs',
+        sceneKey: 'WizardRuns',
+        sceneKeys: ['WizardRuns'],
     },
     {
         path: 'Workflows',
