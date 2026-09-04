@@ -223,10 +223,21 @@ def _gh(*args: str, repo: str, stdin: str | None = None) -> str:
 
 
 def open_issue(repo: str) -> tuple[int, str] | None:
-    """The digest issue a previous run opened, if it is still open."""
-    fields = ("--json", "number,body", "--limit", "1")
+    """The digest issue a previous run opened, if it is still open.
+
+    ``apply`` replaces the whole body of what this returns, and can close it.
+    The label is not proof of ownership, because anybody can put it on any
+    issue, so the state marker decides: only a run of this tool writes one. A
+    labelled issue without the marker belongs to a person and stays untouched.
+    Two marked issues mean the automation lost track of which one it owns, so
+    it stops rather than pick one and leave owners reading a stale digest.
+    """
+    fields = ("--json", "number,body", "--limit", "50")
     raw = _gh("issue", "list", "--state", "open", "--label", ISSUE_LABEL, *fields, repo=repo)
-    issues = json.loads(raw or "[]")
+    issues = [i for i in json.loads(raw or "[]") if _STATE_MARKER in (i["body"] or "")]
+    if len(issues) > 1:
+        numbers = ", ".join(f"#{i['number']}" for i in issues)
+        raise RuntimeError(f"{len(issues)} open issues hold the digest state marker ({numbers}); close all but one")
     return (issues[0]["number"], issues[0]["body"] or "") if issues else None
 
 

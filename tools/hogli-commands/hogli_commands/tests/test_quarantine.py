@@ -548,6 +548,37 @@ def test_comment_goes_out_only_when_an_entry_slips(previous_states: dict[str, st
 
 
 @pytest.mark.parametrize(
+    "ours, expected_number",
+    [
+        ([], None),
+        ([False], None),
+        ([True], 1),
+        ([False, True], 2),
+        ([True, False], 1),
+    ],
+)
+def test_open_issue_claims_only_an_issue_it_wrote(
+    monkeypatch: pytest.MonkeyPatch, ours: list[bool], expected_number: int | None
+) -> None:
+    digest = report.build_report([], {}, core.DEFAULT_GRACE_DAYS).body
+    listed = [
+        {"number": number, "body": digest if is_ours else "A person put the label on their own issue."}
+        for number, is_ours in enumerate(ours, start=1)
+    ]
+    monkeypatch.setattr(report, "_gh", lambda *a, **k: json.dumps(listed))
+    found = report.open_issue("PostHog/posthog")
+    assert (found[0] if found else None) == expected_number
+
+
+def test_open_issue_refuses_to_choose_between_two_digest_issues(monkeypatch: pytest.MonkeyPatch) -> None:
+    digest = report.build_report([], {}, core.DEFAULT_GRACE_DAYS).body
+    listed = [{"number": 1, "body": digest}, {"number": 2, "body": digest}]
+    monkeypatch.setattr(report, "_gh", lambda *a, **k: json.dumps(listed))
+    with pytest.raises(RuntimeError, match=r"#1, #2"):
+        report.open_issue("PostHog/posthog")
+
+
+@pytest.mark.parametrize(
     "has_items, existing, expected_action, expected_subcommands, expected_preview",
     [
         (False, None, "nothing to report", [], "nothing to report"),
