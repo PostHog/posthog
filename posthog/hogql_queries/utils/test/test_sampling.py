@@ -1,6 +1,6 @@
 from django.test import TestCase
 
-from posthog.queries.util import correct_result_for_sampling
+from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 
 
 class TestQueriesUtil(TestCase):
