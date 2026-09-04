@@ -106,7 +106,9 @@ function TriggerTypeDropdown({
         if (!search) {
             return items
         }
-        const fuse = createFuse(items, { keys: ['label', 'description'], threshold: 0.3 })
+        // Without ignoreLocation, Fuse only scores matches near the start of a field, so a word late
+        // in a description never matches.
+        const fuse = createFuse(items, { keys: ['label', 'description'], threshold: 0.3, ignoreLocation: true })
         return fuse.search(search).map((result) => result.item)
     }, [items, search])
 
@@ -267,7 +269,8 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
             },
             {
                 label: 'Batch',
-                description: 'Trigger your workflow to run for each person in an audience you define.',
+                description:
+                    'Run your workflow for each person in an audience you define, once or on a recurring schedule.',
                 value: 'batch',
                 icon: <IconPeople />,
             },
@@ -580,6 +583,9 @@ function BatchScheduleSection(): JSX.Element {
         <>
             <LemonDivider />
             <LemonLabel showOptional>Schedule</LemonLabel>
+            <p className="text-xs text-muted mb-0">
+                Set the date and time this batch runs. Switch on Repeat to send it again on a recurring schedule.
+            </p>
             <RecurringSchedulePicker />
         </>
     )
