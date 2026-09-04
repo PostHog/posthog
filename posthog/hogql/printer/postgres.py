@@ -93,7 +93,29 @@ class PostgresPrinter(BasePrinter):
     ) -> str:
         # Postgres's native lag/lead already has the semantics we want; skip the ClickHouse-style rewrite.
         # HogQL also accepts the ClickHouse names, so map those back onto the native ones.
-        return _CLICKHOUSE_WINDOW_FUNCTION_NATIVE_NAMES_LOWER.get(cloned_node.name.lower(), identifier)
+        native_name = _CLICKHOUSE_WINDOW_FUNCTION_NATIVE_NAMES_LOWER.get(cloned_node.name.lower())
+        if native_name is None:
+            return identifier
+        # The ClickHouse names read only the rows inside the frame, so a frame here carries meaning that
+        # the native function drops. Refuse instead of returning rows the frame excludes.
+        window_expr = self._window_expression(cloned_node)
+        if window_expr is not None and window_expr.frame_method:
+            raise QueryError(
+                f"{cloned_node.name} with an explicit window frame is not supported "
+                f"{self._dialect_error_suffix()}, because {self.DIALECT_LABEL} ignores the window frame "
+                f"for {native_name}. Remove the window frame."
+            )
+        return native_name
+
+    def _window_expression(self, node: ast.WindowFunction) -> ast.WindowExpr | None:
+        if node.over_expr is not None:
+            return node.over_expr
+        if node.over_identifier is None:
+            return None
+        select = self._last_select()
+        if select is None or select.window_exprs is None:
+            return None
+        return select.window_exprs.get(node.over_identifier)
 
     def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
         return f"{limit_str} %"

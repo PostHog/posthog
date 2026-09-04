@@ -1115,16 +1115,6 @@ class TrinoPrinter(PostgresPrinter):
             return f"filter({windowed_call}, {value} -> {value} IS NOT NULL)"
         return windowed_call
 
-    def _window_expression(self, node: ast.WindowFunction) -> ast.WindowExpr | None:
-        if node.over_expr is not None:
-            return node.over_expr
-        if node.over_identifier is None:
-            return None
-        select = self._last_select()
-        if select is None or select.window_exprs is None:
-            return None
-        return select.window_exprs.get(node.over_identifier)
-
     def _visit_window_count_distinct(self, node: ast.WindowFunction) -> str:
         if node.exprs is None or len(node.exprs) != 1 or node.args:
             self._unsupported(

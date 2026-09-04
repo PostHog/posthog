@@ -7309,6 +7309,32 @@ class TestPostgresPrinter(BaseTest):
         self.assertNotIn("InFrame", printed)
         self.assertNotIn("ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING", printed)
 
+    @parameterized.expand([["lagInFrame"], ["leadInFrame"]])
+    def test_in_frame_window_function_over_unframed_named_window_translates(self, authored_name: str):
+        printed = self._select(
+            f"SELECT {authored_name}(timestamp) OVER win FROM events WINDOW win AS (ORDER BY timestamp)"
+        )
+
+        self.assertNotIn("InFrame", printed)
+
+    @parameterized.expand(
+        [
+            [
+                "inline_frame",
+                "SELECT lagInFrame(timestamp) OVER (ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM events",
+            ],
+            [
+                "named_frame",
+                "SELECT lagInFrame(timestamp) OVER win FROM events WINDOW win AS (ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)",
+            ],
+        ]
+    )
+    def test_in_frame_window_function_rejects_frame_postgres_would_drop(self, _name: str, query: str):
+        with self.assertRaises(QueryError) as error:
+            self._select(query)
+
+        self.assertIn("explicit window frame is not supported", str(error.exception))
+
     @parameterized.expand([["percentile_cont"], ["percentile_disc"]])
     def test_percentile_within_group_renders_in_postgres(self, function_name: str):
         self.assertEqual(
