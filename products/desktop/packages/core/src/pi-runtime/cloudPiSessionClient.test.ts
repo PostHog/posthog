@@ -619,6 +619,41 @@ describe("CloudPiSessionClient", () => {
     });
   });
 
+  it("normalizes an aborted turn from a persisted cloud event", () => {
+    const cloud = createCloudTaskClient();
+    const session = new CloudPiSessionClient(
+      cloud.client,
+      context("in_progress"),
+    );
+    const events: AgentConversationEvent[] = [];
+    session.onConversationEvent((event) => events.push(event), vi.fn());
+
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "snapshot",
+      status: "in_progress",
+      newEntries: [
+        {
+          type: "pi_event",
+          event: {
+            type: "turn_completed",
+            timestamp: 1,
+            stopReason: "aborted",
+          },
+        },
+      ],
+      totalEntryCount: 1,
+    });
+
+    expect(events).toContainEqual({
+      type: "turn_completed",
+      timestamp: 1,
+      stopReason: "cancelled",
+      sourceId: "run-1:log:0",
+    });
+  });
+
   it("loads terminal history from the cloud snapshot without sandbox RPC", async () => {
     const cloud = createCloudTaskClient();
     const session = new CloudPiSessionClient(
