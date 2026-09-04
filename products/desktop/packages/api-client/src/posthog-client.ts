@@ -4134,16 +4134,17 @@ export class PostHogAPIClient {
   ): Promise<TaskArtifactSharing | null> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/tasks/${taskId}/artifacts/${encodeURIComponent(artifactId)}/sharing/`;
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url: new URL(`${this.api.baseUrl}${path}`),
-      path,
-    });
-    if (response.status === 404) return null;
-    if (!response.ok) {
-      throw new Error(
-        `Failed to load artifact sharing: ${response.statusText}`,
-      );
+    // The fetcher throws on every non-2xx, so the missing route has to be read off the error.
+    let response: Response;
+    try {
+      response = await this.api.fetcher.fetch({
+        method: "get",
+        url: new URL(`${this.api.baseUrl}${path}`),
+        path,
+      });
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return null;
+      throw error;
     }
     return normalizeTaskArtifactSharing(
       (await response.json()) as TaskArtifactSharingDTO,

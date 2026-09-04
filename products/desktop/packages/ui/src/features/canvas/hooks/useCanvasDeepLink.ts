@@ -52,6 +52,10 @@ export function useCanvasDeepLink() {
       staleTime: Number.POSITIVE_INFINITY,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
+      // Drop the entry as soon as the hook unmounts. The query client outlives the router, so a
+      // cached "fork this canvas" would replay on the next mount — a project switch remounts the
+      // tree — and copy the canvas a second time, unasked.
+      gcTime: 0,
     }),
   );
 

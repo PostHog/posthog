@@ -664,6 +664,10 @@ class SharingConfigurationViewSet(
             "notebook": notebook,
             "canvas": canvas,
             "task_artifact_id": task_artifact_id,
+            # Not shareable through this viewset, but it still has to be named: the lookup matches
+            # only on the fields it is given, so leaving it out lets a file's first share — where
+            # every id is still null — collide with a user-interview share in the same team.
+            "interviewee_context": None,
             "expires_at": None,
         }
 
@@ -676,6 +680,7 @@ class SharingConfigurationViewSet(
             notebook=notebook,
             canvas=canvas,
             task_artifact=task_artifact_id,
+            interviewee_context=None,
         )
         if instance is None:
             instance = SharingConfiguration(**config_kwargs)
@@ -854,7 +859,7 @@ class SharingConfigurationViewSet(
                 ),
             )
 
-        if context.get("canvas"):
+        if context.get("canvas") and "enabled" in request.data:
             log_activity(
                 organization_id=None,
                 team_id=self.team_id,
@@ -1723,7 +1728,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             # The payload carries a freshly signed artifact URL, so it is only built here, after
             # the share token (and any password) has been validated above.
             canvas_payload = shared_canvas_payload(resource.canvas)
-            canvas_payload["allow_forking"] = bool((resource.settings or {}).get("allowForking"))
+            # A password unlock lives in the public page's session, which the authenticated fork
+            # endpoint cannot see, so it refuses these shares. Don't offer the copy action.
+            canvas_payload["allow_forking"] = (
+                bool((resource.settings or {}).get("allowForking")) and not resource.password_required
+            )
             exported_data.update({"canvas": canvas_payload})
         elif isinstance(resource, SharingConfiguration) and resource.task_artifact_id:
             # The share follows the file, not one upload: whatever version is newest now is served.

@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
                     models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
                 ),
                 ("name", models.CharField(max_length=512)),
-                ("content_type", models.CharField(blank=True, default="", max_length=128)),
+                ("content_type", models.CharField(blank=True, default="", max_length=255)),
                 ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
                 (
                     "created_by",

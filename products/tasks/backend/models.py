@@ -3909,7 +3909,9 @@ class SharedTaskArtifact(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="shared_artifacts")
     name = models.CharField(max_length=512)
-    content_type = models.CharField(max_length=128, blank=True, default="")
+    # 255 to match what the artifact upload serializers accept, so a long media type cannot make
+    # the first share of a file fail on the write.
+    content_type = models.CharField(max_length=255, blank=True, default="")
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )

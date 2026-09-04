@@ -149,6 +149,23 @@ class TestCanvasFork(CanvasSharingTestBase):
         assert response.status_code == expected, response.json()
         assert not Canvas.objects.unscoped().filter(team_id=team.id).exists()
 
+    def test_share_token_fork_refuses_when_the_owners_org_turns_off_public_sharing(self):
+        access_token = self._shared_canvas(allow_forking=True)
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS,
+                "name": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS,
+            }
+        ]
+        self.organization.allow_publicly_shared_resources = False
+        self.organization.save(update_fields=["available_product_features", "allow_publicly_shared_resources"])
+        client, team = self._other_project_client()
+
+        response = client.post(f"/api/projects/{team.id}/canvases/fork/", {"share_token": access_token}, format="json")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert not Canvas.objects.unscoped().filter(team_id=team.id).exists()
+
     def test_share_token_fork_refuses_a_disabled_share(self):
         access_token = self._shared_canvas(allow_forking=True)
         with team_scope(self.team.id):

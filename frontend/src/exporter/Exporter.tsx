@@ -249,7 +249,12 @@ export function Exporter(props: ExportedData): JSX.Element {
                             </div>
                         )}
                         <Suspense fallback={<ExportedSceneSkeleton />}>
-                            <LazyCanvasScene canvas={canvas} forcedTheme={forcedTheme} accessToken={accessToken} />
+                            <LazyCanvasScene
+                                canvas={canvas}
+                                forcedTheme={forcedTheme}
+                                accessToken={accessToken}
+                                canCopy={!whitelabel && type === ExportType.Scene}
+                            />
                         </Suspense>
                     </div>
                 ) : taskArtifact ? (

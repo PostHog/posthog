@@ -7,7 +7,7 @@ import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { usePendingArtifactOpenStore } from "@posthog/ui/features/deep-links/pendingArtifactOpenStore";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { toast } from "@posthog/ui/primitives/toast";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export function findArtifactInRuns(
   runs: TaskRun[],
@@ -39,25 +39,66 @@ export function useOpenRequestedArtifact(taskId: string): void {
     (state) => state.consumeArtifactOpen,
   );
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
+  const initializeTask = usePanelLayoutStore((state) => state.initializeTask);
+  const getLayout = usePanelLayoutStore((state) => state.getLayout);
   // The runs poll only runs while a request is waiting on it.
-  const { runs, isLoading } = useTaskRuns(request ? taskId : undefined);
+  const { runs, isLoading, refreshRuns } = useTaskRuns(
+    request ? taskId : undefined,
+  );
+  const rechecked = useRef<number | null>(null);
 
   useEffect(() => {
     if (!request || isLoading) return;
-    const found = findArtifactInRuns(runs, request.artifactId);
-    if (found) {
+    const open = (found: { runId: string; name: string }): void => {
+      // The tab goes into the task's layout, and this hook can run on the first commit, before
+      // the panel host has made one. Without it openArtifactTab is a no-op and the request is
+      // spent on nothing.
+      if (!getLayout(taskId)) {
+        initializeTask(taskId);
+      }
       openArtifactTab(taskId, {
         runId: found.runId,
         artifactId: request.artifactId,
         name: found.name,
       });
-    } else if (runs.length > 0) {
-      toast.error("Couldn't find that file", {
-        description: "It may have been removed from this task.",
-      });
-    } else {
+      consume(taskId, request.nonce);
+    };
+
+    const found = findArtifactInRuns(runs, request.artifactId);
+    if (found) {
+      open(found);
       return;
     }
-    consume(taskId, request.nonce);
-  }, [consume, isLoading, openArtifactTab, request, runs, taskId]);
+    if (runs.length === 0) return;
+    // The manifest can be a few minutes stale, which is the ordinary case for a file that was
+    // just produced and linked. Read it again before telling the opener the file is gone.
+    if (rechecked.current === request.nonce) return;
+    rechecked.current = request.nonce;
+    void refreshRuns()
+      .then((fresh) => {
+        const late = findArtifactInRuns(fresh, request.artifactId);
+        if (late) {
+          open(late);
+          return;
+        }
+        toast.error("Couldn't find that file", {
+          description: "It may have been removed from this task.",
+        });
+        consume(taskId, request.nonce);
+      })
+      .catch(() => {
+        // Leave the request pending: the poll will try again.
+        rechecked.current = null;
+      });
+  }, [
+    consume,
+    getLayout,
+    initializeTask,
+    isLoading,
+    openArtifactTab,
+    refreshRuns,
+    request,
+    runs,
+    taskId,
+  ]);
 }

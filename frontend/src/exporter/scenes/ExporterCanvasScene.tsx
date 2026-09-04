@@ -34,11 +34,14 @@ export default function ExporterCanvasScene({
     canvas,
     forcedTheme,
     accessToken,
+    canCopy = true,
 }: {
     canvas: SharedCanvasPayload
     forcedTheme: CanvasTheme | null
     /** The share token, which the "open a copy" flow hands to the fork endpoint. */
     accessToken?: string
+    /** False on the surfaces that carry no PostHog branding: embeds and white-labeled shares. */
+    canCopy?: boolean
 }): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const portRef = useRef<MessagePort | null>(null)
@@ -93,8 +96,9 @@ export default function ExporterCanvasScene({
         portRef.current?.postMessage({ channel: CANVAS_CHANNEL, type: 'set-theme', theme })
     }, [theme])
 
+    // A copy starts from the published build, so the endpoint refuses an unpublished canvas.
     const openCopy =
-        canvas.allow_forking && accessToken ? (
+        canCopy && canvas.allow_forking && canvas.published && accessToken ? (
             <div className="SharedCanvas-actions flex justify-end px-4 py-2">
                 {/* The copy flow lives in the signed-in app, so this is a full page load, not a client-side route. */}
                 <LemonButton

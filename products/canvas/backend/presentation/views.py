@@ -18,7 +18,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, organization_disallows_public_sharing
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
@@ -1341,7 +1341,14 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             .first()
         )
         shared_canvas = share.canvas if share is not None else None
-        if share is None or shared_canvas is None or not canvas_is_shareable(shared_canvas):
+        # The last check is the owning organization's public-sharing switch. Every other reader of a
+        # share token fails closed on it while the rows stay enabled, and a copy outlives the link.
+        if (
+            share is None
+            or shared_canvas is None
+            or not canvas_is_shareable(shared_canvas)
+            or organization_disallows_public_sharing(share)
+        ):
             return Response({"detail": "This link doesn't point at a shared canvas."}, status=status.HTTP_404_NOT_FOUND)
         if not (share.settings or {}).get("allowForking"):
             return Response(

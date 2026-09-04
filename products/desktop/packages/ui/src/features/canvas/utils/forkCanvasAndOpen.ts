@@ -5,12 +5,29 @@ import { logger } from "@posthog/ui/shell/logger";
 
 const log = logger.scope("fork-canvas");
 
+// The endpoint is not idempotent: each call creates a canvas and queues a build. A link click
+// gives no feedback until the copy opens, so two clicks would leave two copies behind.
+const inFlight = new Map<string, Promise<void>>();
+
 /**
  * Copy a canvas into the caller's personal space and open the copy. The
  * "link to a copy" form of a canvas link lands here, so the opener never
  * edits the shared original by accident.
  */
-export async function forkCanvasAndOpen(
+export function forkCanvasAndOpen(
+  client: HostTrpcClient,
+  dashboardId: string,
+): Promise<void> {
+  const existing = inFlight.get(dashboardId);
+  if (existing) return existing;
+  const pending = runFork(client, dashboardId).finally(() => {
+    inFlight.delete(dashboardId);
+  });
+  inFlight.set(dashboardId, pending);
+  return pending;
+}
+
+async function runFork(
   client: HostTrpcClient,
   dashboardId: string,
 ): Promise<void> {

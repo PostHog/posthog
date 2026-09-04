@@ -1430,6 +1430,11 @@ def fork_canvas(
         version = CanvasSourceVersion.objects.for_team(source.team_id).get(pk=published.source_version_id)
         project = read_source_project(version)
 
+    # Same lock-free fail-fast as a publish: the copy's build is queued at the end, and refusing it
+    # there would leave a committed canvas row and an uploaded source object behind.
+    with team_scope(team_id):
+        _assert_build_capacity(team_id)
+
     fork = Canvas.objects.create(
         team_id=team_id,
         channel_id=channel_id,
