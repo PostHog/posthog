@@ -4,11 +4,17 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { execGit } from "@posthog/git/git-exec";
+import { withTimeout } from "@posthog/shared";
 import type { AgentScopedLogger } from "./ports";
 
 const API_TIMEOUT_MS = 10_000;
 const BUNDLE_DOWNLOAD_TIMEOUT_MS = 60_000;
 const GIT_TIMEOUT_MS = 60_000;
+// Ceiling on what one session start waits for the wiki. The per-step budgets
+// above add up to minutes, which is a stall, not best-effort. A caller that
+// runs out starts without the wiki, and the preparation keeps running, so the
+// next session gets the finished checkout.
+const MOUNT_TIMEOUT_MS = 15_000;
 // The server bounds a wiki at 50MB of content; a bundle materially above that
 // is not a wiki, so stop the download instead of filling the disk.
 const MAX_BUNDLE_BYTES = 200_000_000;
@@ -61,7 +67,7 @@ export async function prepareContextWiki(options: {
   const key = `${options.apiHost.replace(/\/$/, "")}:${options.cacheDir}:${organizationId}`;
   const pending = inflight.get(key);
   if (pending) {
-    return pending;
+    return awaitMount(pending, options.log);
   }
   const preparation = prepare(organizationId, options).catch((err) => {
     options.log.warn("Failed to prepare the context wiki mount", {
@@ -70,11 +76,23 @@ export async function prepareContextWiki(options: {
     return null;
   });
   inflight.set(key, preparation);
-  try {
-    return await preparation;
-  } finally {
-    inflight.delete(key);
+  // The preparation owns the checkout directory until it settles, so it also
+  // owns the key. A caller that gives up early must not release it, or a later
+  // caller would rm -rf a checkout this one is still writing.
+  void preparation.finally(() => inflight.delete(key));
+  return awaitMount(preparation, options.log);
+}
+
+async function awaitMount(
+  preparation: Promise<ContextWikiMount | null>,
+  log: AgentScopedLogger,
+): Promise<ContextWikiMount | null> {
+  const mount = await withTimeout(preparation, MOUNT_TIMEOUT_MS);
+  if (mount.result === "timeout") {
+    log.warn("Starting without the context wiki; the mount is still preparing");
+    return null;
   }
+  return mount.value;
 }
 
 async function resolveOrganizationId(options: {

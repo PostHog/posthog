@@ -135,4 +135,35 @@ describe("prepareContextWiki", () => {
     ).toHaveLength(1);
     vi.unstubAllGlobals();
   });
+
+  // The wiki is best-effort context. A slow mount must not hold a session
+  // start, and giving up must not release the preparation still running.
+  it("starts without the wiki when the mount outruns the budget", async () => {
+    vi.useFakeTimers();
+    const exportCalls = vi.fn();
+    const options = makeOptions({
+      authenticatedFetch: async (input) => {
+        if (!input.includes("/context_layer/export/")) {
+          return new Response(JSON.stringify({ organization: "org-1" }), {
+            status: 200,
+          });
+        }
+        exportCalls();
+        return new Promise<Response>(() => {});
+      },
+    });
+
+    const mount = prepareContextWiki(options);
+    await vi.advanceTimersByTimeAsync(20_000);
+    await expect(mount).resolves.toBeNull();
+
+    // The preparation still owns the key, so a second caller joins it rather
+    // than starting a competing one over the same checkout directory.
+    const joined = prepareContextWiki(options);
+    await vi.advanceTimersByTimeAsync(20_000);
+    await expect(joined).resolves.toBeNull();
+    expect(exportCalls).toHaveBeenCalledOnce();
+
+    vi.useRealTimers();
+  });
 });

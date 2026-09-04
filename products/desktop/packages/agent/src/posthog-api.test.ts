@@ -122,6 +122,24 @@ describe("PostHogAPIClient", () => {
     expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 
+  // Attribution for a local run is read here while the session starts, so an
+  // unbounded lookup left the session connecting for the life of the app.
+  it("bounds a task lookup so a stalled socket cannot hold session start", async () => {
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 1,
+    });
+    mockFetch.mockRejectedValue(
+      new DOMException("The operation was aborted.", "TimeoutError"),
+    );
+
+    await expect(client.getTask("task-1")).rejects.toThrow();
+
+    const init = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it("loads policies for managed MCP servers and keeps unmanaged servers", async () => {
     const client = new PostHogAPIClient({
       apiUrl: "https://app.posthog.com",

@@ -173,6 +173,10 @@ export class PostHogAPIClient {
 
     return fetch(url, {
       ...options,
+      // A stalled socket never rejects, so an unbounded request holds its
+      // caller for the life of the process. Callers that size their own
+      // budget, such as an artifact upload, keep it.
+      signal: options.signal ?? AbortSignal.timeout(API_TRANSFER_TIMEOUT_MS),
       headers: await this.buildHeaders(options, forceRefresh),
     });
   }
@@ -238,11 +242,7 @@ export class PostHogAPIClient {
       const user = await this.apiRequest<{
         id?: number;
         distinct_id?: string;
-      }>("/api/users/@me/", {
-        // Best-effort header on session start: bound the request so a stalled
-        // socket can't hold up the run. The catch below then returns null.
-        signal: AbortSignal.timeout(API_TRANSFER_TIMEOUT_MS),
-      });
+      }>("/api/users/@me/");
       this.userNode =
         user.distinct_id || (user.id != null ? `user_${user.id}` : null);
     } catch {
