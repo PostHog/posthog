@@ -361,34 +361,32 @@ class _EventsScanVisitor(TraversingVisitor):
         references = _events_references(node.select_from, self.database, self._cte_scopes)
         if not references or _is_bounded_peek(node):
             return
-        aliases = {alias for alias, _ in references}
-        first_reference = references[0][1]
         predicate = _row_predicate(node)
-
-        has_event_filter = predicate is not None and _constrains_event(predicate, aliases)
-        has_lower_bound = predicate is not None and _bounds_timestamp(predicate, aliases)
         fields = _PredicateFields.collect(predicate) if predicate is not None else _PredicateFields()
+        all_aliases = {alias for alias, _ in references}
 
-        if not has_event_filter:
-            reason = (
-                EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT
-                if fields.references_properties
-                else EventsScanReason.NO_EVENT_FILTER
-            )
-            self.findings.append(
-                EventsScanFinding(
-                    reason=reason,
-                    start=first_reference.start,
-                    end=first_reference.end,
-                    property_names=fields.event_property_names(aliases),
+        # Each read of events is checked against the predicates that constrain its own alias. A
+        # self-join where one side is filtered still reads the other side in full.
+        for alias, reference in references:
+            scope = {alias}
+            if predicate is None or not _constrains_event(predicate, scope):
+                reason = (
+                    EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT
+                    if fields.references_properties(scope, all_aliases)
+                    else EventsScanReason.NO_EVENT_FILTER
                 )
-            )
-        if not has_lower_bound:
-            self.findings.append(
-                EventsScanFinding(
-                    reason=EventsScanReason.NO_TIME_BOUND, start=first_reference.start, end=first_reference.end
+                self.findings.append(
+                    EventsScanFinding(
+                        reason=reason,
+                        start=reference.start,
+                        end=reference.end,
+                        property_names=fields.event_property_names(scope),
+                    )
                 )
-            )
+            if predicate is None or not _bounds_timestamp(predicate, scope):
+                self.findings.append(
+                    EventsScanFinding(reason=EventsScanReason.NO_TIME_BOUND, start=reference.start, end=reference.end)
+                )
 
 
 def _is_bounded_peek(node: ast.SelectQuery) -> bool:
@@ -607,9 +605,18 @@ class _PredicateFields(TraversingVisitor):
             self.positive_array_accesses.append(node)
         super().visit_array_access(node)
 
-    @property
-    def references_properties(self) -> bool:
-        return any(_PROPERTIES in field.chain for field in self.fields)
+    def references_properties(self, aliases: set[str], all_aliases: set[str]) -> bool:
+        """Whether a property filter applies to these aliases.
+
+        A field qualified with another events alias belongs to that read, not this one. One with no
+        qualifier, or one from a joined table, could apply here, so it counts.
+        """
+        return any(
+            _PROPERTIES in field.chain
+            and bool(field.chain)
+            and (field.chain[0] in aliases or field.chain[0] not in all_aliases)
+            for field in self.fields
+        )
 
     def event_property_names(self, aliases: set[str]) -> tuple[str, ...]:
         names: dict[str, None] = {}

@@ -2117,6 +2117,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             last_refresh: item.last_refresh ?? existing.last_refresh,
                             columns: item.columns ?? existing.columns,
                             types: item.types ?? existing.types,
+                            // A computed insight lists its warnings, empty when it has none, so an
+                            // empty list has to clear them. Only a PATCH leaves the field unset.
                             warnings: item.warnings ?? existing.warnings,
                         },
                     }

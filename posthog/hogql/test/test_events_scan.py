@@ -180,6 +180,24 @@ class TestFindEventsScans(TestCase):
                 "SELECT * FROM events LIMIT 5000000",
                 [EventsScanReason.NO_EVENT_FILTER, EventsScanReason.NO_TIME_BOUND],
             ),
+            (
+                "a self-join reports the side that is not filtered",
+                "SELECT count() FROM events a JOIN events b ON a.person_id = b.person_id "
+                "WHERE a.event = 'x' AND a.timestamp >= today()",
+                [EventsScanReason.NO_EVENT_FILTER, EventsScanReason.NO_TIME_BOUND],
+            ),
+            (
+                "a self-join with both sides filtered is fine",
+                "SELECT count() FROM events a JOIN events b ON a.person_id = b.person_id "
+                "AND b.event = 'y' AND b.timestamp >= today() WHERE a.event = 'x' AND a.timestamp >= today()",
+                [],
+            ),
+            (
+                "a property filter on one side of a self-join is not the other side's",
+                "SELECT count() FROM events a JOIN events b ON a.person_id = b.person_id "
+                "AND b.event = 'y' AND b.timestamp >= today() WHERE a.properties.plan = 'pro' AND a.timestamp >= today()",
+                [EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT],
+            ),
         ]
     )
     def test_reasons(self, _name: str, query: str, expected: list[EventsScanReason]) -> None:
