@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1341_organization_uses_most_specific_access_resolution"),
+        ("posthog", "1342_drop_cimd_blocklist_table"),
         ("canvas", "0016_canvas_source_policy"),
     ]
 

@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1342_sharingconfiguration_canvas"),
+        ("posthog", "1343_sharingconfiguration_canvas"),
         ("tasks", "0118_sharedtaskartifact"),
     ]
 
