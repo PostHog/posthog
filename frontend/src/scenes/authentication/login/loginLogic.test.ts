@@ -600,5 +600,17 @@ describe('loginLogic', () => {
             expect(assignSpy).toHaveBeenCalledTimes(1)
             expect(assignSpy).toHaveBeenCalledWith('/project/5/replay/home')
         })
+
+        it('rejects an explicit cross-origin destination', () => {
+            router.actions.push('/login')
+            redirectAfterLogin('https://evil.example/steal')
+            expect(assignSpy).toHaveBeenCalledWith('/')
+        })
+
+        it('rejects a protocol-relative cross-origin destination', () => {
+            router.actions.push('/login')
+            redirectAfterLogin('//evil.example/steal')
+            expect(assignSpy).toHaveBeenCalledWith('/')
+        })
     })
 })

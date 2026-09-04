@@ -285,7 +285,7 @@ export const passkeyLogic = kea<passkeyLogicType>([
 
             // For regular login, the destination has to come from the server so the app context is
             // the logged-in one
-            redirectAfterLogin(values.redirectLink || undefined)
+            redirectAfterLogin(values.redirectLink)
         },
         startPasskeyAuthenticationFailure: () => {
             // Reset state on real authentication failures so the user can fall

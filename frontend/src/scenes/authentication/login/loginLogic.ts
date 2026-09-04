@@ -148,9 +148,13 @@ export function handleLoginRedirect(): void {
  * boots the SPA twice: the first boot resolves the destination scene and starts fetching its
  * chunks, then the reload cancels all of them. On a production build that was over 400 cancelled
  * chunk requests. It also raced, because whether the reload picked up the destination or the
- * login URL depended on how far the router had got. */
+ * login URL depended on how far the router had got.
+ *
+ * An explicit destination is guarded against other origins; if the guard rejects it, we fall
+ * back to the server-provided redirect target from `loginRedirectTarget()`. */
 export function redirectAfterLogin(destination?: string): void {
-    window.location.assign(destination || loginRedirectTarget())
+    const guardedDestination = destination ? getRelativeNextPath(destination, location) : null
+    window.location.assign(guardedDestination || loginRedirectTarget())
 }
 
 export interface LoginForm {
