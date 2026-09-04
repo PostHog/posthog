@@ -67,6 +67,7 @@ from products.signals.backend.scout_harness.config_registry import enabled_scout
 from products.signals.backend.scout_harness.fleet_sync import materialize_scout_fleet
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_origin
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
     ScoutRunRejectionKind,
@@ -102,6 +103,7 @@ from products.signals.backend.scout_harness.serializers import (
     ScoutNoteSerializer,
     ScoutNotesQuerySerializer,
     ScoutRunIdsBatchRequestSerializer,
+    ScoutRunTokenCostsSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
@@ -346,6 +348,22 @@ def _to_report_charts(entries: list[dict] | None) -> list[ReportChartInput] | No
             caption=entry.get("caption") or None,
             # Narrowed by the serializer's choices; the cast only crosses the untyped DRF dict.
             size=cast("ChartSize | None", entry.get("size") or None),
+        )
+        for entry in entries
+    ]
+
+
+def _to_report_evidence(entries: list[dict] | None) -> list[ReportEvidence] | None:
+    """Map validated evidence entries to `ReportEvidence`s for the report tools. `weight` is omitted
+    when unset so the dataclass default stands. Empty/None yields None, which the edit path reads as
+    "no evidence supplied"."""
+    if not entries:
+        return None
+    return [
+        ReportEvidence(
+            description=entry["description"],
+            source_id=entry["source_id"],
+            **({"weight": entry["weight"]} if entry.get("weight") is not None else {}),
         )
         for entry in entries
     ]
@@ -788,6 +806,47 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(ScoutEmissionReportLinkSerializer(links, many=True).data)
 
     @validated_request(
+        request_serializer=ScoutRunIdsBatchRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ScoutRunTokenCostsSerializer,
+                description="Model spend for each requested run that exists on this project.",
+            ),
+            403: OpenApiResponse(description="Caller is not PostHog staff."),
+        },
+        summary="Get the model spend of many runs at once",
+        description=(
+            "Return what each requested `SignalScoutRun` spent on model calls, summed from the "
+            "`$ai_generation` events its sandbox produced. One query for the whole batch, cached per run: "
+            "a settled run's total is final, a run still in progress reports what it has spent so far. "
+            "`available` is false where the internal AI observability project holding those events can't "
+            "be read, so an unknown cost never reads as zero. Staff-only — fleet spend is an internal "
+            "operating number, and the events sit outside the project in the path. Strictly team-scoped — "
+            "run ids belonging to another project contribute no rows."
+        ),
+        operation_id="signals_scout_runs_token_costs",
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="token-costs",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def token_costs(self, request: Request, **kwargs) -> Response:
+        if not cast(User, request.user).is_staff:
+            raise exceptions.PermissionDenied("Only PostHog staff can read scout run costs.")
+        costs = scout_run_token_costs(team_id=_canonical_team_id(self), run_ids=request.validated_data["run_ids"])
+        return Response(
+            ScoutRunTokenCostsSerializer(
+                {
+                    "costs": [dataclasses.asdict(cost) for cost in costs.costs],
+                    "available": costs.available,
+                }
+            ).data
+        )
+
+    @validated_request(
         request_serializer=EmitFindingRequestSerializer,
         parameters=[_RUN_ID_PATH_PARAMETER],
         responses={
@@ -951,14 +1010,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def emit_report(self, request: Request, **kwargs) -> Response:
         run = self._resolve_in_progress_run(kwargs, required_tool="emit_report")
         data = request.validated_data
-        evidence = [
-            ReportEvidence(
-                description=entry["description"],
-                source_id=entry["source_id"],
-                **({"weight": entry["weight"]} if entry.get("weight") is not None else {}),
-            )
-            for entry in data["evidence"]
-        ]
+        evidence = _to_report_evidence(data["evidence"]) or []
         try:
             result = emit_report_sync(
                 # `run.team` is the canonical (parent) team the run was resolved on; a child-environment
@@ -1004,7 +1056,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Edit an existing report for a run",
         description=(
-            "Rewrite a report's title/summary, append a note, and/or set its suggested reviewers. Can target "
+            "Rewrite a report's title/summary, append a note or fresh evidence, and/or set its suggested "
+            "reviewers. Can target "
             "ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to "
             "this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it "
             "replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can "
@@ -1031,6 +1084,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 title=data.get("title"),
                 summary=data.get("summary"),
                 append_note=data.get("append_note"),
+                append_evidence=_to_report_evidence(data.get("append_evidence")),
                 suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
                 charts=_to_report_charts(data.get("charts")),
                 suggested_prompts=data.get("suggested_prompts"),
@@ -1043,6 +1097,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "report_id": result.report_id,
                     "updated_fields": result.updated_fields,
                     "note_appended": result.note_appended,
+                    "evidence_appended": result.evidence_appended,
                     "reviewers_set": result.reviewers_set,
                     "charts_set": result.charts_set,
                     "suggested_prompts_set": result.suggested_prompts_set,
@@ -1182,7 +1237,8 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "`date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, "
             "`< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls "
             "to walk past the cap. Entries whose `expires_at` has passed are excluded unless "
-            "`include_expired=true`. Pass `keys_only=true` to scan keys without pulling entry bodies, or "
+            "`include_expired=true`, and are hard-deleted by a daily janitor once their expiry is "
+            "more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or "
             "`content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan "
             "from returning every entry's full prose. Results capped at 1000."
         ),

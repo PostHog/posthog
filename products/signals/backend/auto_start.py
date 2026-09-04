@@ -482,7 +482,7 @@ def _live_skill_owner_logins(team: Team, report_id: str, reviewers_content: list
     writes that swallow failures, so an identity guard cannot rest on them alone — the entry stamp
     commits atomically with the pick it guards, and covers the entries that actually stand for
     selection even when a tally write was lost."""
-    skill_names = resolve_touching_scout_skills(team.id, report_id)
+    skill_names = set(resolve_touching_scout_skills(team.id, report_id))
     skill_names |= {str(r["source_skill"]) for r in reviewers_content if r.get("source_skill")}
     owner_uuids: set[str] = set()
     for skill_name in skill_names:
