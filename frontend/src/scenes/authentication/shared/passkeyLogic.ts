@@ -283,8 +283,8 @@ export const passkeyLogic = kea<passkeyLogicType>([
                 return
             }
 
-            // For regular login, the destination has to come from the server so the app context is
-            // the logged-in one
+            // For regular login, load the destination as a fresh document so its app context is the
+            // logged-in one. `redirectLink` is guarded against other origins by `redirectAfterLogin`.
             redirectAfterLogin(values.redirectLink)
         },
         startPasskeyAuthenticationFailure: () => {

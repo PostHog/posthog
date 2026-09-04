@@ -612,5 +612,13 @@ describe('loginLogic', () => {
             redirectAfterLogin('//evil.example/steal')
             expect(assignSpy).toHaveBeenCalledWith('/')
         })
+
+        it('accepts an absolute destination on our own origin, as its path', () => {
+            // The guard must not over-reject: a same-origin absolute URL is a legitimate
+            // destination, and it arrives as a path.
+            router.actions.push('/login')
+            redirectAfterLogin('http://localhost/project/5/insights?foo=bar#tab=raw')
+            expect(assignSpy).toHaveBeenCalledWith('/project/5/insights?foo=bar#tab=raw')
+        })
     })
 })
