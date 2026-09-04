@@ -554,6 +554,7 @@ describe('HogFunctionHandler', () => {
             capturedPostHogEvents: [],
             warehouseWebhookPayloads: [],
             messageAssets: [],
+            conversionWatchers: [],
         })
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {

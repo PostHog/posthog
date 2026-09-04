@@ -136,12 +136,28 @@ describe('suggestedContextFilters', () => {
     })
 
     describe.each([
-        ['only in-scope kept', [pinned(Events, 'a'), pinned(Cohorts, 'c')], [Events], ['a']],
-        ['all out-of-scope dropped', [pinned(Cohorts, 'c')], [Events], []],
-        ['empty input', [], [Events], []],
-    ])('filterPinnedForContext — %s', (_label, items, types, expected) => {
+        ['only in-scope kept', [pinned(Events, 'a'), pinned(Cohorts, 'c')], [Events], undefined, ['a']],
+        ['all out-of-scope dropped', [pinned(Cohorts, 'c')], [Events], undefined, []],
+        ['empty input', [], [Events], undefined, []],
+        // A pin outlives the picker it was made in, so without this the Pinned tab is a second door
+        // to selecting a value the exclusion forbids.
+        [
+            'excluded value dropped',
+            [pinned(Events, '$exception'), pinned(Events, 'checkout_started')],
+            [Events],
+            { [Events]: ['$exception'] },
+            ['checkout_started'],
+        ],
+        [
+            'exclusion applies only to its own group',
+            [pinned(Events, '$exception'), pinned(Cohorts, '$exception')],
+            [Events, Cohorts],
+            { [Events]: ['$exception'] },
+            ['$exception'],
+        ],
+    ])('filterPinnedForContext — %s', (_label, items, types, excludedProperties, expected) => {
         it('matches the expected in-scope set', () => {
-            expect(names(filterPinnedForContext(items, types))).toEqual(expected)
+            expect(names(filterPinnedForContext(items, types, excludedProperties))).toEqual(expected)
         })
     })
 })

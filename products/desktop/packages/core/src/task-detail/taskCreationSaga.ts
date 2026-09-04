@@ -585,6 +585,8 @@ export class TaskCreationSaga extends Saga<
           if (input.adapter) connectParams.adapter = input.adapter;
           if (input.codexModelAccess)
             connectParams.codexModelAccess = input.codexModelAccess;
+          if (input.claudeModelAccess)
+            connectParams.claudeModelAccess = input.claudeModelAccess;
           if (input.model) connectParams.model = input.model;
           if (input.reasoningLevel)
             connectParams.reasoningLevel = input.reasoningLevel;
@@ -874,6 +876,9 @@ export class TaskCreationSaga extends Saga<
           // burns the report's one-live-PR gate.
           signal_report_task_relationship: input.signalReportId
             ? input.signalReportTaskRelationship
+            : undefined,
+          signal_report_discussion_question: input.signalReportId
+            ? input.signalReportDiscussionQuestion
             : undefined,
           branch:
             input.workspaceMode === "cloud" && canActivateWarmRun

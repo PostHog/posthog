@@ -13,6 +13,10 @@ import type { UserType } from '~/types'
 
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
 
+jest.mock('lib/components/TZLabel', () => ({
+    TZLabel: ({ time }: { time: string }) => <span>{time}</span>,
+}))
+
 describe('AccountRelatedUsersExpansion', () => {
     beforeEach(() => {
         initKeaTests()
@@ -41,6 +45,17 @@ describe('AccountRelatedUsersExpansion', () => {
                     'Mercer',
                     'alex+eu@example.com',
                     'distinct-1',
+                    '2026-01-02T03:04:05Z',
+                ],
+                [
+                    43,
+                    'membership-2',
+                    OrganizationMembershipLevel.Member,
+                    'Jordan',
+                    'Bell',
+                    'jordan+eu@example.com',
+                    'distinct-2',
+                    null,
                 ],
             ],
         } as HogQLQueryResponse)
@@ -52,8 +67,10 @@ describe('AccountRelatedUsersExpansion', () => {
         )
 
         expect(await screen.findByText('Owner')).toBeInTheDocument()
+        expect(screen.getByText('2026-01-02T03:04:05Z')).toBeInTheDocument()
+        expect(screen.getByText('Never')).toBeInTheDocument()
         expect(screen.getByPlaceholderText('Search users by name or email...')).toHaveAttribute('maxLength', '200')
-        const impersonateButton = await screen.findByText('Impersonate')
+        const [impersonateButton] = await screen.findAllByText('Impersonate')
         expect(impersonateButton.closest('a')).toHaveAttribute('href', 'http://localhost/admin/posthog/user/42/change/')
     })
 })

@@ -4,9 +4,11 @@ Runs inside `ExternalDataJobWorkflow` after the pipeline lock is held and before
 the sole writer for the schema (the schedule's OnlyOne overlap policy + the v3 pipeline lock guarantee
 no concurrent sync). Acting on a pending target *before* the merge means the merge that follows in the
 same run uses the new, memory-safe layout. A repartition failure never fails the workflow — the sync
-just proceeds on the old layout (status quo) and the table is retried on a later run. The one nuance:
-a transient infra error during an admin-staged rewrite re-raises retryable so the activity's retry
-policy re-runs it in this run (the workflow swallows the failure if retries exhaust).
+just proceeds on the old layout (status quo) and the table is retried on a later run. Two nuances: a
+transient infra error during an admin-staged rewrite re-raises retryable so the activity's retry
+policy re-runs it in this run (the workflow swallows the failure if retries exhaust); and a failure
+once the swap has landed leaves the `repartition_swap` marker set, which pauses the sync that follows
+rather than letting it merge against settings that no longer describe the data.
 """
 
 import time
@@ -42,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionAttemptsExhausted,
     RepartitionBudgetExceededError,
+    RepartitionSchemePersistError,
     RepartitionSupersededError,
     RepartitionTarget,
     RepartitionUnpartitionableError,
@@ -136,8 +139,8 @@ def _rewrite_deadline(activity_started: float) -> float | None:
 def _is_transient_infra_error(error: Exception) -> bool:
     if isinstance(error, OperationalError | InterfaceError):
         return True
-    # A primary-DB failover briefly routes one of the rewrite's own writes (checkpoint, swap marker,
-    # scheme persist) onto a connection that has become a read-only standby: Postgres raises
+    # A primary-DB failover briefly routes one of the rewrite's own writes (checkpoint, swap marker)
+    # onto a connection that has become a read-only standby: Postgres raises
     # ReadOnlySqlTransaction (SQLSTATE 25006), which psycopg classifies under InternalError rather than
     # OperationalError, so it needs its own check. Matched on the cause, not a bare InternalError
     # isinstance, so real corruption errors sharing the base class are still reported. Mirrors the same
@@ -384,7 +387,15 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             logger.debug("repartition: pre-extraction measurement found no repartition needed")
             return
 
-    target = RepartitionTarget.from_dict(pending) if pending is not None else _target_from_schema(schema)
+    # A pending marker carrying only bookkeeping (an attempt count written when nothing was queued)
+    # has no keys to rebuild a target from, and `from_dict` would raise before the rewrite even
+    # starts — every run, forever. Fall back to the schema's own settings, which is what a resume
+    # with no pending target uses anyway.
+    target = (
+        RepartitionTarget.from_dict(pending)
+        if pending is not None and pending.get("partition_keys") is not None
+        else _target_from_schema(schema)
+    )
     trigger_reason = (pending or {}).get("trigger_reason", "resume")
 
     # `_handle_failure` also gives up at the cap, but only for an attempt that survives to run it.
@@ -466,6 +477,20 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="superseded").inc()
         _refund_attempt(schema, charged_attempts, logger)
         _capture_stood_down(schema, inputs, trigger_reason, "superseded", logger)
+        return
+    except RepartitionSchemePersistError as e:
+        # The rewrite worked and the swap landed; only the write recording the new scheme was lost. The
+        # table's data now carries partition keys the schema row does not describe, so this is never
+        # transient noise however transient the database error under it was: the merge that would run
+        # next scopes its predicate to a partition the table no longer has and inserts every fetched
+        # row instead of upserting it. Record it as a real failure and leave the swap marker set — it
+        # carries the scheme, so the next run finishes the write without rebuilding, and it holds this
+        # schema's imports until then (see `_import_held_for_repartition`).
+        logger.error("repartition: the swap landed but its scheme could not be saved; imports stay held", exc_info=True)
+        DELTA_REPARTITION_TOTAL.labels(
+            team_id=str(inputs.team_id),
+            outcome=_handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger, charged_attempts),
+        ).inc()
         return
     except RepartitionUnpartitionableError as e:
         # Terminal: the table can't be partitioned on its keys. Clear the flag AND engage the cooldown —
@@ -808,7 +833,19 @@ def _handle_failure(
     if attempts >= MAX_REPARTITION_ATTEMPTS:
         props["final"] = True
         schema.clear_repartition_pending()
-        schema.clear_repartition_swap()
+        if schema.repartition_swap is not None:
+            # Giving up cannot include forgetting a staged swap. Until one completes, the table's
+            # on-disk layout is either the old scheme or the new one and the marker is the only record
+            # of which scheme was staged; dropping it would let the next merge run against settings
+            # that may no longer describe the data and duplicate the whole lookback window. Leaving it
+            # keeps this schema's imports held (see `_import_held_for_repartition`) and keeps the
+            # recovery available — stale beats silently corrupted.
+            props["swap_unresolved"] = True
+            logger.error(
+                f"repartition: giving up with a staged swap still unresolved; imports stay held for "
+                f"schema_id={schema.id}",
+                schema_id=str(schema.id),
+            )
         # Drop any partial-rewrite checkpoint too: leaving it set would make the next flag cycle
         # resume the same doomed temp instead of giving up, so the give-up would never take effect.
         schema.clear_repartition_rewrite()
@@ -817,9 +854,11 @@ def _handle_failure(
         # the layout is unchanged, so detection re-flags the table immediately with `attempts` back
         # at 0 and the three attempts start over. The cooldown re-evaluates at most daily instead.
         schema.stamp_last_repartition_at()
-    else:
-        updated = {**pending, "attempts": attempts}
-        schema.set_repartition_pending(updated)
+    elif pending:
+        # Only when something was queued. A staged swap being driven to completion has no pending
+        # marker, and writing an attempt count onto an empty one invents a target with no partition
+        # keys — which the next run cannot rebuild a `RepartitionTarget` from.
+        schema.set_repartition_pending({**pending, "attempts": attempts})
 
     capture_repartition_event("warehouse_repartition_failed", props)
     capture_exception(error)

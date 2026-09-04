@@ -4,7 +4,7 @@ import { getSeriesColor } from 'lib/colors'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils/dom'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 
 import {
     AnyDataWarehouseNode,
@@ -468,6 +468,18 @@ export function isUnlinkableEventFilter(
 }
 
 /**
+ * The single event an experiment's exposure is counted on, for the session-linkability check.
+ * Null for an action exposure config, which can match several events, so no one name applies.
+ */
+export function getExposureLinkabilityEventName(experiment: Experiment): string | null {
+    const exposureConfig = experiment.exposure_criteria?.exposure_config
+    if (exposureConfig && !(isEventExposureConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
+        return isEventExposureConfig(exposureConfig) && exposureConfig.event ? exposureConfig.event : null
+    }
+    return resolvedExposureEvent(experiment)
+}
+
+/**
  * Event names whose session-linkability must be checked before building "View recordings" links:
  * the exposure event plus every plain-event metric step across primary, secondary and shared
  * metrics, mirroring how `getViewRecordingFilters` enumerates them. Action and data warehouse
@@ -477,13 +489,9 @@ export function isUnlinkableEventFilter(
 export function getSessionLinkabilityEventNames(experiment: Experiment): string[] {
     const eventNames = new Set<string>()
 
-    const exposureConfig = experiment.exposure_criteria?.exposure_config
-    if (exposureConfig && !(isEventExposureConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
-        if (isEventExposureConfig(exposureConfig) && exposureConfig.event) {
-            eventNames.add(exposureConfig.event)
-        }
-    } else {
-        eventNames.add(resolvedExposureEvent(experiment))
+    const exposureEventName = getExposureLinkabilityEventName(experiment)
+    if (exposureEventName) {
+        eventNames.add(exposureEventName)
     }
 
     const metrics = [

@@ -8,6 +8,7 @@ from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
 from rest_framework import status
 
 from posthog.models import NotificationViewed, User
+from posthog.test.insight_queries import default_pageview_query
 
 
 def _feature_flag_json_payload(key: str) -> dict:
@@ -60,8 +61,8 @@ class TestMyNotifications(APIBaseTest, QueryMatchingTest):
         if team_id is None:
             team_id = self.team.id
 
-        if "filters" not in data:
-            data["filters"] = {"events": [{"id": "$pageview"}]}
+        if "query" not in data:
+            data["query"] = default_pageview_query()
 
         response = self.client.post(f"/api/projects/{team_id}/insights", data=data)
         self.assertEqual(response.status_code, expected_status)

@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.db import models
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -17,12 +19,17 @@ class LenientTimingsField(serializers.JSONField):
     """
 
 
+class NotebookSQLV2RefKind(models.TextChoices):
+    HOGQL = "hogql", "hogql"
+    LOCAL = "local", "local"
+
+
 class NotebookSQLV2RefSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="ProseMirror node id of the upstream node this name points at.")
     # Named `kind` on purpose (matches the kernel input spec); avoids the `type`/`format`
     # enum-collision trap.
     kind = serializers.ChoiceField(
-        choices=["hogql", "local"],
+        choices=NotebookSQLV2RefKind.choices,
         required=False,
         default="hogql",
         help_text=(
@@ -79,10 +86,15 @@ class NotebookVariableSerializer(serializers.Serializer):
         return name
 
 
+class NotebookSQLV2NodeType(models.TextChoices):
+    HOGQL = "hogql", "hogql"
+    PYTHON = "python", "python"
+
+
 class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="ProseMirror node id of the SQLV2 node being run.")
     node_type = serializers.ChoiceField(
-        choices=["hogql", "python"],
+        choices=NotebookSQLV2NodeType.choices,
         required=False,
         default="hogql",
         help_text=(
@@ -314,6 +326,20 @@ class NotebookSQLV2RunResponseSerializer(serializers.Serializer):
     run_id = serializers.UUIDField(
         help_text="Identifier of the dispatched run. Poll the run result endpoint with it until the status is terminal."
     )
+    starts_sandbox = serializers.BooleanField(
+        help_text=(
+            "True when this run has to provision a sandbox because none is live for the caller, checked here "
+            "rather than inferred from a client's cached kernel status. Tell the user what that costs."
+        )
+    )
+    sandbox_hourly_price = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "What the sandbox this run provisions costs per hour in USD. Null when the run needs no new "
+            "sandbox, or when the backend is not charged."
+        ),
+    )
 
 
 class NotebookSQLV2RunStatusResponseSerializer(serializers.Serializer):
@@ -472,6 +498,49 @@ class NotebookKernelStatusResponseSerializer(serializers.Serializer):
     idle_timeout_seconds = serializers.IntegerField(
         required=False, allow_null=True, help_text="Seconds of inactivity before the sandbox shuts down."
     )
+    hourly_price = serializers.FloatField(
+        help_text=(
+            "What this sandbox shape costs per hour in USD while it is alive, at this region's rates. "
+            "Charged on the sandbox's lifetime, not on how much of it a cell uses. Resizing through the "
+            "kernel config endpoint restarts a live kernel, so this tracks the running sandbox."
+        )
+    )
+    preset_key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Compute preset for the shape hourly_price describes: the running sandbox while a kernel is "
+            "live, otherwise the configured shape. Null when that shape was tuned by hand and matches no preset."
+        ),
+    )
+
+
+class NotebookComputePresetSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Stable identifier for the preset, e.g. 'balanced'.")
+    name = serializers.CharField(help_text="Preset name as a person reads it, e.g. 'Balanced'.")
+    description = serializers.CharField(help_text="What this preset suits, in one sentence.")
+    cpu_cores = serializers.FloatField(help_text="CPU cores the preset provisions.")
+    memory_gb = serializers.FloatField(help_text="Memory in GB the preset provisions.")
+    hourly_price = serializers.FloatField(help_text="What this preset costs per hour in USD while it is alive.")
+
+
+class NotebookComputeOptionsResponseSerializer(serializers.Serializer):
+    currency = serializers.CharField(help_text="Currency of every price in this response. Always 'USD'.")
+    cpu_rate_per_core_hour = serializers.FloatField(help_text="Price of one CPU core for one hour, in USD.")
+    memory_rate_per_gb_hour = serializers.FloatField(help_text="Price of one GB of memory for one hour, in USD.")
+    default_preset_key = serializers.CharField(
+        help_text="Preset a sandbox starts with when the notebook sets no compute config."
+    )
+    presets = NotebookComputePresetSerializer(many=True, help_text="Sandbox shapes offered as one-click options.")
+    allowed_cpu_cores = serializers.ListField(
+        child=serializers.FloatField(), help_text="CPU core counts the kernel config endpoint accepts."
+    )
+    allowed_memory_gb = serializers.ListField(
+        child=serializers.FloatField(), help_text="Memory sizes in GB the kernel config endpoint accepts."
+    )
+    allowed_idle_timeout_seconds = serializers.ListField(
+        child=serializers.IntegerField(), help_text="Idle timeouts in seconds the kernel config endpoint accepts."
+    )
 
 
 class NotebookKernelConfigResponseSerializer(serializers.Serializer):
@@ -484,11 +553,30 @@ class NotebookKernelConfigResponseSerializer(serializers.Serializer):
     idle_timeout_seconds = serializers.IntegerField(
         required=False, allow_null=True, help_text="Configured idle timeout in seconds; null means the default."
     )
+    restarted = serializers.BooleanField(
+        help_text=(
+            "True when this call restarted a live kernel to apply a new size. Restarting discards every "
+            "materialized dataframe, so cells that referenced one must run again."
+        )
+    )
     restart_required = serializers.BooleanField(
         help_text=(
-            "True when a kernel is currently active: config applies at sandbox provision time, so the "
-            "running kernel keeps its old resources until restarted (restarting loses materialized dataframes)."
+            "True when a kernel is live and this call did not restart it, so the running sandbox may not "
+            "match the saved config. A resize restarts the kernel and reports False on success, or True if "
+            "that restart fails. An idle-timeout change and a no-op on a live kernel also report True."
         )
+    )
+    hourly_price = serializers.FloatField(
+        help_text=(
+            "What this sandbox shape costs per hour in USD while it is alive, at this region's rates. It "
+            "tracks the running sandbox while a kernel is live, otherwise the configured shape. After a "
+            "failed resize this stays the running sandbox's rate, not the size that failed to apply."
+        )
+    )
+    preset_key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Compute preset the configured shape matches, or null when it was tuned by hand.",
     )
 
 

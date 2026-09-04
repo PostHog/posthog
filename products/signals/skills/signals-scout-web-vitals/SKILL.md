@@ -1,18 +1,9 @@
 ---
 name: signals-scout-web-vitals
 description: >
-  Focused Signals scout for PostHog projects capturing Core Web Vitals (`$web_vitals`).
-  Watches each page's p75 LCP / INP / CLS / FCP against the absolute Google thresholds
-  (good / needs-improvement / poor) and against its own history: pages standing in the
-  poor band, pages crossing a band boundary after a deploy, and sharp in-band
-  regressions. Reads the historical trajectory — not just the moment a value changes —
-  so a page that is steadily slow surfaces even when nothing moved today. Dates a
-  regression to a sub-hour boundary and correlates it with the project's own deploy
-  markers and feature flag rollouts, confirming a flag or variant cause by splitting the
-  metric on it. Every finding carries a metric-specific cause hypothesis and a concrete
-  remediation, filed as a report in the inbox only above the confidence bar; otherwise
-  writes durable memory and closes out empty. Self-contained peer in the
-  signals-scout-* fleet.
+  Signals scout for Core Web Vitals (`$web_vitals`). Watches each page's p75 LCP / INP / CLS /
+  FCP against Google's thresholds and its own history — poor-band pages, band crossings, sharp
+  regressions — and dates each regression against deploys and flag rollouts.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
   read-only analytics plus signal_scout_internal:write (for scratchpad) +
@@ -414,7 +405,7 @@ the category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`
   page later re-crosses."_ One stable key per host+path+metric — update it in place,
   don't mint a dated variant.
 - key `report:web_vitals:checkout-inp` — _"Report `019f0a96-…` covers the `/checkout`
-  INP finding. Edit it (append_note the fresh p75 + sample count) while the page stays
+  INP finding. Edit it (`append_evidence` with the fresh p75 + sample count) while the page stays
   slow and the report is still live and not scope-frozen; if it closed (or shipped its
   fix — `ready` with an open or merged implementation PR) and the page later re-crosses,
   that's a fresh report."_
@@ -439,7 +430,7 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   A page with a live report and no material change is a **skip**.
 - **Edit** (`scout-edit-report`) when a still-live report already covers the same
   page+metric problem — the page still standing in `poor`, the regression still holding,
-  the p75 deepening or recovering. `append_note` the fresh window's numbers (p75, band,
+  the p75 deepening or recovering. Add the fresh window's numbers with `append_evidence` (p75, band,
   sample count), or rewrite the title/summary on a report you authored. This is the
   default when a match exists — a chronically slow page is one report across weeks, not
   one per run. `edit-report` can't change status, so if the matched report is `resolved` /

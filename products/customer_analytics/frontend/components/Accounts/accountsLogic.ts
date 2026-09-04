@@ -25,6 +25,7 @@ import {
 import type { UserBasicType } from '~/types'
 
 import {
+    accountsCustomPropertyValuesCreate,
     accountsPartialUpdate,
     accountsRelationshipsCreate,
     accountsRelationshipsEndCreate,
@@ -38,7 +39,11 @@ import {
     CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
 } from '../../constants'
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
-import type { AccountRelationshipDefinitionApi, CustomPropertyDefinitionApi } from '../../generated/api.schemas'
+import type {
+    AccountRelationshipDefinitionApi,
+    CustomPropertyDefinitionApi,
+    CustomPropertyValueWriteApi,
+} from '../../generated/api.schemas'
 import { accountsColumnConfigLogic, isLegacyRoleColumn } from './accountsColumnConfigLogic'
 import type { AccountColumnDisplayState } from './accountsColumnConfigLogic'
 import {
@@ -58,7 +63,7 @@ import {
     isAccountsTableRow,
     supportedAccountFilters,
 } from './accountsTableQuery'
-import { normalizeRoleFilter } from './accountsViewState'
+import { type AssignmentStatus, isAssignmentStatus, normalizeRoleFilter } from './accountsViewState'
 import { AccountsEvents } from './constants'
 
 export const SEARCH_DEBOUNCE_MS = 300
@@ -96,7 +101,9 @@ function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActio
 
 export type RoleFilterValue = number[]
 
-export type AccountFilterType = 'tag' | 'unassigned_only' | 'my_accounts' | 'assigned_to'
+export type { AssignmentStatus }
+
+export type AccountFilterType = 'tag' | 'assignment_status' | 'my_accounts' | 'assigned_to'
 
 // `column` matches the visible column name (alias-stripped) so any selected
 // column can drive the sort.
@@ -107,6 +114,9 @@ export type AccountSortDirection = 'asc' | 'desc'
 export type AccountSortOrder = { column: AccountSortableColumn; direction: AccountSortDirection } | null
 
 export const savingRoleKey = (accountId: string, column: string): string => `${accountId}:${column}`
+
+export const customPropertySavingKey = (accountId: string, definitionId: string): string =>
+    `${accountId}:${definitionId}`
 
 // Which accounts path the shareable view state gets written back to. It must be the path we are
 // already on: the setters that mirror view state into the URL also fire while state is being
@@ -125,6 +135,10 @@ function accountsPathToWriteBackTo(accountIdFilter: string | null): string {
 export interface AccountsViewUrlState {
     search?: string
     tags?: string[]
+    /** The canonical assignment status. Absent on legacy links, which resolve to
+     * assigned-only so they never silently broaden. */
+    assignmentStatus?: AssignmentStatus
+    /** @deprecated Legacy unassigned-only flag; still read for old shared links. Never written. */
     unassigned?: boolean
     /** Concrete user ids for the "Assigned to" / "My accounts" filter — explicit
      * (not viewer-relative) so a shared link resolves identically for everyone. */
@@ -164,16 +178,20 @@ export interface accountsLogicValues {
     accountsTableQueryPlan: AccountsTableQueryPlan
     accountsTableQueryPlanInput: BuildAccountsTableQueryPlanInput
     activeFilterCount: number
-    allRolesUnassigned: boolean
     assignedToCurrentUser: boolean
     assignedToFilter: RoleFilterValue
+    assignmentStatus: AssignmentStatus
+    awaitingSavedView: boolean
     canSortClientSide: boolean
     currentUserId: number | null
+    customPropertyOverrides: Record<string, CustomPropertyValueWriteApi['value']>
+    isCustomPropertySaving: (accountId: string, definitionId: string) => boolean
     isRoleSaving: (accountId: string, column: string) => boolean
     isTagsSaving: (accountId: string) => boolean
     listPaginated: boolean
     metricsQuery: AccountsTableQuery | null
     relationshipOverrides: Record<string, number[]>
+    savingCustomProperties: Record<string, true>
     savingRoles: Record<string, true>
     savingTags: Record<string, true>
     searchInput: string
@@ -260,6 +278,55 @@ export interface accountsLogicActions {
         queryId: string
         refresh: RefreshType | undefined
     } // dataNodeLogic
+    listLoadDataSuccess: (
+        response:
+            | Record<string, any>
+            | null
+            | import('~/queries/schema').ErrorTrackingQueryResponse
+            | import('~/queries/schema').HogQLAutocompleteResponse
+            | import('~/queries/schema').HogQLMetadataResponse
+            | import('~/queries/schema').HogQLQueryResponse<any[]>
+            | import('~/queries/schema').HogQueryResponse
+            | import('~/queries/schema').LogAttributesQueryResponse
+            | import('~/queries/schema').LogValuesQueryResponse
+            | import('~/queries/schema').MetricsQueryResponse
+            | import('~/queries/schema').SessionsQueryResponse
+            | import('~/queries/schema').TraceSpansAggregationQueryResponse
+            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
+            | import('~/queries/schema').TraceSpansQueryResponse
+            | undefined,
+        payload?:
+            | {
+                  overrideQuery: DataNode<Record<string, any>> | undefined
+                  pollOnly: boolean
+                  queryId: string
+                  refresh: RefreshType | undefined
+              }
+            | undefined
+    ) => {
+        payload?: {
+            overrideQuery: DataNode<Record<string, any>> | undefined
+            pollOnly: boolean
+            queryId: string
+            refresh: RefreshType | undefined
+        }
+        response:
+            | Record<string, any>
+            | null
+            | import('~/queries/schema').ErrorTrackingQueryResponse
+            | import('~/queries/schema').HogQLAutocompleteResponse
+            | import('~/queries/schema').HogQLMetadataResponse
+            | import('~/queries/schema').HogQLQueryResponse<any[]>
+            | import('~/queries/schema').HogQueryResponse
+            | import('~/queries/schema').LogAttributesQueryResponse
+            | import('~/queries/schema').LogValuesQueryResponse
+            | import('~/queries/schema').MetricsQueryResponse
+            | import('~/queries/schema').SessionsQueryResponse
+            | import('~/queries/schema').TraceSpansAggregationQueryResponse
+            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
+            | import('~/queries/schema').TraceSpansQueryResponse
+            | undefined
+    } // dataNodeLogic
     listLoadNextData: () => any // dataNodeLogic
     ensureAllMembersLoaded: () => {
         value: true
@@ -279,6 +346,23 @@ export interface accountsLogicActions {
     } // userLogic
     addTagToFilter: (tag: string) => {
         tag: string
+    }
+    clearCustomPropertyOverrides: () => {
+        value: true
+    }
+    customPropertyUpdateFinished: (
+        accountId: string,
+        definitionId: string
+    ) => {
+        accountId: string
+        definitionId: string
+    }
+    customPropertyUpdateStarted: (
+        accountId: string,
+        definitionId: string
+    ) => {
+        accountId: string
+        definitionId: string
     }
     openAccount: (
         accountId: string,
@@ -317,14 +401,26 @@ export interface accountsLogicActions {
     setAccountIdFilter: (accountId: string | null) => {
         accountId: string | null
     }
-    setAllRolesUnassigned: (value: boolean) => {
-        value: boolean
-    }
     setAssignedToCurrentUser: (value: boolean) => {
         value: boolean
     }
     setAssignedToFilter: (value: RoleFilterValue) => {
         value: RoleFilterValue
+    }
+    setAssignmentStatus: (status: AssignmentStatus) => {
+        status: AssignmentStatus
+    }
+    setAwaitingSavedView: (awaiting: boolean) => {
+        awaiting: boolean
+    }
+    setCustomPropertyOverride: (
+        accountId: string,
+        definitionId: string,
+        value: CustomPropertyValueWriteApi['value'] | null
+    ) => {
+        accountId: string
+        definitionId: string
+        value: boolean | number | string | null
     }
     setRelationshipOverride: (
         accountId: string,
@@ -363,6 +459,15 @@ export interface accountsLogicActions {
     toggleSort: (column: AccountSortableColumn) => {
         column: string
     }
+    updateAccountCustomProperty: (
+        accountId: string,
+        definition: CustomPropertyDefinitionApi,
+        value: CustomPropertyValueWriteApi['value']
+    ) => {
+        accountId: string
+        definition: CustomPropertyDefinitionApi
+        value: boolean | number | string
+    }
     updateAccountFilters: (filters: AccountFilter[]) => {
         filters: AccountFilter[]
     }
@@ -389,19 +494,21 @@ export interface accountsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         currentUserId: (user: UserType | null) => number | null
         assignedToCurrentUser: (assignedToFilter: RoleFilterValue, currentUserId: number | null) => boolean
+        isCustomPropertySaving: (
+            savingCustomProperties: Record<string, true>
+        ) => (accountId: string, definitionId: string) => boolean
         isRoleSaving: (savingRoles: Record<string, true>) => (accountId: string, column: string) => boolean
         isTagsSaving: (savingTags: Record<string, true>) => (accountId: string) => boolean
         activeFilterCount: (
             searchQuery: string,
             tagsFilter: string[],
-            allRolesUnassigned: boolean,
-            assignedToFilter: RoleFilterValue,
+            assignmentStatus: AssignmentStatus,
             accountFilters: AccountFilter[]
         ) => number
         viewUrlState: (
             searchQuery: string,
             tagsFilter: string[],
-            allRolesUnassigned: boolean,
+            assignmentStatus: AssignmentStatus,
             assignedToFilter: RoleFilterValue,
             sortOrder: AccountSortOrder,
             selectColumns: string[],
@@ -421,7 +528,7 @@ export interface accountsLogicMeta {
             visibleColumnNames: string[],
             searchQuery: string,
             tagsFilter: string[],
-            allRolesUnassigned: boolean,
+            assignmentStatus: AssignmentStatus,
             assignedToFilter: RoleFilterValue,
             accountIdFilter: string | null,
             tileFilter: TileFilter | null,
@@ -437,7 +544,8 @@ export interface accountsLogicMeta {
         ) => AccountsTableQueryPlan
         accountsQuerySource: (
             accountsTableQueryPlan: AccountsTableQueryPlan,
-            relationshipDefinitionsLoaded: boolean
+            relationshipDefinitionsLoaded: boolean,
+            awaitingSavedView: boolean
         ) => AccountsTableQuery | null
         accountsDataTableQuery: (
             accountsTableQueryPlan: AccountsTableQueryPlan,
@@ -446,7 +554,8 @@ export interface accountsLogicMeta {
         metricsQuery: (
             overviewMetrics: AccountsTableMetric[],
             accountsTableQueryPlan: AccountsTableQueryPlan,
-            relationshipDefinitionsLoaded: boolean
+            relationshipDefinitionsLoaded: boolean,
+            awaitingSavedView: boolean
         ) => AccountsTableQuery | null
     }
 }
@@ -511,7 +620,7 @@ export const accountsLogic = kea<accountsLogicType>([
             membersLogic,
             ['ensureAllMembersLoaded'],
             dataNodeLogic({ key: ACCOUNTS_TABLE_DATA_NODE_KEY } as DataNodeLogicProps),
-            ['loadData as listLoadData', 'loadNextData as listLoadNextData'],
+            ['loadData as listLoadData', 'loadDataSuccess as listLoadDataSuccess', 'loadNextData as listLoadNextData'],
         ],
     })),
     actions({
@@ -520,7 +629,7 @@ export const accountsLogic = kea<accountsLogicType>([
         setTagsFilter: (tags: string[]) => ({ tags }),
         setAccountFilters: (filters: AccountFilter[]) => ({ filters }),
         updateAccountFilters: (filters: AccountFilter[]) => ({ filters }),
-        setAllRolesUnassigned: (value: boolean) => ({ value }),
+        setAssignmentStatus: (status: AssignmentStatus) => ({ status }),
         setAssignedToFilter: (value: RoleFilterValue) => ({ value }),
         // Shortcut for the "My accounts" checkbox — resolves to the current
         // user's id and routes through setAssignedToFilter.
@@ -532,6 +641,19 @@ export const accountsLogic = kea<accountsLogicType>([
         // The raw filter setters are also fired by URL sync and cross-filter
         // cascades, so capturing analytics here keeps phantom events out.
         reportFilterChange: (filterType: AccountFilterType) => ({ filterType }),
+        updateAccountCustomProperty: (
+            accountId: string,
+            definition: CustomPropertyDefinitionApi,
+            value: CustomPropertyValueWriteApi['value']
+        ) => ({ accountId, definition, value }),
+        customPropertyUpdateStarted: (accountId: string, definitionId: string) => ({ accountId, definitionId }),
+        customPropertyUpdateFinished: (accountId: string, definitionId: string) => ({ accountId, definitionId }),
+        clearCustomPropertyOverrides: true,
+        setCustomPropertyOverride: (
+            accountId: string,
+            definitionId: string,
+            value: CustomPropertyValueWriteApi['value'] | null
+        ) => ({ accountId, definitionId, value }),
         updateAccountRole: (accountId: string, column: string, user: UserBasicType | null) => ({
             accountId,
             column,
@@ -560,6 +682,7 @@ export const accountsLogic = kea<accountsLogicType>([
         // Restrict the list to a single account by id — drives the `/accounts/:accountId/:tab`
         // path route. null clears it (back to the full list).
         setAccountIdFilter: (accountId: string | null) => ({ accountId }),
+        setAwaitingSavedView: (awaiting: boolean) => ({ awaiting }),
     }),
     reducers({
         searchInput: [
@@ -587,10 +710,10 @@ export const accountsLogic = kea<accountsLogicType>([
                 setAccountFilters: (_, { filters }) => filters,
             },
         ],
-        allRolesUnassigned: [
-            false,
+        assignmentStatus: [
+            'all' as AssignmentStatus,
             {
-                setAllRolesUnassigned: (_, { value }) => value,
+                setAssignmentStatus: (_, { status }) => status,
             },
         ],
         assignedToFilter: [
@@ -603,6 +726,12 @@ export const accountsLogic = kea<accountsLogicType>([
             null as string | null,
             {
                 setAccountIdFilter: (_, { accountId }) => accountId,
+            },
+        ],
+        awaitingSavedView: [
+            false,
+            {
+                setAwaitingSavedView: (_, { awaiting }) => awaiting,
             },
         ],
         sortOrder: [
@@ -621,6 +750,36 @@ export const accountsLogic = kea<accountsLogicType>([
             {
                 listLoadData: () => false,
                 listLoadNextData: () => true,
+            },
+        ],
+        savingCustomProperties: [
+            {} as Record<string, true>,
+            {
+                customPropertyUpdateStarted: (state, { accountId, definitionId }) => ({
+                    ...state,
+                    [customPropertySavingKey(accountId, definitionId)]: true,
+                }),
+                customPropertyUpdateFinished: (state, { accountId, definitionId }) => {
+                    const next = { ...state }
+                    delete next[customPropertySavingKey(accountId, definitionId)]
+                    return next
+                },
+            },
+        ],
+        customPropertyOverrides: [
+            {} as Record<string, CustomPropertyValueWriteApi['value']>,
+            {
+                setCustomPropertyOverride: (state, { accountId, definitionId, value }) => {
+                    const next = { ...state }
+                    const key = customPropertySavingKey(accountId, definitionId)
+                    if (value === null) {
+                        delete next[key]
+                    } else {
+                        next[key] = value
+                    }
+                    return next
+                },
+                clearCustomPropertyOverrides: () => ({}),
             },
         ],
         savingRoles: [
@@ -686,6 +845,12 @@ export const accountsLogic = kea<accountsLogicType>([
             (assignedToFilter: RoleFilterValue, currentUserId: number | null): boolean =>
                 currentUserId !== null && assignedToFilter.length === 1 && assignedToFilter[0] === currentUserId,
         ],
+        isCustomPropertySaving: [
+            (s) => [s.savingCustomProperties],
+            (savingCustomProperties: Record<string, true>) =>
+                (accountId: string, definitionId: string): boolean =>
+                    !!savingCustomProperties[customPropertySavingKey(accountId, definitionId)],
+        ],
         isRoleSaving: [
             (s) => [s.savingRoles],
             (savingRoles: Record<string, true>) =>
@@ -699,19 +864,19 @@ export const accountsLogic = kea<accountsLogicType>([
                     !!savingTags[accountId],
         ],
         activeFilterCount: [
-            (s) => [s.searchQuery, s.tagsFilter, s.allRolesUnassigned, s.assignedToFilter, s.accountFilters],
+            (s) => [s.searchQuery, s.tagsFilter, s.assignmentStatus, s.accountFilters],
             (
                 searchQuery: string,
                 tagsFilter: string[],
-                allRolesUnassigned: boolean,
-                assignedToFilter: RoleFilterValue,
+                assignmentStatus: AssignmentStatus,
                 accountFilters: AccountFilter[]
             ): number =>
                 [
                     !!searchQuery.trim(),
                     tagsFilter.length > 0,
-                    allRolesUnassigned,
-                    assignedToFilter.length > 0,
+                    // `all` is the default, so any other status (including assigned-to
+                    // narrowing, which forces `assigned`) is one active filter.
+                    assignmentStatus !== 'all',
                     accountFilters.length > 0,
                 ].filter(Boolean).length,
         ],
@@ -719,7 +884,7 @@ export const accountsLogic = kea<accountsLogicType>([
             (s) => [
                 s.searchQuery,
                 s.tagsFilter,
-                s.allRolesUnassigned,
+                s.assignmentStatus,
                 s.assignedToFilter,
                 s.sortOrder,
                 s.selectColumns,
@@ -731,7 +896,7 @@ export const accountsLogic = kea<accountsLogicType>([
             (
                 searchQuery: string,
                 tagsFilter: string[],
-                allRolesUnassigned: boolean,
+                assignmentStatus: AssignmentStatus,
                 assignedToFilter: RoleFilterValue,
                 sortOrder: AccountSortOrder,
                 selectColumns: string[],
@@ -748,11 +913,13 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (tagsFilter.length > 0) {
                     state.tags = tagsFilter
                 }
-                if (allRolesUnassigned) {
-                    state.unassigned = true
-                }
-                if (assignedToFilter.length > 0) {
-                    state.assignedTo = assignedToFilter
+                if (assignmentStatus === 'unassigned') {
+                    state.assignmentStatus = 'unassigned'
+                } else if (assignmentStatus === 'assigned') {
+                    state.assignmentStatus = 'assigned'
+                    if (assignedToFilter.length > 0) {
+                        state.assignedTo = assignedToFilter
+                    }
                 }
                 if (sortOrder) {
                     state.sort = sortOrder
@@ -768,6 +935,12 @@ export const accountsLogic = kea<accountsLogicType>([
                 }
                 if (accountFilters.length > 0) {
                     state.customProperties = accountFilters
+                }
+                // The default `all` status is omitted so a pure-default view keeps an empty
+                // hash. But a legacy hash without the field reads as assigned-only, so once
+                // any other filter is present we mark `all` explicitly to avoid that mislabel.
+                if (assignmentStatus === 'all' && Object.keys(state).length > 0) {
+                    state.assignmentStatus = 'all'
                 }
                 return state
             },
@@ -796,7 +969,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.visibleColumnNames,
                 s.searchQuery,
                 s.tagsFilter,
-                s.allRolesUnassigned,
+                s.assignmentStatus,
                 s.assignedToFilter,
                 s.accountIdFilter,
                 s.tileFilter,
@@ -812,7 +985,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 visibleColumnNames: string[],
                 searchQuery: string,
                 tagsFilter: string[],
-                allRolesUnassigned: boolean,
+                assignmentStatus: AssignmentStatus,
                 assignedToFilter: RoleFilterValue,
                 accountIdFilter: string | null,
                 tileFilter: TileFilter | null,
@@ -827,7 +1000,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 visibleColumnNames,
                 searchQuery,
                 tagsFilter,
-                allRolesUnassigned,
+                assignmentStatus,
                 assignedToFilter,
                 accountIdFilter,
                 tileFilter,
@@ -844,11 +1017,13 @@ export const accountsLogic = kea<accountsLogicType>([
             (input: BuildAccountsTableQueryPlanInput): AccountsTableQueryPlan => buildAccountsTableQueryPlan(input),
         ],
         accountsQuerySource: [
-            (s) => [s.accountsTableQueryPlan, s.relationshipDefinitionsLoaded],
+            (s) => [s.accountsTableQueryPlan, s.relationshipDefinitionsLoaded, s.awaitingSavedView],
             (
                 accountsTableQueryPlan: AccountsTableQueryPlan,
-                relationshipDefinitionsLoaded: boolean
-            ): AccountsTableQuery | null => (relationshipDefinitionsLoaded ? accountsTableQueryPlan.query : null),
+                relationshipDefinitionsLoaded: boolean,
+                awaitingSavedView: boolean
+            ): AccountsTableQuery | null =>
+                relationshipDefinitionsLoaded && !awaitingSavedView ? accountsTableQueryPlan.query : null,
         ],
         accountsDataTableQuery: [
             (s) => [s.accountsTableQueryPlan, s.accountsQuerySource],
@@ -864,13 +1039,14 @@ export const accountsLogic = kea<accountsLogicType>([
             }),
         ],
         metricsQuery: [
-            (s) => [s.overviewMetrics, s.accountsTableQueryPlan, s.relationshipDefinitionsLoaded],
+            (s) => [s.overviewMetrics, s.accountsTableQueryPlan, s.relationshipDefinitionsLoaded, s.awaitingSavedView],
             (
                 overviewMetrics: AccountsTableMetric[],
                 accountsTableQueryPlan: AccountsTableQueryPlan,
-                relationshipDefinitionsLoaded: boolean
+                relationshipDefinitionsLoaded: boolean,
+                awaitingSavedView: boolean
             ): AccountsTableQuery | null => {
-                if (overviewMetrics.length === 0 || !relationshipDefinitionsLoaded) {
+                if (overviewMetrics.length === 0 || !relationshipDefinitionsLoaded || awaitingSavedView) {
                     return null
                 }
                 return {
@@ -884,6 +1060,19 @@ export const accountsLogic = kea<accountsLogicType>([
         ],
     }),
     listeners(({ actions, values, cache, selectors }) => ({
+        listLoadData: ({ queryId }) => {
+            if (cache.awaitingCustomPropertyRefresh) {
+                cache.awaitingCustomPropertyRefresh = false
+                cache.customPropertyRefreshQueryId = queryId
+            }
+        },
+        listLoadDataSuccess: ({ payload }) => {
+            if (payload?.queryId !== cache.customPropertyRefreshQueryId) {
+                return
+            }
+            cache.customPropertyRefreshQueryId = undefined
+            actions.clearCustomPropertyOverrides()
+        },
         loadCustomPropertyDefinitionsSuccess: ({ customPropertyDefinitions }) => {
             cache.customPropertyDefinitionsLoaded = true
             if (!cache.relationshipDefinitionsLoaded) {
@@ -982,9 +1171,9 @@ export const accountsLogic = kea<accountsLogicType>([
                     properties.tag_count = values.tagsFilter.length
                     properties.is_cleared = values.tagsFilter.length === 0
                     break
-                case 'unassigned_only':
-                    properties.value = values.allRolesUnassigned
-                    properties.is_cleared = !values.allRolesUnassigned
+                case 'assignment_status':
+                    properties.value = values.assignmentStatus
+                    properties.is_cleared = values.assignmentStatus === 'all'
                     break
                 case 'my_accounts':
                     properties.value = values.assignedToCurrentUser
@@ -998,8 +1187,11 @@ export const accountsLogic = kea<accountsLogicType>([
             }
             posthog.capture(AccountsEvents.FilterChanged, properties)
         },
-        setAllRolesUnassigned: ({ value }) => {
-            if (value && values.assignedToFilter.length > 0) {
+        // The assigned-to narrowing only applies within the assigned status, so leaving
+        // that status clears any selected users. This keeps the canonical status and the
+        // user filter from ever describing contradictory sets.
+        setAssignmentStatus: ({ status }) => {
+            if (status !== 'assigned' && values.assignedToFilter.length > 0) {
                 actions.setAssignedToFilter([])
             }
         },
@@ -1009,11 +1201,10 @@ export const accountsLogic = kea<accountsLogicType>([
         setAssignedToCurrentUser: ({ value }) => {
             actions.setAssignedToFilter(value && values.currentUserId !== null ? [values.currentUserId] : [])
         },
-        // "Assigned to" (an account's CSM or AE is one of these users) clears the
-        // unassigned flag — the two are a genuine contradiction.
+        // Selecting users narrows assigned accounts, so it forces the assigned status.
         setAssignedToFilter: ({ value }) => {
-            if (value.length > 0 && values.allRolesUnassigned) {
-                actions.setAllRolesUnassigned(false)
+            if (value.length > 0 && values.assignmentStatus !== 'assigned') {
+                actions.setAssignmentStatus('assigned')
             }
             // Keep the shared "mine only" toggle in step with the assigned-to filter
             // (set via the "My accounts" shortcut or the assigned-to picker) so
@@ -1030,7 +1221,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 values.mineOnly &&
                 values.currentUserId !== null &&
                 !values.assignedToFilter.length &&
-                !values.allRolesUnassigned
+                values.assignmentStatus !== 'unassigned'
             ) {
                 actions.setAssignedToFilter([values.currentUserId])
             }
@@ -1068,6 +1259,38 @@ export const accountsLogic = kea<accountsLogicType>([
             })
             dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })?.actions.loadData('force_async')
             dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
+        },
+        updateAccountCustomProperty: async ({ accountId, definition, value }) => {
+            if (
+                definition.is_canonical ||
+                definition.source ||
+                values.isCustomPropertySaving(accountId, definition.id)
+            ) {
+                return
+            }
+            const key = customPropertySavingKey(accountId, definition.id)
+            const previous = values.customPropertyOverrides[key] ?? null
+            actions.customPropertyUpdateStarted(accountId, definition.id)
+            actions.setCustomPropertyOverride(accountId, definition.id, value)
+            try {
+                await accountsCustomPropertyValuesCreate(String(values.currentTeamId), accountId, {
+                    definition: definition.id,
+                    value,
+                })
+                posthog.capture(AccountsEvents.CustomPropertyUpdated, {
+                    display_type: definition.display_type,
+                    workflow_reference: definition.has_workflow_reference,
+                })
+                cache.awaitingCustomPropertyRefresh = true
+                dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })?.actions.loadData('force_async')
+                dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
+            } catch (error) {
+                actions.setCustomPropertyOverride(accountId, definition.id, previous)
+                posthog.captureException(error as Error, { scope: 'accountsLogic.updateAccountCustomProperty' })
+                lemonToast.error('Failed to update custom property')
+            } finally {
+                actions.customPropertyUpdateFinished(accountId, definition.id)
+            }
         },
         updateAccountRole: async ({ accountId, column, user }) => {
             if (values.isRoleSaving(accountId, column)) {
@@ -1157,8 +1380,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (values.tagsFilter.length > 0) {
                     actions.setTagsFilter([])
                 }
-                if (values.allRolesUnassigned) {
-                    actions.setAllRolesUnassigned(false)
+                if (values.assignmentStatus !== 'all') {
+                    actions.setAssignmentStatus('all')
                 }
                 if (values.assignedToFilter.length > 0) {
                     actions.setAssignedToFilter([])
@@ -1216,7 +1439,7 @@ export const accountsLogic = kea<accountsLogicType>([
             setSearchQuery: toUrl,
             setTagsFilter: toUrl,
             setAccountFilters: toUrl,
-            setAllRolesUnassigned: toUrl,
+            setAssignmentStatus: toUrl,
             setAssignedToFilter: toUrl,
             setSortOrder: toUrl,
             setSelectColumns: toUrl,
@@ -1263,9 +1486,20 @@ export const accountsLogic = kea<accountsLogicType>([
                 actions.setAccountFilters(customProperties)
             }
 
-            const unassigned = view.unassigned ?? false
-            if (unassigned !== values.allRolesUnassigned) {
-                actions.setAllRolesUnassigned(unassigned)
+            // Resolve the canonical status: an explicit field wins; a legacy hash with any
+            // key but no field is assigned-only (never broadens); an empty hash is the pure
+            // default and shows all.
+            const explicitStatus = isAssignmentStatus(view.assignmentStatus) ? view.assignmentStatus : undefined
+            const hasViewKeys = Object.keys(view).length > 0
+            const nextStatus: AssignmentStatus = explicitStatus
+                ? explicitStatus
+                : hasViewKeys
+                  ? view.unassigned
+                      ? 'unassigned'
+                      : 'assigned'
+                  : 'all'
+            if (nextStatus !== values.assignmentStatus) {
+                actions.setAssignmentStatus(nextStatus)
             }
 
             const assignedTo = normalizeRoleFilter(view.assignedTo)
@@ -1273,11 +1507,16 @@ export const accountsLogic = kea<accountsLogicType>([
             // resolve it to the opener's own id so old shared links still work.
             const legacyMine =
                 !assignedTo.length && view.mine && values.currentUserId !== null ? [values.currentUserId] : []
-            // With no explicit assignment in the hash (e.g. arriving via the tab
-            // link), fall back to the shared "mine only" toggle so the choice made
-            // on the Notes tab carries over.
+            // With no assignment intent in the hash at all (no status, no assignedTo, no
+            // mine — e.g. arriving via the tab link), fall back to the shared "mine only"
+            // toggle so the choice made on the Notes tab carries over. An explicit status
+            // always wins over that toggle.
             const sharedMine =
-                !assignedTo.length && !view.mine && values.mineOnly && values.currentUserId !== null
+                explicitStatus === undefined &&
+                !assignedTo.length &&
+                !view.mine &&
+                values.mineOnly &&
+                values.currentUserId !== null
                     ? [values.currentUserId]
                     : []
             // The persisted "my accounts" intent can't be resolved until the user id is
@@ -1285,7 +1524,11 @@ export const accountsLogic = kea<accountsLogicType>([
             // writing an empty one, which would cascade to setMineOnly(false) and clobber the
             // preference) and let the loadUserSuccess listener apply it once the user resolves.
             const mineRestorePending =
-                !assignedTo.length && !view.mine && values.mineOnly && values.currentUserId === null
+                explicitStatus === undefined &&
+                !assignedTo.length &&
+                !view.mine &&
+                values.mineOnly &&
+                values.currentUserId === null
             const nextAssignedTo = assignedTo.length ? assignedTo : legacyMine.length ? legacyMine : sharedMine
             if (!mineRestorePending && !objectsEqual(nextAssignedTo, values.assignedToFilter)) {
                 actions.setAssignedToFilter(nextAssignedTo)

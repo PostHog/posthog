@@ -62,7 +62,7 @@ export function formatErrorContext(ctx: MCPErrorContext): string {
     if (ctx.errorMessage) {
         lines.push('', 'Error message:', '', ...indentedBlock(ctx.errorMessage))
     } else {
-        lines.push('', 'Error message: not captured (event predates error message capture).')
+        lines.push('', 'Error message: not captured (no $mcp_error_message on this event).')
     }
     lines.push('', `Tool report: ${absoluteUrl(urls.mcpAnalyticsTool(ctx.toolName))}`)
     if (ctx.sessionId) {

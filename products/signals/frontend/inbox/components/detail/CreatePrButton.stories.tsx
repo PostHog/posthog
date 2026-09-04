@@ -8,26 +8,31 @@ import { CreatePrButton } from './CreatePrButton'
 const meta: Meta<typeof CreatePrButton> = {
     title: 'Scenes-App/Inbox/CreatePrButton',
     component: CreatePrButton,
-    parameters: { layout: 'centered', testOptions: { snapshotTargetSelector: '.Popover' } },
+    parameters: { layout: 'centered' },
 }
 export default meta
 
 type Story = StoryObj<typeof CreatePrButton>
 
-// The popover is closed until the trigger is pressed, so the story opens it — otherwise the
-// snapshot is of the same small button and the note box under review never renders. `findByText`
-// rather than `getByText`: the trigger mounts a kea logic chain reaching organization and user
-// state, so on a slow runner the play function can reach an empty canvas and fail the story.
-const openPopover: Story['play'] = async ({ canvasElement }) => {
-    await userEvent.click(await within(canvasElement).findByText('Create PR'))
-    await waitFor(() => {
-        if (!document.querySelector('.Popover')) {
-            throw new Error('popover not open yet')
-        }
-    })
+const report = makeReport({ title: 'Exceptions spiked after the 18 June deploy' })
+
+/** The resting split button. The divider is the only cue that the chevron does something else. */
+export const Default: Story = {
+    render: () => <CreatePrButton report={report} />,
 }
 
-export const Default: Story = {
-    render: () => <CreatePrButton report={makeReport({ title: 'Exceptions spiked after the 18 June deploy' })} />,
-    play: openPopover,
+// The note box is closed until the chevron is pressed, so the story opens it. `findByLabelText`
+// rather than `getByLabelText`: the button mounts a kea logic chain reaching organization and user
+// state, so on a slow runner the play function can reach an empty canvas and fail the story.
+export const Steering: Story = {
+    parameters: { testOptions: { snapshotTargetSelector: '.Popover' } },
+    render: () => <CreatePrButton report={report} />,
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Add direction for the agent'))
+        await waitFor(() => {
+            if (!document.querySelector('.Popover')) {
+                throw new Error('note box not open yet')
+            }
+        })
+    },
 }

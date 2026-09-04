@@ -1,8 +1,4 @@
-import type {
-  Adapter,
-  CodexModelAccess,
-  PostHogAPIConfig,
-} from "@posthog/shared";
+import type { Adapter, ModelAccess, PostHogAPIConfig } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
 
 export type {
@@ -27,6 +23,10 @@ export interface StoredNotification {
   type: "notification";
   /** When this notification was stored */
   timestamp: string;
+  /** Shared identity with the event's Redis stream copy, when stamped */
+  event_id?: string;
+  /** First covered event id, on entries coalesced from a run of chunks */
+  first_event_id?: string;
   /** JSON-RPC 2.0 notification (no id field = notification, not request) */
   notification: {
     jsonrpc: "2.0";
@@ -69,7 +69,8 @@ export interface TaskExecutionOptions {
   adapter?: Adapter;
   model?: string;
   gatewayUrl?: string;
-  codexModelAccess?: CodexModelAccess;
+  codexModelAccess?: ModelAccess;
+  claudeModelAccess?: ModelAccess;
   codexBinaryPath?: string;
   codexHome?: string;
   reasoningEffort?: EffortLevel;

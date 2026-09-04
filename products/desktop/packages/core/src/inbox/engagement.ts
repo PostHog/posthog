@@ -1,6 +1,7 @@
 import type {
   InboxReportActionProperties,
   InboxReportActionSurface,
+  InboxReviewerScope,
   InboxViewedProperties,
 } from "@posthog/shared/analytics-events";
 import type { SignalReport } from "@posthog/shared/domain-types";
@@ -57,8 +58,10 @@ export interface BuildBulkActionEventsInput {
   reports: SignalReport[];
   actionType: InboxBulkActionType;
   surface: InboxReportActionSurface;
-  /** Dismissal metadata, only meaningful for `dismiss`. Note is truncated to 500 chars. */
-  dismissal?: { reason?: string; note?: string };
+  triageId?: string;
+  bulkSize?: number;
+  /** Dismissal category, only meaningful for `dismiss`. */
+  dismissalReason?: string;
 }
 
 /**
@@ -73,12 +76,11 @@ export interface BuildBulkActionEventsInput {
 export function buildBulkActionEvents(
   input: BuildBulkActionEventsInput,
 ): InboxReportActionProperties[] {
-  const { reports, actionType, surface, dismissal } = input;
-  const bulkSize = reports.length;
+  const { reports, actionType, surface, triageId, dismissalReason } = input;
+  const bulkSize = input.bulkSize ?? reports.length;
   const isBulk = bulkSize > 1;
   return reports.map((report) => ({
     report_id: report.id,
-    report_title: report.title ?? null,
     report_age_hours: reportAgeHours(report.created_at),
     priority: report.priority ?? null,
     actionability: report.actionability ?? null,
@@ -88,11 +90,9 @@ export function buildBulkActionEvents(
     bulk_size: bulkSize,
     rank: 0,
     list_size: 0,
-    ...(actionType === "dismiss" && dismissal?.reason
-      ? { dismissal_reason: dismissal.reason }
-      : {}),
-    ...(actionType === "dismiss" && dismissal?.note
-      ? { dismissal_note: dismissal.note.slice(0, 500) }
+    ...(triageId ? { triage_id: triageId } : {}),
+    ...(actionType === "dismiss" && dismissalReason
+      ? { dismissal_reason: dismissalReason }
       : {}),
   }));
 }
@@ -105,12 +105,12 @@ interface InboxViewedFilterStateBase {
 interface DesktopInboxViewedFilterState extends InboxViewedFilterStateBase {
   surface: "desktop";
   searchQuery: string;
-  /**
-   * True when the reviewer scope is the default ("For you"). False when the
-   * user has narrowed to a teammate or the whole project — treated as an
-   * active filter for `has_active_filters`.
-   */
-  isDefaultScope: boolean;
+  /** Canonical scope value. Teammate UUIDs must not enter analytics. */
+  scope: InboxReviewerScope;
+  /** Selected report-state filter keys shown above the list. */
+  reportStateFilter: readonly string[];
+  /** Default report-state selection, used to detect a non-default filter. */
+  defaultReportStateFilter: readonly string[];
 }
 
 interface MobileInboxViewedFilterState extends InboxViewedFilterStateBase {
@@ -141,13 +141,24 @@ export type BuildInboxViewedInput =
       tabCounts?: never;
     });
 
+/** Whether a filter selection differs from its default set (order-insensitive). */
+function differsFromDefault(
+  selected: readonly string[],
+  defaults: readonly string[],
+): boolean {
+  return (
+    selected.length !== defaults.length ||
+    selected.some((value) => !defaults.includes(value))
+  );
+}
+
 /**
  * Build the property payload for the `Inbox viewed` analytics event from the
  * v2 inbox state. Pure so it can be unit-tested and reused across hosts.
  *
- * v2 dropped the per-status and per-reviewer filter UI, so `status_filter_count`
- * is always 0 and `has_active_filters` is derived from the surviving source /
- * priority / search filters plus a non-default reviewer scope.
+ * `status_filter_count` and `has_active_filters` reflect each surface's own
+ * status control: the mobile status filter or the desktop report-state filter,
+ * alongside the shared source / priority / search filters and a non-default scope.
  */
 export function buildInboxViewedProperties(
   input: BuildInboxViewedInput,
@@ -184,11 +195,12 @@ export function buildInboxViewedProperties(
   }
 
   const statusFiltered =
-    filters.surface === "mobile" &&
-    (filters.statusFilter.length !== filters.defaultStatusFilter.length ||
-      filters.statusFilter.some(
-        (status) => !filters.defaultStatusFilter.includes(status),
-      ));
+    filters.surface === "mobile"
+      ? differsFromDefault(filters.statusFilter, filters.defaultStatusFilter)
+      : differsFromDefault(
+          filters.reportStateFilter,
+          filters.defaultReportStateFilter,
+        );
   const hasActiveFilters =
     filters.sourceProductFilter.length > 0 ||
     filters.priorityFilter.length > 0 ||
@@ -196,7 +208,7 @@ export function buildInboxViewedProperties(
     statusFiltered ||
     (filters.surface === "mobile" &&
       filters.suggestedReviewerFilter.length > 0) ||
-    (filters.surface === "desktop" && !filters.isDefaultScope);
+    (filters.surface === "desktop" && filters.scope !== "for-you");
 
   return {
     report_count: visibleReports.length,
@@ -205,7 +217,9 @@ export function buildInboxViewedProperties(
     has_active_filters: hasActiveFilters,
     source_product_filter: filters.sourceProductFilter,
     status_filter_count:
-      filters.surface === "mobile" ? filters.statusFilter.length : 0,
+      filters.surface === "mobile"
+        ? filters.statusFilter.length
+        : filters.reportStateFilter.length,
     is_empty: totalCount === 0,
     priority_p0_count: priorityCounts.P0,
     priority_p1_count: priorityCounts.P1,
@@ -219,6 +233,7 @@ export function buildInboxViewedProperties(
       actionabilityCounts.requires_human_input,
     actionability_not_actionable_count: actionabilityCounts.not_actionable,
     actionability_unknown_count: actionabilityCounts.unknown,
+    ...(filters.surface === "desktop" ? { scope: filters.scope } : {}),
     ...(tabCounts
       ? {
           pulls_tab_count: tabCounts.pulls,

@@ -289,7 +289,7 @@ class SandboxMessageResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["max"])
+@extend_schema(tags=["max"], extensions={"x-product": "posthog_ai"})
 class ConversationViewSet(
     TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, DestroyModelMixin, GenericViewSet
 ):

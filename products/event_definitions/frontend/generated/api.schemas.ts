@@ -68,9 +68,10 @@ export interface UserBasicApi {
  * * `allow` - Allow
  * * `reject` - Reject
  */
-export type EnforcementModeEnumApi = (typeof EnforcementModeEnumApi)[keyof typeof EnforcementModeEnumApi]
+export type SchemaEnforcementModeEnumApi =
+    (typeof SchemaEnforcementModeEnumApi)[keyof typeof SchemaEnforcementModeEnumApi]
 
-export const EnforcementModeEnumApi = {
+export const SchemaEnforcementModeEnumApi = {
     Allow: 'allow',
     Reject: 'reject',
 } as const
@@ -100,7 +101,7 @@ export interface EnterpriseEventDefinitionApi {
     readonly verified_by: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
-    enforcement_mode?: EnforcementModeEnumApi
+    enforcement_mode?: SchemaEnforcementModeEnumApi
     /**
      * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
      * @maxLength 400
@@ -151,7 +152,7 @@ export interface PatchedEnterpriseEventDefinitionApi {
     readonly verified_by?: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
-    enforcement_mode?: EnforcementModeEnumApi
+    enforcement_mode?: SchemaEnforcementModeEnumApi
     /**
      * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
      * @maxLength 400
@@ -258,7 +259,7 @@ export interface EventDefinitionRecordApi {
     last_seen_at?: string | null
     readonly last_updated_at: string
     tags?: unknown[]
-    enforcement_mode?: EnforcementModeEnumApi
+    enforcement_mode?: SchemaEnforcementModeEnumApi
     /**
      * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
      * @maxLength 400

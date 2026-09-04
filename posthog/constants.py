@@ -333,6 +333,9 @@ PRODUCT_TOUR_TARGETING_FLAG_PREFIX = "product-tour-targeting-"
 # Server-side evaluation via posthoganalytics; keep in sync with frontend FEATURE_FLAGS.
 SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY = "subscription-ai-summary-prompt-guide"
 SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY = "ai-subscriptions"
+# Enable only after every subscriptions worker has deployed the gallery claim boundary. Older workers
+# share the v2 activity name and would otherwise send the legacy layout during a rolling deployment.
+SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY = "subscription-slack-gallery"
 EXPERIMENTS_SYNC_QUERIES_FEATURE_FLAG_KEY = "experiments-sync-queries"
 EXPERIMENTS_RETENTION_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY = (
     "experiments-retention-metric-events-preaggregation"

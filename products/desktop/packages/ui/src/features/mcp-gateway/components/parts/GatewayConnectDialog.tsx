@@ -23,20 +23,24 @@ interface GatewayConnectDialogProps {
    * where the member chooses their own.
    */
   fixedAuthType: McpAuthType | null;
+  /** Custom servers may need a member-supplied OAuth client. */
+  isCustomServer?: boolean;
   onSubmit: (credentials: GatewayConnectCredentials) => void;
   onClose: () => void;
 }
 
 /**
  * Collects the caller's personal credentials before connecting: the API key
- * for api-key servers, and — for custom servers, which have no fixed auth
- * mechanism — the choice between OAuth and API key. Plain OAuth templates
- * never open this; they go straight to the browser round-trip.
+ * for api-key servers, the optional OAuth client for custom OAuth servers,
+ * and — for custom servers with no recorded auth mechanism — the choice
+ * between OAuth and API key. Plain OAuth templates never open this; they go
+ * straight to the browser round-trip.
  */
 export function GatewayConnectDialog({
   open,
   serverName,
   fixedAuthType,
+  isCustomServer = false,
   onSubmit,
   onClose,
 }: GatewayConnectDialogProps) {
@@ -68,7 +72,9 @@ export function GatewayConnectDialog({
         <Dialog.Description color="gray" className="text-sm">
           {memberChooses
             ? "Choose how this server authenticates, then enter your personal credentials."
-            : "Enter the credentials for your personal connection."}
+            : values.authType === "api_key"
+              ? "This server uses an API key. Enter your own key to connect."
+              : "Enter the credentials for your personal connection."}
         </Dialog.Description>
         <form onSubmit={submit}>
           <Flex direction="column" gap="3" mt="4">
@@ -100,7 +106,7 @@ export function GatewayConnectDialog({
                   value={values.apiKey}
                   onChange={(e) => set("apiKey", e.target.value)}
                   type={showKey ? "text" : "password"}
-                  placeholder="sk-…"
+                  placeholder="Enter API key"
                   spellCheck={false}
                   autoFocus
                   className="font-mono"
@@ -119,7 +125,7 @@ export function GatewayConnectDialog({
                 </TextField.Root>
               </Field>
             ) : (
-              memberChooses && (
+              isCustomServer && (
                 <div className="rounded-md border border-gray-5 bg-gray-2">
                   <button
                     type="button"

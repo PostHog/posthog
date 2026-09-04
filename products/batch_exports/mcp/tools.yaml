@@ -190,6 +190,26 @@ tools:
         description: >
             Cancel a running or starting on-demand file download export. When the status is not Starting or Running
             calling this will fail. Returns the status of the export after cancelling, which is always Cancelled.
+    file-download-batch-exports-count-rows-create:
+        operation: file_download_batch_exports_count_rows_create
+        enabled: true
+        scopes:
+            - batch_export:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Count rows a HogQL file download export would produce
+        description: >
+            Count the rows a HogQL file download export would produce if started now, without starting an export. Only
+            the hogql model is supported; it is in closed beta and enabled per team, and this returns a permission error
+            naming HogQL batch exports when the team does not have it enabled, in which case tell the user they can
+            contact PostHog support to request access. Counting runs the full query on ClickHouse, so it can take a
+            while and can fail with a timeout for heavy unbounded queries. If the user wishes to estimate the size of an
+            export, use it before file-download-batch-exports-create to check a hogql_query returns the amount of data
+            the user expects, and tighten its WHERE clause when the count is much larger than expected. Running count
+            queries is potentially as expensive as running the actual export query, so consider whether this is worth
+            it.
     file-download-batch-exports-create:
         operation: file_download_batch_exports_create
         enabled: true

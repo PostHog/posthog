@@ -38,6 +38,7 @@ import { scratchpadLogic } from './logics/scratchpadLogic'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import {
     INBOX_LEGACY_TAB_KEYS,
+    INBOX_REPORT_SECTION_KEYS,
     INBOX_STAFF_ONLY_TAB_KEYS,
     INBOX_TAB_KEYS,
     InboxReportSectionKey,
@@ -47,6 +48,7 @@ import {
     SignalScoutRunStatus,
     SignalScoutRunSummary,
 } from './types'
+import { mergeReportRows, selectedFlatListSections } from './utils/flatReportList'
 import { isInboxRedesignEnabled } from './utils/inboxRedesign'
 import { inboxTabRedirectPath } from './utils/inboxReportUrls'
 import { decodeScoutCreateTemplate } from './utils/scoutTemplateDeepLink'
@@ -174,14 +176,48 @@ function findLoadedReport(id: string): SignalReport | null {
 }
 
 /**
- * Position (1-based) and size of the report's list, for `Inbox report opened`. Searches the mounted
- * per-section lists for the report. Null when the report isn't in a loaded list (e.g. a cold deep-link).
+ * Position (1-based) and size of the report's list, for `Inbox report opened` and `Inbox report
+ * scrolled`. Under the flat Reports list (`flatList`) the rank is rebuilt with the same selection,
+ * dedupe, and ordering the list rendered with, so these outcome events join to the impressions
+ * recorded at the same rank. With the redesign flag off each tab is its own list, so the rank is
+ * the position within the report's own state. Null when the report isn't in a rendered list (e.g.
+ * a cold deep-link).
  */
-function findReportRank(id: string): {
+function findReportRank(
+    id: string,
+    flatList: boolean
+): {
     rank: number | null
     listSize: number | null
     section: InboxReportSectionKey | null
 } {
+    if (flatList) {
+        const filterValues = inboxFiltersLogic.findMounted()?.values
+        if (!filterValues) {
+            return { rank: null, listSize: null, section: null }
+        }
+        const isStaff = userLogic.findMounted()?.values.user?.is_staff ?? false
+        const reportsBySection = Object.fromEntries(
+            INBOX_REPORT_SECTION_KEYS.map((sectionKey) => [
+                sectionKey,
+                reportListLogic.findMounted({
+                    sectionKey,
+                    listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey],
+                })?.values.reports ?? [],
+            ])
+        ) as Record<InboxReportSectionKey, SignalReport[]>
+        const rows = mergeReportRows(
+            reportsBySection,
+            selectedFlatListSections(filterValues.visibleStateFilter, isStaff),
+            filterValues.sortField,
+            filterValues.sortDirection
+        )
+        const idx = rows.findIndex((row) => row.report.id === id)
+        if (idx >= 0) {
+            return { rank: idx + 1, listSize: rows.length, section: rows[idx].sectionKey }
+        }
+        return { rank: null, listSize: null, section: null }
+    }
     for (const sectionKey of Object.keys(INBOX_REPORT_SECTION_LIST_PARAMS) as InboxReportSectionKey[]) {
         const mounted = reportListLogic.findMounted({
             sectionKey,
@@ -794,7 +830,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             if (!report || values.selectedReportId !== report.id || cache.openTracking?.report.id === report.id) {
                 return
             }
-            const { rank, listSize, section } = findReportRank(report.id)
+            const { rank, listSize, section } = findReportRank(report.id, values.isRedesign)
             captureInboxReportOpened({
                 report,
                 openMethod: (cache.pendingOpenMethod as InboxReportOpenMethod | undefined) ?? 'unknown',
@@ -818,7 +854,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 return
             }
             open.scrolled = true
-            const { rank, listSize } = findReportRank(open.report.id)
+            const { rank, listSize } = findReportRank(open.report.id, values.isRedesign)
             captureInboxReportScrolled({
                 report: open.report,
                 rank,

@@ -208,7 +208,7 @@ def _roll_out_variant(
             catch_all["description"] = release_condition_description
         groups = [catch_all, *groups]
 
-    return {
+    new_filters = {
         "aggregation_group_type_index": current_filters.get("aggregation_group_type_index"),
         "payloads": current_filters.get("payloads", {}),
         "multivariate": {
@@ -223,6 +223,11 @@ def _roll_out_variant(
         },
         "groups": groups,
     }
+    # A holdout must keep excluding its users after the winner ships — that is its
+    # entire purpose (measuring shipped features against an unexposed baseline).
+    if current_filters.get("holdout"):
+        new_filters["holdout"] = current_filters["holdout"]
+    return new_filters
 
 
 def ship_variant(
@@ -304,31 +309,14 @@ def get_feature_flag_request_usage(
     )
 
 
-def add_group_to_flag_targeting(*, team: Team, key: str, group_key: str) -> bool:
-    """Add one group key to a flag's group-targeting condition, for a product rolling itself out.
+def flag_is_active(key: str, *, team_id: int | None = None) -> bool:
+    """Whether an active flag with this key exists, optionally narrowed to one team.
 
-    A product that migrates its own data organization by organization needs to widen the flag as
-    each one lands, and it should not have to know how release conditions are stored to do it.
-    Returns False when no such flag exists on the team, or when its conditions carry no
-    `$group_key` filter to widen — both mean the caller's rollout assumption no longer holds, so
-    they are reported rather than silently repaired.
+    A direct row read, not an evaluation: it ignores rollout percentages and release
+    conditions. Callers use it as a local-development fallback for when the analytics SDK
+    is disabled and ``posthoganalytics.feature_enabled`` cannot answer.
     """
-    flag = FeatureFlag.objects.filter(team=team, key=key, deleted=False).first()
-    if flag is None:
-        return False
-    conditions = [
-        prop
-        for group in (flag.filters or {}).get("groups") or []
-        for prop in group.get("properties", [])
-        if prop.get("key") == "$group_key"
-    ]
-    if not conditions:
-        return False
-    condition = conditions[0]
-    values = condition.get("value")
-    if not isinstance(values, list):
-        return False
-    if group_key not in values:
-        values.append(group_key)
-        flag.save(update_fields=["filters"])
-    return True
+    qs = FeatureFlag.objects.filter(key=key, active=True)
+    if team_id is not None:
+        qs = qs.filter(team_id=team_id)
+    return qs.exists()

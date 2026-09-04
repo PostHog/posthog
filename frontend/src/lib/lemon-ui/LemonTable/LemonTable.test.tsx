@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { initKeaTests } from '~/test/init'
@@ -51,6 +51,101 @@ describe('LemonTable', () => {
             />
         )
         expect(renderedOrder()).toEqual(expectedOrder)
+    })
+
+    it('resizes columns and locks sibling widths', () => {
+        const onResize = jest.fn()
+        const onSecondColumnResize = jest.fn()
+        const onResizeEnd = jest.fn()
+        render(
+            <LemonTable
+                rowKey="id"
+                dataSource={DATA}
+                columns={[
+                    {
+                        title: 'Value',
+                        key: 'value',
+                        dataIndex: 'value',
+                        resizable: true,
+                        onResize,
+                        onResizeEnd,
+                    },
+                    {
+                        title: 'Name',
+                        key: 'name',
+                        dataIndex: 'name',
+                        resizable: true,
+                        onResize: onSecondColumnResize,
+                    },
+                ]}
+            />
+        )
+        jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+            function (this: HTMLElement): DOMRect {
+                return { width: this.textContent === 'Value' ? 150 : 100 } as DOMRect
+            }
+        )
+        jest.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
+            callback(0)
+            return 1
+        })
+
+        fireEvent.mouseDown(screen.getAllByLabelText('Resize column')[0], { button: 0, clientX: 100 })
+        fireEvent.mouseMove(window, { clientX: 175 })
+        fireEvent.mouseUp(window)
+
+        expect(onResize).toHaveBeenLastCalledWith(225)
+        expect(onSecondColumnResize).toHaveBeenCalledWith(100)
+        expect(onResizeEnd).toHaveBeenCalledTimes(1)
+    })
+
+    it('caps a resizable column at its width so the content crops', () => {
+        render(
+            <LemonTable
+                rowKey="id"
+                dataSource={DATA}
+                columns={[
+                    {
+                        title: 'Value',
+                        key: 'value',
+                        dataIndex: 'value',
+                        width: 90,
+                        resizable: true,
+                        onResize: jest.fn(),
+                    },
+                    { title: 'Name', key: 'name', dataIndex: 'name', width: 90 },
+                ]}
+            />
+        )
+
+        expect(screen.getByText('Value').closest('th')).toHaveStyle({ maxWidth: '90px' })
+        expect(document.querySelector('tbody tr:first-child > td')).toHaveStyle({ maxWidth: '90px' })
+        expect(screen.getByText('Name').closest('th')).not.toHaveStyle({ maxWidth: '90px' })
+    })
+
+    it('leaves a cell that spans several columns uncapped', () => {
+        render(
+            <LemonTable
+                rowKey="id"
+                dataSource={DATA}
+                columns={[
+                    {
+                        title: 'Value',
+                        key: 'value',
+                        width: 90,
+                        resizable: true,
+                        onResize: jest.fn(),
+                        render: () => ({ children: 'spans the row', props: { colSpan: 2 } }),
+                    },
+                    { title: 'Name', key: 'name', dataIndex: 'name', width: 90 },
+                ]}
+            />
+        )
+
+        const spanningCell = document.querySelector('tbody tr:first-child > td')
+        expect(spanningCell).toHaveAttribute('colspan', '2')
+        expect(spanningCell).not.toHaveStyle({ maxWidth: '90px' })
+        expect(spanningCell).not.toHaveClass('whitespace-nowrap')
     })
 
     it('keeps headers, expanded rows, and empty states aligned when the row expansion toggle is hidden', () => {
