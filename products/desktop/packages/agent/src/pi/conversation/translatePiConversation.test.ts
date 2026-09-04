@@ -134,11 +134,11 @@ describe("createPiConversationTranslator", () => {
   });
 
   it.each([
-    ["error" as const, 1_000],
-    ["aborted" as const, 1_000],
+    ["error" as const, "error", 1_000],
+    ["aborted" as const, "cancelled", 1_000],
   ])(
     "bills a %s final response but keeps it out of the context reading",
-    (stopReason, expectedContextTokens) => {
+    (stopReason, expectedStopReason, expectedContextTokens) => {
       vi.useFakeTimers();
       vi.setSystemTime(20);
       const translator = createPiConversationTranslator();
@@ -161,15 +161,17 @@ describe("createPiConversationTranslator", () => {
         {
           type: "turn_completed",
           timestamp: 20,
-          stopReason,
+          stopReason: expectedStopReason,
           totalTokens: 1_030,
           usage: {
             inputTokens: 1_030,
             outputTokens: 0,
             cachedReadTokens: 0,
             cachedWriteTokens: 0,
+            thoughtTokens: undefined,
             totalTokens: 1_030,
             contextTokens: expectedContextTokens,
+            contextWindow: undefined,
           },
         },
       ]);

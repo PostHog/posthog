@@ -213,6 +213,7 @@ describe("createPiMessageTranslator", () => {
           },
         },
         false,
+        false,
         12,
       ),
     ).toMatchObject([
