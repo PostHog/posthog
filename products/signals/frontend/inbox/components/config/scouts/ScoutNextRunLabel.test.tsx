@@ -8,7 +8,14 @@ import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/a
 
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 
+// TZLabel shares a 1-second ticker between its instances, so the 30-day case below would run
+// millions of interval callbacks against the real component.
+jest.mock('lib/components/TZLabel', () => ({
+    TZLabel: ({ time }: { time: string }) => <span>{time}</span>,
+}))
+
 const NOW = new Date('2026-07-21T12:00:00Z')
+const MINUTE_MS = 60 * 1000
 
 const config: SignalScoutConfigApi = {
     id: 'config-1',
@@ -56,7 +63,29 @@ describe('ScoutNextRunLabel', () => {
         expect(screen.queryByText('Due now')).not.toBeInTheDocument()
 
         act(() => {
-            jest.advanceTimersByTime(20 * 60 * 1000)
+            jest.advanceTimersByTime(20 * MINUTE_MS)
+        })
+
+        expect(screen.getByText('Due now')).toBeInTheDocument()
+    })
+
+    it('still turns over when the run is further off than one timer reaches', () => {
+        const intervalMinutes = 30 * 24 * 60
+        // `last_run_at` sits 10 minutes before `NOW`, so the run falls that much short of a full
+        // interval away. setTimeout tops out near 24.9 days, short of both.
+        const dueInMinutes = intervalMinutes - 10
+        const pastOneTimerMinutes = 25 * 24 * 60
+
+        render(<ScoutNextRunLabel config={{ ...config, run_interval_minutes: intervalMinutes }} />)
+
+        act(() => {
+            jest.advanceTimersByTime(pastOneTimerMinutes * MINUTE_MS)
+        })
+
+        expect(screen.queryByText('Due now')).not.toBeInTheDocument()
+
+        act(() => {
+            jest.advanceTimersByTime((dueInMinutes - pastOneTimerMinutes) * MINUTE_MS)
         })
 
         expect(screen.getByText('Due now')).toBeInTheDocument()

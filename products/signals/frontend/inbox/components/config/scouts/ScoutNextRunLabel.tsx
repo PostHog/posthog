@@ -29,14 +29,19 @@ export function ScoutNextRunLabel({ config }: { config: SignalScoutConfig }): JS
     // hours without rendering again. Wake it as the run falls due, so a time that has passed stops
     // reading as the future.
     useEffect(() => {
-        if (dueAt === null) {
+        if (dueAt === null || dueAt - Date.now() <= 0) {
             return
         }
-        const delay = dueAt - Date.now()
-        if (delay <= 0) {
-            return
+        let timer: number | undefined
+        const waitForDue = (): void => {
+            const delay = dueAt - Date.now()
+            if (delay <= 0) {
+                refresh((count) => count + 1)
+                return
+            }
+            timer = window.setTimeout(waitForDue, Math.min(delay, MAX_TIMEOUT_MS))
         }
-        const timer = window.setTimeout(() => refresh((count) => count + 1), Math.min(delay, MAX_TIMEOUT_MS))
+        waitForDue()
         return () => window.clearTimeout(timer)
     }, [dueAt])
 
