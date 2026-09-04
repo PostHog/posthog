@@ -67,8 +67,10 @@ import {
     SUCCEEDED_OUTPUT_LABEL,
 } from '../replay_scanners/types'
 import { scannerLabel } from '../utils/observation'
+import { parseNumericParam } from '../utils/urlParams'
 import { ObservationLabelControl } from './ObservationLabelControl'
 import { ObservationPinnedProperties } from './ObservationPinnedProperties'
+import { ObservationShareButton } from './ObservationShareButton'
 import {
     neighborFilterParams,
     observationDetailUrl,
@@ -145,11 +147,19 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const [recordingExpanded, setRecordingExpanded] = useState(false)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
+    // A shared link carries the moment the sharer was watching, in seconds, the same way a recording link does.
+    const sharedStartSeconds = parseNumericParam(searchParams.t)
 
-    // A citation seek belongs to one observation — never replay it on a sibling after prev/next navigation.
+    // Open a shared link where its sender left off. A seek belongs to one observation, so both the shared
+    // start and any citation seek are dropped once prev/next moves to a sibling.
     useEffect(() => {
-        setPendingSeek(null)
-    }, [observationId])
+        if (sharedStartSeconds !== null && sharedStartSeconds >= 0) {
+            setRecordingExpanded(true)
+            setPendingSeek({ ms: sharedStartSeconds * 1000, trigger: Date.now() })
+        } else {
+            setPendingSeek(null)
+        }
+    }, [observationId, sharedStartSeconds])
 
     const observationLogic = replayObservationLogic({ id: observationId })
     useAttachedLogic(observationLogic, replayObservationSceneLogic)
@@ -177,6 +187,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
         )
     }
 
+    const playerKey = `vision-observation-${observation.id}`
     const snapshot = observation.scanner_snapshot
     const result = readResult(observation)
     const reasoning = result && typeof result.reasoning === 'string' ? result.reasoning : null
@@ -300,6 +311,11 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         >
                             Next
                         </LemonButton>
+                        <ObservationShareButton
+                            observationId={observation.id}
+                            sessionRecordingId={observation.session_id}
+                            playerKey={playerKey}
+                        />
                         <ReplayVisionFeedbackButton />
                     </>
                 }
@@ -327,7 +343,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     <div className="border-t border-border h-[calc(100vh-16rem)] min-h-[480px]">
                         <SessionRecordingPlayer
                             sessionRecordingId={observation.session_id}
-                            playerKey={`vision-observation-${observation.id}`}
+                            playerKey={playerKey}
                             mode={SessionRecordingPlayerMode.Standard}
                             autoPlay={false}
                             noBorder
@@ -336,7 +352,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         />
                         {pendingSeek && (
                             <AutoSeekToTime
-                                playerKey={`vision-observation-${observation.id}`}
+                                playerKey={playerKey}
                                 sessionRecordingId={observation.session_id}
                                 ms={pendingSeek.ms}
                                 trigger={pendingSeek.trigger}
