@@ -44,7 +44,7 @@
     }),
   )
 # ---
-# name: test_grouping_reuses_projected_expression[concat(user_id, 'suffix')]
+# name: test_grouping_reuses_projected_expression[concat(user_id, 'suffix')-None]
   tuple(
     'SELECT concat(CAST("users"."user_id" AS VARCHAR), CAST(%(hogql_val_0)s AS VARCHAR)) AS "dimension", count(*) FROM "ducklake"."analytics"."users" AS "users" GROUP BY 1',
     dict({
@@ -59,7 +59,7 @@
     }),
   )
 # ---
-# name: test_grouping_reuses_projected_expression[notEmpty(properties.color)]
+# name: test_grouping_reuses_projected_expression[notEmpty(properties.color)-None]
   tuple(
     'SELECT (json_extract_scalar("users"."properties", %(hogql_val_0)s) IS NOT NULL AND json_extract_scalar("users"."properties", %(hogql_val_0)s) <> \'\') AS "dimension", count(*) FROM "ducklake"."analytics"."users" AS "users" GROUP BY 1',
     dict({
@@ -67,7 +67,7 @@
     }),
   )
 # ---
-# name: test_grouping_reuses_projected_expression[properties.color]
+# name: test_grouping_reuses_projected_expression[properties.color-None]
   tuple(
     'SELECT json_extract_scalar("users"."properties", %(hogql_val_0)s) AS "dimension", count(*) FROM "ducklake"."analytics"."users" AS "users" GROUP BY 1',
     dict({
@@ -75,7 +75,7 @@
     }),
   )
 # ---
-# name: test_grouping_reuses_projected_expression[toStartOfMonth(toTimeZone(created_at, 'UTC'))]
+# name: test_grouping_reuses_projected_expression[toStartOfMonth(toTimeZone(created_at, 'UTC'))-None]
   tuple(
     'SELECT CAST(date_trunc(\'month\', at_timezone(with_timezone(CAST("users"."created_at" AS TIMESTAMP), \'UTC\'), %(hogql_val_0)s)) AS DATE) AS "dimension", count(*) FROM "ducklake"."analytics"."users" AS "users" GROUP BY 1',
     dict({

@@ -1040,22 +1040,20 @@ def test_wrapper_rejects_unsafe_sort_or_partition(query: str, feature_code: str)
 @pytest.mark.parametrize(
     ("expression", "group_by"),
     [
-        pytest.param("properties.color", "properties.color", id="properties.color"),
-        pytest.param(
-            "toStartOfMonth(toTimeZone(created_at, 'UTC'))",
-            "toStartOfMonth(toTimeZone(created_at, 'UTC'))",
-            id="toStartOfMonth(toTimeZone(created_at, 'UTC'))",
-        ),
-        pytest.param("notEmpty(properties.color)", "notEmpty(properties.color)", id="notEmpty(properties.color)"),
-        pytest.param("concat(user_id, 'suffix')", "concat(user_id, 'suffix')", id="concat(user_id, 'suffix')"),
+        ("properties.color", None),
+        ("toStartOfMonth(toTimeZone(created_at, 'UTC'))", None),
+        ("notEmpty(properties.color)", None),
+        ("concat(user_id, 'suffix')", None),
         pytest.param("2", "dimension", id="integer_alias"),
         pytest.param("0", "dimension", id="zero_alias"),
     ],
 )
-def test_grouping_reuses_projected_expression(expression: str, group_by: str, snapshot: SnapshotAssertion) -> None:
+def test_grouping_reuses_projected_expression(
+    expression: str, group_by: str | None, snapshot: SnapshotAssertion
+) -> None:
     context = _context_with_trino_table()
     sql, node = prepare_and_print_ast(
-        parse_select(f"SELECT {expression} AS dimension, count() FROM users GROUP BY {group_by}"),
+        parse_select(f"SELECT {expression} AS dimension, count() FROM users GROUP BY {group_by or expression}"),
         context,
         "trino",
     )

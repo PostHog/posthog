@@ -1,6 +1,6 @@
 from posthog.hogql import ast
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
-from posthog.hogql.transforms.trino.expressions import expression_identity, positional_index
+from posthog.hogql.transforms.trino.expressions import expression_key, positional_index
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 
@@ -150,7 +150,7 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
     ) -> list[ast.OrderExpr] | None:
         if node.order_by is None:
             return None
-        projections = [expression_identity(expr) for expr in node.select[: len(output_names)]]
+        projections = [expression_key(expr) for expr in node.select[: len(output_names)]]
         outer: list[ast.OrderExpr] = []
         for order in node.order_by:
             if order.with_fill is not None:
@@ -164,9 +164,9 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
                 expr: ast.Expr = ast.PositionalRef(index=position)
             else:
                 unwrapped = self._input_expression(order.expr, node.select[: len(output_names)])
-                identity = expression_identity(unwrapped)
-                if identity in projections:
-                    name = output_names[projections.index(identity)]
+                key = expression_key(unwrapped)
+                if key in projections:
+                    name = output_names[projections.index(key)]
                 else:
                     if node.distinct:
                         raise TrinoLoweringError(
