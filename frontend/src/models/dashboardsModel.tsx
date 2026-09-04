@@ -466,7 +466,15 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 }
                 breakpoint()
 
-                const beforeChange = { ...values.rawDashboards[id] }
+                // Revert only the fields we changed. Sending the whole snapshot back
+                // (tiles included) fails when a tile was since removed, because the
+                // backend rejects text tiles that no longer belong to a live tile.
+                const beforeChange = Object.fromEntries(
+                    Object.keys(payload).map((key) => [
+                        key,
+                        values.rawDashboards[id]?.[key as keyof DashboardBasicType],
+                    ])
+                )
 
                 const response = await api.update<DashboardType>(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,

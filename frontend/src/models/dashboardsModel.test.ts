@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -229,6 +231,44 @@ describe('the dashboards model', () => {
             logic.actions.reparentDashboardFolders('Nowhere', 'Elsewhere')
             expect(logic.values.rawDashboards).toBe(before)
         })
+    })
+
+    it('reverts only the changed field, not the whole snapshot, so a removed tile does not break undo', async () => {
+        initKeaTests()
+        let revertBody: Record<string, unknown> | undefined
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': {
+                    count: 1,
+                    results: [{ id: 1, name: 'Original', tiles: [{ id: 5, text: { id: 99, body: 'a note' } }] }],
+                },
+            },
+            patch: {
+                '/api/environments/:team_id/dashboards/:id/': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, unknown>
+                    // The second PATCH is the undo; capture it.
+                    if (body.name === 'Original') {
+                        revertBody = body
+                    }
+                    return [200, { id: 1, name: body.name }]
+                },
+            },
+        })
+        eventUsageLogic.mount()
+        logic = dashboardsModel()
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.loadDashboards()).toFinishAllListeners()
+
+        const toastSpy = jest.spyOn(lemonToast, 'success')
+        await expectLogic(logic, () => {
+            logic.actions.updateDashboard({ id: 1, name: 'Renamed', allowUndo: true })
+        }).toFinishAllListeners()
+
+        const undoConfig = toastSpy.mock.calls.find(([, config]) => (config as any)?.button?.label === 'Undo')?.[1]
+        await (undoConfig as any).button.action()
+
+        expect(revertBody).toEqual({ name: 'Original' })
+        expect(revertBody).not.toHaveProperty('tiles')
     })
 
     it('clears primary_dashboard from team when deleting the primary dashboard', async () => {
