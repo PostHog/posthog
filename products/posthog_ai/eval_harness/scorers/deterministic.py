@@ -2,9 +2,18 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from products.posthog_ai.eval_harness.log_parser import LogParser
+from products.posthog_ai.eval_harness.log_parser import LogParser, is_schema_discovery_call
 
 from .contract import Score, Scorer
+
+ANSWER_QUERY_TOOL_NAMES: frozenset[str] = frozenset(
+    {"execute-sql", "query-trends", "query-funnel", "query-retention", "query-stickiness", "query-lifecycle"}
+)
+"""Tools that produce a query result answering the user's question.
+
+Discovery, schema, and skill calls (``ToolSearch``, ``read-data-schema``, bare
+``exec``) are intermediary: they run constantly in a healthy run and never
+count as the answer. Only these query-producing tools can be the answer."""
 
 
 class ExitCodeZero(Scorer):
@@ -80,6 +89,10 @@ class LastToolCallNot(Scorer):
     evals where the agent is expected to land on ``query-trends`` /
     ``query-funnel`` / ``query-retention``. Lets the agent peek at SQL during
     discovery without penalising the run, but fails it for answering via SQL.
+
+    Note: this reads only the last call, so a trailing ``execute-sql``
+    validation call after a typed answer fails the run. Use
+    ``AnswerToolCallNot`` for the answer-vs-validation distinction.
     """
 
     forbidden: frozenset[str]
@@ -115,6 +128,77 @@ class LastToolCallNot(Scorer):
                 metadata={"last_tool_call": last.name},
             )
         return Score(name=self._name(), score=1.0, metadata={"last_tool_call": last.name})
+
+
+class AnswerToolCallNot(Scorer):
+    """Binary scorer: did the agent's *answer* come from a tool not in the forbidden set?
+
+    ``LastToolCallNot`` reads only the final successful call, so it fails a run
+    whose answer came from a typed tool but that closed on an ``execute-sql``
+    validation call. This scorer reads the *answer-producing* call instead.
+
+    A call counts as answer-producing when it succeeded, is a query-producing
+    tool (``ANSWER_QUERY_TOOL_NAMES`` — the typed ``query-*`` runners and
+    ``execute-sql``), and is not a schema discovery lookup
+    (``is_schema_discovery_call`` drops ``execute-sql`` queries against
+    ``information_schema``). Intermediary calls like ``ToolSearch``,
+    ``read-data-schema``, and bare ``exec`` never count. Among the answer
+    calls, a call whose name is in ``preferred`` wins over every other: when
+    the agent used a typed ``query-*`` tool, that tool is the answer and a
+    trailing ``execute-sql`` is treated as validation. Only when no preferred
+    tool ran does the last remaining answer call count.
+
+    Scores ``0.0`` when the answer call's name is in the forbidden set, else
+    ``1.0``. ``score=None`` when nothing answer-producing ran.
+    """
+
+    forbidden: frozenset[str]
+    preferred: frozenset[str]
+    _label: str
+
+    def __init__(
+        self,
+        forbidden: str | Iterable[str],
+        preferred: Iterable[str],
+        *,
+        name: str = "answer_tool_call_not_forbidden",
+    ):
+        if isinstance(forbidden, str):
+            self.forbidden = frozenset({forbidden})
+        else:
+            self.forbidden = frozenset(forbidden)
+        self.preferred = frozenset(preferred)
+        self._label = name
+
+    def _name(self) -> str:
+        return self._label
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        if not output:
+            return Score(name=self._name(), score=None, metadata={"reason": "No output"})
+        raw_log = output.get("raw_log")
+        if not raw_log:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        parser = LogParser.cached(raw_log, initial_prompt=output.get("prompt", "") or "")
+        answer_calls = [
+            call
+            for call in parser.get_tool_calls()
+            if not call.is_error and call.name in ANSWER_QUERY_TOOL_NAMES and not is_schema_discovery_call(call)
+        ]
+        if not answer_calls:
+            return Score(name=self._name(), score=None, metadata={"reason": "No answer-producing tool call"})
+
+        typed = [call for call in answer_calls if call.name in self.preferred]
+        answer = typed[-1] if typed else answer_calls[-1]
+
+        if answer.name in self.forbidden:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"answer_tool_call": answer.name},
+            )
+        return Score(name=self._name(), score=1.0, metadata={"answer_tool_call": answer.name})
 
 
 class RequiredToolCall(Scorer):

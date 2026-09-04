@@ -23,7 +23,7 @@ from __future__ import annotations
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
-from products.posthog_ai.eval_harness.scorers import LastToolCallNot, NoToolCall
+from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot, NoToolCall
 from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS
 from products.posthog_ai.evals.retrieval.scorers import SkillLoaded
 from products.posthog_ai.evals.sql.scorers import AnswerQueryRan, SQLResultMessageAlignment, SQLSchemaAlignment
@@ -386,9 +386,10 @@ WHERE properties.interests IS NOT NULL
         scorers=[
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
             AnswerQueryRan(name="execute_sql_called"),
-            LastToolCallNot(
+            AnswerToolCallNot(
                 forbidden={"query-trends", "query-funnel", "query-retention"},
-                name="last_call_not_typed_query",
+                preferred={"execute-sql"},
+                name="answer_tool_not_typed_query",
             ),
             SkillLoaded("querying-posthog-data", name="querying_posthog_data_skill_loaded"),
             SQLSchemaAlignment(),
