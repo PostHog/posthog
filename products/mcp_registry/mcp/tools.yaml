@@ -7,6 +7,7 @@
 category: MCP registry
 feature: mcp_registry
 url_prefix: /mcp-registry
+ui_apps: {}
 tools:
     mcp-registry-discover:
         operation: mcp_registry_servers_discover_retrieve
