@@ -195,6 +195,25 @@ def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
     return tuple(choices)
 
 
+def catalog_model_choices() -> tuple[ModelChoice, ...]:
+    """Every model the catalog serves, without asking the gateway.
+
+    The gateway answers one question the catalog cannot — which models it is serving
+    right now — and a caller that only needs to recognise a model and read what it
+    supports is asking the catalog's questions, not that one. Those callers take this
+    and stay off the network.
+    """
+    return tuple(
+        ModelChoice(
+            runtime_adapter=entry.runtime_adapter,
+            model=entry.id,
+            label=model_catalog.label_for_model(entry.id) or format_model_id(entry.id),
+            supported_efforts=entry.reasoning_efforts,
+        )
+        for entry in model_catalog.MODELS
+    )
+
+
 def runtime_adapter_for(model: str | None) -> str | None:
     """Which runtime drives this model, per the static run-config map.
 
