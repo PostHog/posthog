@@ -290,23 +290,36 @@ class TestSyncMCPCatalog(TestCase):
         assert counts.created == 1
         assert MCPServerTemplate.objects.get(url=_entry().url).is_active is False
 
-    def test_disabled_entry_deactivates_existing_template(self):
+    @patch(
+        "products.mcp_store.backend.oauth_credentials.get_instance_settings",
+        return_value={"SLACK_APP_CLIENT_ID": "slack-client", "SLACK_APP_CLIENT_SECRET": "slack-secret"},
+    )
+    def test_disabled_entry_remains_inactive_across_syncs(self, _settings):
+        entry = _entry(disabled=True, oauth_credentials_source="slack_app")
         template = MCPServerTemplate.objects.create(
             name="Linear",
-            url=_entry().url,
+            url=entry.url,
             description="Manage Linear issues.",
             auth_type="oauth",
             category="dev",
             icon_domain="linear.app",
             is_active=True,
         )
+        probe_result = ProbeResult(
+            reachable=True,
+            speaks_mcp=True,
+            auth_flavor="oauth_shared",
+            authorize_endpoint_ok=True,
+        )
 
-        with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server") as probe_mock:
-            counts = sync_mcp_catalog(entries=[_entry(disabled=True)])
+        with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server", return_value=probe_result) as probe_mock:
+            first_counts = sync_mcp_catalog(entries=[entry])
+            second_counts = sync_mcp_catalog(entries=[entry])
 
         probe_mock.assert_not_called()
         template.refresh_from_db()
-        assert counts.updated == 1
+        assert first_counts.updated == 1
+        assert second_counts.unchanged == 1
         assert template.is_active is False
 
     def test_warns_on_active_row_missing_from_catalog(self):
