@@ -11,12 +11,7 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import { HogFlowBranchNameInput } from './HogFlowBranchNameInput'
-import {
-    cohortPercentagesAddUp,
-    normalizeCohortPercentages,
-    parseCohortPercentage,
-    useDebouncedNameInputs,
-} from './utils'
+import { cohortPercentagesAddUp, normalizeCohortPercentages, parseCohortPercentage, useNameInputs } from './utils'
 
 // Print enough precision that the two figures in the imbalance warning cannot contradict each other:
 // rounding a 99.996% total to hundredths would claim it adds up to 100% with 0% left over. Number()
@@ -46,7 +41,7 @@ export function StepRandomCohortBranchConfiguration({
         })
     }
 
-    const { localNames: localCohortNames, handleNameChange } = useDebouncedNameInputs(cohorts, setCohorts)
+    const { localNames: localCohortNames, handleNameChange } = useNameInputs(cohorts, setCohorts)
 
     const [branchEdges, nonBranchEdges] = useMemo(() => {
         const branchEdges: HogFlow['edges'] = []
@@ -130,46 +125,42 @@ export function StepRandomCohortBranchConfiguration({
             <StepSchemaErrors />
 
             {cohorts.map((cohort, index) => {
+                const branchColor = getHogFlowBranchColor(index)
                 const isBranchSelected = selectedBranch?.actionId === action.id && selectedBranch.index === index
 
                 return (
-                <div
-                    key={index}
-                    className="flex flex-col gap-2 rounded border p-2 transition-colors motion-reduce:transition-none"
-                    style={getHogFlowBranchStyle(index, isBranchSelected)}
-                    onFocusCapture={() => setSelectedBranch({ actionId: action.id, index })}
-                    onPointerDownCapture={() => setSelectedBranch({ actionId: action.id, index })}
-                >
-                    <div className="flex justify-between items-center gap-2">
-                        <div className="flex min-w-0 flex-1 items-center gap-2">
-                            <span
-                                className="size-2 shrink-0 rounded-full"
-                                style={{ backgroundColor: getHogFlowBranchColor(index) }}
-                            />
+                    <div
+                        key={index}
+                        className="flex flex-col gap-3 rounded border p-3 transition-colors motion-reduce:transition-none"
+                        style={getHogFlowBranchStyle(index, isBranchSelected)}
+                        onFocusCapture={() => setSelectedBranch({ actionId: action.id, index })}
+                        onPointerDownCapture={() => setSelectedBranch({ actionId: action.id, index })}
+                    >
+                        <div className="flex items-center justify-between gap-2">
                             <HogFlowBranchNameInput
-                                value={localCohortNames[index]}
+                                branchColor={branchColor}
+                                value={localCohortNames[index] || ''}
                                 onChange={(value) => handleNameChange(index, value)}
                                 placeholder={`Cohort ${index + 1}`}
                                 ariaLabel={`Cohort ${index + 1} name`}
                             />
+                            <LemonButton size="xsmall" icon={<IconX />} onClick={() => removeCohort(index)} />
                         </div>
-                        <LemonButton size="xsmall" icon={<IconX />} onClick={() => removeCohort(index)} />
-                    </div>
 
-                    <div className="flex items-center gap-2">
-                        <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            step="any"
-                            value={percentageDrafts[index] ?? String(cohort.percentage)}
-                            onChange={(e) => updateCohortPercentage(index, e.target.value)}
-                            onBlur={() => clearPercentageDraft(index)}
-                            className="w-20 px-2 py-1 border rounded"
-                        />
-                        <span>%</span>
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="any"
+                                value={percentageDrafts[index] ?? String(cohort.percentage)}
+                                onChange={(e) => updateCohortPercentage(index, e.target.value)}
+                                onBlur={() => clearPercentageDraft(index)}
+                                className="w-20 px-2 py-1 border rounded"
+                            />
+                            <span>%</span>
+                        </div>
                     </div>
-                </div>
                 )
             })}
 

@@ -4,6 +4,7 @@ import type { DragEvent } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 
+import { IconArrowDown } from 'lib/lemon-ui/icons'
 import { Button, cn } from 'lib/ui/quill'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
@@ -14,11 +15,13 @@ export function HogFlowTreeDropzone({
     draggedActionId,
     edge,
     isBranchJoin = false,
+    showArrow = true,
 }: {
     active: boolean
     draggedActionId: string | null
     edge: HogFlowEdge
     isBranchJoin?: boolean
+    showArrow?: boolean
 }): JSX.Element {
     const { moveNodeToEdge, onDragOver, onDrop, setHighlightedDropzoneNodeId } = useActions(hogFlowEditorLogic)
     const [highlighted, setHighlighted] = useState(false)
@@ -28,7 +31,11 @@ export function HogFlowTreeDropzone({
     return (
         <div className="flex h-7 w-full items-center justify-center">
             {!active || isNoOpTarget ? (
-                <span className="h-full border-s border-border" aria-hidden="true" />
+                <span className="relative h-full border-s-2 border-border" aria-hidden="true">
+                    {showArrow && (
+                        <IconArrowDown className="absolute -bottom-1 -start-1.5 size-3 bg-background text-muted-foreground" />
+                    )}
+                </span>
             ) : (
                 <Button
                     type="button"

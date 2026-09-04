@@ -8,14 +8,14 @@ import { Spinner, Tooltip } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { getHogFlowBranchColor, getHogFlowBranchStyle, useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
+import { getHogFlowBranchColor, getHogFlowBranchStyle, useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { batchTriggerLogic } from './batchTriggerLogic'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import { HogFlowBranchNameInput } from './HogFlowBranchNameInput'
-import { getBranchRemovalDisabledReason, isCountableCondition, removeBranchEdge, useDebouncedNameInputs } from './utils'
+import { getBranchRemovalDisabledReason, isCountableCondition, removeBranchEdge, useNameInputs } from './utils'
 
 type ConditionFilters = Extract<
     HogFlowAction,
@@ -89,7 +89,7 @@ export function StepConditionalBranchConfiguration({
         })
     }
 
-    const { localNames: localConditionNames, handleNameChange } = useDebouncedNameInputs(conditions, setConditions)
+    const { localNames: localConditionNames, handleNameChange } = useNameInputs(conditions, setConditions)
 
     const [branchEdges, nonBranchEdges] = useMemo(() => {
         const branchEdges: HogFlow['edges'] = []
@@ -134,28 +134,25 @@ export function StepConditionalBranchConfiguration({
     }
 
     return (
-        <div>
+        <div className="flex flex-col gap-3">
             <StepSchemaErrors />
-            <div className="flex flex-col gap-3">
-                {conditions.map((condition, index) => {
-                    const isBranchSelected = selectedBranch?.actionId === action.id && selectedBranch.index === index
+            {conditions.map((condition, index) => {
+                const branchColor = getHogFlowBranchColor(index)
+                const isBranchSelected = selectedBranch?.actionId === action.id && selectedBranch.index === index
 
-                    return (
+                return (
                     <div
                         key={index}
-                        className="flex flex-col gap-2 rounded border p-2 transition-colors motion-reduce:transition-none"
+                        className="flex flex-col gap-3 rounded border p-3 transition-colors motion-reduce:transition-none"
                         style={getHogFlowBranchStyle(index, isBranchSelected)}
                         onFocusCapture={() => setSelectedBranch({ actionId: action.id, index })}
                         onPointerDownCapture={() => setSelectedBranch({ actionId: action.id, index })}
                     >
-                        <div className="flex justify-between items-center gap-2">
-                            <div className="flex flex-1 items-center gap-2 min-w-0">
-                                <span
-                                    className="size-2 shrink-0 rounded-full"
-                                    style={{ backgroundColor: getHogFlowBranchColor(index) }}
-                                />
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="flex min-w-0 flex-1 items-center gap-2">
                                 <HogFlowBranchNameInput
-                                    value={localConditionNames[index]}
+                                    branchColor={branchColor}
+                                    value={localConditionNames[index] || ''}
                                     onChange={(value) => handleNameChange(index, value)}
                                     placeholder={`Condition ${index + 1}`}
                                     ariaLabel={`Condition ${index + 1} name`}
@@ -189,11 +186,10 @@ export function StepConditionalBranchConfiguration({
                             typeKey={`workflow-trigger-${index}`}
                         />
                     </div>
-                    )
-                })}
-            </div>
+                )
+            })}
 
-            <LemonButton type="secondary" icon={<IconPlus />} onClick={() => addCondition()} className="mt-2">
+            <LemonButton type="secondary" icon={<IconPlus />} onClick={() => addCondition()}>
                 Add condition
             </LemonButton>
         </div>
