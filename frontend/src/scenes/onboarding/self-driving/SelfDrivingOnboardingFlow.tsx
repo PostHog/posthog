@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
 import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -35,6 +35,8 @@ import { useCaseSelectionLogic } from './useCaseSelectionLogic'
 interface StepDef {
     id: SelfDrivingOnboardingStepId
     title: string
+    /** Short name for the progress dots. Defaults to the title; steps with a long or empty title set it. */
+    navLabel?: string
     Content: (props: { onContinue: () => void; onSkip: () => void; completing: boolean }) => JSX.Element
     skippable?: boolean
     /** Step provides its own primary action (e.g. plan picks), so suppress the footer Continue. */
@@ -49,12 +51,14 @@ const EXTRA_STEPS: Record<OnboardingExtraStepId, StepDef> = {
     'authorized-urls': {
         id: 'authorized-urls',
         title: 'Add your website URLs',
+        navLabel: 'Your website URLs',
         Content: AuthorizedUrlsStep,
         hideContinue: true,
     },
     'ai-observability': {
         id: 'ai-observability',
         title: 'Instrument your AI app',
+        navLabel: 'Your AI app',
         Content: AIObservabilityStep,
         hideContinue: true,
         maxWidth: 'max-w-2xl',
@@ -63,11 +67,12 @@ const EXTRA_STEPS: Record<OnboardingExtraStepId, StepDef> = {
 
 function buildSteps(useCase: OnboardingUseCaseKey | null): StepDef[] {
     return [
-        { id: 'welcome', title: '', Content: WelcomeStep },
+        { id: 'welcome', title: '', navLabel: 'Welcome', Content: WelcomeStep },
         // The step id stays 'goals' so existing funnel queries continue to work.
         {
             id: 'goals',
             title: 'What do you want to get done first?',
+            navLabel: 'Your goal',
             Content: UseCasesStep,
             hideContinue: true,
             maxWidth: 'max-w-2xl',
@@ -150,6 +155,14 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [step.id, reportOnboardingStepViewed])
 
+    // The furthest step reached. Steps up to it are done, so the progress dots can take the user
+    // back to one and forward again: a mis-press on Back must not cost the whole sequence.
+    const [furthestStepId, setFurthestStepId] = useState<SelfDrivingOnboardingStepId>(stepId)
+    const furthestIndex = Math.max(
+        stepIndex,
+        steps.findIndex((s) => s.id === furthestStepId)
+    )
+
     // Keep ?step= in sync as the user moves so the URL stays resumable, preserving any other params
     // (like the integration ids the GitHub callback appends).
     const goToStep = (index: number): void => {
@@ -158,6 +171,9 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
             return
         }
         setStepId(target.id)
+        if (index > furthestIndex) {
+            setFurthestStepId(target.id)
+        }
         router.actions.replace(router.values.location.pathname, {
             ...router.values.searchParams,
             step: target.id,
@@ -190,21 +206,22 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
         // This div is the card: chrome + per-step width. On sm+ it's capped to the viewport so the middle
         // scrolls internally; on mobile the chrome drops and content flows (the page scrolls).
         <div className={cn(CARD_CLASSES, step.maxWidth ?? 'max-w-xl')}>
-            {/* Pinned header: back button + progress share one row. Equal-width side slots keep the
-                progress dots centered in the card regardless of whether the back button is shown. */}
+            {/* Pinned header: the labeled Back button and the progress dots share one row. */}
             <div className="shrink-0 flex flex-col items-center gap-4">
                 {/* The dots are absolutely centered so uneven side content (back button vs the
                     verification chip or run pill) can never shift them off the card's midline. */}
                 <div className="relative flex items-center justify-between gap-2 w-full min-h-8">
-                    <div className="w-8 shrink-0 flex justify-start">
+                    <div className="shrink-0 flex justify-start">
                         {!isFirst && (
                             <LemonButton
+                                type="tertiary"
                                 icon={<IconArrowLeft />}
                                 size="small"
                                 onClick={goBack}
-                                tooltip="Go back"
-                                aria-label="Go back"
-                            />
+                                data-attr="self-driving-onboarding-back"
+                            >
+                                Back
+                            </LemonButton>
                         )}
                     </div>
                     <div
@@ -212,14 +229,47 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                         role="group"
                         aria-label={`Step ${stepIndex + 1} of ${steps.length}`}
                     >
-                        {steps.map((s, i) => (
-                            <div
-                                key={s.id}
-                                className={`h-1.5 rounded-full transition-all ${
-                                    i === stepIndex ? 'w-6 bg-accent' : 'w-1.5 bg-border'
-                                }`}
-                            />
-                        ))}
+                        {steps.map((s, i) => {
+                            const isCurrent = i === stepIndex
+                            const isReached = i <= furthestIndex
+                            const dot = (
+                                <span
+                                    className={cn(
+                                        'block h-1.5 rounded-full transition-all',
+                                        isCurrent
+                                            ? 'w-6 bg-accent'
+                                            : isReached
+                                              ? 'w-1.5 bg-accent opacity-40 group-hover:opacity-100'
+                                              : 'w-1.5 bg-border'
+                                    )}
+                                />
+                            )
+                            // Only steps the user already reached are reachable, in either
+                            // direction: the dots undo a wrong turn, they don't skip work.
+                            if (isCurrent || !isReached) {
+                                return (
+                                    <span key={s.id} aria-current={isCurrent ? 'step' : undefined}>
+                                        {dot}
+                                    </span>
+                                )
+                            }
+                            const label = s.navLabel ?? s.title
+                            return (
+                                <Tooltip key={s.id} title={label}>
+                                    {/* Padding gives the 6px dot a pointer-sized target without
+                                        changing the row's height. */}
+                                    <button
+                                        type="button"
+                                        onClick={() => goToStep(i)}
+                                        aria-label={`Go to ${label}`}
+                                        className="group flex items-center px-1 py-2 -mx-1 -my-2 cursor-pointer"
+                                        data-attr="self-driving-onboarding-step-dot"
+                                    >
+                                        {dot}
+                                    </button>
+                                </Tooltip>
+                            )
+                        })}
                     </div>
                     <div className="min-w-0 flex justify-end">
                         {/* On the install step, live verification: flips when the team's first event
