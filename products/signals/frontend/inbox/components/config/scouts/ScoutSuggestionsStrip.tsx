@@ -190,13 +190,20 @@ function SuggestionsSkeleton(): JSX.Element {
 }
 
 function SuggestWithAiLink(): JSX.Element {
-    const { aiConsentDisabledReason } = useValues(scoutSuggestionsLogic)
+    const { aiConsentDisabledReason, runningChatType } = useValues(scoutSuggestionsLogic)
     const { startScoutChatTask } = useActions(scoutSuggestionsLogic)
     if (aiConsentDisabledReason) {
         return <span>suggest a scout with AI once AI data processing is on</span>
     }
     return (
-        <Link onClick={() => startScoutChatTask('author_scout', 'scout authoring task')}>suggest a scout with AI</Link>
+        <Link
+            // The request only shows on screen once it navigates, so without this a second click
+            // lands in the gap and mints a second cloud task.
+            disabledReason={runningChatType !== null ? 'Starting a task…' : undefined}
+            onClick={() => startScoutChatTask('author_scout', 'scout authoring task')}
+        >
+            suggest a scout with AI
+        </Link>
     )
 }
 
