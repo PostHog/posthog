@@ -30,6 +30,7 @@ from products.tasks.backend.facade.api import create_and_run_task, ensure_person
 from products.tasks.backend.models import Task, TeamTasksConfig
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
+from ee.hogai.utils.untrusted import as_untrusted_data
 
 logger = structlog.get_logger(__name__)
 
@@ -196,7 +197,12 @@ def _task_text(email: InboundTaskEmail) -> _TaskText | None:
     description = body or subject
     quoted = email.quoted_body.strip()
     if quoted:
-        description = f"{description}\n\nThe sender replied to this email:\n\n{quoted}"
+        # The description becomes the agent's prompt when the task runs, and the quoted block is
+        # the email replied to, not the sender's words — a view name or error string in it must
+        # land as data (indirect prompt injection).
+        description = f"{description}\n\n" + as_untrusted_data(
+            "quoted_email", quoted.splitlines(), source="the email the sender replied to"
+        )
     return _TaskText(title=title[:255], description=description)
 
 
