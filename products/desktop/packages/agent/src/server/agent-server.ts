@@ -1496,7 +1496,10 @@ export class AgentServer {
           }
 
           this.recordTurnUsage(result.usage);
-          this.broadcastTurnComplete(result.stopReason);
+          this.broadcastTurnComplete(
+            result.stopReason,
+            this.promptResultTraceId(result),
+          );
 
           if (result.stopReason === "end_turn") {
             // Relay the response to Slack. For follow-ups this is the primary
@@ -2639,7 +2642,10 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      this.broadcastTurnComplete(result.stopReason);
+      this.broadcastTurnComplete(
+        result.stopReason,
+        this.promptResultTraceId(result),
+      );
 
       if (result.stopReason === "end_turn") {
         await this.relayAgentResponse(payload);
@@ -3021,7 +3027,10 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      this.broadcastTurnComplete(result.stopReason);
+      this.broadcastTurnComplete(
+        result.stopReason,
+        this.promptResultTraceId(result),
+      );
 
       if (result.stopReason === "end_turn") {
         await this.relayAgentResponse(payload);
@@ -5626,7 +5635,17 @@ ${commonInstructions}
     this.broadcastEvent(event);
   }
 
-  private broadcastTurnComplete(stopReason: string): void {
+  /** The per-turn gateway trace id the Claude adapter reports via `PromptResponse._meta`. */
+  private promptResultTraceId(result: PromptResponse): string | null {
+    const traceId = (result._meta as { traceId?: unknown } | undefined)
+      ?.traceId;
+    return typeof traceId === "string" ? traceId : null;
+  }
+
+  private broadcastTurnComplete(
+    stopReason: string,
+    traceId: string | null = null,
+  ): void {
     if (!this.session) return;
     if (this.adapterEmittedTurnComplete) {
       this.adapterEmittedTurnComplete = false;
@@ -5638,6 +5657,7 @@ ${commonInstructions}
       params: {
         sessionId: this.session.acpSessionId,
         stopReason,
+        ...(traceId ? { traceId } : {}),
       },
     };
 

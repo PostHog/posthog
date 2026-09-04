@@ -21,6 +21,10 @@ logger = structlog.get_logger(__name__)
 # Keep enough live history for users who open an in-progress run late while
 # still bounding Redis growth to the sandbox lifetime.
 TASK_RUN_STREAM_MAX_LENGTH = 5_000
+# Thin-tail runs serve connect-time backlog from the durable run log, so Redis
+# only needs a live tail. Applied per write, and only to id-carrying events, so
+# a run on an agent that predates event ids keeps the full window.
+TASK_RUN_STREAM_THIN_MAX_LENGTH = 500
 TASK_RUN_STREAM_TIMEOUT = SANDBOX_TTL_SECONDS
 TASK_RUN_STREAM_COMPLETED_TIMEOUT = min(30 * 60, TASK_RUN_STREAM_TIMEOUT // 3)
 TASK_RUN_STREAM_SEQUENCE_TIMEOUT = int(SANDBOX_EVENT_INGEST_TOKEN_TTL.total_seconds())
@@ -168,6 +172,7 @@ class TaskRunRedisStream:
         max_length: int = TASK_RUN_STREAM_MAX_LENGTH,
         *,
         presence_gated: bool = False,
+        thin_tail: bool = False,
         origin_product: str | None = None,
     ):
         self._stream_key = stream_key
@@ -177,6 +182,7 @@ class TaskRunRedisStream:
         self._completed_timeout = min(timeout, TASK_RUN_STREAM_COMPLETED_TIMEOUT)
         self._max_length = max_length
         self._presence_gated = presence_gated
+        self._thin_tail = thin_tail
         self._origin_product = origin_product
         self._watched_cached_until = 0.0
         self._last_watched_refresh_at: float | None = None
@@ -333,12 +339,17 @@ class TaskRunRedisStream:
             except redis_exceptions.RedisError:
                 raise TaskRunStreamError("Stream read error")
 
+    def _maxlen_for_event(self, event: dict) -> int:
+        if self._thin_tail and event.get("event_id"):
+            return TASK_RUN_STREAM_THIN_MAX_LENGTH
+        return self._max_length
+
     async def _xadd_event(self, event: dict, *, ttl: int | None = None) -> str:
         raw = json.dumps(event)
         stream_id = await self._redis_client.xadd(
             self._stream_key,
             {DATA_KEY: raw},
-            maxlen=self._max_length,
+            maxlen=self._maxlen_for_event(event),
             approximate=True,
         )
         await self._redis_client.expire(self._stream_key, self._timeout if ttl is None else ttl)
@@ -517,7 +528,7 @@ class TaskRunRedisStream:
                         pipe.xadd(
                             self._stream_key,
                             {DATA_KEY: json.dumps(event)},
-                            maxlen=self._max_length,
+                            maxlen=self._maxlen_for_event(event),
                             approximate=True,
                         )
                         pipe.expire(self._stream_key, self._timeout)
