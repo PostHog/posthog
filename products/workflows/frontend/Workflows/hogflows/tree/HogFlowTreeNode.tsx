@@ -28,14 +28,14 @@ import type { WorkflowTreeNode } from './workflowTree'
 const BRANCH_LIMIT = 6
 export function HogFlowTreeNode({
     activeDropzones,
-    draggedActionId,
+    draggedActionIdRef,
     node,
     onDragEnd,
     onDragStart,
     showIncomingConnector = true,
 }: {
     activeDropzones: boolean
-    draggedActionId: string | null
+    draggedActionIdRef: { current: string | null }
     node: WorkflowTreeNode
     onDragEnd: () => void
     onDragStart: (event: DragEvent<HTMLDivElement>, actionId: string) => void
@@ -63,7 +63,6 @@ export function HogFlowTreeNode({
     const step = (
         <HogFlowTreeStep
             action={node.action}
-            dragged={draggedActionId === node.action.id}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
             canDrag={
@@ -79,7 +78,8 @@ export function HogFlowTreeNode({
             {node.incomingEdge && (
                 <HogFlowTreeDropzone
                     active={activeDropzones}
-                    draggedActionId={draggedActionId}
+                    draggedActionIdRef={draggedActionIdRef}
+                    onDragEnd={onDragEnd}
                     edge={node.incomingEdge}
                     showConnector={showIncomingConnector}
                     compact={!showIncomingConnector}
@@ -180,7 +180,7 @@ export function HogFlowTreeNode({
                                                 key={childNode.action.id}
                                                 node={childNode}
                                                 activeDropzones={activeDropzones}
-                                                draggedActionId={draggedActionId}
+                                                draggedActionIdRef={draggedActionIdRef}
                                                 onDragStart={onDragStart}
                                                 onDragEnd={onDragEnd}
                                                 showIncomingConnector={childIndex > 0}
@@ -189,7 +189,8 @@ export function HogFlowTreeNode({
                                         {branch.sequence.trailingEdge && (
                                             <HogFlowTreeDropzone
                                                 active={activeDropzones}
-                                                draggedActionId={draggedActionId}
+                                                draggedActionIdRef={draggedActionIdRef}
+                                                onDragEnd={onDragEnd}
                                                 edge={branch.sequence.trailingEdge}
                                                 showConnector={false}
                                                 compact
@@ -243,7 +244,8 @@ export function HogFlowTreeNode({
                             <Separator className="mx-3 my-1 hidden group-data-[open]/collapsible:block" />
                             <HogFlowTreeDropzone
                                 active={activeDropzones}
-                                draggedActionId={draggedActionId}
+                                draggedActionIdRef={draggedActionIdRef}
+                                onDragEnd={onDragEnd}
                                 edge={joinEdge}
                                 isBranchJoin
                                 joinEdges={node.joinEdges}
