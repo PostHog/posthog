@@ -212,6 +212,8 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         self.assertIn("performance_warnings", content)
+        self.assertIn("Tell the user which event-name or time limits are missing", content)
+        self.assertIn("Continue with a full scan only when the request requires it", content)
         self.assertIn("filtering by event name is the most effective", content)
 
         all_events_content = await self.tool.execute(
