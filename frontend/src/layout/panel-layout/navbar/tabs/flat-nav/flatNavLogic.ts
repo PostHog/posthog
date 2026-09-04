@@ -44,7 +44,7 @@ export interface flatNavLogicMeta {
 export type flatNavLogicType = MakeLogicType<flatNavLogicValues, {}, Record<string, any>, flatNavLogicMeta>
 
 export const flatNavLogic = kea<flatNavLogicType>([
-    path(['layout', 'panel-layout', 'flat-nav', 'flatNavLogic']),
+    path(['layout', 'panel-layout', 'navbar', 'tabs', 'flat-nav', 'flatNavLogic']),
     connect(() => ({
         values: [customProductsLogic, ['customProducts', 'customProductsLoading'], featureFlagLogic, ['featureFlags']],
     })),
@@ -88,6 +88,7 @@ export const flatNavLogic = kea<flatNavLogicType>([
                         a.sortOrder - b.sortOrder ||
                         a.label.localeCompare(b.label, undefined, { sensitivity: 'accent' })
                 )
+
                 const groups: FlatNavProductGroup[] = []
                 for (const { category, sortOrder: _, ...item } of selected) {
                     const lastGroup = groups[groups.length - 1]
@@ -97,6 +98,7 @@ export const flatNavLogic = kea<flatNavLogicType>([
                         groups.push({ category, items: [item] })
                     }
                 }
+
                 return groups
             },
         ],
