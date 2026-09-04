@@ -130,6 +130,10 @@ class ReplayObservation(UUIDModel):
         ]
         indexes = [
             models.Index(fields=["team", "created_at"], name="rlo_team_created_idx"),
+            # Serves the replay dock read: one session's observations for a team. The unique
+            # (scanner, session_id) constraint can't, because the dock scopes the scanner side to a
+            # list of readable scanners rather than one value.
+            models.Index(fields=["team", "session_id"], name="rlo_team_session_idx"),
             models.Index(fields=["scanner", "status"], name="rlo_scanner_status_idx"),
             # Serves the alert-engine observation window: succeeded rows per scanner in a
             # completed_at range. Partial: terminal succeeded rows are the only ones scanned.
