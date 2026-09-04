@@ -7,7 +7,7 @@ from products.wizard.backend.facade.enums import WizardRunArtifactType
 from products.wizard.backend.models import WizardRunArtifact
 
 
-def artifact_from_record(artifact: WizardRunArtifact) -> WizardRunArtifactDTO:
+def record_to_artifact(artifact: WizardRunArtifact) -> WizardRunArtifactDTO:
     if WizardRunArtifactType(artifact.type) == WizardRunArtifactType.GIT_DIFF:
         if artifact.size_bytes is None or artifact.content_hash is None:
             raise ValueError("Git diff artifact is missing stored content metadata.")

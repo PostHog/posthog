@@ -12,7 +12,7 @@ from products.wizard.backend.logic.workers.contracts import (
     WizardWorkerUsageMeasurement,
 )
 from products.wizard.backend.logic.workers.serializers import (
-    worker_resource_usage_from_record,
+    record_to_worker_resource_usage,
     worker_resource_usage_to_record,
 )
 from products.wizard.backend.models import WizardWorker
@@ -38,7 +38,7 @@ def record_provisioned_worker(team_id: int, run_id: UUID, provisioning: WizardWo
 
 def record_usage(team_id: int, run_id: UUID, usage: WizardWorkerUsageMeasurement) -> None:
     worker = WizardWorker.objects.for_team(team_id).only("resource_usage").get(run_id=run_id)
-    resource_usage = worker_resource_usage_from_record(worker.resource_usage)
+    resource_usage = record_to_worker_resource_usage(worker.resource_usage)
 
     updated_resource_usage = replace(
         resource_usage,
@@ -91,6 +91,6 @@ def get_worker_telemetry(team_id: int, run_id: UUID) -> WizardWorkerTelemetry:
         raise ValueError("Wizard Worker has not been cleaned up")
 
     return WizardWorkerTelemetry(
-        resource_usage=worker_resource_usage_from_record(worker.resource_usage),
+        resource_usage=record_to_worker_resource_usage(worker.resource_usage),
         lifetime_seconds=max((worker.cleaned_at - worker.created_at).total_seconds(), 0),
     )

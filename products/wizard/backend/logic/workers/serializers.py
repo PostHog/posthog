@@ -21,7 +21,7 @@ def worker_resource_usage_to_record(resource_usage: WizardWorkerResourceUsage) -
     }
 
 
-def worker_resource_usage_from_record(value: object) -> WizardWorkerResourceUsage:
+def record_to_worker_resource_usage(value: object) -> WizardWorkerResourceUsage:
     if not isinstance(value, dict) or value["version"] != 1:
         raise ValueError("Invalid Wizard Worker resource usage")
 

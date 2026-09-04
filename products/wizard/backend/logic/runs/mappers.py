@@ -23,7 +23,7 @@ def workspace_to_record(workspace: WizardWorkspace) -> tuple[WizardWorkspaceType
             return WizardWorkspaceType.GIT_REPOSITORY, {"repository": repository}
 
 
-def workspace_from_record(workspace_type: str, metadata: object) -> WizardWorkspace:
+def record_to_workspace(workspace_type: str, metadata: object) -> WizardWorkspace:
     match WizardWorkspaceType(workspace_type):
         case WizardWorkspaceType.LOCAL_FOLDER:
             return LocalFolderWorkspace(project_name=validate_workspace_metadata_value(metadata, "project_name"))
@@ -31,13 +31,13 @@ def workspace_from_record(workspace_type: str, metadata: object) -> WizardWorksp
             return GitRepositoryWorkspace(repository=validate_workspace_metadata_value(metadata, "repository"))
 
 
-def run_from_record(run: WizardRun) -> WizardRunDTO:
+def record_to_run(run: WizardRun) -> WizardRunDTO:
     return WizardRunDTO(
         id=run.id,
         team_id=run.team_id,
         created_by_id=run.created_by_id,
         environment=WizardRunEnvironment(run.environment),
-        workspace=workspace_from_record(run.workspace_type, run.workspace),
+        workspace=record_to_workspace(run.workspace_type, run.workspace),
         program=program_from_mapping(run.program, allow_latest_version=True),
         status=WizardRunStatus(run.status),
         error_code=run.error_code,

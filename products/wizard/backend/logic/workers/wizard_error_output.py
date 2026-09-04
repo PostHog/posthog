@@ -4,7 +4,7 @@ from products.wizard.backend.facade.validation import is_wizard_error_code
 from products.wizard.backend.logic.workers.config import WIZARD_ERROR_OUTPUT_PREFIX
 
 
-def wizard_error_code_from_stderr(stderr: str) -> str | None:
+def stderr_to_wizard_error_code(stderr: str) -> str | None:
     for line in reversed(stderr.splitlines()):
         value = line.strip()
         if not value.startswith(WIZARD_ERROR_OUTPUT_PREFIX):

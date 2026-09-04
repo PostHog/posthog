@@ -4,7 +4,7 @@ import pytest
 
 from products.wizard.backend.logic.workers.contracts import WizardWorkerResourceUsage
 from products.wizard.backend.logic.workers.serializers import (
-    worker_resource_usage_from_record,
+    record_to_worker_resource_usage,
     worker_resource_usage_to_record,
 )
 
@@ -21,7 +21,7 @@ def test_worker_resource_usage_round_trip() -> None:
         provider_usage_measured_at=datetime(2026, 8, 24, 14, 30, tzinfo=UTC),
     )
 
-    assert worker_resource_usage_from_record(worker_resource_usage_to_record(resource_usage)) == resource_usage
+    assert record_to_worker_resource_usage(worker_resource_usage_to_record(resource_usage)) == resource_usage
 
 
 @pytest.mark.parametrize(
@@ -41,9 +41,9 @@ def test_worker_resource_usage_round_trip() -> None:
 )
 def test_worker_resource_usage_rejects_invalid_records(record: object) -> None:
     with pytest.raises(ValueError, match="Invalid Wizard Worker resource usage"):
-        worker_resource_usage_from_record(record)
+        record_to_worker_resource_usage(record)
 
 
 def test_worker_resource_usage_requires_persisted_fields() -> None:
     with pytest.raises(KeyError, match="version"):
-        worker_resource_usage_from_record({})
+        record_to_worker_resource_usage({})

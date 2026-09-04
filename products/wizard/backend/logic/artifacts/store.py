@@ -10,7 +10,7 @@ from products.wizard.backend.facade.contracts import (
     WizardRunPullRequestArtifactDTO,
 )
 from products.wizard.backend.facade.enums import WizardRunArtifactType
-from products.wizard.backend.logic.artifacts.mappers import artifact_from_record, pull_request_metadata_to_record
+from products.wizard.backend.logic.artifacts.mappers import pull_request_metadata_to_record, record_to_artifact
 from products.wizard.backend.models import WizardRun, WizardRunArtifact
 
 
@@ -46,7 +46,7 @@ def upsert_git_diff(
             },
         )
 
-    result = artifact_from_record(artifact)
+    result = record_to_artifact(artifact)
 
     if not isinstance(result, WizardRunGitDiffArtifactDTO):
         raise ValueError("Expected a git diff artifact")
@@ -79,7 +79,7 @@ def upsert_pull_request(
             },
         )
 
-    result = artifact_from_record(artifact)
+    result = record_to_artifact(artifact)
 
     if not isinstance(result, WizardRunPullRequestArtifactDTO):
         raise ValueError("Expected a pull request artifact")
@@ -89,7 +89,7 @@ def upsert_pull_request(
 
 def list_artifacts(team_id: int, run_id: UUID) -> list[WizardRunArtifactDTO]:
     artifacts = WizardRunArtifact.objects.for_team(team_id).filter(run_id=run_id).order_by("created_at", "id")
-    return [artifact_from_record(artifact) for artifact in artifacts]
+    return [record_to_artifact(artifact) for artifact in artifacts]
 
 
 def get_stored_git_diff_artifact(team_id: int, run_id: UUID, artifact_id: UUID) -> StoredGitDiffArtifact | None:

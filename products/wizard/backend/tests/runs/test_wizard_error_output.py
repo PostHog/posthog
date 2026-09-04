@@ -1,6 +1,6 @@
 import pytest
 
-from products.wizard.backend.logic.workers.wizard_error_output import wizard_error_code_from_stderr
+from products.wizard.backend.logic.workers.wizard_error_output import stderr_to_wizard_error_code
 
 
 @pytest.mark.parametrize(
@@ -21,5 +21,5 @@ from products.wizard.backend.logic.workers.wizard_error_output import wizard_err
         ("ordinary stderr", None),
     ),
 )
-def test_wizard_error_code_from_stderr(stderr: str, expected: str | None) -> None:
-    assert wizard_error_code_from_stderr(stderr) == expected
+def test_stderr_to_wizard_error_code(stderr: str, expected: str | None) -> None:
+    assert stderr_to_wizard_error_code(stderr) == expected

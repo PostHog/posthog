@@ -30,7 +30,7 @@ from products.wizard.backend.logic.runs.config import (
     DISPATCH_RETRY_MAX_DELAY,
 )
 from products.wizard.backend.logic.runs.diagnostics import error_message
-from products.wizard.backend.logic.runs.mappers import run_from_record, workspace_to_record
+from products.wizard.backend.logic.runs.mappers import record_to_run, workspace_to_record
 from products.wizard.backend.models import WizardRun
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,7 @@ def create_run(
 
     if idempotency_key is None:
         run = WizardRun.objects.for_team(team_id).create(team_id=team_id, idempotency_key=None, **values)
-        return WizardRunCreationResult(run=run_from_record(run), created=True)
+        return WizardRunCreationResult(run=record_to_run(run), created=True)
 
     run, created = WizardRun.objects.for_team(team_id).get_or_create(
         team_id=team_id,
@@ -86,13 +86,13 @@ def create_run(
         defaults=values,
     )
 
-    return WizardRunCreationResult(run=run_from_record(run), created=created)
+    return WizardRunCreationResult(run=record_to_run(run), created=created)
 
 
 def get_run_by_idempotency_key(team_id: int, idempotency_key: str) -> WizardRunDTO | None:
     run = WizardRun.objects.for_team(team_id).filter(idempotency_key=idempotency_key).first()
 
-    return run_from_record(run) if run is not None else None
+    return record_to_run(run) if run is not None else None
 
 
 def get_request_fingerprint(team_id: int, run_id: UUID) -> str | None:
@@ -151,11 +151,11 @@ def set_run_stage(team_id: int, run_id: UUID, stage: WizardRunStage) -> WizardRu
     run.stage_started_at = timezone.now()
     run.save(update_fields=["stage", "stage_started_at", "updated_at"])
 
-    return run_from_record(run)
+    return record_to_run(run)
 
 
 def get_run(team_id: int, run_id: UUID) -> WizardRunDTO:
-    return run_from_record(_get_run_record(team_id, run_id))
+    return record_to_run(_get_run_record(team_id, run_id))
 
 
 def get_run_for_update(team_id: int, run_id: UUID) -> WizardRunDTO:
@@ -163,7 +163,7 @@ def get_run_for_update(team_id: int, run_id: UUID) -> WizardRunDTO:
     if run is None:
         raise WizardRunNotFoundError
 
-    return run_from_record(run)
+    return record_to_run(run)
 
 
 def list_runs(params: ListWizardRunsInput) -> WizardRunPage:
@@ -172,7 +172,7 @@ def list_runs(params: ListWizardRunsInput) -> WizardRunPage:
     results: list[WizardRunDTO] = []
     for run in page:
         try:
-            results.append(run_from_record(run))
+            results.append(record_to_run(run))
         except ValueError:
             logger.exception(
                 "wizard_run_deserialization_failed",
@@ -208,4 +208,4 @@ def set_run_status(
 
     run.save(update_fields=update_fields)
 
-    return run_from_record(run)
+    return record_to_run(run)
