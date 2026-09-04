@@ -2088,9 +2088,13 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
     Most entries are durable, so `expires_at` is nullable and unset by default. It
     exists for the memories that are true only for a while — a cooldown, a window to
     watch — which a scout would otherwise have to come back and `forget` by hand.
-    Expiry hides a row from `search_scratchpad`, it does not delete it: the key stays
-    taken (so the upsert keeps working) and a human auditing the fleet's memory can
-    still read it back with `include_expired`.
+    Expiry first hides a row from `search_scratchpad`: the key stays taken (so the
+    upsert keeps working) and a human auditing the fleet's memory can still read it
+    back with `include_expired`. Then, once its expiry is more than
+    `SCRATCHPAD_EXPIRY_GRACE_DAYS` in the past, the daily
+    `prune_expired_scratchpad_entries` janitor hard-deletes the row, so a lapsed
+    memory cannot pile up forever. A durable entry (`expires_at` NULL) is never
+    swept.
     """
 
     # See SignalScoutConfig.all_teams for rationale.
