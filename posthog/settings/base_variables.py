@@ -25,6 +25,12 @@ TEST = get_from_env(
 # level once the REPL opens, so forcing ERROR would silence its whole session. For
 # `dbshell` there is no Python REPL (it execs the DB client), so nothing to restore.
 IS_INTERACTIVE_SHELL: bool = len(sys.argv) > 1 and sys.argv[1] in ("shell", "dbshell")
+# Interactive Python REPLs where an unhandled exception is a developer typo, not a
+# production error. Gates SDK exception autocapture and code-variable capture in
+# PostHogConfig.ready(). Separate from IS_INTERACTIVE_SHELL, which controls log levels:
+# `shell_plus` opens a Python REPL and must be covered here, but `dbshell` execs the DB
+# client (no Python REPL) so it is irrelevant to exception capture.
+IS_INTERACTIVE_PYTHON_SHELL: bool = len(sys.argv) > 1 and sys.argv[1] in ("shell", "shell_plus")
 COMMAND_EXEC_AUDIT_ENABLED: bool = get_from_env("COMMAND_EXEC_AUDIT_ENABLED", not TEST, type_cast=str_to_bool)
 ORGANIZATION_ACCESS_CACHE_ENABLED: bool = get_from_env(
     "ORGANIZATION_ACCESS_CACHE_ENABLED", not TEST, type_cast=str_to_bool
