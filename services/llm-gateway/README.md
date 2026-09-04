@@ -278,19 +278,19 @@ Defined in `src/llm_gateway/products/config.py`:
 
 OAuth access is permitted only for products with an explicit `allowed_application_ids` allowlist. All other products are API-key-only by default.
 
-| Product              | Auth            | Models                     | Notes                           |
-| -------------------- | --------------- | -------------------------- | ------------------------------- |
-| `llm_gateway`        | API key only    | All                        | Default when no product in path |
-| `ci`                 | API key only    | All                        | CI / e2e test runs              |
-| `posthog_code`       | OAuth only      | Restricted set             | Desktop coding agent            |
-| `background_agents`  | OAuth only      | Restricted set             | Cloud background agents         |
-| `onboarding`         | OAuth only      | claude-sonnet-5            | Unbilled setup wizard cloud run |
-| `wizard`             | API key + OAuth | All                        | Max AI assistant                |
-| `django`             | API key only    | All                        | Server-side Django calls        |
-| `growth`             | API key only    | All                        | Growth team                     |
-| `llma_translation`   | API key only    | gpt-4.1-mini               | AI observability translation    |
-| `llma_summarization` | API key only    | gpt-4.1-nano, gpt-4.1-mini | AI observability summarization  |
-| `llma_eval_summary`  | API key only    | gpt-5-mini                 | AI observability eval summary   |
+| Product              | Auth            | Models                                             | Notes                           |
+| -------------------- | --------------- | -------------------------------------------------- | ------------------------------- |
+| `llm_gateway`        | API key only    | All                                                | Default when no product in path |
+| `ci`                 | API key only    | All                                                | CI / e2e test runs              |
+| `posthog_code`       | OAuth only      | Restricted set                                     | Desktop coding agent            |
+| `background_agents`  | OAuth only      | Restricted set                                     | Cloud background agents         |
+| `onboarding`         | OAuth only      | claude-sonnet-5                                    | Unbilled setup wizard cloud run |
+| `wizard`             | API key + OAuth | All                                                | Max AI assistant                |
+| `django`             | API key only    | All                                                | Server-side Django calls        |
+| `growth`             | API key only    | All                                                | Growth team                     |
+| `llma_translation`   | API key only    | gpt-4.1-mini                                       | AI observability translation    |
+| `llma_summarization` | API key only    | gpt-4.1-nano, gpt-4.1-mini, gpt-5-nano, gpt-5-mini | AI observability summarization  |
+| `llma_eval_summary`  | API key only    | gpt-5-mini                                         | AI observability eval summary   |
 
 Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `slack-posthog-code`.
 

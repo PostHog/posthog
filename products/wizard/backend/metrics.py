@@ -44,6 +44,16 @@ WIZARD_PUBSUB_PUBLISH_TOTAL = Counter(
     labelnames=["outcome"],
 )
 
+WIZARD_REGISTRY_FALLBACK_TOTAL = Counter(
+    "posthog_wizard_registry_fallback_total",
+    "Wizard registry requests that used the built-in fallback",
+    labelnames=["reason"],
+)
+
+
+def report_registry_fallback(reason: str) -> None:
+    WIZARD_REGISTRY_FALLBACK_TOTAL.labels(reason=reason).inc()
+
 
 def report_session_upserted(previous_run_phase: str | None, dto: WizardSessionDTO) -> None:
     if dto.run_phase not in _TERMINAL_PHASES or previous_run_phase in _TERMINAL_PHASES:

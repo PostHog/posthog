@@ -93,6 +93,7 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
             mode: str = "background",
             extra_state: dict | None = None,
             branch: str | None = None,
+            acting_user_id: int | None = None,
         ) -> TaskRun:
             create_reached.set()
             if not handoff_finished.wait(timeout=10):
@@ -103,6 +104,7 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
                 mode=mode,
                 extra_state=extra_state,
                 branch=branch,
+                acting_user_id=acting_user_id,
             )
 
         def bootstrap() -> None:
@@ -589,8 +591,9 @@ class TestFacadeReadsAndMappers(TestCase):
         for task in tasks:
             TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
 
-        # A single query with the latest-run-id subquery — no per-task run lookup, no N+1.
-        with self.assertNumQueries(1):
+        # One task query with the latest-run-id subquery plus one narrow team prefetch, so no
+        # per-task run lookup and no N+1.
+        with self.assertNumQueries(2):
             dtos = facade.get_conversation_task_dtos([t.id for t in tasks], self.team.id, self.user.id)
             for task in tasks:
                 self.assertIsNotNone(dtos[task.id].latest_run_id)
@@ -816,6 +819,33 @@ class TestFacadeReadsAndMappers(TestCase):
         assert result is not None and result.error is None
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
+
+    def test_run_task_resume_of_a_pipeline_task_stays_unstamped(self):
+        # The predecessor's stage is deliberately not carried forward: a stage makes the run
+        # read as pipeline-started and drops it out of the interactive duration ceiling.
+        from products.signals.backend.models import SignalReport
+
+        # The report link is present so only `internal` can withhold the stamp here.
+        report = SignalReport.objects.create(team=self.team)
+        task = self._make_task(origin_product=Task.OriginProduct.SIGNAL_REPORT, signal_report=report, internal=True)
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"ai_stage": "implementation"},
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        self.assertNotIn("ai_stage", new_run.state)
 
     @parameterized.expand(
         [
