@@ -233,7 +233,8 @@ export function BoardStage({
   const setFrameFocus = frame.setFocus;
   useEffect(() => {
     setFrameFocus(focusedId);
-  }, [setFrameFocus, focusedId]);
+    if (focusedId !== null) frameElement?.focus();
+  }, [setFrameFocus, focusedId, frameElement]);
 
   const setFrameBusy = frame.setBusy;
   useEffect(() => {

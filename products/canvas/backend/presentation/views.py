@@ -1951,7 +1951,6 @@ class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 last_actor_user_id=Subquery(newest.values("actor_user_id")[:1]),
                 last_actor_kind=Subquery(newest.values("actor_kind")[:1]),
             )
-            return queryset.order_by("-pinned_at", "-updated_at")
         return queryset.order_by("-updated_at")
 
     def get_throttles(self) -> list[BaseThrottle]:
