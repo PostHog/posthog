@@ -28,7 +28,7 @@ from posthog.schema_enums import ProductKey
 
 from products.growth.backend.models import ProductPushCampaign
 from products.growth.backend.product_push.cadence import is_retry_eligible
-from products.growth.backend.product_push.surfaces import SURFACE_ADOPTION_CHECKS
+from products.growth.backend.product_push.surfaces import SURFACE_ADOPTION_CHECKS, OrganizationId
 
 # The order in which we push products to organizations that don't use them yet.
 # Seeded from the preference weights of the retired cross-sell suggester, whose
@@ -143,16 +143,16 @@ def get_org_used_product_keys(organization: Organization) -> set[str]:
     return used
 
 
-def project_uses_product(project_id: int, product_key: str) -> bool:
+def project_uses_product(project_id: int, product_key: str, organization_id: OrganizationId) -> bool:
     """The per-project version of the usage signal in get_org_used_product_keys.
 
     Growth surfaces are org-wide, so a project "uses" one whenever its organization has
-    adopted it — suppressing the promo in every project once the org connects it.
+    adopted it — suppressing the promo in every project once the org connects it. The caller
+    passes organization_id (it always has it) so surfaces resolve without a project lookup.
     """
     surface_check = SURFACE_ADOPTION_CHECKS.get(product_key)
     if surface_check is not None:
-        organization_id = Project.objects.filter(id=project_id).values_list("organization_id", flat=True).first()
-        return organization_id is not None and surface_check(organization_id)
+        return surface_check(organization_id)
 
     intents = ProductIntent.objects.filter(team__project_id=project_id, product_type=product_key)
     if product_key in ACTIVATION_CHECK_PRODUCT_KEYS:
