@@ -11,7 +11,7 @@ import {
     sharedListeners,
 } from 'kea'
 import type { BreakPointFunction } from 'kea'
-import { urlToAction } from 'kea-router'
+import { combineUrl, urlToAction } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -22,6 +22,7 @@ import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { encodeURLFilters, encodeURLVariableOverrides } from 'scenes/dashboard/dashboardUtils'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import type { insightLogicType } from 'scenes/insights/insightLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
@@ -82,6 +83,19 @@ function normalizeItemId(itemId: string | undefined): number | null {
         return null
     }
     return Number(itemId) || null
+}
+
+// The dashboard reads its overrides under different search param names than the insight does, so the
+// back link has to translate them.
+function dashboardPathWithOverrides(
+    dashboardId: DashboardType['id'],
+    filtersOverride: DashboardFilter | null,
+    variablesOverride: Record<string, HogQLVariable> | null
+): string {
+    return combineUrl(urls.dashboard(dashboardId), {
+        ...encodeURLVariableOverrides(variablesOverride ?? {}),
+        ...(isDashboardFilterEmpty(filtersOverride) ? {} : encodeURLFilters(filtersOverride ?? {})),
+    }).url
 }
 
 // Tag a new insight's query with the product_analytics productKey (on the executed source query) so
@@ -512,7 +526,16 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             (insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined) => insight,
         ],
         breadcrumbs: [
-            (s) => [s.insightLogicRef, s.insight, s.insightQuery, s.dashboardId, s.dashboardName, s.sceneSource],
+            (s) => [
+                s.insightLogicRef,
+                s.insight,
+                s.insightQuery,
+                s.dashboardId,
+                s.dashboardName,
+                s.sceneSource,
+                s.filtersOverride,
+                s.variablesOverride,
+            ],
             (
                 insightLogicRef: {
                     logic: BuiltLogic<insightLogicType>
@@ -522,7 +545,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 insightQuery: Node<Record<string, any>> | null | undefined,
                 dashboardId: DashboardType['id'] | null,
                 dashboardName: DashboardType['name'] | null,
-                sceneSource: InsightSceneSource | null
+                sceneSource: InsightSceneSource | null,
+                filtersOverride: DashboardFilter | null,
+                variablesOverride: Record<string, HogQLVariable> | null
             ): Breadcrumb[] => {
                 const dashboardLabel = dashboardName ?? 'Dashboard'
                 return [
@@ -537,7 +562,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                               {
                                   key: Scene.Dashboard,
                                   name: dashboardLabel,
-                                  path: urls.dashboard(dashboardId),
+                                  path: dashboardPathWithOverrides(dashboardId, filtersOverride, variablesOverride),
                                   iconType: 'dashboard' as FileSystemIconType,
                               },
                           ]

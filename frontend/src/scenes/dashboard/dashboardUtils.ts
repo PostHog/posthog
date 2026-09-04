@@ -422,7 +422,7 @@ export const parseURLVariables = (searchParams: Record<string, any>): Record<str
     return variables
 }
 
-export const encodeURLVariables = (variables: Record<string, string>): Record<string, string> => {
+export const encodeURLVariables = (variables: Record<string, unknown>): Record<string, string> => {
     const encodedVariables: Record<string, string> = {}
 
     if (Object.keys(variables).length > 0) {
@@ -431,6 +431,12 @@ export const encodeURLVariables = (variables: Record<string, string>): Record<st
 
     return encodedVariables
 }
+
+/** Variable overrides are keyed by variable id, but the dashboard URL keys the values by code name. */
+export const encodeURLVariableOverrides = (variables: Record<string, HogQLVariable>): Record<string, string> =>
+    encodeURLVariables(
+        Object.fromEntries(Object.values(variables).map((variable) => [variable.code_name, variable.value]))
+    )
 
 export const parseURLFilters = (searchParams: Record<string, any>): DashboardFilter => {
     const filters: DashboardFilter = {}

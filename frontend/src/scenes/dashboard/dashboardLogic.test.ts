@@ -29,15 +29,18 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
-import { HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
+    AnyPropertyFilter,
     DashboardMode,
     DashboardPlacement,
     DashboardTile,
     DashboardType,
     InsightColor,
     InsightShortId,
+    PropertyFilterType,
+    PropertyOperator,
     QueryBasedInsightModel,
 } from '~/types'
 
@@ -1193,10 +1196,23 @@ describe('dashboardLogic', () => {
         })
 
         describe('url filter overrides', () => {
-            const PROPERTY_OVERRIDE = [{ key: '$browser', value: 'Chrome', type: 'event' }]
+            const PROPERTY_OVERRIDE: AnyPropertyFilter[] = [
+                { key: '$browser', value: 'Chrome', type: PropertyFilterType.Event, operator: PropertyOperator.Exact },
+            ]
 
-            const openWithUrlFilters = async (urlFilters: Record<string, any>): Promise<void> => {
+            const openWithUrlFilters = async (
+                urlFilters: Record<string, any>,
+                persistedFilters: DashboardFilter = {}
+            ): Promise<void> => {
                 logic.unmount()
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/dashboards/5/': {
+                            ...dashboards[5],
+                            persisted_filters: persistedFilters,
+                        },
+                    },
+                })
                 router.actions.push('/dashboard/5', {
                     [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify(urlFilters),
                 })
@@ -1207,15 +1223,22 @@ describe('dashboardLogic', () => {
 
             // The overrides banner renders off hasUrlFilters. An override that constrains nothing still
             // has keys, so testing for key presence announces overrides on a dashboard that is showing
-            // exactly its saved state.
-            const activeOverrideCases: [string, Record<string, any>, boolean][] = [
-                ['a date override is active', { date_from: '-7d', date_to: null }, true],
-                ['a property override is active', { properties: PROPERTY_OVERRIDE }, true],
-                ['properties cleared to empty is not active', { properties: [] }, false],
+            // exactly its saved state. The back link from an insight repeats the saved filters in the
+            // url, which is the same saved state too.
+            const activeOverrideCases: [string, Record<string, any>, DashboardFilter, boolean][] = [
+                ['a date override is active', { date_from: '-7d', date_to: null }, {}, true],
+                ['a property override is active', { properties: PROPERTY_OVERRIDE }, {}, true],
+                ['properties cleared to empty is not active', { properties: [] }, {}, false],
+                [
+                    'a url that repeats the saved filters is not active',
+                    { date_from: '-7d', date_to: null, properties: PROPERTY_OVERRIDE },
+                    { date_from: '-7d', properties: PROPERTY_OVERRIDE },
+                    false,
+                ],
             ]
 
-            it.each(activeOverrideCases)('%s', async (_name, urlFilters, expected) => {
-                await openWithUrlFilters(urlFilters)
+            it.each(activeOverrideCases)('%s', async (_name, urlFilters, persistedFilters, expected) => {
+                await openWithUrlFilters(urlFilters, persistedFilters)
 
                 expect(logic.values.hasUrlFilters).toBe(expected)
             })
