@@ -90,13 +90,19 @@ Expression (Project names)
 The really important bit there being that `Skip` index usage - all of this architecture is built to allow us to use them.
 """
 
+import logging
 from typing import Optional
 
 from django.conf import settings
 
+from clickhouse_driver import Client
+
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
+from posthog.dataclasses import frozen
+
+logger = logging.getLogger("migrations")
 
 # Base SQL template for model-specific tables - same as original but without model_name column
 MODEL_SPECIFIC_EMBEDDINGS_TABLE_BASE_SQL = """
@@ -265,6 +271,64 @@ FROM {database}.{kafka_table}
     )
 
 
+# ClickHouse changed the vector similarity index across the server versions PostHog supports:
+# - before 24.10 it accepts Array(Float32) columns only, so our Array(Float64) column cannot carry it
+# - before 25.4 it rejects the dimension argument
+# - before 25.8 it is experimental, and the server refuses it without the matching setting
+VECTOR_INDEX_MIN_SERVER_VERSION = (24, 10)
+DIMENSION_ARGUMENT_MIN_SERVER_VERSION = (25, 4)
+STABLE_INDEX_MIN_SERVER_VERSION = (25, 8)
+
+
+def _server_version(client: Client) -> tuple[int, int]:
+    major, minor = (int(part) for part in client.execute("SELECT version()")[0][0].split(".")[:2])
+    return (major, minor)
+
+
+@frozen
+class AddVectorIndex:
+    """Adds one vector similarity index to a sharded table, in the form the target server accepts.
+
+    The statement runs on the host it is dispatched to, so it can read that server version first.
+    A server too old for the index gets no index, and the migration continues.
+    """
+
+    table_name: str
+    index_name: str
+    distance_function: str
+    dimension: int
+
+    @property
+    def sql(self) -> str:
+        """The statement for a current server. Migration tooling prints this form."""
+        return self._sql_with_arguments(f"'hnsw', '{self.distance_function}', {self.dimension}")
+
+    def _sql_with_arguments(self, arguments: str) -> str:
+        return (
+            f"ALTER TABLE {self.table_name} ADD INDEX IF NOT EXISTS {self.index_name} "
+            f"embedding TYPE vector_similarity({arguments})"
+        )
+
+    def __call__(self, client: Client) -> None:
+        version = _server_version(client)
+        if version < VECTOR_INDEX_MIN_SERVER_VERSION:
+            logger.warning(
+                "       Skipping index %s on %s: ClickHouse %s.%s cannot index an Array(Float64) column",
+                self.index_name,
+                self.table_name,
+                *version,
+            )
+            return
+
+        arguments = f"'hnsw', '{self.distance_function}'"
+        if version >= DIMENSION_ARGUMENT_MIN_SERVER_VERSION:
+            arguments += f", {self.dimension}"
+        query_settings = (
+            None if version >= STABLE_INDEX_MIN_SERVER_VERSION else {"allow_experimental_vector_similarity_index": "1"}
+        )
+        client.execute(self._sql_with_arguments(arguments), settings=query_settings)
+
+
 class ModelTableDefinitions:
     def __init__(self, model_name: str, dimension: Optional[int] = None):
         self.model_name = model_name
@@ -358,13 +422,23 @@ class ModelTableDefinitions:
     def truncate_sharded_sql(self) -> str:
         return f"TRUNCATE TABLE IF EXISTS {self.sharded_table_name()}"
 
-    def add_vector_index_sql(self) -> list[str]:
-        """SQL to add vector similarity indexes to the sharded table after creation."""
+    def add_vector_index_queries(self) -> list[AddVectorIndex]:
+        """Statements to add vector similarity indexes to the sharded table after creation."""
         # Create two indexes - one for L2 distance and one for cosine distance
         # This allows callers to use either distance function efficiently
         return [
-            f"ALTER TABLE {self.sharded_table_name()} ADD INDEX IF NOT EXISTS embedding_idx_l2 embedding TYPE vector_similarity('hnsw', 'L2Distance', {self.dimension})",
-            f"ALTER TABLE {self.sharded_table_name()} ADD INDEX IF NOT EXISTS embedding_idx_cosine embedding TYPE vector_similarity('hnsw', 'cosineDistance', {self.dimension})",
+            AddVectorIndex(
+                table_name=self.sharded_table_name(),
+                index_name="embedding_idx_l2",
+                distance_function="L2Distance",
+                dimension=self.dimension,
+            ),
+            AddVectorIndex(
+                table_name=self.sharded_table_name(),
+                index_name="embedding_idx_cosine",
+                distance_function="cosineDistance",
+                dimension=self.dimension,
+            ),
         ]
 
 
