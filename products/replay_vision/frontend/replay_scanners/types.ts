@@ -229,6 +229,10 @@ export function ineligibleKindDescription(kind: IneligibleKind): string {
     return INELIGIBLE_KINDS[kind].description
 }
 
+export function ineligibleKindLabel(kind: IneligibleKind): string {
+    return INELIGIBLE_KINDS[kind].label
+}
+
 export const DEFAULT_PROVIDER = 'google'
 export const DEFAULT_MODEL: ScannerModelEnumApi = ScannerModelEnumApi.Gemini3FlashPreview
 
