@@ -8,22 +8,25 @@ from posthog.hogql import ast
 from products.engineering_analytics.backend.logic._shared import WindowedCount
 from products.engineering_analytics.backend.logic.census import CENSUS_EVENT
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import UNPAGED_SCAN_LIMIT
 
-_SELECT = """
+_SELECT = f"""
     SELECT
         toString(properties.owner_team) AS owner_team,
         argMax(accurateCastOrNull(properties.test_file_count, 'Int64'), timestamp) AS test_file_count,
         argMaxIf(
             accurateCastOrNull(properties.test_file_count, 'Int64'),
             timestamp,
-            timestamp < {date_from}
+            timestamp < {{date_from}}
         ) AS test_file_count_prior
     FROM events
-    WHERE event = {census_event}
-        AND properties.repository = {repository}
-        AND timestamp >= {scan_from}
-        AND timestamp <= {date_to}
+    WHERE event = {{census_event}}
+        AND properties.repository = {{repository}}
+        AND timestamp >= {{scan_from}}
+        AND timestamp <= {{date_to}}
     GROUP BY owner_team
+    ORDER BY owner_team
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 

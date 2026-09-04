@@ -1519,6 +1519,10 @@ export interface TrunkQuarantineDebtApi {
      * @nullable
      */
     trunk_url: string | null
+    /** True when more tests are quarantined than limit. The per-team counts then cover only the returned tests, so treat them as lower bounds. */
+    truncated: boolean
+    /** Maximum tests returned, oldest quarantine first. */
+    limit: number
 }
 
 export interface WorkflowHealthBucketApi {
