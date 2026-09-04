@@ -39,6 +39,7 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
         variablesDirty,
         dashboard,
         effectiveDashboardVariableOverrides,
+        variables,
         dashboardFiltersSaving,
         showApplyFiltersBanner,
         loadingPreview,
@@ -73,7 +74,13 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
     const changes: DashboardFilterChange[] =
         variablesDirty && !filtersDirty
             ? Object.values(effectiveDashboardVariableOverrides).map((variable) => {
-                  const previous = dashboard?.persisted_variables?.[variable.variableId]
+                  const persistedVariable = dashboard?.persisted_variables?.[variable.variableId]
+                  const dashboardVariable = variables.find((candidate) => candidate.id === variable.variableId)
+                  const previous =
+                      persistedVariable ??
+                      (dashboardVariable
+                          ? { value: dashboardVariable.default_value, isNull: dashboardVariable.isNull }
+                          : undefined)
                   return {
                       label: variable.code_name,
                       previousValue: formatVariableValue(previous),
