@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/notebooks/api'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
     withInformationalResponse,
@@ -34,7 +35,16 @@ const notebooksComputeOptions = (): ToolBase<
 const NotebooksConfigureComputeSchema = () => {
     const NotebooksKernelConfigCreateBody = orvalSchemas.NotebooksKernelConfigCreateBody()
     const NotebooksKernelConfigCreateParams = orvalSchemas.NotebooksKernelConfigCreateParams()
-    return NotebooksKernelConfigCreateParams.omit({ project_id: true }).extend(NotebooksKernelConfigCreateBody.shape)
+    return z.preprocess(
+        normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
+        NotebooksKernelConfigCreateParams.omit({ project_id: true })
+            .extend(NotebooksKernelConfigCreateBody.shape)
+            .extend({
+                short_id: NotebooksKernelConfigCreateParams.shape['short_id'].describe(
+                    "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+                ),
+            })
+    )
 }
 
 const notebooksConfigureCompute = (): ToolBase<
@@ -104,7 +114,14 @@ const notebooksCreate = (): ToolBase<ReturnType<typeof NotebooksCreateSchema>, W
 
 const NotebooksDestroySchema = () => {
     const NotebooksDestroyParams = orvalSchemas.NotebooksDestroyParams()
-    return NotebooksDestroyParams.omit({ project_id: true })
+    return z.preprocess(
+        normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
+        NotebooksDestroyParams.omit({ project_id: true }).extend({
+            short_id: NotebooksDestroyParams.shape['short_id'].describe(
+                "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+            ),
+        })
+    )
 }
 
 const notebooksDestroy = (): ToolBase<ReturnType<typeof NotebooksDestroySchema>, Schemas.Notebook> => ({
@@ -123,7 +140,14 @@ const notebooksDestroy = (): ToolBase<ReturnType<typeof NotebooksDestroySchema>,
 
 const NotebooksGetSchema = () => {
     const NotebooksSqlV2StateRetrieveParams = orvalSchemas.NotebooksSqlV2StateRetrieveParams()
-    return NotebooksSqlV2StateRetrieveParams.omit({ project_id: true })
+    return z.preprocess(
+        normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
+        NotebooksSqlV2StateRetrieveParams.omit({ project_id: true }).extend({
+            short_id: NotebooksSqlV2StateRetrieveParams.shape['short_id'].describe(
+                "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+            ),
+        })
+    )
 }
 
 const notebooksGet = (): ToolBase<
@@ -178,7 +202,14 @@ const notebooksList = (): ToolBase<
 
 const NotebooksListFramesSchema = () => {
     const NotebooksKernelStatusRetrieveParams = orvalSchemas.NotebooksKernelStatusRetrieveParams()
-    return NotebooksKernelStatusRetrieveParams.omit({ project_id: true })
+    return z.preprocess(
+        normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
+        NotebooksKernelStatusRetrieveParams.omit({ project_id: true }).extend({
+            short_id: NotebooksKernelStatusRetrieveParams.shape['short_id'].describe(
+                "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+            ),
+        })
+    )
 }
 
 const notebooksListFrames = (): ToolBase<
@@ -214,7 +245,16 @@ const notebooksListFrames = (): ToolBase<
 const NotebooksPartialUpdateSchema = () => {
     const NotebooksPartialUpdateBody = orvalSchemas.NotebooksPartialUpdateBody()
     const NotebooksPartialUpdateParams = orvalSchemas.NotebooksPartialUpdateParams()
-    return NotebooksPartialUpdateParams.omit({ project_id: true }).extend(NotebooksPartialUpdateBody.shape)
+    return z.preprocess(
+        normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
+        NotebooksPartialUpdateParams.omit({ project_id: true })
+            .extend(NotebooksPartialUpdateBody.shape)
+            .extend({
+                short_id: NotebooksPartialUpdateParams.shape['short_id'].describe(
+                    "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+                ),
+            })
+    )
 }
 
 const notebooksPartialUpdate = (): ToolBase<
@@ -255,7 +295,14 @@ const notebooksPartialUpdate = (): ToolBase<
 
 const NotebooksRetrieveSchema = () => {
     const NotebooksRetrieveParams = orvalSchemas.NotebooksRetrieveParams()
-    return NotebooksRetrieveParams.omit({ project_id: true })
+    return z.preprocess(
+        normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
+        NotebooksRetrieveParams.omit({ project_id: true }).extend({
+            short_id: NotebooksRetrieveParams.shape['short_id'].describe(
+                "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+            ),
+        })
+    )
 }
 
 const notebooksRetrieve = (): ToolBase<
@@ -276,7 +323,14 @@ const notebooksRetrieve = (): ToolBase<
 
 const NotebooksRunCellInterruptSchema = () => {
     const NotebooksSqlV2RunsInterruptCreateParams = orvalSchemas.NotebooksSqlV2RunsInterruptCreateParams()
-    return NotebooksSqlV2RunsInterruptCreateParams.omit({ project_id: true })
+    return z.preprocess(
+        normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
+        NotebooksSqlV2RunsInterruptCreateParams.omit({ project_id: true }).extend({
+            short_id: NotebooksSqlV2RunsInterruptCreateParams.shape['short_id'].describe(
+                "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+            ),
+        })
+    )
 }
 
 const notebooksRunCellInterrupt = (): ToolBase<
@@ -297,7 +351,14 @@ const notebooksRunCellInterrupt = (): ToolBase<
 
 const NotebooksRunCellResultSchema = () => {
     const NotebooksSqlV2RunsRetrieveParams = orvalSchemas.NotebooksSqlV2RunsRetrieveParams()
-    return NotebooksSqlV2RunsRetrieveParams.omit({ project_id: true })
+    return z.preprocess(
+        normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
+        NotebooksSqlV2RunsRetrieveParams.omit({ project_id: true }).extend({
+            short_id: NotebooksSqlV2RunsRetrieveParams.shape['short_id'].describe(
+                "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+            ),
+        })
+    )
 }
 
 const notebooksRunCellResult = (): ToolBase<

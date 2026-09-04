@@ -27,13 +27,15 @@ import type { Schemas } from '@/api/generated'
 import { buildSchemaForDoc, packDocAttrs, type ProseMirrorNodeJSON, unpackDocAttrs } from '@/lib/prosemirror/schema'
 import type { Context, ToolBase } from '@/tools/types'
 
+import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
+
 const MARKDOWN_NOTEBOOK_NODE_TYPE = 'ph-markdown-notebook'
 const ERROR_PREVIEW_LENGTH = 160
 
 const Subtree = z.union([z.record(z.string(), z.unknown()), z.array(z.unknown())])
 
 const BaseEditSchema = z.object({
-    short_id: z.string().describe('The notebook short_id (the public id in the URL, e.g. `aBcD1234`).'),
+    short_id: z.string().describe(NOTEBOOK_SHORT_ID_DESCRIPTION),
     replace_all: z
         .boolean()
         .optional()
@@ -75,11 +77,14 @@ const JsonEditSchema = BaseEditSchema.extend({
         path: ['new_value'],
     })
 
-export const NotebookEditSchema = z.union([MarkdownEditSchema, JsonEditSchema])
+export const NotebookEditSchema = z.preprocess(
+    notebookIdAliases('short_id'),
+    z.union([MarkdownEditSchema, JsonEditSchema])
+)
 
 type MarkdownParams = z.infer<typeof MarkdownEditSchema>
 type JsonParams = z.infer<typeof JsonEditSchema>
-type Params = z.infer<typeof NotebookEditSchema>
+type Params = MarkdownParams | JsonParams
 
 function isMarkdownParams(params: Params): params is MarkdownParams {
     return 'old_markdown' in params
