@@ -290,7 +290,7 @@ export interface aiEnrichmentLogicActions {
         promptText: string
     }
     setEditorSources: (sources: AIEnrichmentSource[]) => {
-        sources: AIEnrichmentSource[]
+        sources: SourceApi[]
     }
     setIsRunning: (isRunning: boolean) => {
         isRunning: boolean
@@ -312,7 +312,7 @@ export interface aiEnrichmentLogicActions {
         patch: Partial<AIEnrichmentSource>
     ) => {
         index: number
-        patch: Partial<AIEnrichmentSource>
+        patch: Partial<SourceApi>
     }
     updateOutputField: (
         index: number,
@@ -335,7 +335,7 @@ export interface aiEnrichmentLogicMeta {
             editorModel: string,
             editorInputFields: string[],
             editorOutputFields: AIEnrichmentOutputField[],
-            editorSources: AIEnrichmentSource[]
+            editorSources: SourceApi[]
         ) => boolean
         canRun: (
             selectedLabel: string | null,
