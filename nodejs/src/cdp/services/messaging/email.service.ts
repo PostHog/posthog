@@ -113,9 +113,7 @@ const workflowEmailPausedTotal = new Counter({
  * when the pause is written, so an in-flight run and an already-queued batch send both stop at this
  * choke point instead of only newly started runs.
  */
-function parseWorkflowEmailPause(
-    metadata: HogFunctionType['metadata']
-): { reason: string; byStaff: boolean } | null {
+function parseWorkflowEmailPause(metadata: HogFunctionType['metadata']): { reason: string; byStaff: boolean } | null {
     if (!metadata?.email_sending_paused_at) {
         return null
     }

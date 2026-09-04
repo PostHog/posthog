@@ -810,7 +810,8 @@ describe('EmailService', () => {
             it('tells a staff-paused workflow to contact support instead of the resume button', async () => {
                 invocation.hogFunction.metadata = {
                     email_sending_paused_at: '2026-01-01T00:00:00Z',
-                    email_sending_paused_reason: "PostHog staff paused this workflow's email to protect delivery for everyone.",
+                    email_sending_paused_reason:
+                        "PostHog staff paused this workflow's email to protect delivery for everyone.",
                     email_sending_paused_by: 'staff',
                 }
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
