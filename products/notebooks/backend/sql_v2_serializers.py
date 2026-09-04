@@ -81,8 +81,15 @@ class NotebookVariableSerializer(serializers.Serializer):
     )
 
     def validate_value(self, value: Any) -> Any:
-        # Only scalars are ever bound, so anything longer than this is not a value someone typed.
-        if isinstance(value, str) and len(value) > MAX_VARIABLE_VALUE_CHARS:
+        if value is None:
+            return value
+        # Only scalars are ever bound. A dict or a list binds as its Python repr, which the
+        # state endpoint prints again for every cell that reads the name.
+        if not isinstance(value, str | int | float | bool):
+            raise serializers.ValidationError("Use a string, a number, a boolean, or null.")
+        # The printed form is what a run and a state read carry, so bound that rather than the
+        # string alone. A long number reaches the engine the same way a long string does.
+        if len(str(value)) > MAX_VARIABLE_VALUE_CHARS:
             raise serializers.ValidationError(f"A variable value can be at most {MAX_VARIABLE_VALUE_CHARS} characters.")
         return value
 

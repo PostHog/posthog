@@ -8,6 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from products.notebooks.backend.sql_v2_references import SQLV2Ref, resolve_sql_node_run
+from products.notebooks.backend.sql_v2_serializers import MAX_VARIABLE_VALUE_CHARS, NotebookVariableSerializer
 from products.notebooks.backend.sql_v2_variables import (
     NotebookVariable,
     NotebookVariableError,
@@ -263,3 +264,24 @@ class TestRejectVariablesInRawQuery(SimpleTestCase):
     )
     def test_leaves_a_query_alone(self, _name: str, code: str) -> None:
         reject_variables_in_raw_query(code, [COUNTRY])
+
+
+class TestNotebookVariableSerializerValue(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("dict", {"a": "b"}),
+            ("list", ["a"]),
+            ("nested", {"a": [{"b": 1}]}),
+            ("long_string", "x" * (MAX_VARIABLE_VALUE_CHARS + 1)),
+            ("long_number", int("9" * (MAX_VARIABLE_VALUE_CHARS + 1))),
+        ]
+    )
+    def test_rejects_a_value_the_engine_cannot_bind(self, _name: str, value: object) -> None:
+        serializer = NotebookVariableSerializer(data={"name": "v", "type": "string", "value": value})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("value", serializer.errors)
+
+    @parameterized.expand([("string", "US"), ("number", 30), ("boolean", True), ("null", None)])
+    def test_accepts_a_scalar(self, _name: str, value: object) -> None:
+        serializer = NotebookVariableSerializer(data={"name": "v", "type": "string", "value": value})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
