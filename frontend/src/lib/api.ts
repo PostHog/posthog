@@ -3111,6 +3111,7 @@ const api = {
             offset?: number
             teamId?: TeamType['id']
             event_type?: EventDefinitionType
+            exclude_hidden?: boolean
             search?: string
             ordering?: string
         }): Promise<CountedPaginatedResponse<EventDefinition>> {
