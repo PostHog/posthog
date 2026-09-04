@@ -3829,6 +3829,29 @@ export interface FleetFindingsSummaryApi {
 }
 
 /**
+ * What one scout run spent on model calls.
+ */
+export interface ScoutRunTokenCostApi {
+    /** UUID of the `SignalScoutRun` this cost belongs to. */
+    run_id: string
+    /**
+     * Model spend attributed to the run in US dollars, summed from its `$ai_generation` events. Null when no generation is attributed to the run — it failed before its first model call, or its events haven't landed yet. A run still in progress reports what it has spent so far.
+     * @nullable
+     */
+    token_cost_usd: number | null
+}
+
+/**
+ * Model spend for a batch of scout runs.
+ */
+export interface ScoutRunTokenCostsApi {
+    /** One entry per requested run that exists on this project. Runs from another project, and ids that match no run, are absent. */
+    costs: ScoutRunTokenCostApi[]
+    /** False when this deployment has no internal AI observability project to read the generations from, so `costs` is empty and every cost is unknown rather than zero. */
+    available: boolean
+}
+
+/**
  * `SignalScratchpad` projection used by `search-memory` and `remember`.
  */
 export interface ScratchpadEntryApi {
