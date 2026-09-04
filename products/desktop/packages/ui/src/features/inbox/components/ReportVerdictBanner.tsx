@@ -46,7 +46,7 @@ import {
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
-import { useOpenTask } from "@posthog/ui/router/useOpenTask";
+import { openTaskInput, useOpenTask } from "@posthog/ui/router/useOpenTask";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
@@ -98,7 +98,8 @@ export function ReportVerdictBanner({
   const compact = variant === "header-actions";
   const triageActions = variant === "triage-actions";
   const buttonClass = BIG_BUTTON;
-  const { data: artefactsResp } = useInboxReportArtefacts(report.id);
+  const { data: artefactsResp, isLoading: artefactsLoading } =
+    useInboxReportArtefacts(report.id);
   const cloudRepository = extractRepoSelectionRepository(
     artefactsResp?.results,
   );
@@ -231,6 +232,28 @@ export function ReportVerdictBanner({
     void createPrReport(trimmed || undefined);
   }, [createPrReport, fireAction, prFeedback]);
 
+  const handleComposeImplementation = useCallback(() => {
+    if (artefactsLoading || awaitingChannel) return;
+    fireAction("implement");
+    openTaskInput({
+      initialPrompt: "Implement the recommended next step in this report.",
+      initialCloudRepository: cloudRepository,
+      channelId: taskChannelId ?? undefined,
+      reportAssociation: {
+        reportId: report.id,
+        title: report.title ?? "Untitled report",
+      },
+    });
+  }, [
+    artefactsLoading,
+    awaitingChannel,
+    cloudRepository,
+    fireAction,
+    report.id,
+    report.title,
+    taskChannelId,
+  ]);
+
   const handleOpenPr = useCallback(() => {
     if (!externalPrUrl) return;
     fireAction("open_pr");
@@ -291,6 +314,8 @@ export function ReportVerdictBanner({
     report.status === "suppressed" ||
     report.status === "deleted";
   const showActions = !isTerminalReport;
+  const shouldComposeImplementation =
+    variant === "full" && !hasExistingPr && canCreatePr;
 
   // Keyboard actions use the same guards as their buttons so shortcuts cannot
   // bypass loading, disabled, or duplicate-work states.
@@ -396,7 +421,20 @@ export function ReportVerdictBanner({
         </Button>
       )}
       {triageActions && dismissButton}
-      {report.status === "ready" && externalPrUrl ? (
+      {shouldComposeImplementation ? (
+        <Button
+          type="button"
+          variant="primary"
+          onClick={handleComposeImplementation}
+          loading={artefactsLoading}
+          disabled={artefactsLoading || awaitingChannel}
+          className={buttonClass}
+          data-attr="inbox-report-implement"
+        >
+          <GitPullRequestIcon size={15} />
+          Implement
+        </Button>
+      ) : report.status === "ready" && externalPrUrl ? (
         <Button
           type="button"
           variant="primary"

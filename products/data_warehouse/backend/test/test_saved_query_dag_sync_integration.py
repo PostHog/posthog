@@ -124,10 +124,7 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         node.refresh_from_db()
         self.assertEqual(node.type, NodeType.MAT_VIEW)
 
-    @patch(
-        "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists", return_value=True
-    )
-    def test_revert_materialization_updates_node_type(self, _mock_workflow_exists):
+    def test_revert_materialization_updates_node_type(self):
         # create materialized
         create_response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",

@@ -273,6 +273,15 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         res = self._wizard_account_request("req_inactive_pkce", "inactive-pkce@example.com", challenge)
         assert res.status_code == 401
 
+    def test_deactivated_user_bearer_token_rejected(self):
+        token = self._get_bearer_token()
+
+        self.user.is_active = False
+        self.user.save()
+
+        res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
+        assert res.status_code == 401
+
     # --- can_provision_resources enforcement ---
 
     def test_partner_without_can_provision_resources_rejected(self):

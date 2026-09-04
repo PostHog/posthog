@@ -154,6 +154,16 @@ pub async fn update_producer_loop(
     let mut batch = AHashSet::with_capacity(config.compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
     let drain_interval = Duration::from_secs(config.producer_drain_interval_secs);
+
+    // These fire per event or per update, so resolve the handles once instead of
+    // paying a registry lookup (hash + CAS + handle drop) on every increment.
+    // Safe only because main installs the metrics recorder before spawning us.
+    let events_received = metrics::counter!(EVENTS_RECEIVED);
+    let updates_seen = metrics::counter!(UPDATES_SEEN);
+    let updates_per_event = metrics::histogram!(UPDATES_PER_EVENT);
+    let compacted_updates = metrics::counter!(COMPACTED_UPDATES);
+    let updates_filtered_by_cache = metrics::counter!(UPDATES_FILTERED_BY_CACHE);
+    let skipped_due_to_team_filter = metrics::counter!(SKIPPED_DUE_TO_TEAM_FILTER);
     loop {
         // The timer arm is what lets the flush check at the bottom of the loop run while no
         // events are arriving. Without it the loop parks in json_recv(), so a partial compaction
@@ -209,7 +219,7 @@ pub async fn update_producer_loop(
                 .filter_mode
                 .should_process(&config.filtered_teams.teams, event.team_id)
             {
-                metrics::counter!(SKIPPED_DUE_TO_TEAM_FILTER).increment(1);
+                skipped_due_to_team_filter.increment(1);
                 continue;
             }
 
@@ -218,16 +228,16 @@ pub async fn update_producer_loop(
                 config.eventdef_last_seen_floor_secs,
             );
 
-            metrics::counter!(EVENTS_RECEIVED).increment(1);
-            metrics::counter!(UPDATES_SEEN).increment(updates.len() as u64);
-            metrics::histogram!(UPDATES_PER_EVENT).record(updates.len() as f64);
+            events_received.increment(1);
+            updates_seen.increment(updates.len() as u64);
+            updates_per_event.record(updates.len() as f64);
 
             for update in updates {
-                if batch.contains(&update) {
-                    metrics::counter!(COMPACTED_UPDATES).increment(1);
-                    continue;
+                // insert returns false on duplicates, so one hash covers the
+                // membership check and the insert.
+                if !batch.insert(update) {
+                    compacted_updates.increment(1);
                 }
-                batch.insert(update);
             }
         }
 
@@ -242,7 +252,7 @@ pub async fn update_producer_loop(
             for update in batch.drain() {
                 if shared_cache.contains_key(&update) {
                     // kept for back-compat; equivalent to sum(prop_defs_cache_hits)
-                    metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
+                    updates_filtered_by_cache.increment(1);
                     continue;
                 }
 

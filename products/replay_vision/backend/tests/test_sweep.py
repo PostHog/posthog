@@ -76,7 +76,7 @@ from products.replay_vision.backend.temporal.sweep_types import (
 from products.replay_vision.backend.tests.helpers import seed_scanner_spend, snapshot_for
 
 # Every scanner built below runs on this model, so its price sets what one observation draws.
-_OBSERVATION_CREDITS = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH)
+_OBSERVATION_CREDITS = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
 
 
 _ACTIVITY = "products.replay_vision.backend.temporal.activities.find_scanner_candidates"
@@ -122,7 +122,7 @@ def _make_scanner(**overrides) -> ReplayScanner:
         "name": "sweep-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_7_FLASH,
+        "model": ScannerModel.GEMINI_3_8_FLASH,
         # Primed by default so only the priming-specific tests exercise the one-off pass.
         "primed_at": timezone.now(),
     }
@@ -1370,6 +1370,7 @@ async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = Non
         patch("temporalio.workflow.logger", fake_logger),
         # `workflow.patched` also needs the runtime; new executions take the patched branch.
         patch("temporalio.workflow.patched", return_value=patched),
+        patch("temporalio.workflow.deprecate_patch"),
         patch("temporalio.workflow.unsafe.is_replaying", return_value=False),
     ):
         await SweepScannerWorkflow().run(inputs or _sweep_inputs())
