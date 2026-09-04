@@ -537,6 +537,13 @@ class TestPostgresSourceNonRetryableErrors:
         [
             'OperationalError: connection failed: connection to server at "db.example.com", port 5432 failed: server closed the connection unexpectedly',
             'OperationalError: connection failed: connection to server at "db.example.com", port 5432 failed: SSL connection has been closed unexpectedly',
+            # A single hot-standby recovery conflict on a connection `get_rows` didn't classify as a
+            # read replica (e.g. a pooled/multi-node reader endpoint that routed the probe and the
+            # read to different backends), so its in-process offset/keyset fallback never ran and the
+            # raw driver message reaches here instead. It's the same self-recovering condition the
+            # in-process fallback already retries elsewhere, unlike the "kept canceling reads..."/"no
+            # key that can resume..." exhausted-retry aborts below, which stay non-retryable.
+            "canceling statement due to conflict with recovery\nDETAIL:  User query might have needed to see row versions that must be removed.",
         ],
     )
     def test_exhausted_connection_drops_are_classified_retryable(self, source, error_msg):

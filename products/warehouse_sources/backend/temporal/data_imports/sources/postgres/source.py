@@ -959,11 +959,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         # subset) keeps this in sync as new transient classes are added there — a substring added
         # to one of those tuples without a matching update here would otherwise keep reporting a
         # self-recovering failure to error tracking on every occurrence.
+        #
+        # "conflict with recovery" is the same class again: `get_rows` only applies its in-process
+        # recovery-conflict retry (chunk-shrinking offset/keyset fallback) once it has classified the
+        # connection as a read replica. That classification runs on a setup connection, separate from
+        # the one that serves the read, so a pooled or multi-node reader endpoint can route the two to
+        # different backends and still hit a genuine hot-standby conflict on the read connection while
+        # `using_read_replica` is False. The single-conflict message reaching here (as opposed to the
+        # "kept canceling reads..."/"no key that can resume..." messages above, which are the
+        # exhausted-retry abort and stay non-retryable) is the same self-recovering condition.
         return {
             *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
             *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
+            "conflict with recovery",
         }
 
     def reconcile_schema_metadata(
