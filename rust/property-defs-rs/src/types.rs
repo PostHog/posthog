@@ -130,6 +130,24 @@ impl fmt::Display for PropertyValueType {
     }
 }
 
+// Inverse of the Display impl above, which is the form batch writes store in
+// posthog_propertydefinition.property_type. Unknown strings are an error; the
+// caller decides whether to treat the row as untyped.
+impl FromStr for PropertyValueType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "DateTime" => Ok(PropertyValueType::DateTime),
+            "String" => Ok(PropertyValueType::String),
+            "Numeric" => Ok(PropertyValueType::Numeric),
+            "Boolean" => Ok(PropertyValueType::Boolean),
+            "Duration" => Ok(PropertyValueType::Duration),
+            _ => Err(()),
+        }
+    }
+}
+
 // The grouptypemapping table uses i32's, but we get group types by name, so we have to resolve them before DB writes, sigh
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum GroupType {

@@ -192,11 +192,14 @@ impl Cache {
     /// True when the cached state already covers this update, meaning the write
     /// it stands for would change nothing in Postgres.
     ///
-    /// Lookups go through quick_cache `get`, which marks the entry referenced;
-    /// S3-FIFO eviction uses that to keep the working set resident. The
-    /// `contains_key` of quick_cache skips that marking, so every entry looks
-    /// cold at eviction time and the cache degrades to FIFO: live keys cycle
-    /// out and each cycle costs a useless definition upsert against Postgres.
+    /// Lookups go through quick_cache `peek`, which does not mark the entry
+    /// referenced. Identity keys keep the working set within capacity and the
+    /// reader-side batch filter drops rows Postgres already has, so eviction
+    /// recency cannot change outcomes and a cache miss costs a filtered probe,
+    /// not a useless write. Marking every probe only adds S3-FIFO promotion
+    /// work under the shard locks on the hottest path in the service. If a
+    /// subcache pins at full again with an eroding hit rate, grow its capacity
+    /// instead of re-adding per-probe marking.
     pub fn contains_key(&self, key: &Update) -> bool {
         let (covered, hits, misses) = match key {
             Update::Event(def) => {
@@ -209,16 +212,15 @@ impl Cache {
                 // Producers interleave, so an update from the previous bucket
                 // can be checked after a rollover was cached; the newer write
                 // already refreshed the row, so the older update stays covered.
-                // The get refreshes the entry's recency either way.
                 let covered = self
                     .eventdefs
                     .cache
-                    .get(&lookup)
+                    .peek(&lookup)
                     .is_some_and(|bucket| bucket >= def.last_seen_at);
                 (covered, &self.eventdefs.hits, &self.eventdefs.misses)
             }
             Update::EventProperty(ep) => (
-                self.eventprops.cache.get(ep).is_some(),
+                self.eventprops.cache.peek(ep).is_some(),
                 &self.eventprops.hits,
                 &self.eventprops.misses,
             ),
@@ -230,7 +232,7 @@ impl Cache {
                     event_type: def.event_type,
                     group_name: def.group_type_index.as_ref().map(group_name),
                 };
-                let covered = match self.propdefs.cache.get(&lookup) {
+                let covered = match self.propdefs.cache.peek(&lookup) {
                     // An untyped cached row upgrades once when a typed sighting
                     // arrives; every other combination cannot change the row.
                     Some(cached) => !(cached.is_none() && def.property_type.is_some()),
@@ -251,7 +253,7 @@ impl Cache {
     // None to Some type upgrade. Concurrent producers interleave their
     // contains_key/insert pairs, so an insert can arrive after another producer
     // cached fresher state; replacing that state would make the next sighting
-    // miss and re-issue a write Postgres treats as a no-op. The get-then-insert
+    // miss and re-issue a write Postgres treats as a no-op. The peek-then-insert
     // pairs below race too, but losing that race costs one redundant upsert.
     pub fn insert(&self, key: Update) {
         match key {
@@ -264,7 +266,7 @@ impl Cache {
                 if self
                     .eventdefs
                     .cache
-                    .get(&lookup)
+                    .peek(&lookup)
                     .is_some_and(|bucket| bucket >= def.last_seen_at)
                 {
                     return;
@@ -289,7 +291,7 @@ impl Cache {
                     && self
                         .propdefs
                         .cache
-                        .get(&lookup)
+                        .peek(&lookup)
                         .is_some_and(|cached| cached.is_some())
                 {
                     return;
