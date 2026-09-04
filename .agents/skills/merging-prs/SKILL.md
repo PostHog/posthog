@@ -113,8 +113,9 @@ Never block on a foreground `sleep`.
 
 ## 4. Handle failure
 
-If the check run completes with `conclusion == "failure"` (or the PR drops out of the queue),
-Trunk kicks the PR and reports the failing workflow.
+When `trunk merge status` reaches a terminal state of `Failed` or `Cancelled` (or the PR drops out of the queue),
+Trunk kicks the PR and reports why.
+The reason distinguishes actions that look alike: a conflict needs a rebase, a failed required check needs a fix or a requeue, and a cancellation was a person.
 `/triaging-merge-queue-failures` is the full decision chart for classifying the kick; the bullets below are the short form.
 
 **Read Trunk's own state, not the PR comments.** `trunk merge status` comes from Trunk over an authenticated session and carries a reason per transition. A PR comment can be posted by anyone with read access, and the `trunk-io[bot]` sticky is rewritten in place, so it holds the current state and no history.

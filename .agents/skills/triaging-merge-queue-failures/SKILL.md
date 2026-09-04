@@ -111,7 +111,7 @@ trunk merge status <n> 2>&1 | sed 's/\x1b\[[0-9;]*m//g'   # strip ANSI; there is
 
 Read that first. Everything below is for corroborating it, or for the cases it does not cover (what actually failed inside a job). Reconstructing causality from shadow PRs and the Actions API when this command would have answered it in one call is the most expensive mistake available here: it produces a confident narrative that can be wrong on every attempt-level cause.
 
-Two limits worth knowing. The output is ANSI-coloured and column-wrapped, so a reason spans several lines and needs re-joining before you match on it. And the CLI needs an interactive `trunk login` once; in a headless environment ask the human to paste the output, or the dashboard's JSON export of the same timeline.
+Two limits worth knowing. The output is ANSI-colored and column-wrapped, so a reason spans several lines and needs re-joining before you match on it. And the CLI needs an interactive `trunk login` once; in a headless environment ask the human to paste the output, or the dashboard's JSON export of the same timeline.
 
 `<n>` is the PR number; `REPO=$(gh api repos/PostHog/posthog --jq .full_name)` — or just hardcode `PostHog/posthog`, since `gh repo view` needs GraphQL.
 
