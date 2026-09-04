@@ -9,7 +9,7 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("tasks", "0114_taskrun_autovacuum_scale_factor"),
+        ("tasks", "0115_teamtasksconfig_usertasksconfig"),
         ("posthog", "1333_uploaded_media_library_index"),
     ]
 
