@@ -51,7 +51,6 @@ export function HogFlowTreeNode({
     const step = (
         <HogFlowTreeStep
             action={node.action}
-            branchCount={node.branches.length || undefined}
             dragged={draggedActionId === node.action.id}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
