@@ -46,6 +46,34 @@ class FeatureFlagRolloutSummary:
     is_multivariate: bool
 
 
+# Shared rollout-state vocabulary. The bulk-delete API response and the stale-flags
+# health check both serve these strings, and the frontend consumes them as an enum,
+# so the mapping in `rollout_state_and_variant` is the single place they come from.
+ROLLOUT_FULLY_ROLLED_OUT = "fully_rolled_out"
+ROLLOUT_NOT_ROLLED_OUT = "not_rolled_out"
+ROLLOUT_PARTIAL = "partial"
+
+
+def rollout_state_and_variant(
+    flag: FeatureFlag,
+    checker: "FeatureFlagStatusChecker",
+    summary: FeatureFlagRolloutSummary,
+) -> tuple[str, str | None]:
+    """Map a rollout summary to a `ROLLOUT_*` state and, when a multivariate flag is
+    fully rolled out to one variant, that variant's key."""
+    if summary.effectively_full_rollout:
+        variant = None
+        if summary.is_multivariate:
+            # summary already established full rollout; this only fetches the winning variant key.
+            # Both calls read the same in-memory flag, so they cannot disagree.
+            _, variant = checker.is_multivariate_flag_fully_rolled_out(flag)
+        return ROLLOUT_FULLY_ROLLED_OUT, variant
+    # Effectively at 0%: every release condition is at 0 (max across groups is 0).
+    if summary.max_rollout_percentage == 0:
+        return ROLLOUT_NOT_ROLLED_OUT, None
+    return ROLLOUT_PARTIAL, None
+
+
 def exclude_archived_unless_requested(queryset: QuerySet, *, requested: bool) -> QuerySet:
     """Hide archived flags unless the caller explicitly asked for them.
 
