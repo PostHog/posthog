@@ -134,7 +134,7 @@ This cycle has no switchover: the eager flush was never enabled.
 Outcome: commit contiguity is a property of a data structure, not of completion order.
 
 **Verify:** change 3 compares the frontier with every real commit on all lanes.
-Exit criterion: `kafka_consumer_ledger_mismatch_total` stays zero across deploys and rebalances, and `kafka_consumer_ledger_uncommitted_offsets` returns toward zero when a lane is idle — the ring drains.
+Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across deploys and rebalances, and `kafka_consumer_ledger_uncommitted_offsets` returns toward zero when a lane is idle — the ring drains.
 
 ### 2. Add the common Kafka consumer crate and offset ledger (implement)
 
@@ -187,7 +187,7 @@ Exit criterion: `kafka_consumer_ledger_mismatch_total` stays zero across deploys
 
 **Metrics:**
 
-- Add `kafka_consumer_ledger_mismatch_total` (counter): frontier vs committed offset disagreement.
+- Add `ingestion_consumer_ledger_mismatch_total` (counter): frontier vs committed offset disagreement.
 - Add `kafka_consumer_ledger_uncommitted_offsets` (gauge, per partition): ring depth. It must fall at commit points. A value that only grows is a drain bug (a leak).
 - Add `kafka_consumer_ledger_gaps_total` (counter): offset gaps the ledger walked over. Expected to stay at zero on the ingestion topics; a non-zero value is the signal the sentinel's gap alert gave before change 5 retires it.
 
@@ -220,7 +220,7 @@ Exit criterion: `kafka_consumer_ledger_mismatch_total` stays zero across deploys
 
 - Modify `IngestionConsumer::commit_offsets`: frontier only.
 - Modify `Config`: remove the ledger mode.
-- Remove `kafka_consumer_ledger_mismatch_total`. The comparison it counts is gone; the commit sentinel remains the invariant check.
+- Remove `ingestion_consumer_ledger_mismatch_total`. The comparison it counts is gone; the commit sentinel remains the invariant check.
 
 ## Cycle 3: at most one request per key is in flight
 
