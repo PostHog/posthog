@@ -1,9 +1,11 @@
+from typing import Any
+
 from posthog.test.base import BaseTest
 from pytest import fixture
 from unittest import mock
 
 from django.core.cache import cache
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
@@ -291,6 +293,27 @@ class TestCohortDependencies(BaseTest):
 
         self.assertCountEqual(cache.get(f"cohort:dependents:{base.id}"), [cohort.id for cohort in dependents])
 
+    def test_warm_rescans_when_an_edge_changes_during_the_scan(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cohort_b = self._create_cohort(name="Test Cohort B")
+        cache.clear()
+        real_set_many = dependency_cache.set_many
+        edited = False
+
+        def add_edge_during_first_publish(data: dict[str, list[int]], **kwargs: Any) -> list[str]:
+            nonlocal edited
+            if not edited:
+                edited = True
+                cohort_b.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+                cohort_b.save()
+            return real_set_many(data, **kwargs)
+
+        with mock.patch.object(dependency_cache, "set_many", side_effect=add_edge_during_first_publish):
+            warm_team_cohort_dependency_cache(self.team.id)
+
+        self.assertEqual(cache.get(f"cohort:dependents:{cohort_a.id}"), [cohort_b.id])
+        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_b.id}"), [cohort_a.id])
+
     def test_create_does_not_scan_team_cohorts(self) -> None:
         for i in range(25):
             self._create_cohort(name=f"Existing Cohort {i}")
@@ -419,6 +442,15 @@ class TestCohortDependencies(BaseTest):
 
         self.assertEqual(get_cohort_dependents(cohort_a.id), [cohort_b.id])
         self._assert_depends_on(cohort_b, cohort_a)
+
+    def test_dependents_lookup_failure_is_not_cached(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cache.clear()
+
+        with mock.patch.object(Cohort.objects, "filter", side_effect=OperationalError("connection reset")):
+            self.assertEqual(get_cohort_dependents(cohort_a.id), [])
+
+        self.assertIsNone(cache.get(f"cohort:dependents:{cohort_a.id}"))
 
     @parameterized.expand(
         [

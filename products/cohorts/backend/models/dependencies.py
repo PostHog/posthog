@@ -1,5 +1,6 @@
 from collections import defaultdict
 from typing import Any
+from uuid import uuid4
 
 from django.conf import settings
 from django.core.cache import cache, caches
@@ -22,6 +23,8 @@ from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_t
 
 logger = get_logger(__name__)
 DEPENDENCY_CACHE_TIMEOUT = 7 * 24 * 60 * 60  # 1 week
+# Bounds the rescans one warm does while edges keep changing under it.
+DEPENDENCY_WARM_MAX_ATTEMPTS = 3
 
 # The dependency key families are read back in the request that writes them: on create,
 # `_on_cohort_changed` runs before `enqueue_calculation` reads `dependents` for the new cohort
@@ -79,6 +82,10 @@ def _cohort_dependencies_key(cohort_id: int) -> str:
 
 def _cohort_dependents_key(cohort_id: int) -> str:
     return f"cohort:dependents:{cohort_id}"
+
+
+def _team_dependency_generation_key(team_id: int) -> str:
+    return f"cohort:dependency_generation:{team_id}"
 
 
 # Set of behavioral (flag-incompatible) cohort ids per team, hidden from the feature-flag
@@ -310,6 +317,28 @@ def warm_team_cohort_dependency_cache(team_id: int, batch_size: int = 1000) -> i
     Rebuilds both key families for every live cohort of a team from Postgres. Returns the number of
     cohorts scanned.
 
+    An edge change that commits during the scan bumps the team generation before it deletes any
+    reverse key. A scan that ends on a different generation than it started on may have published a
+    reverse list from pre-edit rows, so it runs again and overwrites its own output. Writers never
+    wait on a warm. The attempt bound caps the scans that continuous edge edits in one team can
+    force on a single read miss.
+    """
+    generation_key = _team_dependency_generation_key(team_id)
+    scanned = 0
+    for _ in range(DEPENDENCY_WARM_MAX_ATTEMPTS):
+        generation = dependency_cache.get(generation_key)
+        scanned = _publish_team_cohort_dependencies(team_id, batch_size)
+        if dependency_cache.get(generation_key) == generation:
+            return scanned
+    logger.warning("cohort_dependency_warm_unsettled", team_id=team_id, attempts=DEPENDENCY_WARM_MAX_ATTEMPTS)
+    return scanned
+
+
+def _publish_team_cohort_dependencies(team_id: int, batch_size: int) -> int:
+    """
+    One scan of a team's live cohorts that writes both key families. Returns the number of cohorts
+    scanned.
+
     Uses keyset pagination on id instead of .iterator(), which opens a named
     server-side cursor that can be invalidated by connection recycling between
     batches (e.g. behind a pooler) and raises InvalidCursorName mid-scan.
@@ -360,7 +389,8 @@ def _on_cohort_changed(
 
     Only the changed cohort's own keys are written. The reverse lists of the cohorts it started or
     stopped referencing are deleted rather than edited: DEL is idempotent, so two concurrent writers
-    cannot lose each other's update, and the next reader rebuilds the list from Postgres.
+    cannot lose each other's update, and the next reader rebuilds the list from Postgres. A warm that
+    overlaps those deletes is fenced by the team generation, see warm_team_cohort_dependency_cache.
     """
     if not settings.COHORT_DEPENDENCY_INCREMENTAL_MAINTENANCE:
         _on_cohort_changed_full_warm(cohort, always_invalidate=hard_deleted)
@@ -406,6 +436,12 @@ def _on_cohort_changed(
 
     changed_dependencies = old_dependencies ^ new_dependencies
     if changed_dependencies:
+        # The bump precedes the deletes. A warm checks the generation after it publishes, so a bump
+        # that lands before that check forces a rescan. If the bump lands after the check, the
+        # deletes land after the publish too and remove the stale keys themselves.
+        dependency_cache.set(
+            _team_dependency_generation_key(cohort.team_id), uuid4().hex, timeout=DEPENDENCY_CACHE_TIMEOUT
+        )
         dependency_cache.delete_many([_cohort_dependents_key(dep_id) for dep_id in changed_dependencies])
 
     path = "edges" if old_dependencies or new_dependencies else "no_edges"
