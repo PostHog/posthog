@@ -71,10 +71,25 @@ const resolveBedrockInferenceProfileProvider = (
     return regionalProviders.length === 1 ? regionalProviders[0] : provider
 }
 
-export const findCostFromModel = (model: string, properties: Properties): CostModelResult | undefined => {
-    const providerProperty: unknown = properties['$ai_provider']
+const getAiProvider = (properties: Properties): string | undefined => {
+    const provider: unknown = properties['$ai_provider']
 
-    const provider: string | undefined = providerProperty ? String(providerProperty).toLowerCase() : undefined
+    return provider ? String(provider).toLowerCase() : undefined
+}
+
+// From the provider's response via the SDK; a requested tier can be refused, so request-side
+// properties never price.
+const getServedServiceTier = (properties: Properties): unknown => {
+    const modelParameters: unknown = properties['$ai_model_parameters']
+
+    return modelParameters && typeof modelParameters === 'object'
+        ? (modelParameters as Record<string, unknown>)['service_tier']
+        : undefined
+}
+
+export const findCostFromModel = (model: string, properties: Properties): CostModelResult | undefined => {
+    const provider = getAiProvider(properties)
+    const serviceTier = getServedServiceTier(properties)
 
     const manualMatch: ModelCostRow | undefined = findManualCost(model)
 
@@ -82,7 +97,8 @@ export const findCostFromModel = (model: string, properties: Properties): CostMo
         ? resolveModelCostForProvider(
               manualMatch.cost,
               resolveBedrockInferenceProfileProvider(model, manualMatch.cost, provider),
-              manualMatch.model
+              manualMatch.model,
+              serviceTier
           )
         : undefined
 
@@ -96,7 +112,8 @@ export const findCostFromModel = (model: string, properties: Properties): CostMo
         ? resolveModelCostForProvider(
               openRouterMatch.cost,
               resolveBedrockInferenceProfileProvider(model, openRouterMatch.cost, provider),
-              openRouterMatch.model
+              openRouterMatch.model,
+              serviceTier
           )
         : undefined
 
