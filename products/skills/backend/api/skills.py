@@ -1218,20 +1218,19 @@ class LLMSkillViewSet(
         except LLMSkillNotFoundError:
             return self._skill_not_found_response(skill_name)
         except LLMSkillDuplicateNameConflictError:
-            return Response(
-                {"attr": "new_name", "detail": "A skill with this name already exists."},
-                status=status.HTTP_400_BAD_REQUEST,
+            raise serializers.ValidationError(
+                {"new_name": "A skill with this name already exists."},
+                code="unique",
             )
         except LLMSkillRenameNotAllowedError as err:
-            return Response(
+            raise serializers.ValidationError(
                 {
-                    "attr": "new_name",
-                    "detail": (
+                    "new_name": (
                         f"Names starting with '{err.prefix}' keep product settings under the skill name, "
                         "so a skill can't be renamed into or out of them. Duplicate the skill instead."
-                    ),
+                    )
                 },
-                status=status.HTTP_400_BAD_REQUEST,
+                code="reserved_prefix",
             )
 
         props = {
