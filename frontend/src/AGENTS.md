@@ -107,5 +107,6 @@ Adding a button/toggle/action to a scene's `ScenePanel`? It must also go in that
 - Root `AGENTS.md` — full Code Style + architecture rules (authoritative).
 - `layout/scenes/AGENTS.md` (scene action surfaces: `ScenePanel` + `SceneMenuBar` dual-write rule).
 - `packages/quill/packages/primitives/AGENTS.md` — component selection matrix.
+- `packages/quill/packages/charts/AGENTS.md` — chart component and config reference; the `/working-with-charts` skill carries the app-side conventions on top of it.
 - `docs/published/handbook/engineering/conventions/frontend-coding.md` — frontend conventions.
-- Skills: `/writing-ui-components`, `/placing-product-frontend-code`, `/adopting-generated-api-types`, `/writing-kea-logics`, `/using-kea-disposables`, `/writing-tests`.
+- Skills: `/writing-ui-components`, `/placing-product-frontend-code`, `/adopting-generated-api-types`, `/writing-kea-logics`, `/using-kea-disposables`, `/writing-tests`, `/working-with-charts`.

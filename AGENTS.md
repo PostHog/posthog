@@ -267,6 +267,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/clickhouse-migrations` — any ClickHouse migration
 - `/adopting-generated-api-types` — any frontend file using `lib/api`, `api.get<`, `api.create<`, or handwritten API types
 - `/writing-ui-components` — creating, moving, splitting, or restructuring any component or file under `frontend/src/` or `products/*/frontend/`, extracting or promoting a shared component, or renaming frontend symbols or feature vocabulary
+- `/working-with-charts` — adding or editing any chart built on `@posthog/quill-charts` (a chart component, its series, config, theme, legend, tooltip, overlays, or click and zoom handlers), or any change under `packages/quill/packages/charts/`
 - `/writing-tests` — any change to what a test asserts or sets up (pytest, Jest, or Playwright), down to one fixture or one assertion added to an existing block; renames, formatting, and import sorts are exempt
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
 - `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
