@@ -150,9 +150,10 @@ REPLAY_VISION_ENQUEUE_CLAIM_FAILURES = Counter(
 
 REPLAY_VISION_ESTIMATE_OUTCOMES = Counter(
     "replay_vision_estimate_outcomes_total",
-    "Estimate refresh outcomes for a stale scanner: refreshed, or skipped because the scanner's "
-    "targeted experiment can't resolve an exposed population. Most skips are drafts that heal at "
-    "launch; a rising unresolved count means scanners are stuck with no estimate",
+    "Estimate outcomes, recorded by scanner saves and the hourly refresher: refreshed, or skipped "
+    "because the scanner's experiment targeting can't resolve an exposed population. Most skips "
+    "are drafts that heal at launch; a rising unresolved count means scanners are stuck with no "
+    "estimate. Failures of the scanner's own query stay on the error path and are not counted",
     ["outcome"],
 )
 

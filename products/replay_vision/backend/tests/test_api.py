@@ -12,6 +12,8 @@ from django.utils import timezone
 
 import requests
 from parameterized import parameterized
+from prometheus_client import REGISTRY
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.tagged_item import set_tags_on_object
@@ -918,6 +920,8 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
     def test_draft_experiment_targeting_saves_without_an_estimate_error(self) -> None:
         # The create wizard makes a scanner next to a fresh draft, so the exposed population cannot
         # resolve yet. The real estimate call runs here, because that is what must stay quiet.
+        labels = {"outcome": "experiment_linkage_unresolved"}
+        before = REGISTRY.get_sample_value("replay_vision_estimate_outcomes_total", labels) or 0.0
         self.refresh_estimate_patcher.stop()
         try:
             with patch("products.replay_vision.backend.api.scanners.logger") as mock_logger:
@@ -933,6 +937,22 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
         self.assertEqual(resp.json()["experiment_targeting"], self.targeting)
         self.assertIsNone(resp.json()["estimated_monthly_observations"])
         mock_logger.exception.assert_not_called()
+        # The save path records the skip, so the scanner is visible before the first hourly tick.
+        self.assertEqual(REGISTRY.get_sample_value("replay_vision_estimate_outcomes_total", labels), before + 1)
+
+    def test_unbuildable_query_keeps_the_estimate_failure_loud(self) -> None:
+        # A deleted action or a bad cohort reference in the scanner's own query does not heal at
+        # launch, so it must stay in error tracking instead of the quiet linkage outcome.
+        self.mock_refresh_estimate.side_effect = DRFValidationError("Action ID 424242 does not exist!")
+        labels = {"outcome": "experiment_linkage_unresolved"}
+        before = REGISTRY.get_sample_value("replay_vision_estimate_outcomes_total", labels) or 0.0
+
+        with patch("products.replay_vision.backend.api.scanners.logger") as mock_logger:
+            resp = self.client.post(self.scanners_url, data=self._create_payload("broken-query"), format="json")
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        mock_logger.exception.assert_called_once()
+        self.assertEqual(REGISTRY.get_sample_value("replay_vision_estimate_outcomes_total", labels) or 0.0, before)
 
     @parameterized.expand(
         [
@@ -1030,10 +1050,38 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertEqual(properties["credits_per_observation"], 15)
         self.assertEqual(properties["sampling_rate"], 0.25)
         self.assertTrue(properties["has_filters"])
+        self.assertFalse(properties["has_experiment_targeting"])
         self.assertTrue(properties["enabled"])
         self.assertEqual(properties["organization_id"], str(self.team.organization_id))
         # Session auth resolves to "web" (the app UI), MCP callers to "mcp".
         self.assertEqual(properties["source"], "web")
+
+    def test_create_with_experiment_targeting_reports_a_filtered_scanner(self) -> None:
+        # The population lives in experiment_targeting, not in query keys, so an experiment-scoped
+        # scanner must not read as unfiltered on launch dashboards.
+        experiment = create_experiment(self.team, "telemetry-targeting")
+        with patch("posthoganalytics.capture") as capture:
+            resp = self.client.post(
+                self.scanners_url,
+                data={
+                    "name": "telemetry-targeting",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "p"},
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
+                    "experiment_targeting": {"experiment_id": experiment.id, "variant": None},
+                    "query": {"kind": "RecordingsQuery", "filter_test_accounts": True},
+                },
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        created = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_created"
+        ]
+        self.assertEqual(len(created), 1)
+        properties = created[0].kwargs["properties"]
+        self.assertTrue(properties["has_filters"])
+        self.assertTrue(properties["has_experiment_targeting"])
 
     @parameterized.expand(
         [

@@ -93,6 +93,7 @@ from products.replay_vision.backend.queries import (
     PREVIEW_ESTIMATE_BUDGET,
     SAVE_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,
+    is_experiment_linkage_unresolved,
     project_monthly_observations,
     refresh_scanner_estimate,
 )
@@ -116,7 +117,7 @@ from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_i
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
-from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
+from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
 from products.signals.backend.facade.api import get_outcomes_for_signal_source_slice
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
@@ -188,7 +189,10 @@ def _scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
         "sampling_rate": scanner.sampling_rate,
         "sampling_mode": scanner.sampling_mode,
         "enabled": scanner.enabled,
-        "has_filters": any(query.get(key) for key in _QUERY_FILTER_KEYS),
+        # experiment_targeting narrows the population server-side, so it counts as filtered; the
+        # separate flag keeps experiment-scoped scanners countable apart from hand-filtered ones.
+        "has_filters": any(query.get(key) for key in _QUERY_FILTER_KEYS) or bool(scanner.experiment_targeting),
+        "has_experiment_targeting": bool(scanner.experiment_targeting),
         "estimated_monthly_observations": estimate,
         "estimated_monthly_credits": (
             estimate * observation_credits_for_model(scanner.model) if estimate is not None else None
@@ -203,22 +207,25 @@ def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
     try:
         refresh_scanner_estimate(scanner, budget=SAVE_ESTIMATE_BUDGET)
     except (ValidationError, PermissionDenied) as error:
-        # The estimate cannot resolve the scanner's population, so it has nothing to count. Three
-        # groups of causes reach here, and the sweep skips its tick on the same set. The experiment
-        # cannot answer for its exposed sessions: a draft that has not launched, a deleted
-        # experiment, no feature flag, group aggregation, no variants, a variant that was renamed
-        # away, or exposures that are still computing. The creator lost access to the experiment.
-        # Or the persisted query can no longer build, for example a deleted action or a bad cohort
-        # reference. A save must not fail on any of them, and the usual one is the draft a wizard
-        # creates next to the scanner, so log the reason at info and leave the error path clear.
-        # `reason` takes `detail` because a DRF ValidationError stringifies as an ErrorDetail list.
-        logger.info(
-            "replay_vision.estimate_linkage_unresolved",
-            scanner_id=str(scanner.id),
-            reason=error.detail,
-        )
+        if is_experiment_linkage_unresolved(scanner, error):
+            # The experiment targeting cannot resolve an exposed population, most often the draft
+            # a wizard creates next to the scanner. The hourly refresher retries, and the outcome
+            # counter keeps the skip visible from the first save. `reason` takes `detail` because
+            # a DRF ValidationError stringifies as an ErrorDetail list.
+            record_estimate_outcome("experiment_linkage_unresolved")
+            logger.info(
+                "replay_vision.estimate_linkage_unresolved",
+                scanner_id=str(scanner.id),
+                reason=error.detail,
+            )
+        else:
+            # The scanner's own query no longer builds, for example a deleted action or a bad
+            # cohort reference. No launch heals that, so keep it in error tracking.
+            logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
     except Exception:
         logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
+    else:
+        record_estimate_outcome("refreshed")
 
 
 def _scanner_copy_name(team_id: int, source_name: str) -> str:
