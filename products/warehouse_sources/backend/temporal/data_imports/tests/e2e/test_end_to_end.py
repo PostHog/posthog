@@ -2336,11 +2336,9 @@ async def test_in_place_repartition_to_finer_datetime_format(team, postgres_conf
     assert count_after.results[0][0] == 5
 
 
-_COARSEN_FLAGS_ON = (
+_REPARTITION_FLAG_ON = (
     "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table"
-    ".is_auto_repartition_enabled",
-    "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
-    ".is_auto_coarsen_enabled",
+    ".is_auto_repartition_enabled"
 )
 
 
@@ -2434,7 +2432,7 @@ async def test_in_place_coarsening_merges_weekly_partitions_into_months(
     assert len(ids_before) == len(timestamps)
 
     # Coarsening evaluates on the next sync and, finding a layout that fits, rewrites in the same run.
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+    with mock.patch(_REPARTITION_FLAG_ON, return_value=True):
         await _execute_run(str(uuid.uuid4()), inputs, [])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -2450,7 +2448,7 @@ async def test_in_place_coarsening_merges_weekly_partitions_into_months(
     assert await _row_ids(team, "postgres_test_coarsen_week") == ids_before
 
     # And it must settle: a table just coarsened must not be split straight back on the next sync.
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+    with mock.patch(_REPARTITION_FLAG_ON, return_value=True):
         await _execute_run(str(uuid.uuid4()), inputs, [])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -2487,7 +2485,7 @@ async def test_oom_history_does_not_split_a_table_with_tiny_partitions(
 
     await _record_suspected_ooms(team, schema, 3)  # enough to trip the OOM trigger on its own
 
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True):
+    with mock.patch(_REPARTITION_FLAG_ON, return_value=True):
         await _execute_run(str(uuid.uuid4()), inputs, [])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -2577,7 +2575,7 @@ async def test_in_place_coarsening_merges_hourly_partitions_up(
     )
     # The rollout flag gates the queued rewrite too (a pending repartition is released, not run, when
     # it's off), so force it on for the staging run that produces the over-split layout.
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True):
+    with mock.patch(_REPARTITION_FLAG_ON, return_value=True):
         await _execute_run(str(uuid.uuid4()), inputs, [])
     await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -2588,7 +2586,7 @@ async def test_in_place_coarsening_merges_hourly_partitions_up(
     ids_before = await _row_ids(team, "postgres_test_coarsen_hour")
 
     await _backdate_last_repartition(schema, days=8)
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+    with mock.patch(_REPARTITION_FLAG_ON, return_value=True):
         await _execute_run(str(uuid.uuid4()), inputs, [])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -2662,7 +2660,7 @@ async def test_in_place_coarsening_for_hashed_and_numerical_modes(
         }
     )
     # Same as the datetime test: the rollout flag must be on for the staging rewrite to run at all.
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True):
+    with mock.patch(_REPARTITION_FLAG_ON, return_value=True):
         await _execute_run(str(uuid.uuid4()), inputs, [])
     await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -2674,7 +2672,7 @@ async def test_in_place_coarsening_for_hashed_and_numerical_modes(
     assert len(ids_before) == 320
 
     await _backdate_last_repartition(schema, days=8)
-    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+    with mock.patch(_REPARTITION_FLAG_ON, return_value=True):
         await _execute_run(str(uuid.uuid4()), inputs, [])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 

@@ -43,7 +43,6 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 WAREHOUSE_AUTO_REPARTITION_FLAG = "data-warehouse-auto-repartition"
-WAREHOUSE_AUTO_COARSEN_FLAG = "data-warehouse-auto-coarsen"
 # Gates pausing a schema's imports while a multi-budget rewrite converges. Separate from the
 # repartition flag, and off by default: repartitioning a table costs us worker time, pausing its
 # imports costs the customer freshness, so the second is not a decision the first should make.
@@ -103,10 +102,6 @@ def repartition_oom_window_days() -> int:
 
 def is_auto_repartition_enabled(schema: ExternalDataSchema) -> bool:
     return is_schema_flag_enabled(schema, WAREHOUSE_AUTO_REPARTITION_FLAG)
-
-
-def is_auto_coarsen_enabled(schema: ExternalDataSchema) -> bool:
-    return is_schema_flag_enabled(schema, WAREHOUSE_AUTO_COARSEN_FLAG)
 
 
 def is_repartition_hold_enabled(schema: ExternalDataSchema) -> bool:
@@ -180,10 +175,10 @@ async def maybe_flag_for_coarsening(
     check is `select_coarsen_target`, which measures the live layout and refuses any target that would
     not fit the budget. Nothing overrides that, so a nomination can only ever be a no-op.
 
-    Ordered cheapest first — in-memory shape gates, then the in-memory selector, then the database, and
-    the feature flag (a Team fetch plus a PostHog API call) dead last. Post-load detection runs this
-    for every within-budget table on every sync, so anything before the selector is fleet-wide cost,
-    and most tables that pass the shape gates sit at the coarsest tier where the selector refuses.
+    Ordered cheapest first — in-memory shape gates, then the in-memory selector, then the database.
+    Post-load detection runs this for every within-budget table on every sync, so anything before the
+    selector is fleet-wide cost, and most tables that pass the shape gates sit at the coarsest tier
+    where the selector refuses.
 
     Called from `maybe_flag_for_repartition` on its healthy branch and on its floor-blocked branch
     (OOM history present but partitions too small to split — the over-split backlog's exact state, and
@@ -192,7 +187,7 @@ async def maybe_flag_for_coarsening(
     measured_partitions = len(partition_bytes)
 
     def _decline(reason: str) -> None:
-        # Every gate below returns silently, so without this "the rollout stalled" and "nothing was
+        # Every gate below returns silently, so without this a stuck controller and "nothing was
         # eligible" look identical from outside. A counter rather than an event because this runs on
         # every table on every sync.
         DELTA_COARSEN_DECLINE_TOTAL.labels(reason=reason).inc()
@@ -249,16 +244,6 @@ async def maybe_flag_for_coarsening(
         # about any of their merges, and blocking on it would withhold coarsening from all of them.
         if await asyncio.to_thread(ExternalDataSchemaOOMEvent.blocks_coarsening, schema, days=COARSEN_OOM_FREE_DAYS):
             return _decline("oom_within_free_window")
-
-        if not await asyncio.to_thread(is_auto_coarsen_enabled, schema):
-            await logger.adebug(
-                f"repartition: table is over-fragmented but coarsening is disabled by feature flag "
-                f"schema_id={schema.id} max_partition_bytes={max_bytes} partition_count={measured_partitions}",
-                schema_id=str(schema.id),
-                max_partition_bytes=max_bytes,
-                partition_count=measured_partitions,
-            )
-            return _decline("flag_disabled")
 
     # Distinct reason for a nominated rewrite, the same way an admin-staged one is distinguishable, so
     # the backlog pass can be tracked separately from what the controller does on its own.

@@ -55,7 +55,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     WAREHOUSE_AUTO_REPARTITION_FLAG,
     base_event_props,
     capture_repartition_event,
-    is_auto_coarsen_enabled,
     is_auto_repartition_enabled,
     maybe_flag_for_repartition,
     target_partition_bytes,
@@ -320,20 +319,14 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # The flag has to stop a queued rewrite too, not only detection. Once a table is flagged, the
     # rewrite runs ahead of extraction on every sync, so a rewrite that can't finish delays the sync
     # by the full activity budget indefinitely; the flag is the only lever support has to release
-    # such a table, and it does nothing here if it only gates detection. Each auto-staged trigger
-    # family answers to the flag that staged it, and any other reason fails open: operator-staged
-    # work (admin, coarsening nominations) was queued knowing that syncing on the old layout is the
-    # worse option, so it must never dead-end on a rollout flag. A staged swap is always driven to
-    # completion because temp is the source of truth in that window and live may already be deleted.
-    if pending is not None and swap is None:
+    # such a table, and it does nothing here if it only gates detection. Only the triggers this flag
+    # stages answer to it; every other reason fails open, because that work was queued knowing that
+    # syncing on the old layout is the worse option, so it must never dead-end on a rollout flag. A
+    # staged swap is always driven to completion because temp is the source of truth in that window
+    # and live may already be deleted.
+    if pending is not None and swap is None and not enabled:
         reason = pending.get("trigger_reason")
         if reason in ("proactive_threshold", "oom_history"):
-            release = not enabled
-        elif reason == "coarsening":
-            release = not is_auto_coarsen_enabled(schema)
-        else:
-            release = False
-        if release:
             logger.info(
                 f"repartition: queued rewrite skipped, controller disabled by feature flag schema_id={schema.id}",
                 schema_id=str(schema.id),
