@@ -3,6 +3,7 @@
 How a web analytics query gets served: every strategy in the current stack, the order they're tried in, and the exact conditions that route a request down each path.
 Source of truth for the code: `products/web_analytics/backend/hogql_queries/`.
 For deep precompute internals (schemas, bucketing, insert variants), see [products/web_analytics/PRECOMPUTATION.md](../../products/web_analytics/PRECOMPUTATION.md).
+For why the dimensional preaggregated tables are not a tier here, see [web-analytics-dimensional-read-evaluation.md](web-analytics-dimensional-read-evaluation.md).
 
 Every strategy tags its ClickHouse queries with a `query_type` that lands in `system.query_log → log_comment.query_type`, so the tag reference at the bottom doubles as a triage tool.
 
