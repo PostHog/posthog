@@ -325,6 +325,23 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self.flow.refresh_from_db()
         assert self.flow.email_sending_paused_by == ""
 
+    def test_a_stale_instance_cannot_clear_a_staff_pause_placed_in_between(self):
+        # The API loads the workflow before calling resume. A staff pause landing between that read
+        # and the write must win: the resume re-reads under lock, sees "staff", and refuses.
+        self._seed(sent=400, complaints=8)
+        self._sweep()
+        stale = HogFlow.objects.get(pk=self.flow.pk)
+        assert stale.email_sending_paused_by == "auto"
+        HogFlow.objects.filter(pk=self.flow.pk).update(email_sending_paused_by=PAUSED_BY_STAFF)
+
+        try:
+            resume_workflow_email_sending(stale)
+            raise AssertionError("stale customer resume must not clear a staff pause")
+        except StaffPausedError:
+            pass
+        self.flow.refresh_from_db()
+        assert self.flow.email_sending_paused_at is not None
+
     def test_resume_is_a_no_op_when_not_paused(self):
         assert resume_workflow_email_sending(self.flow) is False
         self.flow.refresh_from_db()

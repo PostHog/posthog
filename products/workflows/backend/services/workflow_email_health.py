@@ -13,6 +13,7 @@ from prometheus_client import Counter
 from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source, fetch_app_metric_totals_by_team_and_source
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
+from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 from posthog.schema_enums import ProductKey
 from posthog.tasks.email import send_workflow_email_sending_paused, send_workflow_email_sending_warning
 
@@ -370,12 +371,16 @@ def pause_workflow_email_sending(
         )
         if flow is None or flow.email_sending_paused_at is not None:
             return False
-        flow.email_sending_paused_at = now
-        flow.email_sending_paused_reason = reason
-        flow.email_sending_paused_by = paused_by
-        # The post_save signal publishes a worker config reload, so in-flight runs and queued batch
-        # sends stop at the send choke point rather than only new runs.
-        flow.save(update_fields=["email_sending_paused_at", "email_sending_paused_reason", "email_sending_paused_by"])
+        # A queryset update rather than save: the post_save signal publishes the worker reload
+        # immediately, and inside this transaction that is before the pause commits, so a worker
+        # could reload, read the still-unpaused row, and cache it for minutes. The explicit publish
+        # below waits for the commit; it is what stops in-flight runs and queued batch sends.
+        HogFlow.objects.filter(id=hog_flow_id).update(
+            email_sending_paused_at=now,
+            email_sending_paused_reason=reason,
+            email_sending_paused_by=paused_by,
+        )
+        transaction.on_commit(lambda: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[hog_flow_id]))
         # Dispatch after commit so a rollback can't leave an email claiming a pause that was never
         # persisted.
         transaction.on_commit(
@@ -528,26 +533,38 @@ def resume_workflow_email_sending(flow: HogFlow, *, actor: str = "customer", now
 
     A staff pause exists because the automatic thresholds could not see the problem, so a customer
     must not be able to clear it: only `actor="staff"` may. Raises StaffPausedError so the API can
-    tell the customer to contact support instead of reporting "not paused".
+    tell the customer to contact support instead of reporting "not paused". The row is locked and
+    re-read inside the transaction: the caller's instance can be stale, and a customer resume that
+    checked an automatic pause must not clear a staff pause that landed in between.
 
     `email_sending_resumed_at` is what re-arms the detector: every window is clamped to start after
     it, so a workflow that is still misbehaving trips again within minutes on fresh feedback
     instead of on the feedback that caused the first pause.
     """
-    if flow.email_sending_paused_at is None:
-        return False
-    if actor != PAUSED_BY_STAFF and flow.email_sending_paused_by == PAUSED_BY_STAFF:
-        raise StaffPausedError("Only PostHog staff can resume this pause.")
+    now = now or timezone.now()
+    with transaction.atomic():
+        locked = (
+            HogFlow.objects.select_for_update()
+            .filter(id=flow.id, team_id=flow.team_id)
+            .only("id", "team_id", "email_sending_paused_at", "email_sending_paused_by")
+            .first()
+        )
+        if locked is None or locked.email_sending_paused_at is None:
+            return False
+        if actor != PAUSED_BY_STAFF and locked.email_sending_paused_by == PAUSED_BY_STAFF:
+            raise StaffPausedError("Only PostHog staff can resume this pause.")
+        # Queryset update for the same reason as the pause writer: the reload must publish only
+        # once the resume is committed.
+        HogFlow.objects.filter(id=flow.id).update(
+            email_sending_paused_at=None,
+            email_sending_paused_reason="",
+            email_sending_paused_by="",
+            email_sending_resumed_at=now,
+        )
+        transaction.on_commit(lambda: reload_hog_flows_on_workers(team_id=flow.team_id, hog_flow_ids=[str(flow.id)]))
+    # The caller serializes these back to the customer, so mirror what was written.
     flow.email_sending_paused_at = None
     flow.email_sending_paused_reason = ""
     flow.email_sending_paused_by = ""
-    flow.email_sending_resumed_at = now or timezone.now()
-    flow.save(
-        update_fields=[
-            "email_sending_paused_at",
-            "email_sending_paused_reason",
-            "email_sending_paused_by",
-            "email_sending_resumed_at",
-        ],
-    )
+    flow.email_sending_resumed_at = now
     return True
