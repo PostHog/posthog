@@ -890,7 +890,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_database_with_warehouse_tables_and_saved_queries_n_plus_1(self, patch_execute):
         # +1 vs the pre-bulk-credential baseline: one bulk credential fetch replaces the per-row
         # credential joins (decrypt once per credential, not per table/view).
-        max_queries = FuzzyInt(7, 9)
+        max_queries = FuzzyInt(6, 8)
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"
         )
@@ -948,7 +948,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         # initialization team query doesn't run; the extra query is the single bulk credential fetch
         # (credentials are decrypted once each here instead of re-decrypted per table/view row),
         # plus the saved-expressions fetch
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(6):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )

@@ -1603,9 +1603,9 @@ class Database(BaseModel):
                         DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
                         .exclude(deleted=True)
                         .order_by("name")
-                        # created_by for the access-control creator check
-                        .select_related("table", "managed_viewset", "created_by")
-                        # credential attached in bulk below, not joined per row
+                        # credential attached in bulk below, not joined per row; the access-control
+                        # creator check compares created_by_id, so created_by is not joined either
+                        .select_related("table", "managed_viewset")
                     )
                     all_saved_queries = list(queryset)
                     saved_queries = (
@@ -1615,19 +1615,11 @@ class Database(BaseModel):
                     )
 
         with timings.measure("endpoint_saved_query", emit_span=True):
-            endpoint_saved_queries: list[DataWarehouseSavedQuery] = []
-            if not is_direct_query:
-                try:
-                    endpoint_saved_queries = list(
-                        DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
-                        .filter(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
-                        .exclude(deleted=True)
-                        # created_by for the access-control creator check
-                        .select_related("table", "created_by")
-                        # credential attached in bulk below, not joined per row
-                    )
-                except Exception as e:
-                    capture_exception(e)
+            # Endpoint-origin rows are a subset of the non-deleted saved queries fetched above,
+            # so derive them in memory instead of issuing a second per-request query.
+            endpoint_saved_queries: list[DataWarehouseSavedQuery] = [
+                sq for sq in all_saved_queries if sq.origin == DataWarehouseSavedQuery.Origin.ENDPOINT
+            ]
 
         with timings.measure("revenue_analytics_views", emit_span=True):
             revenue_views: list[RevenueAnalyticsBaseView] = []
@@ -1673,8 +1665,7 @@ class Database(BaseModel):
                         # source, so an orphan can't shadow the live table sharing its name.
                         DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                         .queryable()
-                        # created_by is hydrated for the warehouse access-control creator check
-                        .select_related("created_by")
+                        # created_by is not joined: the access-control creator check compares created_by_id.
                         # credential/external_data_source attached in bulk below, not joined per row; the
                         # access_method filter still joins the source for its WHERE without hydrating it.
                         # Deterministic tiebreak when two live tables share a name: newest wins, since
