@@ -107,6 +107,8 @@ def render_pr_body(candidate: HarvestCandidate) -> str:
         detail = ", ".join(f"{key}={value}" for key, value in hit.evidence.items() if value not in (None, ""))
         if detail:
             lines.append(f"  - {detail}")
+    if view.owner:
+        lines += ["", f"Owner per CODEOWNERS: {view.owner}"]
     lines += [
         "",
         "## Evidence",
