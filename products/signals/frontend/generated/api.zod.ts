@@ -937,7 +937,7 @@ export const signalsScoutEditReportBodySummaryMax = 20000
 
 export const signalsScoutEditReportBodyAppendNoteMax = 10000
 
-export const signalsScoutEditReportBodyAppendEvidenceItemWeightMin = 0
+export const signalsScoutEditReportBodyAppendEvidenceItemDescriptionMax = 4000
 
 export const signalsScoutEditReportBodyAppendEvidenceMax = 50
 
@@ -987,6 +987,7 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                     .object({
                         description: zod
                             .string()
+                            .max(signalsScoutEditReportBodyAppendEvidenceItemDescriptionMax)
                             .describe(
                                 'Prose for this observation. Embedded and rendered to the safety\/research surfaces.'
                             ),
@@ -995,11 +996,6 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                             .describe(
                                 'Stable id for this observation within the report (lets a later edit address it).'
                             ),
-                        weight: zod
-                            .number()
-                            .min(signalsScoutEditReportBodyAppendEvidenceItemWeightMin)
-                            .optional()
-                            .describe('Optional per-signal weight (defaults to 1.0). Scouts rarely need to set this.'),
                     })
                     .describe('One observation backing an authored report — becomes a bound signal row on the report.')
             )
@@ -1105,7 +1101,7 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
  */
 export const signalsScoutEmitReportBodyTitleMax = 300
 
-export const signalsScoutEmitReportBodyEvidenceItemWeightMin = 0
+export const signalsScoutEmitReportBodyEvidenceItemDescriptionMax = 4000
 
 export const signalsScoutEmitReportBodyAlreadyAddressedDefault = false
 export const signalsScoutEmitReportBodySuggestedReviewersItemGithubLoginMax = 200
@@ -1145,6 +1141,7 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                     .object({
                         description: zod
                             .string()
+                            .max(signalsScoutEmitReportBodyEvidenceItemDescriptionMax)
                             .describe(
                                 'Prose for this observation. Embedded and rendered to the safety\/research surfaces.'
                             ),
@@ -1153,11 +1150,6 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                             .describe(
                                 'Stable id for this observation within the report (lets a later edit address it).'
                             ),
-                        weight: zod
-                            .number()
-                            .min(signalsScoutEmitReportBodyEvidenceItemWeightMin)
-                            .optional()
-                            .describe('Optional per-signal weight (defaults to 1.0). Scouts rarely need to set this.'),
                     })
                     .describe('One observation backing an authored report — becomes a bound signal row on the report.')
             )
