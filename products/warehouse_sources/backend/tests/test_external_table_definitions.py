@@ -1,6 +1,9 @@
+from collections.abc import Collection
+
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.database.models import DatabaseField
 
 from products.warehouse_sources.backend.models.external_table_definitions import (
     _referenced_keys,
@@ -16,6 +19,12 @@ def _plain_columns(table: str) -> set[str]:
 
 def _reads(field: object) -> set[str]:
     return _referenced_keys(field) if isinstance(field, ast.ExpressionField) else set()
+
+
+def _resolve(table: str, columns: Collection[str]) -> dict[str, DatabaseField]:
+    fields = resolve_external_table_fields(table, columns)
+    assert fields is not None
+    return fields
 
 
 class TestGetHogqlColumnNameMapping:
@@ -67,13 +76,13 @@ class TestResolveExternalTableFields:
     ) -> None:
         columns = _plain_columns(table)
 
-        assert relocated_into in _reads(resolve_external_table_fields(table, columns)[key])
+        assert relocated_into in _reads(_resolve(table, columns)[key])
         # Without the new column the field must stop referencing it. The s3() structure is built
         # from the synced columns, so a field reaching outside it fails every query on the table.
-        assert relocated_into not in _reads(resolve_external_table_fields(table, columns - {relocated_into})[key])
+        assert relocated_into not in _reads(_resolve(table, columns - {relocated_into})[key])
 
     def test_drops_a_curated_field_whose_column_is_missing(self) -> None:
-        resolved = resolve_external_table_fields("stripe_invoice", _plain_columns("stripe_invoice") - {"parent"})
+        resolved = _resolve("stripe_invoice", _plain_columns("stripe_invoice") - {"parent"})
 
         assert "parent" not in resolved
         assert "subscription_id" in resolved
@@ -81,7 +90,7 @@ class TestResolveExternalTableFields:
     def test_keeps_every_field_when_all_columns_are_present(self) -> None:
         columns = _plain_columns("stripe_invoice")
 
-        assert set(resolve_external_table_fields("stripe_invoice", columns)) == set(external_tables["stripe_invoice"])
+        assert set(_resolve("stripe_invoice", columns)) == set(external_tables["stripe_invoice"])
 
     def test_unknown_table_has_no_curated_fields(self) -> None:
         assert resolve_external_table_fields("some_postgres_table", []) is None
