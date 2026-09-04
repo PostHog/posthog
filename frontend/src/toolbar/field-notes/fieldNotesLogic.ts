@@ -13,6 +13,9 @@ import { ElementRect } from '~/toolbar/types'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
 import { captureAndUploadElementScreenshot } from '~/toolbar/utils/screenshot'
 
+import { CLIPBOARD_AGENT_KEY, sendPromptToAgent } from './fieldNoteAgents'
+import { buildFieldNotesPrompt } from './fieldNotePrompt'
+
 export interface PageContext {
     url: string
     host: string
@@ -54,6 +57,7 @@ function isToolbarElement(element: HTMLElement): boolean {
 export interface fieldNotesLogicValues {
     dataAttributes: string[] // toolbarConfigLogic
     uiHost: string // toolbarConfigLogic
+    agentKey: string
     buttonFieldNotesVisible: boolean
     comment: string
     deletingId: string | null
@@ -63,6 +67,7 @@ export interface fieldNotesLogicValues {
     hoverElement: HTMLElement | null
     hoverElementRect: ElementRect | null
     isFieldNoting: boolean
+    isOverlayVisible: boolean
     pageContext: PageContext | null
     rectUpdateCounter: number
     screenshotUrl: string | null
@@ -101,6 +106,12 @@ export interface fieldNotesLogicActions {
     selectElement: (element: HTMLElement) => {
         element: HTMLElement
         page: PageContext
+    }
+    sendNotesToAgent: (ids: string[]) => {
+        ids: string[]
+    }
+    setAgentKey: (agentKey: string) => {
+        agentKey: string
     }
     setComment: (comment: string) => {
         comment: string
@@ -144,6 +155,7 @@ export interface fieldNotesLogicActions {
 export interface fieldNotesLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hoverElementRect: (hoverElement: HTMLElement | null, rectUpdateCounter: number) => ElementRect | null
+        isOverlayVisible: (isFieldNoting: boolean, selectedElement: HTMLElement | null) => boolean
         selectedElementRect: (selectedElement: HTMLElement | null, rectUpdateCounter: number) => ElementRect | null
     }
 }
@@ -174,6 +186,8 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
         setComment: (comment: string) => ({ comment }),
         setScreenshotUrl: (url: string | null) => ({ url }),
         deleteFieldNote: (id: string) => ({ id }),
+        setAgentKey: (agentKey: string) => ({ agentKey }),
+        sendNotesToAgent: (ids: string[]) => ({ ids }),
         updateRects: true,
     }),
 
@@ -269,6 +283,15 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
                 showButtonFieldNotes: () => true,
             },
         ],
+        // Where "send to agent" hands the prompt. The clipboard is the default because a deep
+        // link into an agent that is not installed does nothing the user can see.
+        agentKey: [
+            CLIPBOARD_AGENT_KEY,
+            { persist: true },
+            {
+                setAgentKey: (_, { agentKey }) => agentKey,
+            },
+        ],
         // Id of the field note currently being deleted, to disable its row button (no double-submit).
         deletingId: [
             null as string | null,
@@ -281,6 +304,13 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
     }),
 
     selectors({
+        // The toolbar keeps the overlay unmounted until this turns true, so its chunk is only
+        // fetched for a user who starts a field note.
+        isOverlayVisible: [
+            (s) => [s.isFieldNoting, s.selectedElement],
+            (isFieldNoting: boolean, selectedElement: HTMLElement | null): boolean =>
+                isFieldNoting || !!selectedElement,
+        ],
         hoverElementRect: [
             (s) => [s.hoverElement, s.rectUpdateCounter],
             (hoverElement: HTMLElement | null): ElementRect | null =>
@@ -356,6 +386,17 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
                     captureToolbarException(e, 'field_note_screenshot')
                 }
             }
+        },
+        sendNotesToAgent: async ({ ids }) => {
+            const notes = values.fieldNotes.filter((note) => ids.includes(note.id))
+            if (!notes.length) {
+                return
+            }
+            toolbarPosthogJS.capture('field notes sent to agent', {
+                agent: values.agentKey,
+                note_count: notes.length,
+            })
+            await sendPromptToAgent(values.agentKey, buildFieldNotesPrompt(notes))
         },
         deleteFieldNote: async ({ id }) => {
             await toolbarApi.fieldNotes.delete(id, {

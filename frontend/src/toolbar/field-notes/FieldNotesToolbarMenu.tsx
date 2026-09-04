@@ -1,17 +1,26 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCursorClick, IconTrash } from '@posthog/icons'
+import { IconChevronDown, IconCopy, IconCursorClick, IconSparkles, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 
+import { CLIPBOARD_AGENT_KEY, FIELD_NOTE_AGENTS, fieldNoteAgentName } from './fieldNoteAgents'
 import { fieldNotesLogic } from './fieldNotesLogic'
 
 export function FieldNotesToolbarMenu(): JSX.Element {
-    const { fieldNotes, fieldNotesLoading, isFieldNoting, deletingId } = useValues(fieldNotesLogic)
-    const { startFieldNote, stopFieldNote, deleteFieldNote } = useActions(fieldNotesLogic)
+    const { fieldNotes, fieldNotesLoading, isFieldNoting, deletingId, agentKey } = useValues(fieldNotesLogic)
+    const { startFieldNote, stopFieldNote, deleteFieldNote, sendNotesToAgent, setAgentKey } =
+        useActions(fieldNotesLogic)
+
+    const agentName = fieldNoteAgentName(agentKey)
+    const toClipboard = agentKey === CLIPBOARD_AGENT_KEY
+    const noteCount = fieldNotes.length
+    const noteLabel = noteCount === 1 ? '1 note' : `${noteCount} notes`
+    const sendAllLabel = toClipboard ? `Copy prompt for ${noteLabel}` : `Send ${noteLabel} to ${agentName}`
 
     return (
         <ToolbarMenu>
@@ -21,11 +30,8 @@ export function FieldNotesToolbarMenu(): JSX.Element {
             <ToolbarMenu.Body>
                 <div className="px-2 pb-2 space-y-3">
                     <p className="text-xs text-muted mt-0 mb-4">
-                        Point at any element and leave a note. Your AI coding agent can read these over PostHog's MCP
-                        and can turn them into changes — then mark them resolved.
-                    </p>
-                    <p className="text-xs text-muted mt-0 mb-4">
-                        Ask your agent for your <strong>project's Field notes</strong> to get the list.
+                        Point at any element and leave a note. Send the notes to your coding agent, or ask the agent for
+                        your <strong>project's field notes</strong> over PostHog's MCP.
                     </p>
                     <LemonButton
                         type="primary"
@@ -33,9 +39,45 @@ export function FieldNotesToolbarMenu(): JSX.Element {
                         center
                         icon={<IconCursorClick />}
                         onClick={() => (isFieldNoting ? stopFieldNote() : startFieldNote())}
+                        data-attr="field-notes-add"
                     >
-                        {isFieldNoting ? 'Cancel — click an element…' : 'Add a field note'}
+                        {isFieldNoting ? 'Cancel, click an element…' : 'Add a field note'}
                     </LemonButton>
+
+                    <div className="flex gap-1">
+                        <LemonButton
+                            type="secondary"
+                            className="flex-1 min-w-0"
+                            center
+                            icon={toClipboard ? <IconCopy /> : <IconSparkles />}
+                            onClick={() => sendNotesToAgent(fieldNotes.map((note) => note.id))}
+                            disabledReason={
+                                fieldNotesLoading
+                                    ? 'Loading your field notes'
+                                    : noteCount === 0
+                                      ? 'Add a field note first'
+                                      : undefined
+                            }
+                            data-attr="field-notes-send-all"
+                        >
+                            {sendAllLabel}
+                        </LemonButton>
+                        <LemonMenu
+                            items={FIELD_NOTE_AGENTS.map((agent) => ({
+                                label: agent.name,
+                                active: agent.key === agentKey,
+                                onClick: () => setAgentKey(agent.key),
+                            }))}
+                        >
+                            <LemonButton
+                                type="secondary"
+                                className="shrink-0"
+                                icon={<IconChevronDown />}
+                                tooltip="Pick where field notes go"
+                                data-attr="field-notes-pick-agent"
+                            />
+                        </LemonMenu>
+                    </div>
 
                     <div className="space-y-1">
                         <div className="text-xs font-medium text-muted uppercase">Pending</div>
@@ -55,11 +97,21 @@ export function FieldNotesToolbarMenu(): JSX.Element {
                                     </div>
                                     <LemonButton
                                         size="xsmall"
+                                        icon={toClipboard ? <IconCopy /> : <IconSparkles />}
+                                        tooltip={
+                                            toClipboard ? 'Copy prompt for this note' : `Send this note to ${agentName}`
+                                        }
+                                        onClick={() => sendNotesToAgent([note.id])}
+                                        data-attr="field-notes-send-one"
+                                    />
+                                    <LemonButton
+                                        size="xsmall"
                                         icon={<IconTrash />}
                                         tooltip="Delete field note"
                                         loading={deletingId === note.id}
                                         disabledReason={deletingId === note.id ? 'Deleting…' : undefined}
                                         onClick={() => deleteFieldNote(note.id)}
+                                        data-attr="field-notes-delete"
                                     />
                                 </div>
                             ))

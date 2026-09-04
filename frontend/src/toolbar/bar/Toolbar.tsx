@@ -375,9 +375,6 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
     const showSurveys = surveysFlag
 
-    const fieldNotesFlag = useToolbarFeatureFlag('field-notes')
-    const showFieldNotes = inStorybook() || inStorybookTestRunner() || fieldNotesFlag
-
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
     ) : visibleMenu === 'heatmap' ? (
@@ -392,7 +389,7 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <ExperimentsToolbarMenu />
     ) : visibleMenu === 'product-tours' && showProductTours ? (
         <ProductToursToolbarMenu />
-    ) : visibleMenu === 'field-notes' && showFieldNotes ? (
+    ) : visibleMenu === 'field-notes' ? (
         <FieldNotesToolbarMenu />
     ) : visibleMenu === 'surveys' && showSurveys ? (
         <SurveysToolbarMenu />
@@ -462,9 +459,7 @@ export function Toolbar(): JSX.Element | null {
     const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
     const showSurveys = surveysFlag
 
-    const fieldNotesFlag = useToolbarFeatureFlag('field-notes')
-    const showFieldNotes = inStorybook() || inStorybookTestRunner() || fieldNotesFlag
-    const { hasOpenedFieldNotes } = useValues(fieldNotesLogic)
+    const { hasOpenedFieldNotes, isOverlayVisible: isFieldNotesOverlayVisible } = useValues(fieldNotesLogic)
 
     useEffect(() => {
         setElement(ref.current)
@@ -506,7 +501,7 @@ export function Toolbar(): JSX.Element | null {
         <>
             <Suspense fallback={null}>
                 {showToursSidebar && <ProductToursSidebar />}
-                {showFieldNotes && <FieldNotesOverlay />}
+                {isFieldNotesOverlayVisible && <FieldNotesOverlay />}
                 {isSurveyCreating && <SurveySidebar />}
             </Suspense>
             <ToolbarInfoMenu />
@@ -516,14 +511,9 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar--minimized': minimized,
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,
-                    'Toolbar--extra-buttons-1':
-                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 1,
-                    'Toolbar--extra-buttons-2':
-                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 2,
-                    'Toolbar--extra-buttons-3':
-                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 3,
-                    'Toolbar--extra-buttons-4':
-                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 4,
+                    'Toolbar--extra-buttons-2': 2 + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 2,
+                    'Toolbar--extra-buttons-3': 2 + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 3,
+                    'Toolbar--extra-buttons-4': 2 + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 4,
                 })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
@@ -552,27 +542,20 @@ export function Toolbar(): JSX.Element | null {
                         <ToolbarButton menuId="inspect">
                             <IconSearch />
                         </ToolbarButton>
-                        {/* When the field notes flag is on, field notes takes the heatmap slot + cursor icon */}
-                        {showFieldNotes ? (
-                            <ToolbarButton menuId="field-notes" title="Field notes">
-                                {/* Inline font-size because the wrapper breaks the `button > svg` size rule */}
-                                {/* eslint-disable-next-line react/forbid-dom-props */}
-                                <span className="relative flex" style={{ fontSize: '1.5rem' }}>
-                                    <IconCursorClick />
-                                    {!hasOpenedFieldNotes && (
-                                        <span
-                                            className="absolute -top-1 -right-1 w-2 h-2 rounded-full"
-                                            // eslint-disable-next-line react/forbid-dom-props
-                                            style={{ backgroundColor: 'var(--primary-3000)' }}
-                                        />
-                                    )}
-                                </span>
-                            </ToolbarButton>
-                        ) : (
-                            <ToolbarButton menuId="heatmap">
+                        <ToolbarButton menuId="field-notes" title="Field notes">
+                            {/* Inline font-size because the wrapper breaks the `button > svg` size rule */}
+                            {/* eslint-disable-next-line react/forbid-dom-props */}
+                            <span className="relative flex" style={{ fontSize: '1.5rem' }}>
                                 <IconCursorClick />
-                            </ToolbarButton>
-                        )}
+                                {!hasOpenedFieldNotes && (
+                                    <span
+                                        className="absolute -top-1 -right-1 w-2 h-2 rounded-full"
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{ backgroundColor: 'var(--primary-3000)' }}
+                                    />
+                                )}
+                            </span>
+                        </ToolbarButton>
                         <ToolbarButton menuId="actions">
                             <IconBolt />
                         </ToolbarButton>
@@ -593,12 +576,10 @@ export function Toolbar(): JSX.Element | null {
                                 <IconSpotlight />
                             </ToolbarButton>
                         )}
-                        {/* Heatmaps moves here and takes the app icon when field notes is enabled */}
-                        {showFieldNotes && (
-                            <ToolbarButton menuId="heatmap" title="Heatmaps">
-                                <IconApp />
-                            </ToolbarButton>
-                        )}
+                        {/* Heatmaps sits after the feature menus because field notes holds the cursor slot */}
+                        <ToolbarButton menuId="heatmap" title="Heatmaps">
+                            <IconApp />
+                        </ToolbarButton>
                         {showSurveys && (
                             <ToolbarButton menuId="surveys" title="Surveys">
                                 <IconMessage />

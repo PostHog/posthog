@@ -9,16 +9,23 @@ import { fieldNotesLogic } from './fieldNotesLogic'
 
 const COMMENT_BOX_WIDTH = 320
 
-// Always-mounted overlay: draws the hover/selected highlights, the "click an element"
-// banner during selection, and the comment box anchored to the selected element. Living
-// here (not in the toolbar menu popup) decouples it from the menu's open/close/blur
-// lifecycle, so selecting an element reliably opens the write box.
+// Draws the hover and selected highlights, the "click an element" banner during selection, and
+// the comment box anchored to the selected element. Living here (not in the toolbar menu popup)
+// decouples it from the menu's open/close/blur lifecycle, so selecting an element reliably opens
+// the write box.
 export function FieldNotesOverlay(): JSX.Element | null {
-    const { isFieldNoting, hoverElementRect, selectedElementRect, selectedElement, comment, submitResultLoading } =
-        useValues(fieldNotesLogic)
+    const {
+        isFieldNoting,
+        isOverlayVisible,
+        hoverElementRect,
+        selectedElementRect,
+        selectedElement,
+        comment,
+        submitResultLoading,
+    } = useValues(fieldNotesLogic)
     const { stopFieldNote, setComment, submitFieldNote, clearSelection } = useActions(fieldNotesLogic)
 
-    if (!isFieldNoting && !selectedElement) {
+    if (!isOverlayVisible) {
         return null
     }
 

@@ -923,7 +923,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'heatmaps-mcp',
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
-                'field-notes',
                 'mcp-analytics',
                 'metrics',
                 'endpoints-ai-materialization-fix',
@@ -945,7 +944,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-multi-destination',
             ])
         )
-        expect(flags).toHaveLength(34)
+        expect(flags).toHaveLength(33)
     })
 
     it('every loops tool is gated on the loops flag', () => {
