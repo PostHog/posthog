@@ -318,6 +318,37 @@ describe('experimentLogic', () => {
                 ])
                 .toFinishAllListeners()
         })
+
+        it('addSharedMetricsToExperiment reuses the window (metric_config_change)', async () => {
+            // A keyed logic with a real experiment id so loadExperiment returns the launched experiment
+            // (the default unkeyed logic resolves experimentId to "new" and loads a draft). Mock every
+            // endpoint the follow-up refresh touches so its async work settles before unmount.
+            useMocks({
+                get: { '/api/projects/:team/experiments/:id': experiment },
+                post: {
+                    '/api/environments/:team/query': () => [
+                        200,
+                        { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
+                    ],
+                },
+            })
+            jest.spyOn(api, 'update').mockResolvedValue(experiment)
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(experiment)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.addSharedMetricsToExperiment([1], { type: 'primary' })
+            })
+                .toDispatchActions([
+                    (action) =>
+                        action.type === keyed.actionTypes.refreshExperimentResults &&
+                        action.payload.triggeredBy === 'metric_config_change',
+                ])
+                .toFinishAllListeners()
+
+            keyed.unmount()
+        })
     })
 
     describe('currentRefresh tracking', () => {

@@ -92,6 +92,22 @@ const metricsInOrder = (experiment: Experiment, type: 'primary' | 'secondary'): 
     return [...(inline as ExperimentMetric[]), ...sharedMetrics]
 }
 
+/**
+ * Every metric uuid on the experiment now, across primary and secondary (inline + shared). Metrics without
+ * a uuid are skipped: they can't be matched against a run's per-uuid results, so they never signal a gap.
+ */
+const currentMetricUuids = (experiment: Experiment): string[] =>
+    [
+        ...metricsInOrder(experiment, 'primary').map((metric) => metric.uuid),
+        ...metricsInOrder(experiment, 'secondary').map((metric) => metric.uuid),
+    ].filter((uuid): uuid is string => !!uuid)
+
+/** Metric uuids a run resolved: a computed result or a recorded failure. */
+const coveredMetricUuids = (recalculation: ExperimentMetricsRecalculationApi): string[] => [
+    ...(recalculation.results ?? []).map(({ metric_uuid }) => metric_uuid),
+    ...Object.keys((recalculation.metric_errors as Record<string, unknown> | null) ?? {}),
+]
+
 type MetricErrorState = { detail: string } | null
 type ResolveByUuid<T> = (uuid: string) => T
 
@@ -672,14 +688,23 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     }
 
                     /**
-                     * We have no per-metric staleness signal, so a results + failures count short of the total
-                     * means the run diverged: re-run to heal it. This recovery is generic (it also fires after a
-                     * reset and relaunch), so advance the window with experiment_config_change rather than reuse a
-                     * cutoff that may predate the new start_date.
+                     * Heal a completed run that does not cover every current metric. Two cases:
+                     * 1. The run diverged: its own resolved count fell short of its total (also fires after a
+                     *    reset and relaunch).
+                     * 2. A metric was added after this run finished, so a current metric uuid is absent from the
+                     *    run's results. The run's own counts look complete, so only a uuid comparison catches it.
+                     * Otherwise the new metric shows a perpetual loading state, since nothing else re-runs on
+                     * page load. Advance the window with experiment_config_change rather than reuse a cutoff that
+                     * may predate the new start_date.
                      */
+                    const coveredUuids = new Set(coveredMetricUuids(recalculation))
+                    const missingCurrentMetric = currentMetricUuids(props.experiment).some(
+                        (uuid) => !coveredUuids.has(uuid)
+                    )
                     if (
                         recalculation.status === RECALCULATION_STATUSES.completed &&
-                        recalculation.completed_metrics + recalculation.failed_metrics < recalculation.total_metrics
+                        (recalculation.completed_metrics + recalculation.failed_metrics < recalculation.total_metrics ||
+                            missingCurrentMetric)
                     ) {
                         actions.triggerRecalculation('experiment_config_change')
                         return
@@ -714,13 +739,15 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     return
                 }
                 /**
-                 * If we have a recalculation in flight, and the user has changed the experiment or the metrics configuration,
-                 * we schedule a new recalculation with the corresponding trigger.
+                 * A config change while a real run is polling queues a rerun; the poll's terminal branch
+                 * drains it. Guard on the run status, not isRecalculating: a transient loadLatestRecalculation
+                 * fetch also flips isRecalculating, and queueing against it strands the rerun forever, because
+                 * that fetch never polls and so never drains the queue.
                  */
-                if (
-                    (trigger === 'experiment_config_change' || trigger === 'metric_config_change') &&
-                    values.isRecalculating
-                ) {
+                const runStatus = values.currentRecalculation?.status
+                const runInFlight =
+                    runStatus === RECALCULATION_STATUSES.pending || runStatus === RECALCULATION_STATUSES.in_progress
+                if ((trigger === 'experiment_config_change' || trigger === 'metric_config_change') && runInFlight) {
                     actions.setQueuedRerun(trigger)
                     return
                 }

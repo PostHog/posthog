@@ -381,6 +381,37 @@ describe('experimentMetricsLogic', () => {
             expect(capturedBody).toEqual({ trigger: 'cold_run' })
         })
 
+        it('heals a completed run that is missing a metric added after it finished', async () => {
+            // A metric added after the last run finished is absent from that run's results. The run's own
+            // counts look complete, so only a uuid comparison catches the gap; without the heal the new metric
+            // stays stuck loading on every page load.
+            const experimentWithExtraMetric = {
+                ...EXPERIMENT,
+                metrics: [...(EXPERIMENT.metrics ?? []), { uuid: 'added-after-run-uuid' }],
+            } as unknown as Experiment
+            let capturedBody: any
+            useMocks({
+                get: {
+                    // Completed run that covers only the two original metrics, not the newly added one.
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        completedRecalculation,
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async ({ request }) => {
+                        capturedBody = await request.json()
+                        return [201, completedRecalculation2]
+                    },
+                },
+            })
+            logic = experimentMetricsLogic({ experiment: experimentWithExtraMetric })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['triggerRecalculation']).toFinishAllListeners()
+            expect(capturedBody).toEqual({ trigger: 'experiment_config_change' })
+        })
+
         it('applies terminal results and resumes polling the active run (reload while recalculating)', async () => {
             const createMock = jest.fn(() => [201, pendingRecalculation])
             useMocks({
@@ -622,6 +653,40 @@ describe('experimentMetricsLogic', () => {
 
                 expect(logic.values.queuedRerun).toBe('metric_config_change')
                 expect(createMock).not.toHaveBeenCalled()
+            })
+
+            it('posts instead of queuing when only a latest-load is in flight (no running run)', async () => {
+                // Adding a shared metric reloads the experiment, which re-fires loadLatestRecalculation. That
+                // fetch flips recalculationLoading true but never polls, so it can't drain a queue. A config
+                // change here must create a run, not queue against the transient load and strand forever.
+                const createMock = jest.fn(() => [201, pendingRecalculation])
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            completedRecalculation,
+                        ],
+                    },
+                    post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+                })
+                mountLogic()
+                await expectLogic(logic).toDispatchActions(['setCurrentRecalculation']).toFinishAllListeners()
+
+                // Reproduce the transient state a latest-load leaves: loading true, only a completed run
+                // resolved. This is busy under isRecalculating, but no run is pending or in_progress.
+                logic.actions.setRecalculationLoading(true)
+                expect(logic.values.isRecalculating).toBe(true)
+                expect(logic.values.currentRecalculation?.status).toBe('completed')
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation('metric_config_change')
+                })
+                    .toDispatchActions(['triggerRecalculation'])
+                    .toNotHaveDispatchedActions(['setQueuedRerun'])
+                    .toFinishAllListeners()
+
+                expect(logic.values.queuedRerun).toBeNull()
+                expect(createMock).toHaveBeenCalled()
             })
 
             it('does not queue a cold_run (cold_run always starts fresh)', async () => {
