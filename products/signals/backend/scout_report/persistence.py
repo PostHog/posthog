@@ -452,6 +452,7 @@ def append_report_evidence(
 
     Team-scoped fail-closed like `append_report_note`, and capped: emit plus every append share
     `MAX_REPORT_SIGNALS`, checked under the report lock so two concurrent appends cannot both pass.
+    A deleted report is refused under the same lock.
 
     Returns the ClickHouse `document_id`s to write, in input order. Only the Postgres side runs here.
     The caller emits the rows with `emit_appended_report_evidence` AFTER the edit commits, so a
@@ -465,14 +466,22 @@ def append_report_evidence(
     appended_weight = sum(signal.weight for signal in signals)
 
     with transaction.atomic():
-        stored_count = (
+        stored = (
             SignalReport.objects.select_for_update()
             .filter(team_id=team_id, id=report_id)
-            .values_list("signal_count", flat=True)
+            .values_list("signal_count", "status")
             .first()
         )
-        if stored_count is None:
+        if stored is None:
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        stored_count, stored_status = stored
+        # Deletion tombstones every signal row bound to the report, so a live row appended after that
+        # supersedes the tombstone and pulls later pipeline signals back into the dead group. The
+        # grouping pipeline declines to move a deleted report's counters for the same reason, and the
+        # embedding receiver drops its document write. Checked under the lock, so a deletion that
+        # commits while this call runs still blocks the append.
+        if stored_status == SignalReport.Status.DELETED:
+            raise InvalidScoutReportError(f"report {report_id} is deleted; evidence cannot be appended")
         if stored_count + len(signals) > MAX_REPORT_SIGNALS:
             raise InvalidScoutReportError(
                 f"report {report_id} holds {stored_count} signals; appending {len(signals)} "
