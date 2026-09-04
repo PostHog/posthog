@@ -22,7 +22,7 @@ FRONT_CONFIG = SignalSourceTableConfig(
         json_list_fields=("tags",),
     ),
     record_fetcher=data_warehouse_record_fetcher,
-    partition_field="fromUnixTimestamp(toUInt32(created_at))",
+    partition_field="fromUnixTimestamp(toInt(created_at))",
     fields=FRONT_FIELDS,
     where_clause="status NOT IN ('archived', 'deleted')",
     max_records=200,
