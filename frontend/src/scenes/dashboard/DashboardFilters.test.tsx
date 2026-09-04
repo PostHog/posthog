@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -109,6 +109,7 @@ describe('DashboardFilterBar', () => {
         expect(document.querySelector('[data-attr="dashboard-filters-unsaved"]')).toBeInTheDocument()
         expect(document.querySelector('[data-attr="dashboard-save-filters"]')).toBeInTheDocument()
         expect(document.querySelector('[data-attr="dashboard-edit-mode-discard"]')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Show 1 unsaved change' })).toBeInTheDocument()
 
         logic.unmount()
     })

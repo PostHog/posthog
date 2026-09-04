@@ -23,6 +23,7 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
     }
 
     const changedCount = dashboardSettingsChanges.length
+    const changeSummary = `${changedCount} unsaved ${changedCount === 1 ? 'change' : 'changes'}`
     const discardDataAttr = layoutEditMode ? 'dashboard-discard-filters' : 'dashboard-edit-mode-discard'
 
     return (
@@ -36,13 +37,11 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
                     size="small"
                     noPadding
                     className="text-inherit"
-                    aria-label="Show dashboard changes"
+                    aria-label={`Show ${changeSummary}`}
                 >
                     <span className="flex items-center gap-1.5">
                         <span className="h-2 w-2 animate-pulse motion-reduce:animate-none rounded-full bg-warning" />
-                        <span className="@max-lg/dashboard-filters:hidden whitespace-nowrap">
-                            {`${changedCount} unsaved ${changedCount === 1 ? 'change' : 'changes'}`}
-                        </span>
+                        <span className="@max-lg/dashboard-filters:hidden whitespace-nowrap">{changeSummary}</span>
                         <span className="@min-lg/dashboard-filters:hidden whitespace-nowrap">
                             {`${changedCount} unsaved`}
                         </span>
