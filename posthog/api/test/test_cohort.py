@@ -3747,17 +3747,24 @@ email@example.org,
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
+    @parameterized.expand(
+        [
+            ("holding_legacy_single_element_list", "icontains", "@example.com"),
+            ("with_is_set_filter_without_value_key", "is_set", None),
+        ]
+    )
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_rename_static_cohort_holding_single_element_list_value(
-        self, patch_calculate_cohort, patch_capture
+    def test_rename_static_cohort_with_unchanged_criteria(
+        self, _name: str, operator: str, value: str | None, patch_calculate_cohort, patch_capture
     ) -> None:
-        person_filter = {"key": "email", "type": "person", "operator": "icontains", "value": "@example.com"}
+        person_filter = {"key": "email", "type": "person", "operator": operator, "value": value}
         stored_filters = CohortFilters.model_validate(
             {"properties": {"type": "OR", "values": [person_filter]}}, context={"team": self.team}
         ).model_dump(exclude_none=True)
-        # A row written before the unwrap shipped. HogQL builds the same bytecode either way.
-        stored_filters["properties"]["values"][0]["value"] = ["@example.com"]
+        if value is not None:
+            # A row written before the unwrap shipped. HogQL builds the same bytecode either way.
+            stored_filters["properties"]["values"][0]["value"] = [value]
         static_cohort = Cohort.objects.create(
             team=self.team,
             name="static cohort",
@@ -3776,6 +3783,9 @@ email@example.org,
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         static_cohort.refresh_from_db()
         self.assertEqual(static_cohort.name, "renamed static cohort")
+        assert static_cohort.filters is not None
+        # The save also repairs a legacy list in place: the persisted value is the unwrapped scalar.
+        self.assertEqual(static_cohort.filters["properties"]["values"][0].get("value"), value)
 
     @parameterized.expand([("with_filters", True), ("without_filters", False)])
     @patch("posthog.api.cohort.report_user_action")
@@ -4424,24 +4434,32 @@ email@example.org,
 
     @parameterized.expand(
         [
-            ("icontains_single_list", "icontains", ["@example.com"], "@example.com"),
-            ("not_icontains_single_list", "not_icontains", ["@example.com"], "@example.com"),
-            ("starts_with_single_list", "starts_with", ["admin"], "admin"),
-            ("not_starts_with_single_list", "not_starts_with", ["admin"], "admin"),
-            ("ends_with_single_list", "ends_with", [".com"], ".com"),
-            ("not_ends_with_single_list", "not_ends_with", [".com"], ".com"),
-            ("is_date_after_single_list", "is_date_after", ["-7d"], "-7d"),
-            ("is_date_before_single_list", "is_date_before", ["-7d"], "-7d"),
-            ("icontains_multi_list_kept", "icontains", ["@a.com", "@b.com"], ["@a.com", "@b.com"]),
-            ("icontains_plain_string_kept", "icontains", "@example.com", "@example.com"),
-            ("icontains_empty_list_kept", "icontains", [], []),
-            ("icontains_non_string_element_kept", "icontains", [None], [None]),
-            ("exact_single_list_kept", "exact", ["admin"], ["admin"]),
+            ("icontains_single_list", "person", "email", "icontains", ["@example.com"], "@example.com"),
+            ("not_icontains_single_list", "person", "email", "not_icontains", ["@example.com"], "@example.com"),
+            ("starts_with_single_list", "person", "email", "starts_with", ["admin"], "admin"),
+            ("not_starts_with_single_list", "person", "email", "not_starts_with", ["admin"], "admin"),
+            ("ends_with_single_list", "person", "email", "ends_with", [".com"], ".com"),
+            ("not_ends_with_single_list", "person", "email", "not_ends_with", [".com"], ".com"),
+            ("is_date_after_single_list", "person", "email", "is_date_after", ["-7d"], "-7d"),
+            ("is_date_before_single_list", "person", "email", "is_date_before", ["-7d"], "-7d"),
+            (
+                "person_metadata_single_list",
+                "person_metadata",
+                "created_at",
+                "is_date_after",
+                ["2024-01-01"],
+                "2024-01-01",
+            ),
+            ("icontains_multi_list_kept", "person", "email", "icontains", ["@a.com", "@b.com"], ["@a.com", "@b.com"]),
+            ("icontains_plain_string_kept", "person", "email", "icontains", "@example.com", "@example.com"),
+            ("icontains_empty_list_kept", "person", "email", "icontains", [], []),
+            ("icontains_non_string_element_kept", "person", "email", "icontains", [None], [None]),
+            ("exact_single_list_kept", "person", "email", "exact", ["admin"], ["admin"]),
         ]
     )
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_single_value_operator_unwraps_single_element_list(
-        self, _name, operator, value, expected, patch_capture
+        self, _name, filter_type, key, operator, value, expected, patch_capture
     ):
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -4450,7 +4468,7 @@ email@example.org,
                 "filters": {
                     "properties": {
                         "type": "OR",
-                        "values": [{"key": "email", "type": "person", "operator": operator, "value": value}],
+                        "values": [{"key": key, "type": filter_type, "operator": operator, "value": value}],
                     }
                 },
             },

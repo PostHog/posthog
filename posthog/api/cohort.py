@@ -373,7 +373,9 @@ def _coerce_stored_filter_values(filters: Any) -> Any:
         key: _coerce_stored_filter_values(value) if key in ("properties", "values") else value
         for key, value in filters.items()
     }
-    if coerced.get("type") in SINGLE_VALUE_FILTER_TYPES:
+    # An is_set/is_not_set filter stores no value key, and validate_filters serializes with
+    # exclude_none, so writing `value: None` here would make an unchanged filter compare unequal.
+    if coerced.get("type") in SINGLE_VALUE_FILTER_TYPES and "value" in coerced:
         coerced["value"] = _single_value_operator_value(coerced.get("operator"), coerced.get("value"))
     return coerced
 
