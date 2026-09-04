@@ -80,6 +80,7 @@ class TestEnrollmentCensusCriteria(BaseTest):
             ("at_cap", BUILD_LOAD_EXCLUSION_METRICS, False),
         ]
     )
+    @freeze_time("2026-01-15")
     def test_build_load_cap_excludes_team_with_too_many_running_metrics(
         self, _name: str, metric_count: int, expect_excluded: bool
     ) -> None:
