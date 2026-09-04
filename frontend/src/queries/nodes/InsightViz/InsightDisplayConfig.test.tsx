@@ -173,11 +173,11 @@ describe('InsightDisplayConfig', () => {
                         'Statistical analysis',
                         'Axis labels',
                     ],
+                    // An area chart keeps one shared y-axis, so it drops "Show multiple Y-axes".
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
                         'Show alert threshold lines',
-                        'Show multiple Y-axes',
                         'Show trend lines',
                         'Show annotations',
                         'Show legendBottom',
