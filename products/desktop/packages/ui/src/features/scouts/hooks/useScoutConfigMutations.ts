@@ -1,5 +1,9 @@
-import type { ScoutConfig } from "@posthog/api-client/posthog-client";
+import type {
+  ScoutConfig,
+  ScoutOutputDestinations,
+} from "@posthog/api-client/posthog-client";
 import { getScoutOrigin } from "@posthog/core/scouts/scoutPresentation";
+import { describeSlackDelivery } from "@posthog/core/scouts/scoutSlackDestination";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { useAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -14,6 +18,7 @@ export interface ScoutConfigUpdate {
   emit?: boolean;
   run_interval_minutes?: number;
   auto_pause_exempt?: boolean;
+  output_destinations?: ScoutOutputDestinations;
 }
 
 const CONFIG_SETTINGS = [
@@ -41,6 +46,18 @@ function trackConfigChange(
       // cloud client normalizes an unknown prior value to null. Undefined would
       // drop the key on serialization and split the two clients' event shape.
       old_value: previousConfig[setting] ?? null,
+      success,
+    });
+  }
+  // Report a destination change by delivery kind only — never the channel or
+  // member IDs behind it.
+  if (updates.output_destinations !== undefined) {
+    track(ANALYTICS_EVENTS.SCOUT_CONFIG_CHANGED, {
+      skill_name: previousConfig.skill_name,
+      scout_origin: getScoutOrigin(previousConfig),
+      setting: "output_destinations",
+      new_value: describeSlackDelivery(updates.output_destinations),
+      old_value: describeSlackDelivery(previousConfig.output_destinations),
       success,
     });
   }

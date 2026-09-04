@@ -1141,3 +1141,26 @@ export interface SlackChannelsQueryParams {
   offset?: number;
   channelId?: string;
 }
+
+export interface SlackMemberOption {
+  /** Slack member ID (e.g. U0123ABC); post to it to open a direct message. */
+  id: string;
+  /** Slack handle without the leading '@'. */
+  name: string;
+  /** Name to show in pickers: display name, falling back to real name or handle. */
+  display_name: string;
+}
+
+export interface SlackMembersResponse {
+  users: SlackMemberOption[];
+  lastRefreshedAt?: string | null;
+  has_more?: boolean;
+}
+
+export interface SlackMembersQueryParams {
+  search?: string;
+  limit?: number;
+  offset?: number;
+  /** Look up one member directly by Slack member ID; other params are ignored. */
+  userId?: string;
+}

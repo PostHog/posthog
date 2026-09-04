@@ -60,6 +60,8 @@ import type {
   SignalUserAutonomyConfig,
   SlackChannelsQueryParams,
   SlackChannelsResponse,
+  SlackMembersQueryParams,
+  SlackMembersResponse,
   SuggestedReviewersArtefact,
   SuggestedReviewerWriteEntry,
   Task,
@@ -560,6 +562,39 @@ export interface ScoutConfig {
   run_interval_minutes: number;
   last_run_at: string | null;
   created_at: string;
+  /**
+   * Where each finding or report this scout emits is delivered. Absent on
+   * backends predating per-scout destinations, or empty when none is set.
+   */
+  output_destinations?: ScoutOutputDestinations | null;
+}
+
+/**
+ * A Slack destination for one scout's output. Deliver to a channel, or DM up to
+ * MAX_SCOUT_SLACK_DM_TARGETS members — set `channel` or `users`, never both.
+ */
+export interface ScoutSlackDestination {
+  /** Slack integration whose bot posts the findings and reports. */
+  integration_id: number;
+  /** `channel_id|#channel-name` target, or null while no channel is chosen. */
+  channel?: string | null;
+  /**
+   * Members to DM, each `member_id|@display-name` (a bare member ID also works).
+   * Each member gets their own DM from the PostHog app.
+   */
+  users?: string[] | null;
+  /** Post a report as a Slack thread split by its Markdown headings. */
+  thread_reports?: boolean;
+}
+
+export interface ScoutOutputDestinations {
+  slack?: ScoutSlackDestination | null;
+  /**
+   * A CDP destination another product provisioned for this scout's reports.
+   * Signals does not deliver it; the reference lives here so the owning product
+   * can manage its lifecycle. Preserved across Slack edits.
+   */
+  webhook?: { hog_function_id: string } | null;
 }
 
 export interface ScoutRun {
@@ -2393,6 +2428,11 @@ export class PostHogAPIClient {
       emit?: boolean;
       run_interval_minutes?: number;
       auto_pause_exempt?: boolean;
+      /**
+       * Pass the full desired set of destinations; the backend replaces the
+       * stored object. Send an empty object to disable delivery.
+       */
+      output_destinations?: ScoutOutputDestinations;
     },
   ): Promise<ScoutConfig> {
     const urlPath = `/api/projects/${projectId}/signals/scout/configs/${configId}/`;
@@ -5580,6 +5620,41 @@ export class PostHogAPIClient {
       throw new Error(`Failed to fetch Slack channels: ${response.statusText}`);
     }
     return (await response.json()) as SlackChannelsResponse;
+  }
+
+  async getSlackUsersForIntegration(
+    integrationId: number,
+    params?: SlackMembersQueryParams,
+  ): Promise<SlackMembersResponse> {
+    const teamId = await this.getTeamId();
+    const url = new URL(
+      `${this.api.baseUrl}/api/environments/${teamId}/integrations/${integrationId}/users/`,
+    );
+    const search = params?.search?.trim();
+    if (search) {
+      url.searchParams.set("search", search);
+    }
+    if (params?.limit != null) {
+      url.searchParams.set("limit", String(params.limit));
+    }
+    if (params?.offset != null) {
+      url.searchParams.set("offset", String(params.offset));
+    }
+    if (params?.userId) {
+      url.searchParams.set("user_id", params.userId);
+    }
+    const path = `/api/environments/${teamId}/integrations/${integrationId}/users/${url.search}`;
+
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch Slack members: ${response.statusText}`);
+    }
+    return (await response.json()) as SlackMembersResponse;
   }
 
   async deleteSignalUserAutonomyConfig(): Promise<void> {
