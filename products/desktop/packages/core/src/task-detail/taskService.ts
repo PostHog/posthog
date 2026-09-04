@@ -1,3 +1,4 @@
+import { requestErrorStatus } from "@posthog/api-client/fetcher";
 import {
   CLOUD_USAGE_LIMIT_ERROR_MESSAGE,
   type TaskSessionStorageAccess,
@@ -27,6 +28,14 @@ export type { TaskCreationInput, TaskCreationOutput };
 export { TASK_SERVICE } from "./identifiers";
 
 export type CreateTaskResult = SagaResult<TaskCreationOutput>;
+
+/**
+ * `CreateTaskResult` plus the HTTP status when the failure came from the API.
+ * The saga flattens an error to its message, which hides the 404 that callers
+ * must tell apart: a task the API does not return yet is not a failure worth
+ * reporting as one.
+ */
+export type OpenTaskResult = CreateTaskResult & { errorStatus?: number };
 
 /**
  * True when a failed createTask was blocked by the usage limit. The upgrade modal is
@@ -218,7 +227,7 @@ export class TaskService {
   public async openTask(
     taskId: string,
     taskRunId?: string,
-  ): Promise<CreateTaskResult> {
+  ): Promise<OpenTaskResult> {
     this.log.info("Opening existing task", { taskId, taskRunId });
 
     const posthogClient = await this.host.getAuthenticatedClient();
@@ -242,6 +251,7 @@ export class TaskService {
         success: false,
         error: error instanceof Error ? error.message : "Failed to fetch task",
         failedStep: "fetch_task",
+        errorStatus: requestErrorStatus(error),
       };
     }
 
