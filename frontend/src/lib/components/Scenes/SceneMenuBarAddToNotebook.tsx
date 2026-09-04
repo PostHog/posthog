@@ -6,6 +6,7 @@ import { IconNotebook, IconPlusSmall } from '@posthog/icons'
 import { dayjs } from 'lib/dayjs'
 import {
     NotebookSelectButtonLogicProps,
+    notebookAccessDeniedReason,
     notebookSelectButtonLogic,
 } from 'scenes/notebooks/NotebookSelectButton/notebookSelectButtonLogic'
 import { NotebookListItemType, NotebookTarget } from 'scenes/notebooks/types'
@@ -61,6 +62,15 @@ export function SceneMenuBarAddToNotebook({
         createNotebook(NotebookTarget.Popover, title, notebookResource ? [notebookResource] : undefined, () => {
             loadNotebooksContainingResource()
         })
+    }
+
+    const accessDeniedReason = notebookAccessDeniedReason()
+    if (accessDeniedReason) {
+        return (
+            <SceneMenuBarSubMenu label="Add to notebook">
+                <SceneMenuBarItem disabled>{accessDeniedReason}</SceneMenuBarItem>
+            </SceneMenuBarSubMenu>
+        )
     }
 
     return (
