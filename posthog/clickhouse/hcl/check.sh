@@ -43,7 +43,7 @@ known_drift_skip() {
     #     persons_*_up_to_date_view -- same shape, different remote.
     #
     # Remove a name once its two sides agree. Do not add one without a drift-catalog row.
-    dev|prod-us|prod-eu) echo "events,events_main,ai_events,distributed_events_recent,writable_events_recent,distributed_posthog_document_embeddings,writable_posthog_document_embeddings,writable_raw_sessions_v3,writable_session_replay_events,writable_ingestion_warnings,session_replay_events,session_replay_features_mv,log_entries_distributed,web_stats_daily_distributed,web_stats_hourly_distributed,web_bounces_daily_distributed,web_bounces_hourly_distributed,persons_up_to_date_view,persons_properties_up_to_date_view" ;;
+    dev|prod-us|prod-eu) echo "ai_events,billing_usage_records,distributed_events_recent,distributed_posthog_document_embeddings,events,events_main,log_entries_distributed,new_raw_sessions,new_sessions,new_writable_raw_sessions,new_writable_sessions,persons_properties_up_to_date_view,persons_up_to_date_view,session_recording_events,session_replay_events,session_replay_features_mv,web_bounces_daily_distributed,web_bounces_hourly_distributed,web_stats_daily_distributed,web_stats_hourly_distributed,writable_events_recent,writable_ingestion_warnings,writable_posthog_document_embeddings,writable_raw_sessions_primary,writable_raw_sessions_v3,writable_session_recording_events,writable_session_replay_events,writable_sessions,writable_sessions_background" ;;
 
     *)       echo "" ;;
   esac

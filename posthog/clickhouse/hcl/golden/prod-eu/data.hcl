@@ -221,58 +221,6 @@ database "posthog" {
     }
   }
 
-  table "app_metrics" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "plugin_config_id" {
-      type = "Int64"
-    }
-    column "category" {
-      type = "LowCardinality(String)"
-    }
-    column "job_id" {
-      type = "String"
-    }
-    column "successes" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "successes_on_retry" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "failures" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "error_uuid" {
-      type = "UUID"
-    }
-    column "error_type" {
-      type = "String"
-    }
-    column "error_details" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "_timestamp" {
-      type = "DateTime"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "_partition" {
-      type = "UInt64"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog"
-      remote_database = "posthog"
-      remote_table    = "sharded_app_metrics"
-      sharding_key    = "rand()"
-    }
-  }
-
   table "app_metrics2" {
     column "team_id" {
       type = "Int64"
@@ -3831,78 +3779,6 @@ database "posthog" {
     }
   }
 
-  table "precalculated_events" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "date" {
-      type = "Date"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "condition" {
-      type = "String"
-    }
-    column "uuid" {
-      type = "UUID"
-    }
-    column "source" {
-      type = "String"
-    }
-    column "_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "_partition" {
-      type = "UInt64"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog"
-      remote_database = "posthog"
-      remote_table    = "sharded_precalculated_events"
-      sharding_key    = "sipHash64(distinct_id)"
-    }
-  }
-
-  table "precalculated_person_properties" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "condition" {
-      type = "String"
-    }
-    column "matches" {
-      type = "Bool"
-    }
-    column "source" {
-      type = "String"
-    }
-    column "_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog"
-      remote_database = "posthog"
-      remote_table    = "sharded_precalculated_person_properties"
-      sharding_key    = "sipHash64(distinct_id)"
-    }
-  }
-
   table "property_definitions" {
     order_by = ["team_id", "type", "coalesce(event, '')", "name", "coalesce(group_type_index, 255)"]
     settings = {
@@ -5147,61 +5023,6 @@ database "posthog" {
     }
   }
 
-  table "sharded_app_metrics" {
-    order_by     = ["team_id", "plugin_config_id", "job_id", "category", "toStartOfHour(timestamp)", "error_type", "error_uuid"]
-    partition_by = "toYYYYMM(timestamp)"
-    settings = {
-      index_granularity = "8192"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "plugin_config_id" {
-      type = "Int64"
-    }
-    column "category" {
-      type = "LowCardinality(String)"
-    }
-    column "job_id" {
-      type = "String"
-    }
-    column "successes" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "successes_on_retry" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "failures" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "error_uuid" {
-      type = "UUID"
-    }
-    column "error_type" {
-      type = "String"
-    }
-    column "error_details" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "_timestamp" {
-      type = "DateTime"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "_partition" {
-      type = "UInt64"
-    }
-    engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_app_metrics"
-      replica_name = "{replica}"
-    }
-  }
-
   table "sharded_app_metrics2" {
     order_by     = ["team_id", "app_source", "app_source_id", "instance_id", "toStartOfHour(timestamp)", "metric_kind", "metric_name"]
     partition_by = "toYYYYMM(timestamp)"
@@ -5245,58 +5066,6 @@ database "posthog" {
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_app_metrics2"
       replica_name = "{replica}"
-    }
-  }
-
-  table "sharded_billing_usage_records" {
-    order_by     = ["team_id", "toDate(timestamp)", "producer_id", "usage_key", "record_id"]
-    partition_by = "toYYYYMM(timestamp)"
-    settings = {
-      index_granularity = "8192"
-    }
-    column "schema_version" {
-      type = "UInt8"
-    }
-    column "record_id" {
-      type = "String"
-    }
-    column "producer_id" {
-      type = "LowCardinality(String)"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "organization_id" {
-      type = "UUID"
-    }
-    column "usage_key" {
-      type = "LowCardinality(String)"
-    }
-    column "unit" {
-      type = "LowCardinality(String)"
-    }
-    column "quantity" {
-      type = "Int64"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "inserted_at" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "_timestamp" {
-      type = "DateTime"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "_partition" {
-      type = "UInt64"
-    }
-    engine "replicated_replacing_merge_tree" {
-      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
-      replica_name   = "{replica}"
-      version_column = "inserted_at"
     }
   }
 
@@ -6403,49 +6172,6 @@ database "posthog" {
     }
   }
 
-  table "sharded_precalculated_events" {
-    order_by     = ["team_id", "condition", "date", "distinct_id", "uuid"]
-    partition_by = "toYYYYMM(date)"
-    settings = {
-      index_granularity = "8192"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "date" {
-      type = "Date"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "condition" {
-      type = "String"
-    }
-    column "uuid" {
-      type = "UUID"
-    }
-    column "source" {
-      type = "String"
-    }
-    column "_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "_partition" {
-      type = "UInt64"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    engine "replicated_replacing_merge_tree" {
-      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_precalculated_events"
-      replica_name   = "{replica}"
-      version_column = "_timestamp"
-    }
-  }
-
   table "sharded_precalculated_person_properties" {
     order_by = ["team_id", "condition", "distinct_id"]
     settings = {
@@ -6479,184 +6205,6 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_precalculated_person_properties"
       replica_name   = "{replica}"
       version_column = "_timestamp"
-    }
-  }
-
-  table "sharded_raw_sessions" {
-    order_by     = ["team_id", "toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))", "cityHash64(session_id_v7)", "session_id_v7"]
-    partition_by = "toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))"
-    sample_by    = "cityHash64(session_id_v7)"
-    settings = {
-      index_granularity = "8192"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "session_id_v7" {
-      type = "UInt128"
-    }
-    column "distinct_id" {
-      type = "AggregateFunction(argMax, String, DateTime64(6, 'UTC'))"
-    }
-    column "min_timestamp" {
-      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
-    }
-    column "max_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
-    }
-    column "max_inserted_at" {
-      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
-    }
-    column "urls" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
-    }
-    column "entry_url" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "end_url" {
-      type = "AggregateFunction(argMax, String, DateTime64(6, 'UTC'))"
-    }
-    column "last_external_click_url" {
-      type = "AggregateFunction(argMax, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_browser" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_browser_version" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_os" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_os_version" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_device_type" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_viewport_width" {
-      type = "AggregateFunction(argMin, Int64, DateTime64(6, 'UTC'))"
-    }
-    column "initial_viewport_height" {
-      type = "AggregateFunction(argMin, Int64, DateTime64(6, 'UTC'))"
-    }
-    column "initial_geoip_country_code" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_geoip_subdivision_1_code" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_geoip_subdivision_1_name" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_geoip_subdivision_city_name" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_geoip_time_zone" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_referring_domain" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_utm_source" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_utm_campaign" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_utm_medium" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_utm_term" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_utm_content" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_gclid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_gad_source" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_gclsrc" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_dclid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_gbraid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_wbraid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_fbclid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_msclkid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_twclid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_li_fat_id" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_mc_cid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_igshid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_ttclid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_epik" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_qclid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_sccid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial__kx" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_irclid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "pageview_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "pageview_uniq" {
-      type = "AggregateFunction(uniq, Nullable(UUID))"
-    }
-    column "autocapture_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "autocapture_uniq" {
-      type = "AggregateFunction(uniq, Nullable(UUID))"
-    }
-    column "screen_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "screen_uniq" {
-      type = "AggregateFunction(uniq, Nullable(UUID))"
-    }
-    column "maybe_has_session_replay" {
-      type = "SimpleAggregateFunction(max, Bool)"
-    }
-    column "page_screen_autocapture_uniq_up_to" {
-      type = "AggregateFunction(uniqUpTo(1), Nullable(UUID))"
-    }
-    column "vitals_lcp" {
-      type = "AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))"
-    }
-    engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/{shard}/posthog.raw_sessions"
-      replica_name = "{replica}"
     }
   }
 
@@ -7031,117 +6579,6 @@ database "posthog" {
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.session_replay_events"
-      replica_name = "{replica}"
-    }
-  }
-
-  table "sharded_sessions" {
-    order_by     = ["toStartOfDay(min_timestamp)", "team_id", "session_id"]
-    partition_by = "toYYYYMM(min_timestamp)"
-    settings = {
-      index_granularity = "512"
-    }
-    column "session_id" {
-      type = "String"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "SimpleAggregateFunction(any, String)"
-    }
-    column "min_timestamp" {
-      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
-    }
-    column "max_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
-    }
-    column "urls" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
-    }
-    column "entry_url" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "exit_url" {
-      type = "AggregateFunction(argMax, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_referring_domain" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_utm_source" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_utm_campaign" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_utm_medium" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_utm_term" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_utm_content" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_gclid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_gad_source" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_gclsrc" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_dclid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_gbraid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_wbraid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_fbclid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_msclkid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_twclid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_li_fat_id" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_mc_cid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_igshid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_ttclid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_epik" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_qclid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "initial_sccid" {
-      type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
-    }
-    column "event_count_map" {
-      type = "SimpleAggregateFunction(sumMap, Map(String, Int64))"
-    }
-    column "pageview_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "autocapture_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/{shard}/posthog.sessions"
       replica_name = "{replica}"
     }
   }
@@ -8652,59 +8089,6 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_log_entries"
       sharding_key    = "rand()"
-    }
-  }
-
-  table "writable_posthog_document_embeddings_buffer" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "product" {
-      type = "LowCardinality(String)"
-    }
-    column "document_type" {
-      type = "LowCardinality(String)"
-    }
-    column "model_name" {
-      type = "LowCardinality(String)"
-    }
-    column "rendering" {
-      type = "LowCardinality(String)"
-    }
-    column "document_id" {
-      type = "String"
-    }
-    column "timestamp" {
-      type = "DateTime64(3, 'UTC')"
-    }
-    column "inserted_at" {
-      type = "DateTime64(3, 'UTC')"
-    }
-    column "content" {
-      type    = "String"
-      default = "''"
-    }
-    column "metadata" {
-      type    = "String"
-      default = "'{}'"
-    }
-    column "embedding" {
-      type = "Array(Float64)"
-    }
-    column "_timestamp" {
-      type = "DateTime"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "_partition" {
-      type = "UInt64"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog"
-      remote_database = "posthog"
-      remote_table    = "sharded_posthog_document_embeddings_buffer"
-      sharding_key    = "cityHash64(document_id)"
     }
   }
 
@@ -10544,11 +9928,12 @@ SELECT
   session_timestamp,
   team_id,
   argMaxMerge(distinct_id) AS distinct_id,
+  argMaxMerge(person_id) AS person_id,
   groupUniqArrayMerge(distinct_ids) AS distinct_ids,
   min(min_timestamp) AS min_timestamp,
   max(max_timestamp) AS max_timestamp,
   max(max_inserted_at) AS max_inserted_at,
-  groupUniqArrayArray(2000)(urls) AS urls,
+  arrayDistinct(arrayFlatten(groupArray(urls))) AS urls,
   argMinMerge(entry_url) AS entry_url,
   argMaxMerge(end_url) AS end_url,
   argMaxMerge(last_external_click_url) AS last_external_click_url,
@@ -10581,14 +9966,8 @@ SELECT
   uniqExactMerge(pageview_uniq) AS pageview_uniq,
   uniqExactMerge(autocapture_uniq) AS autocapture_uniq,
   uniqExactMerge(screen_uniq) AS screen_uniq,
-  uniqUpToMerge(1)(page_screen_uniq_up_to) AS page_screen_uniq_up_to,
-  max(has_autocapture) AS has_autocapture,
-  groupUniqArrayMapMerge(flag_values) AS flag_values,
-  groupUniqArrayArray(flag_keys) AS flag_keys,
-  groupUniqArrayArray(2000)(event_names) AS event_names,
-  groupUniqArrayArray(100)(hosts) AS hosts,
-  groupUniqArrayArray(10)(emails) AS emails,
-  max(has_replay_events) AS has_replay_events
+  uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) AS page_screen_autocapture_uniq_up_to,
+  groupUniqArrayMapMerge(flag_values) AS flag_values
 FROM posthog.raw_sessions_v3
 GROUP BY
   session_id_v7, session_timestamp, team_id
@@ -10626,9 +10005,6 @@ SELECT
   argMinMerge(initial_mc_cid) AS initial_mc_cid,
   argMinMerge(initial_igshid) AS initial_igshid,
   argMinMerge(initial_ttclid) AS initial_ttclid,
-  argMinMerge(initial_epik) AS initial_epik,
-  argMinMerge(initial_qclid) AS initial_qclid,
-  argMinMerge(initial_sccid) AS initial_sccid,
   sumMap(event_count_map) AS event_count_map,
   sum(pageview_count) AS pageview_count,
   sum(autocapture_count) AS autocapture_count
