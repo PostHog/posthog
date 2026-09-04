@@ -37,7 +37,9 @@ def _log_row(
         "severity_number": severity_number,
         "service_name": "checkout",
         "resource_attributes": resource_attributes or {},
-        "attributes_map_str": attributes or {},
+        # The ingestion MV writes attributes into the typed map with a `__str` key suffix
+        # (posthog/clickhouse/logs/logs34.py); mirror that so the fixture matches production rows.
+        "attributes_map_str": {f"{key}__str": value for key, value in (attributes or {}).items()},
         "attributes_map_float3": {},
         "attributes_map_datetime": {},
         "event_name": "",

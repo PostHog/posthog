@@ -66,24 +66,6 @@ def default_logs_session_id_attribute_keys() -> list[str]:
     return list(DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS)
 
 
-# Built-in convention keys the logs UI renders as clickable session-replay links, on top of a
-# team's configured keys. Mirror of SESSION_ID_KEYS in products/logs/frontend/utils.tsx — keep
-# the two in sync. Literal keys only: the frontend additionally matches dot-suffixed variants,
-# which an exact attribute lookup can't express.
-SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS = [
-    "session.id",
-    "session_id",
-    "sessionId",
-    "sessionID",
-    "$session_id",
-    "posthogSessionId",
-    "posthogSessionID",
-    "posthog_session_id",
-    "posthog.session.id",
-    "posthog.session_id",
-]
-
-
 # Default top-level JSON keys that hold the message text a log pattern is derived from.
 # Keys match literally, so a dot is part of the name and never a path. Ordered: selection
 # checks keys in list order and the first key whose value is a non-empty string wins. An
@@ -115,6 +97,22 @@ SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS = [
     "posthog.session.id",
     "posthog.session_id",
 ]
+
+
+def resolved_distinct_id_attribute_keys(team) -> list[str]:
+    """The attribute keys that link a log to a person: the team's configured keys (or the
+    default when unconfigured), then the built-in conventions the UI links regardless of
+    config. Deduped, configured keys first."""
+    config = TeamLogsConfig.objects.filter(team=team).first()
+    configured = (config.logs_distinct_id_attribute_keys if config else None) or DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS
+    return list(dict.fromkeys([*configured, *DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS]))
+
+
+def resolved_session_id_attribute_keys(team) -> list[str]:
+    """The session-ID equivalent of resolved_distinct_id_attribute_keys."""
+    config = TeamLogsConfig.objects.filter(team=team).first()
+    configured = (config.logs_session_id_attribute_keys if config else None) or DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS
+    return list(dict.fromkeys([*configured, *SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS]))
 
 
 class TeamLogsConfig(models.Model):

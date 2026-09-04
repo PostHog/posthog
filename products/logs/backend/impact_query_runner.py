@@ -4,36 +4,35 @@ from posthog.schema import CachedLogsQueryResponse, LogsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
-from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunnerMixin
-from products.logs.backend.models import (
-    DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS,
-    DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS,
-    DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS,
-    SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS,
-    TeamLogsConfig,
+from products.logs.backend.logs_query_runner import (
+    LogsQueryResponse,
+    LogsQueryRunnerMixin,
+    fail_fast_aggregate_settings,
 )
+from products.logs.backend.models import resolved_distinct_id_attribute_keys, resolved_session_id_attribute_keys
 
 
 def _identity_value_expr(attribute_keys: list[str]) -> ast.Expr:
     # First non-empty value across the candidate keys, checking the log attributes before
     # the resource attributes for each key — the same precedence getSessionIdWithKey applies
-    # in products/logs/frontend/utils.tsx, so the counts cover exactly the logs the viewer
-    # renders as links. attributes_map_str is read directly because session and distinct IDs
-    # are strings, and a bare arrayElement on it touches one serialization bucket instead of
-    # the whole typed-map family (see the field's comment in
-    # posthog/hogql/database/schema/logs.py).
+    # in products/logs/frontend/utils.tsx, so the counts cover the logs the viewer renders
+    # as links. Both maps are read with a bare arrayElement: the property-resolver route
+    # wraps map reads in a has() guard that defeats the bucketed serialization and reads
+    # every key bucket (see group_by_query_runner._dimension_expr). attributes_map_str keys
+    # carry the ingestion MV's `__str` type suffix (posthog/clickhouse/logs/logs34.py);
+    # resource_attributes is a plain map with unsuffixed keys. A missing key reads as '',
+    # which nullIf scrubs to NULL so the aggregates can skip identity-less rows.
     args: list[ast.Expr] = []
     for attribute_key in attribute_keys:
-        key = ast.Constant(value=attribute_key)
-        args.append(parse_expr("nullIf(attributes_map_str[{key}], '')", placeholders={"key": key}))
-        args.append(parse_expr("nullIf(resource_attributes[{key}], '')", placeholders={"key": key}))
-    args.append(ast.Constant(value=""))
+        for field, key in (("attributes_map_str", f"{attribute_key}__str"), ("resource_attributes", attribute_key)):
+            read = ast.Call(name="arrayElement", args=[ast.Field(chain=[field]), ast.Constant(value=key)])
+            args.append(ast.Call(name="nullIf", args=[read, ast.Constant(value="")]))
     return ast.Call(name="coalesce", args=args)
 
 
@@ -45,31 +44,10 @@ class ImpactQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunner
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
-        # Same fail-fast caps as CountQueryRunner: a headline aggregate should never
-        # scan unbounded data.
-        return HogQLGlobalSettings(
-            max_execution_time=30,
-            max_bytes_to_read=10_000_000_000,
-            read_overflow_mode="throw",
-        )
-
-    @cached_property
-    def _config(self) -> TeamLogsConfig | None:
-        return TeamLogsConfig.objects.filter(team=self.team).first()
-
-    def _session_id_keys(self) -> list[str]:
-        configured = (
-            self._config.logs_session_id_attribute_keys if self._config else None
-        ) or DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS
-        # Also count the built-in convention keys the UI links regardless of team config,
-        # mirroring _person_scope_expr. Deduped, configured keys first.
-        return list(dict.fromkeys([*configured, *SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS]))
-
-    def _distinct_id_keys(self) -> list[str]:
-        configured = (
-            self._config.logs_distinct_id_attribute_keys if self._config else None
-        ) or DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS
-        return list(dict.fromkeys([*configured, *DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS]))
+        # Fail-fast caps like CountQueryRunner, plus the uncompressed block cache: unlike a
+        # bare count, this query decompresses the two attribute-map columns over the whole
+        # window and re-runs against a mostly identical window on every filter tweak.
+        return fail_fast_aggregate_settings(use_uncompressed_cache=True)
 
     def _calculate(self) -> LogsQueryResponse:
         response = execute_hogql_query(
@@ -94,32 +72,17 @@ class ImpactQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunner
         )
 
     def to_query(self) -> ast.SelectQuery:
-        # LogsFilterBuilder.where() filters by toStartOfDay(time_bucket) which is
-        # day-precision; adding explicit per-row timestamp bounds (half-open to avoid
-        # double-counting on boundaries) makes the counts match the requested window.
-        # Same pattern as CountQueryRunner.
-        where_with_timestamp = ast.And(
-            exprs=[
-                self.where(),
-                parse_expr(
-                    "timestamp >= {date_from} AND timestamp < {date_to}",
-                    placeholders={
-                        "date_from": ast.Constant(value=self.query_date_range.date_from()),
-                        "date_to": ast.Constant(value=self.query_date_range.date_to()),
-                    },
-                ),
-            ]
-        )
         # uniq() is HLL-based and ~1-2% off vs exact count(DISTINCT) on high-cardinality
         # ids, but much cheaper — the same tradeoff the error tracking aggregates accept.
+        # count(x)/uniq(x) skip NULLs, so rows without an identity need no explicit predicate.
         query = parse_select(
             """
             SELECT
                 count() AS total,
-                countIf(session_value != '') AS logs_with_session_id,
-                uniqIf(session_value, session_value != '') AS sessions,
-                countIf(person_value != '') AS logs_with_distinct_id,
-                uniqIf(person_value, person_value != '') AS users
+                count(session_value) AS logs_with_session_id,
+                uniq(session_value) AS sessions,
+                count(person_value) AS logs_with_distinct_id,
+                uniq(person_value) AS users
             FROM (
                 SELECT {session_value} AS session_value, {person_value} AS person_value
                 FROM logs
@@ -127,9 +90,9 @@ class ImpactQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunner
             )
             """,
             placeholders={
-                "session_value": _identity_value_expr(self._session_id_keys()),
-                "person_value": _identity_value_expr(self._distinct_id_keys()),
-                "where": where_with_timestamp,
+                "session_value": _identity_value_expr(resolved_session_id_attribute_keys(self.team)),
+                "person_value": _identity_value_expr(resolved_distinct_id_attribute_keys(self.team)),
+                "where": self.where_with_timestamp_bounds(),
             },
         )
         assert isinstance(query, ast.SelectQuery)
