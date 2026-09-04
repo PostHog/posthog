@@ -516,7 +516,10 @@ tools:
             a draft PR. Each reviewer is a `github_login` and/or a PostHog `user_uuid` (resolved server-side to the
             linked GitHub login). Prefer `append_note` over rewriting a report you didn't author (additive and
             audit-friendly); title/summary edits are best-effort, since the pipeline may later re-research and overwrite
-            them. Optional `charts` is the full set of queries the inbox renders on the report — it replaces the
+            them. Optional `append_evidence` adds observations to the report's evidence rail, each becoming a
+            bound signal that moves the report's signal count and weight — use it for a new observation a reader
+            should be able to check, and `append_note` for commentary. Optional `charts` is the full set of
+            queries the inbox renders on the report — it replaces the
             report's charts rather than adding to them (omit it to leave them alone), so read the report first when you
             mean to add one. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to
             scouts that list `edit_report` in their skill's `allowed_tools`.

@@ -50,6 +50,7 @@ from products.signals.backend.scout_harness.tools.emit import (
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
 from products.signals.backend.scout_harness.tools.report import (
+    MAX_REPORT_SIGNALS,
     MAX_REPORT_SUMMARY_LENGTH,
     MAX_REPORT_TITLE_LENGTH,
     MAX_SUGGESTED_REVIEWERS,
@@ -1338,6 +1339,20 @@ class EditReportRequestSerializer(serializers.Serializer):
         max_length=MAX_NOTE_CONTENT_LENGTH,
         help_text="Optional free-form note to append to the report's work log (attributed to this scout).",
     )
+    append_evidence = serializers.ListField(
+        required=False,
+        allow_null=True,
+        child=ReportEvidenceSerializer(),
+        max_length=MAX_REPORT_SIGNALS,
+        help_text=(
+            "Optional observations to add to the report's evidence rail, each becoming a bound signal "
+            "attributed to this scout — adds to the report's evidence rather than replacing it. Use "
+            "this for a new observation a reader should be able to check, and `append_note` for "
+            "commentary (the owning team knows, a deploy fixed it). The report's signal count and "
+            "weight move with the appended rows. Emit plus every append share a cap of "
+            f"{MAX_REPORT_SIGNALS} signals per report."
+        ),
+    )
     suggested_reviewers = serializers.ListField(
         required=False,
         child=SuggestedReviewerSerializer(),
@@ -1383,6 +1398,9 @@ class EditReportResponseSerializer(serializers.Serializer):
         help_text="Which presentation fields changed (e.g. `title`, `summary`); empty if only a note was appended.",
     )
     note_appended = serializers.BooleanField(help_text="Whether a note artefact was appended.")
+    evidence_appended = serializers.IntegerField(
+        help_text="How many observations this edit added to the report's evidence rail; 0 if none."
+    )
     reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
     charts_set = serializers.IntegerField(
         allow_null=True,
