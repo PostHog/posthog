@@ -904,11 +904,17 @@ _OTHER_TEAM_SUMMARY = f"{_WHOLE_CHANGE} {_THEIR_CLAUSE}"
             f"The CLI moves to @posthog/cli: the old binary is gone. @PostHog/{AUDIENCE}: {_OUR_CLAUSE} {_THEIR_CLAUSE}",
             _audience(3),
             8,
-            f"The CLI moves to @posthog/cli: the old binary is gone. {_OUR_CLAUSE}",
+            "",
+        ),
+        (
+            f"{_WHOLE_CHANGE[:-1]} @PostHog/{AUDIENCE}: {_OUR_CLAUSE[:-1]} {_THEIR_CLAUSE}",
+            _audience(3),
+            8,
+            "",
         ),
         (
             f"{_WHOLE_CHANGE} @PostHog/{AUDIENCE}: {_OUR_CLAUSE} "
-            f"@PostHog/team-billing: the counters moved, and @PostHog/{AUDIENCE}: reads them.",
+            f"@PostHog/team-billing: the counters moved. @PostHog/{AUDIENCE}: reads them.",
             _audience(3),
             8,
             f"{_WHOLE_CHANGE} {_OUR_CLAUSE}",
@@ -918,7 +924,8 @@ _OTHER_TEAM_SUMMARY = f"{_WHOLE_CHANGE} {_THEIR_CLAUSE}"
         "a_team_owning_part_of_the_merge_reads_its_own_clause",
         "a_team_owning_all_of_it_reads_the_whole_change_sentence",
         "and_so_does_a_repo_that_declared_its_own_channel",
-        "a_scoped_package_name_inside_a_sentence_is_not_a_clause",
+        "a_handle_that_does_not_open_a_sentence_discards_the_summary_rather_than_leaking_it",
+        "and_so_does_a_clause_written_without_a_period_before_it",
         "a_handle_named_again_inside_another_clause_does_not_replace_the_teams_own",
     ],
 )
@@ -934,7 +941,10 @@ def test_the_prompt_carries_only_the_reviewed_text_written_for_this_audience(
 
     prompt = _build_selection_prompt([pr], [audience], _audience_team_slug([audience]))
 
-    assert f"<reviewed_summary index=0>{expected}</reviewed_summary>" in prompt
+    if expected:
+        assert f"<reviewed_summary index=0>{expected}</reviewed_summary>" in prompt
+    else:
+        assert "<reviewed_summary index=0>" not in prompt
     assert "team-billing" not in prompt
     assert "the counters moved" not in prompt
 

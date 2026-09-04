@@ -152,6 +152,10 @@ _CHANNEL_LINK_RE = re.compile(r"[a-z][a-z0-9+.\-]*://|\bwww\.|\bmailto:|\S+@\S+\
 # A clause opens a sentence, so the handle is only matched at the start of the summary or after
 # sentence-ending punctuation. A scoped package name inside a sentence (`@posthog/cli:`) is prose.
 _TEAM_CLAUSE_RE = re.compile(r"(?:^|(?<=[.!?])\s+)(@[A-Za-z0-9._-]+/[A-Za-z0-9._-]+):")
+# Any handle-shaped token at all, wherever it sits. One the anchored pattern did not consume is a
+# clause the reviewer opened without ending the sentence before it, or a token the prompt forbids,
+# and either way the text around it can no longer be trusted to belong to one team.
+_ANY_HANDLE_RE = re.compile(r"@[A-Za-z0-9._-]+/[A-Za-z0-9._-]+:")
 
 
 @frozen
@@ -232,7 +236,14 @@ def _split_clauses(summary_line: str) -> _ReviewedSummary:
     clauses: dict[str, str] = {}
     for i in range(1, len(parts) - 1, 2):
         clauses.setdefault(team_slug_from_handle(parts[i]).casefold(), parts[i + 1].strip())
-    return _ReviewedSummary(whole_change=parts[0].strip(), clauses=clauses)
+    whole_change = parts[0].strip()
+    # A handle left inside a part is a clause boundary the split did not see, so that part carries
+    # another team's text. Discarding the whole summary costs this team the reviewed sentence and
+    # leaves it the title; keeping it would post the other team's clause under this team's name.
+    if _ANY_HANDLE_RE.search(whole_change) or any(_ANY_HANDLE_RE.search(clause) for clause in clauses.values()):
+        logger.info("stamphog_digest_summary_unparsed")
+        return _ReviewedSummary(whole_change="", clauses={})
+    return _ReviewedSummary(whole_change=whole_change, clauses=clauses)
 
 
 def _whole_change_sentence(summary_line: str) -> str:

@@ -289,7 +289,11 @@ _REVIEWER_SCAFFOLD_TAIL = "\n" + textwrap.dedent(
     clause per team after that sentence. Open each clause with that team's handle
     exactly as the Ownership block spells it, such as "@PostHog/team-replay:",
     in plain text with the colon right after it (no bold, no backticks), and do
-    not write any other "@name/name:" token anywhere in this field.
+    not write any other "@name/name:" token anywhere in this field. End the
+    sentence before each clause with a period, an exclamation mark, or a
+    question mark, and start the clause right after it. A handle that does not
+    open a sentence is not read as a clause, and the whole field is then thrown
+    away rather than shown to a team it was not written for.
     Say what is true now in the files that team owns. Each team is shown its
     own clause and no other, so a clause has to hold on its own. Leave a team out
     when the diff does not tell you what its files now do: silence is better than
