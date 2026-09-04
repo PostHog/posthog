@@ -56,6 +56,20 @@ METRIC_NAMES_CACHE_TTL = 60
 # and the bound keeps one request from building an unbounded IN list.
 MAX_PICKER_SERVICES = 50
 
+# Sparklines summarize this window, downsampled to at most this many points. A
+# card only needs the recent shape, so the window is far shorter than the name
+# lookback and the point count is bounded to keep one row small.
+SPARKLINE_WINDOW = dt.timedelta(hours=6)
+SPARKLINE_MAX_POINTS = 24
+
+
+def _isoformat(value: Any) -> str | None:
+    """ClickHouse hands back datetimes, but a driver or JSON round-trip can leave a
+    string. The API serializer accepts ISO either way, so normalize without assuming."""
+    if value is None:
+        return None
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
 
 class MetricNamesQueryRunner:
     def __init__(
@@ -100,6 +114,7 @@ class MetricNamesQueryRunner:
                     SELECT
                         metric_name AS name,
                         any(metric_type) AS metric_type,
+                        any(unit) AS unit,
                         max(last_seen) AS last_seen_at
                     FROM posthog.metric_series
                     WHERE last_seen > now() - {lookback}
@@ -115,6 +130,7 @@ class MetricNamesQueryRunner:
                     SELECT
                         metric_name AS name,
                         any(metric_type) AS metric_type,
+                        any(unit) AS unit,
                         max(last_seen) AS last_seen_at
                     FROM posthog.metric_series
                     WHERE last_seen > now() - {lookback}
@@ -165,7 +181,73 @@ class MetricNamesQueryRunner:
             settings=_QUERY_SETTINGS,
         )
 
-        return [{"name": row[0], "metric_type": row[1]} for row in response.results]
+        names = [row[0] for row in response.results]
+        sparklines = self._sparklines(names)
+
+        return [
+            {
+                "name": row[0],
+                "metric_type": row[1],
+                "unit": row[2],
+                "last_seen": _isoformat(row[3]),
+                "sparkline": sparklines.get(row[0], []),
+            }
+            for row in response.results
+        ]
+
+    def _sparklines(self, names: Sequence[str]) -> dict[str, list[float]]:
+        """A small recent shape per metric, for the catalog cards.
+
+        Reads `metric_samples` (raw emissions) rather than the pre-aggregated
+        `metrics` table, so a series written without a metrics row still draws —
+        the same reason the name list reads `metric_series`. Each metric is
+        bucketed onto a fixed grid and averaged per bucket across its series; a
+        card only shows direction and spikes, so per-series fidelity is not worth
+        the rows it would cost. Only the names this page returned are read, so a
+        scoped picker never scans the whole samples table.
+        """
+        if not names:
+            return {}
+
+        bucket_seconds = max(int(SPARKLINE_WINDOW.total_seconds()) // SPARKLINE_MAX_POINTS, 1)
+        query = parse_select(
+            """
+                SELECT
+                    metric_name AS name,
+                    toStartOfInterval(timestamp, {bucket}) AS bucket_start,
+                    avg(value) AS bucket_value
+                FROM posthog.metric_samples
+                WHERE timestamp > now() - {window}
+                  AND metric_name IN {names}
+                GROUP BY name, bucket_start
+                ORDER BY name, bucket_start
+            """,
+            placeholders={
+                "bucket": ast.Call(name="toIntervalSecond", args=[ast.Constant(value=bucket_seconds)]),
+                "window": ast.Call(
+                    name="toIntervalSecond", args=[ast.Constant(value=int(SPARKLINE_WINDOW.total_seconds()))]
+                ),
+                "names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names]),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        # No service filter here: `names` is already the scoped set the name query
+        # returned, so the sparkline can never draw a metric outside the scope.
+        # `metric_samples` has no service_name column, and the per-metric bucketed
+        # average is over all of that metric's series regardless.
+
+        response = execute_hogql_query(
+            query_type="MetricNamesSparklineQuery",
+            query=query,
+            team=self.team,
+            workload=Workload.LOGS,
+            settings=_QUERY_SETTINGS,
+        )
+
+        sparklines: dict[str, list[float]] = {}
+        for name, _bucket_start, bucket_value in response.results:
+            sparklines.setdefault(name, []).append(float(bucket_value))
+        return sparklines
 
 
 def cached_metric_names(
