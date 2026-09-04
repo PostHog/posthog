@@ -43,6 +43,7 @@ from products.error_tracking.backend.temporal.alerts.filtering import (
 )
 from products.error_tracking.backend.temporal.alerts.messages import (
     DEFAULT_HEADLINE,
+    SlackActions,
     build_reply_text,
     build_root_edit,
     build_root_message,
@@ -471,7 +472,7 @@ def _post_claimed(
         if not channel:
             _record_delivery_outcome(delivery.destination, error="Destination has no Slack channel configured")
             return False
-        message = build_root_message(inputs)
+        message = build_root_message(inputs, actions=_slack_actions(delivery.destination, inputs))
         response = client.chat_postMessage(channel=channel, blocks=message["blocks"], text=message["text"])
         # The rooting notification is recorded so a later attempt of it can tell
         # its own root from an older conversation.
@@ -484,7 +485,7 @@ def _post_claimed(
         # Replies stay in the thread's own channel: a provider thread cannot move,
         # so a repointed destination only applies to newly opened threads.
         client.chat_postMessage(channel=external_ref["channel"], thread_ts=external_ref["ts"], text=reply)
-        _maybe_edit_root(client, thread, inputs)
+        _maybe_edit_root(client, thread, inputs, _slack_actions(delivery.destination, inputs))
 
     _finalize_thread(thread, inputs, claimed_at, external_ref=external_ref, root_headline=root_headline)
     _record_delivery_outcome(delivery.destination, error=None)
@@ -553,10 +554,23 @@ def _release_thread(
     ).update(pending_notification_id=None, pending_claimed_at=None)
 
 
-def _maybe_edit_root(client: WebClient, thread: ErrorTrackingAlertThread, inputs: AlertDeliveryWorkflowInputs) -> None:
+def _slack_actions(
+    destination: ErrorTrackingAlertDestination, inputs: AlertDeliveryWorkflowInputs
+) -> SlackActions | None:
+    if destination.integration_id is None:
+        return None
+    return SlackActions(integration_id=destination.integration_id, issue_id=inputs.issue_id)
+
+
+def _maybe_edit_root(
+    client: WebClient,
+    thread: ErrorTrackingAlertThread,
+    inputs: AlertDeliveryWorkflowInputs,
+    actions: SlackActions | None,
+) -> None:
     if inputs.event not in ROOT_EDIT_EVENTS:
         return
-    message = build_root_edit(inputs, headline=thread.root_headline or DEFAULT_HEADLINE)
+    message = build_root_edit(inputs, headline=thread.root_headline or DEFAULT_HEADLINE, actions=actions)
     try:
         client.chat_update(
             channel=thread.external_ref["channel"],
