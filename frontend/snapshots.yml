@@ -6640,10 +6640,18 @@ snapshots:
         hash: v1.k794b7964.a1f856f6850f014c67d316b6b991f7d22c6926162d98821b08381551ebb0210a.LckDFFHZtedM5hRnsCZUyHAPWA4_QRjE0RGlh39_65M
     scenes-app-data-warehouse-settings-schemas--multi-schema--light:
         hash: v1.k794b7964.e5d678194a8e191fdf4f8a92cd7328f1e3cb162a81d3c4d05ef608f3c61537da.ZshlecoDn8CpsaVHaONi7UiXq8r-Xi4zJSWKeg7nAP0
+    scenes-app-data-warehouse-sql-editor--builder--dark:
+        hash: v1.k794b7964.a4bef53089e8d3769830e0202c311f6d7d5d7780aed26a539059311149b0063b.bBj3BXJOfqxw5LBbTlCRxC-vZ11jiXS9zM1nY9rayls
+    scenes-app-data-warehouse-sql-editor--builder--light:
+        hash: v1.k794b7964.b343e38bc18bc8fa94c4695a548d9a524bfe270f4b35090e10c55a6649442d9c.C5SGuFm6neZDk3ZnhakWAZooXBUfx4216Sm8e4mCp4Y
+    scenes-app-data-warehouse-sql-editor--builder-from-existing-sql--dark:
+        hash: v1.k794b7964.2163859596d366df51b22ffafbd2791c6b26df41f8d8a8f88192560e188dc0b7.vPIELqY5juDhMjNPrSdiEmzQTVhg7pRpNU06FFpEQZw
+    scenes-app-data-warehouse-sql-editor--builder-from-existing-sql--light:
+        hash: v1.k794b7964.523bf027be349ea353fdd8db3f23d496d20379d8a9fc917ac3050ec2fbcd9b04.u_M0v619_Jxknx8YNs3GZIGaxdoGSwZ9TGW_8RuwYQY
     scenes-app-data-warehouse-sql-editor--managed-warehouse-connection--dark:
-        hash: v1.k794b7964.4d87a8398ed4a62e9e18ef60f2e907fc8f1585d178833c8eacc34eb5b49cd7cf.jIj6nVJk8Wp1LwkjVO3t4AsK_U0iWUqtUVC6HzXz12g
+        hash: v1.k794b7964.3985d4474c309b839dfe785111da2994dd055766b48b76db8db81f89df06838e.Sz997F4JJVGaK_Vl8BHxRwLBbQerxloE0GlxoBor9Pw
     scenes-app-data-warehouse-sql-editor--managed-warehouse-connection--light:
-        hash: v1.k794b7964.94f8446b422849213e559816286f4692a33dae22bd5e0d2a7e046b39ee9bd995.Fi8bnmt0Ykul6Mhj3kLT5Jr7Pom70Xg2z9QQlNRFXPI
+        hash: v1.k794b7964.d24ffbf889054cc997b2672f5881d4ea2e962b0d21a257d196c631e9db9b2fe6.ChYQxblm20VOOgsX7hh-_blxYvvBGp_KAONiwnxS4to
     scenes-app-data-warehouse-sql-editor--top-tools-per-server--dark:
         hash: v1.k794b7964.c5aa3840807ca349309a893b884ebc767c8fab70a82127532c1dae27d13f9f3d.51y_th6-WoFAlLgiWfsu6KUr3rxWjZzAbV84FIikvXQ
     scenes-app-data-warehouse-sql-editor--top-tools-per-server--light:

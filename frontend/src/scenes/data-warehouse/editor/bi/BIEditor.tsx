@@ -133,7 +133,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
 
     return (
         <div
-            className="relative flex min-h-44 shrink-0 flex-col gap-3 overflow-hidden border-b bg-primary p-3"
+            className="@container/bi-editor relative flex min-h-44 shrink-0 flex-col gap-3 overflow-hidden border-b bg-primary p-3"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ height: `${biEditorHeight}px`, maxHeight: 'calc(100% - 10rem)' }}
             ref={biEditorResizerProps.containerRef}
@@ -264,7 +264,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                 </div>
             </div>
 
-            <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-auto lg:grid-cols-2">
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-auto @min-[40rem]/bi-editor:grid-cols-2">
                 <Shelf
                     shelf="rows"
                     title="Rows"
@@ -703,7 +703,15 @@ function Shelf({
                     />
                 </div>
                 <span className="shrink-0 text-xs text-secondary">{description}</span>
-                <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">{children}</div>
+                <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
+                    {itemCount === 0 ? (
+                        <span className="text-xs text-tertiary">
+                            Drag a field here, or use + to enter an expression.
+                        </span>
+                    ) : (
+                        children
+                    )}
+                </div>
             </div>
         </LemonCard>
     )
