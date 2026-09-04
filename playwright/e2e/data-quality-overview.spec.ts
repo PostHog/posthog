@@ -54,7 +54,9 @@ test('edits and deletes a check from Data Ops', async ({ page, playwrightSetup }
     await page.getByLabel(`Actions for check ${CHECK_NAME}`).click()
     await page.getByRole('menuitem', { name: 'Edit' }).click()
     await page.getByLabel('Description').fill('Every order keeps a positive id')
-    await page.getByTestId('data-quality-check-save').click()
+    const saveButton = page.getByTestId('data-quality-check-save')
+    await expect(saveButton).toBeEnabled()
+    await saveButton.click()
 
     await expect(page.getByText('Check saved')).toBeVisible()
     const edited = await page.request.get(
