@@ -253,25 +253,15 @@ def get_cohort_dependencies(cohort: Cohort) -> list[int]:
     """
     cache_key = _cohort_dependencies_key(cohort.id)
 
-    # Check if value exists in cache first
-    cache_hit = dependency_cache.has_key(cache_key)
-
-    def compute_dependencies():
-        COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="miss").inc()
-        return list(extract_cohort_dependencies(cohort))
-
-    if cache_hit:
+    dependencies = dependency_cache.get(cache_key)
+    if dependencies is not None:
         COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="hit").inc()
+        return dependencies
 
-    result = dependency_cache.get_or_set(
-        cache_key,
-        compute_dependencies,
-        timeout=DEPENDENCY_CACHE_TIMEOUT,
-    )
-
-    if result is None:
-        logger.error("Cohort dependencies cache returned None", cohort_id=cohort.id)
-    return result or []
+    COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="miss").inc()
+    dependencies = list(extract_cohort_dependencies(cohort))
+    dependency_cache.set(cache_key, dependencies, timeout=DEPENDENCY_CACHE_TIMEOUT)
+    return dependencies
 
 
 def get_cohort_dependents(cohort: Cohort | int) -> list[int]:
@@ -283,35 +273,36 @@ def get_cohort_dependents(cohort: Cohort | int) -> list[int]:
     cohort_id = cohort.id if isinstance(cohort, Cohort) else cohort
     cache_key = _cohort_dependents_key(cohort_id)
 
-    # Check if value exists in cache first
-    cache_hit = dependency_cache.has_key(cache_key)
-
-    def compute_or_fallback() -> list[int]:
-        COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependents", result="miss").inc()
-        # If we only have an ID, query the database for team_id. A soft-deleted cohort can still
-        # have live dependents, so the lookup must not filter on deleted.
-        if isinstance(cohort, int):
-            try:
-                team_id = Cohort.objects.filter(pk=cohort_id).values_list("team_id", flat=True).first()
-                if team_id is None:
-                    logger.warning("Cohort not found when computing dependents", cohort_id=cohort_id)
-                    return []
-            except Exception as e:
-                logger.exception("Failed to fetch team_id for cohort", cohort_id=cohort_id, error=str(e))
-                return []
-        else:
-            team_id = cohort.team_id
-
-        warm_team_cohort_dependency_cache(team_id)
-        return dependency_cache.get(cache_key, [])
-
-    if cache_hit:
+    dependents = dependency_cache.get(cache_key)
+    if dependents is not None:
         COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependents", result="hit").inc()
+        return dependents
+    COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependents", result="miss").inc()
 
-    result = dependency_cache.get_or_set(cache_key, compute_or_fallback, timeout=DEPENDENCY_CACHE_TIMEOUT)
-    if result is None:
-        logger.error("Cohort dependents cache returned None", cohort_id=cohort_id)
-    return result or []
+    # If we only have an ID, query the database for team_id. A soft-deleted cohort can still
+    # have live dependents, so the lookup must not filter on deleted.
+    if isinstance(cohort, int):
+        try:
+            team_id = Cohort.objects.filter(pk=cohort_id).values_list("team_id", flat=True).first()
+        except Exception as e:
+            logger.exception("Failed to fetch team_id for cohort", cohort_id=cohort_id, error=str(e))
+            return []
+    else:
+        team_id = cohort.team_id
+
+    if team_id is None:
+        logger.warning("Cohort not found when computing dependents", cohort_id=cohort_id)
+    else:
+        warm_team_cohort_dependency_cache(team_id)
+
+    dependents = dependency_cache.get(cache_key)
+    if dependents is None:
+        # The warm writes keys only for live cohorts and the cohorts they reference. Caching the
+        # empty list for anything else keeps a stale id in a reverse list from rescanning the team
+        # on every read.
+        dependents = []
+        dependency_cache.set(cache_key, dependents, timeout=DEPENDENCY_CACHE_TIMEOUT)
+    return dependents
 
 
 def warm_team_cohort_dependency_cache(team_id: int, batch_size: int = 1000) -> int:
@@ -392,7 +383,8 @@ def _on_cohort_changed(
     else:
         operation = "update"
         # An expired key reads as "no previous edges", which leaves this cohort in a former
-        # dependency's reverse list until the next warm. Consumers filter such extra ids out.
+        # dependency's reverse list until the next warm. The cost is one unneeded recalculation
+        # of this cohort when that former dependency recalculates, never a missed one.
         old_dependencies = set(dependency_cache.get(_cohort_dependencies_key(cohort.id)) or [])
     new_dependencies = set() if removed else extract_cohort_dependencies(cohort)
 
