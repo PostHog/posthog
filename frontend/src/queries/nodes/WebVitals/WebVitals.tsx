@@ -7,7 +7,6 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { InsightErrorStateProps } from 'scenes/insights/EmptyStates'
 import { urls } from 'scenes/urls'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
@@ -23,7 +22,7 @@ import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { getMetric } from './definitions'
-import { WebVitalsContent } from './WebVitalsContent'
+import { WebVitalsContent, WebVitalsErrorProps } from './WebVitalsContent'
 import { WebVitalsTab } from './WebVitalsTab'
 
 let uniqueNode = 0
@@ -52,10 +51,11 @@ export function WebVitals(props: {
     const { response, responseLoading, responseError, responseErrorObject } = useValues(logic)
     const { loadData } = useActions(logic)
 
-    const errorState: InsightErrorStateProps | null = responseError
+    const errorState: WebVitalsErrorProps | null = responseError
         ? {
               title: responseError,
               titleStatus: responseErrorObject?.status,
+              errorObject: responseErrorObject,
               query: props.query,
               queryId: responseErrorObject?.queryId,
               onRetry: () => loadData('force_blocking'),

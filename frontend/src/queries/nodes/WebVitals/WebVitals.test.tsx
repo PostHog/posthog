@@ -31,4 +31,20 @@ describe('web vitals failure states', () => {
         expect(screen.queryByText('No data for the selected date range')).toBeNull()
         expect(screen.getByTestId('insight-empty-state')).toBeTruthy()
     })
+
+    it('the grade panel keeps the fix in the message when the query is too broad to run', () => {
+        const detail =
+            'Estimated query execution time (42 seconds) is too long. Try reducing its scope by changing the time range.'
+
+        render(
+            <WebVitalsContent
+                webVitalsQueryResponse={undefined}
+                isLoading={false}
+                error={{ title: detail, titleStatus: 512, errorObject: { status: 512, detail } }}
+            />
+        )
+
+        expect(screen.getByText(/reducing its scope by changing the time range/)).toBeTruthy()
+        expect(screen.queryByText("PostHog couldn't complete this query")).toBeNull()
+    })
 })
