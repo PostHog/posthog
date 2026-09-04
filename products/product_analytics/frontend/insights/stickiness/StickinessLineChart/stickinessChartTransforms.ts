@@ -76,10 +76,14 @@ export function buildStickinessSeries<R extends StickinessResultLike, M = unknow
     results: R[],
     opts: BuildStickinessSeriesOpts<R, M>
 ): Series<M>[] {
-    // Group on the rendered (percent-converted) values, not the raw counts.
-    const yAxisIds = opts.showMultipleYAxes
-        ? computeMagnitudeAxisIds(results.map((r) => toPercentData(r.data, r.count)))
-        : undefined
+    // Group on the rendered (percent-converted) values, not the raw counts. Area fills each
+    // scaled to their own axis all reach the top of the plot and cover each other, so an area
+    // chart keeps one shared axis.
+    const isArea = opts.display === ChartDisplayType.ActionsAreaGraph
+    const yAxisIds =
+        opts.showMultipleYAxes && !isArea
+            ? computeMagnitudeAxisIds(results.map((r) => toPercentData(r.data, r.count)))
+            : undefined
     return results.map((r, index) => buildStickinessMainSeries(r, index, opts, yAxisIds?.[index]))
 }
 

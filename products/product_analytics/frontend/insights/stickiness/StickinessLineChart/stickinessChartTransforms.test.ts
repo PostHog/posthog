@@ -159,6 +159,17 @@ describe('stickinessChartTransforms', () => {
             expect(series.map((s) => s.yAxisId)).toEqual([DEFAULT_Y_AXIS_ID, 'y1', DEFAULT_Y_AXIS_ID])
         })
 
+        it('keeps every area series on one y-axis so the fills cannot cover each other', () => {
+            const results = [makeResult({ id: 'a', count: 100 }), makeResult({ id: 'b', count: 10000 })]
+            const series = buildStickinessSeries(results, {
+                getColor: () => RED,
+                showMultipleYAxes: true,
+                display: ChartDisplayType.ActionsAreaGraph,
+            })
+
+            expect(series.map((s) => s.yAxisId)).toEqual([DEFAULT_Y_AXIS_ID, DEFAULT_Y_AXIS_ID])
+        })
+
         it('transforms each result independently using its own count', () => {
             const results = [
                 makeResult({ id: 'a', count: 200, data: [100, 50, 25, 25] }),
