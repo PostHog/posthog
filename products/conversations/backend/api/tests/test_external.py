@@ -491,6 +491,24 @@ class TestExternalTicketAPI(BaseTest):
 
         self.assertEqual(self._get_first_customer_message_text(), expected)
 
+    @parameterized.expand(
+        [
+            # The widget escapes the customer's punctuation on the way in; the preview shows it as
+            # the customer typed it. These are the stored strings, with the escaping the widget adds.
+            ("parentheses_and_period", "Please don't tag it \\(yet\\)\\.", "Please don't tag it (yet)."),
+            ("emphasis_chars_the_customer_typed", "2 \\* 3 \\* 4", "2 * 3 * 4"),
+            # A backslash the customer actually typed is stored doubled, so it comes back single.
+            ("typed_backslash_survives", "path C:\\\\Users", "path C:\\Users"),
+            # Link-shaped text the customer typed is stored escaped, so the attachment strip does
+            # not treat it as a link; unescaping runs after that strip and restores it intact.
+            ("typed_link_shaped_text_survives", "see \\[the docs\\]\\(here\\)", "see [the docs](here)"),
+        ]
+    )
+    def test_get_ticket_first_message_unescapes_widget_markdown(self, _name, content, expected):
+        self._create_message(content, minutes_ago=10, item_context={"author_type": "customer"})
+
+        self.assertEqual(self._get_first_customer_message_text(), expected)
+
     def test_get_ticket_first_message_keeps_bracketed_prose_in_a_body_long_enough_to_cut(self):
         # Only a body past the scan window reaches the severed-attachment strip, so a shorter
         # message cannot show whether that strip leaves a customer's own brackets alone.

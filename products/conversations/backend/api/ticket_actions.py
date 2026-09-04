@@ -164,6 +164,13 @@ FIRST_MESSAGE_DB_FETCH_CHARS = FIRST_MESSAGE_SCAN_CHARS + 1
 # applies this only when the body was long enough to be cut.
 _PARTIAL_MARKDOWN_TAIL = re.compile(r"!?\[[^\[\]]*(?:\](?:\([^)]*)?)?$")
 
+# The support widget stores the customer's message as markdown, so it backslash-escapes the
+# customer's own punctuation (a typed "(yet)" is stored as "\(yet\)"). The preview is quoted back
+# to the customer as prose, often in an email that does not render markdown, so those backslashes
+# would show. Reverse the escaping. This is the inverse of the widget editor's escapeMarkdown, and
+# matches the same character set the outbound Slack formatter unescapes (posthog/comment/formatting.py).
+_MARKDOWN_ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
+
 
 def _quotable_text(content: str) -> str:
     window = content[:FIRST_MESSAGE_SCAN_CHARS]
@@ -172,6 +179,7 @@ def _quotable_text(content: str) -> str:
     if len(content) > FIRST_MESSAGE_SCAN_CHARS:
         window = _PARTIAL_MARKDOWN_TAIL.sub("", window)
     text = _LINK_MARKDOWN.sub(r"\1", _IMAGE_MARKDOWN.sub("", window))
+    text = _MARKDOWN_ESCAPE.sub(r"\1", text)
     return " ".join(text.split())
 
 
