@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCopy, IconPullRequest } from '@posthog/icons'
-import { LemonButton, LemonButtonWithDropdown, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
@@ -64,46 +64,40 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
     }
 
     return (
-        <LemonButtonWithDropdown
+        <LemonButton
             type="primary"
             size="small"
             icon={<IconPullRequest />}
-            tooltip="Choose how to implement this report"
-            data-attr="inbox-report-create-pr-steer"
-            dropdown={{
-                placement: 'bottom-end',
-                overlay: (
-                    <div className="flex w-72 flex-col gap-1 p-1">
-                        <LemonButton
-                            fullWidth
-                            icon={<IconCopy />}
-                            onClick={() => void copyImplementationPrompt()}
-                            data-attr="inbox-report-copy-implementation-prompt"
-                        >
-                            <span className="flex flex-col items-start">
-                                <span>Use your agent</span>
-                                <span className="text-xs font-normal text-secondary">Copy the report prompt</span>
-                            </span>
-                        </LemonButton>
-                        <LemonButton
-                            fullWidth
-                            type="primary"
-                            icon={<IconPullRequest />}
-                            onClick={submit}
-                            loading={isCreatingPr}
-                            disabledReason={disabledReason}
-                            data-attr="inbox-report-create-pr"
-                        >
-                            <span className="flex flex-col items-start">
-                                <span>Implement with PostHog</span>
-                                <span className="text-xs font-normal">Start a PostHog agent</span>
-                            </span>
-                        </LemonButton>
-                    </div>
-                ),
+            onClick={submit}
+            loading={isCreatingPr}
+            disabledReason={disabledReason}
+            tooltip="Implement this report with PostHog"
+            data-attr="inbox-report-create-pr"
+            sideAction={{
+                tooltip: 'More implementation options',
+                'aria-label': 'More implementation options',
+                'data-attr': 'inbox-report-create-pr-steer',
+                dropdown: {
+                    placement: 'bottom-end',
+                    overlay: (
+                        <div className="w-72 p-1">
+                            <LemonButton
+                                fullWidth
+                                icon={<IconCopy />}
+                                onClick={() => void copyImplementationPrompt()}
+                                data-attr="inbox-report-copy-implementation-prompt"
+                            >
+                                <span className="flex flex-col items-start">
+                                    <span>Use your agent</span>
+                                    <span className="text-xs font-normal text-secondary">Copy the report prompt</span>
+                                </span>
+                            </LemonButton>
+                        </div>
+                    ),
+                },
             }}
         >
             Implement
-        </LemonButtonWithDropdown>
+        </LemonButton>
     )
 }

@@ -64,23 +64,22 @@ describe('ImplementButton', () => {
         return user
     }
 
-    it('offers two implementation choices without starting either one', async () => {
-        await openMenu()
-
-        expect(screen.getByText('Use your agent')).toBeInTheDocument()
-        expect(screen.getByText('Implement with PostHog')).toBeInTheDocument()
-        expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
-        expect(createPrFromReport).not.toHaveBeenCalled()
-        expect(copyToClipboard).not.toHaveBeenCalled()
-    })
-
-    it('starts a PostHog agent from its menu choice', async () => {
-        const user = await openMenu()
+    it('starts a PostHog agent from the main action', async () => {
+        const user = userEvent.setup()
+        render(<ImplementButton report={makeReport()} />)
 
         await user.click(screen.getByTestId('inbox-report-create-pr'))
 
         expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
         expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({ has_feedback: false })
+    })
+
+    it('opens the external agent option without starting work', async () => {
+        await openMenu()
+
+        expect(screen.getByText('Use your agent')).toBeInTheDocument()
+        expect(createPrFromReport).not.toHaveBeenCalled()
+        expect(copyToClipboard).not.toHaveBeenCalled()
     })
 
     it('copies a prompt that claims the report and attaches the finished pull request', async () => {

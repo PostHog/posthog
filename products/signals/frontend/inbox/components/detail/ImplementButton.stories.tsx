@@ -24,7 +24,7 @@ export const Choices: Story = {
     parameters: { testOptions: { snapshotTargetSelector: '.Popover' } },
     render: () => <ImplementButton report={report} />,
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Choose how to implement this report'))
+        await userEvent.click(await within(canvasElement).findByLabelText('More implementation options'))
         await waitFor(() => {
             if (!document.querySelector('.Popover')) {
                 throw new Error('implementation choices not open yet')
