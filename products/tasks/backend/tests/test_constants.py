@@ -9,6 +9,7 @@ from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX
 from products.tasks.backend.presentation.serializers import TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES
 
 PRODUCTS_DIR = Path(__file__).resolve().parents[3]
+TASKS_MCP_CONFIG = PRODUCTS_DIR / "tasks" / "mcp" / "tools.yaml"
 
 
 def _enabled_destructive_tools() -> list[str]:
@@ -51,3 +52,11 @@ def test_inline_artifact_ceiling_stays_reachable_through_the_request_body_limit(
     largest_encoded_body = TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES * 4 // 3
 
     assert largest_encoded_body < settings.DATA_UPLOAD_MAX_MEMORY_SIZE
+
+
+def test_task_mcp_tools_can_start_runs():
+    tools = yaml.safe_load(TASKS_MCP_CONFIG.read_text())["tools"]
+
+    assert {"start_run", "branch"}.issubset(tools["tasks-create"]["include_params"])
+    assert tools["tasks-run-create"]["enabled"] is True
+    assert tools["tasks-run-create"]["input_schema"] == "TaskAgentRunCreateSchema"

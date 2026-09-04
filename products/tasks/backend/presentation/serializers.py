@@ -34,6 +34,7 @@ from products.tasks.backend.facade.contracts import (
     SlackThreadReferenceDTO,
     TaskActivityDTO,
     TaskActivityPageDTO,
+    TaskCreateResponseDTO,
     TaskDetailDTO,
     TaskMentionDTO,
     TaskRunDetailDTO,
@@ -583,6 +584,17 @@ class TaskSerializer(DataclassSerializer):
         ]
 
 
+class TaskCreateResponseSerializer(TaskSerializer):
+    run_error = serializers.CharField(
+        required=False,
+        help_text="Error returned when the task was created but its first run could not start.",
+    )
+
+    class Meta(TaskSerializer.Meta):
+        dataclass = TaskCreateResponseDTO
+        fields = [*TaskSerializer.Meta.fields, "run_error"]
+
+
 class TaskWriteSerializer(serializers.Serializer):
     """Request body for creating or updating a task.
 
@@ -940,6 +952,12 @@ class TaskWriteSerializer(serializers.Serializer):
 
 
 class TaskCreateSerializer(TaskWriteSerializer):
+    start_run = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+        help_text="Start the task's first cloud run immediately after creation.",
+    )
     naming_source = serializers.CharField(
         required=False,
         allow_blank=True,

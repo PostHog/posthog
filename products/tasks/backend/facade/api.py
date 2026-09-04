@@ -489,7 +489,9 @@ def _task_run_log_url(run: TaskRun) -> str | None:
     return presigned_url
 
 
-def _task_run_detail_to_dto(run: TaskRun, *, include_agent_state: bool = False) -> contracts.TaskRunDetailDTO:
+def _task_run_detail_to_dto(
+    run: TaskRun, *, include_agent_state: bool = False, include_log_url: bool = True
+) -> contracts.TaskRunDetailDTO:
     """Map a ``TaskRun`` to its HTTP detail DTO.
 
     Reproduces the SMF-derived fields ``TaskRunDetailSerializer`` computed: ``log_url`` does
@@ -512,7 +514,7 @@ def _task_run_detail_to_dto(run: TaskRun, *, include_agent_state: bool = False) 
         provider=state.provider.value if state.provider is not None else None,
         model=state.model,
         reasoning_effort=state.reasoning_effort.value if state.reasoning_effort is not None else None,
-        log_url=_task_run_log_url(run),
+        log_url=_task_run_log_url(run) if include_log_url else None,
         error_message=run.error_message,
         output=run.output,
         state=_public_task_run_state(run.state, include_agent_keys=include_agent_state),
@@ -623,6 +625,7 @@ def _task_detail_to_dto(
     *,
     include_latest_run: bool = True,
     latest_run: TaskRun | None | _LatestRunUnset = _LATEST_RUN_UNSET,
+    include_latest_run_log_url: bool = True,
 ) -> contracts.TaskDetailDTO:
     """Map a ``Task`` to its HTTP detail DTO."""
     if not include_latest_run:
@@ -653,7 +656,11 @@ def _task_detail_to_dto(
         archived=task.archived,
         archived_at=task.archived_at,
         ci_prompt=task.ci_prompt,
-        latest_run=_task_run_detail_to_dto(resolved_latest_run) if resolved_latest_run is not None else None,
+        latest_run=(
+            _task_run_detail_to_dto(resolved_latest_run, include_log_url=include_latest_run_log_url)
+            if resolved_latest_run is not None
+            else None
+        ),
         created_at=task.created_at,
         updated_at=task.updated_at,
         last_activity_at=task.last_activity_at or task.updated_at,
@@ -4785,7 +4792,7 @@ def _trigger_task_processing_workflow(
     initial_message: str | None = None,
     initial_artifact_ids: list[str] | None = None,
     raise_on_error: bool = False,
-) -> None:
+) -> str | None:
     from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
         WorkflowDispatchOptions,
         enqueue_or_start_workflow,
@@ -4798,7 +4805,7 @@ def _trigger_task_processing_workflow(
 
     # SIGNAL_REPORT: implementation runs log their work on the report (notes, code references)
     # via the task:write artefact tools.
-    full_mcp_run_sources = frozenset({None, RunSource.MANUAL, RunSource.SIGNAL_REPORT})
+    full_mcp_run_sources = frozenset({None, RunSource.MANUAL, RunSource.SIGNAL_REPORT, RunSource.AGENT})
     run_source = parse_run_state(run.state).run_source
     posthog_mcp_scopes: Literal["read_only", "full"] = "full" if run_source in full_mcp_run_sources else "read_only"
     try:
@@ -4820,10 +4827,12 @@ def _trigger_task_processing_workflow(
             ),
         )
         logger.info("Workflow trigger completed for task %s, run %s", task.id, run.id)
+        return None
     except Exception as e:
         logger.exception("Failed to trigger task processing workflow for task %s, run %s: %s", task.id, run.id, e)
         if raise_on_error:
             raise
+        return "Failed to start task workflow."
 
 
 # Statuses from which a cloud run may be started via the start endpoint.
@@ -6900,6 +6909,7 @@ def run_task(
                 team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
             )
     mode = validated_data.get("mode", "background")
+    run_source = validated_data.get("run_source")
     branch = validated_data.get("branch")
     resume_from_run_id = validated_data.get("resume_from_run_id")
     pending_user_message = validated_data.get("pending_user_message")
@@ -6946,7 +6956,7 @@ def run_task(
             internal=task.internal,
         )
 
-    warm_run = _idling_warm_run_for_task(task)
+    warm_run = None if run_source == RunSource.AGENT else _idling_warm_run_for_task(task)
     if warm_run is not None:
         warm_state = warm_run.state or {}
         # Both directions. A request that states no resume source must not be handed a successor
@@ -7041,7 +7051,6 @@ def run_task(
     custom_image_id_supplied_by_user = custom_image_id is not None
     pr_authorship_mode = validated_data.get("pr_authorship_mode")
     auto_publish = validated_data.get("auto_publish")
-    run_source = validated_data.get("run_source")
     signal_report_id = validated_data.get("signal_report_id")
     runtime_adapter = validated_data.get("runtime_adapter")
     model = validated_data.get("model")
@@ -7308,7 +7317,7 @@ def run_task(
         initial_message = (
             pending_user_message if resume_from_run_id else pending_user_message or task.description or None
         )
-        _trigger_task_processing_workflow(
+        run_error = _trigger_task_processing_workflow(
             task,
             task_run,
             user_id,
@@ -7317,9 +7326,19 @@ def run_task(
             raise_on_error=False,
         )
     else:
-        _trigger_task_processing_workflow(task, task_run, user_id, raise_on_error=False)
+        run_error = _trigger_task_processing_workflow(task, task_run, user_id, raise_on_error=False)
 
-    return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
+    if run_error is None:
+        task_run.refresh_from_db(fields=["status", "error_message"])
+        if task_run.status == TaskRun.Status.FAILED:
+            run_error = task_run.error_message or "Failed to start task workflow."
+
+    try:
+        task_detail = get_task_detail(task.id, team_id, user_id)
+    except Exception:
+        logger.exception("Failed to hydrate task %s after starting run %s", task.id, task_run.id)
+        task_detail = _task_detail_to_dto(task, latest_run=task_run, include_latest_run_log_url=False)
+    return contracts.TaskRunResult(task=task_detail, run_error=run_error)
 
 
 # --- Task presence beacons ---

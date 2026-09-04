@@ -647,6 +647,15 @@ export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
 })
 
+export const TaskAgentRunCreateSchema = z
+    .object({
+        id: z.string().uuid().describe('Task ID.'),
+        branch: z.string().max(255).nullish().describe('Git branch to check out in the sandbox.'),
+        resume_from_run_id: z.string().uuid().optional().describe('ID of a previous run to resume from.'),
+        pending_user_message: z.string().optional().describe('Initial or follow-up message for the run.'),
+    })
+    .transform((input) => ({ ...input, mode: 'background' as const, run_source: 'agent' as const }))
+
 // Debug MCP UI Apps
 export const DebugMcpUiAppsSchema = z.object({
     message: z.string().optional().describe('Optional message to include in the debug data'),

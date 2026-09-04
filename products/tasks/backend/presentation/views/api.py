@@ -48,6 +48,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.event_usage import groups
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import User
+from posthog.oauth_provenance import is_interactive_desktop_grant
 from posthog.permissions import (
     APIScopePermission,
     get_authenticator_scoped_team_ids,
@@ -92,7 +93,12 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_resume_gap,
 )
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
-from products.tasks.backend.facade.run_config import WARMABLE_ORIGIN_PRODUCTS, TaskArtifactAdapter, TaskArtifactType
+from products.tasks.backend.facade.run_config import (
+    WARMABLE_ORIGIN_PRODUCTS,
+    RunSource,
+    TaskArtifactAdapter,
+    TaskArtifactType,
+)
 from products.tasks.backend.facade.streams import (
     TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
     TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS,
@@ -130,6 +136,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskCommentDetailSerializer,
     TaskCommentsQuerySerializer,
     TaskCommentsResponseSerializer,
+    TaskCreateResponseSerializer,
     TaskCreateSerializer,
     TaskHandoffRequestSerializer,
     TaskListQuerySerializer,
@@ -231,6 +238,13 @@ def _pi_cloud_runtime_disabled_response() -> Response:
     )
 
 
+def _agent_run_disabled_response() -> Response:
+    return Response(
+        TaskRunErrorResponseSerializer({"error": "Agent-started task runs are not available for this project"}).data,
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
 TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox"
 
 # One rollout per origin product — the Code app and PostHog AI reach different populations, so a shared
@@ -303,6 +317,7 @@ TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 
 
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
+TASKS_MCP_AGENT_RUN_START_FLAG = "tasks-mcp-agent-run-start"
 
 
 SESSION_LOG_PAGE_MAX_BYTES = 16 * 1024 * 1024
@@ -412,6 +427,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     pagination_class = TasksPagination
+    lookup_value_regex = UUID_LOOKUP_REGEX
     # Fallback for drf-spectacular introspection only; every action declares its own
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskSerializer
@@ -614,10 +630,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         request=TaskCreateSerializer,
         responses={
-            201: TaskSerializer,
+            201: TaskCreateResponseSerializer,
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="PostHog Desktop access is required for a create that can activate a warm sandbox",
+                description=(
+                    "Agent-started runs are limited to the internal project and cannot start from a sandbox token. "
+                    "Immediate runs also require PostHog Desktop access and an enabled Pi cloud runtime."
+                ),
             ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
@@ -634,6 +653,44 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request, **kwargs):
         serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
+        validated_data = dict(serializer.validated_data)
+        start_run = validated_data.pop("start_run", False)
+        origin_product = validated_data.get("origin_product", tasks_facade.TaskOriginProduct.USER_CREATED)
+        relationship = serializer.validated_data.get("signal_report_task_relationship")
+
+        if start_run and (not self._agent_run_enabled(request) or is_sandbox_oauth_request(request)):
+            return _agent_run_disabled_response()
+
+        run_data = {
+            key: validated_data[key]
+            for key in (
+                "branch",
+                "runtime_adapter",
+                "model",
+                "reasoning_effort",
+                "sandbox_environment_id",
+                "custom_image_id",
+                "initial_permission_mode",
+                "pending_user_message",
+                "pending_user_artifact_ids",
+                "auto_publish",
+            )
+            if key in request.data
+        }
+        if start_run:
+            run_payload = {**run_data, "mode": "background", "run_source": RunSource.AGENT}
+            run_serializer = TaskRunCreateRequestSerializer(data=run_payload, context=serializer.context)
+            run_serializer.is_valid(raise_exception=True)
+            run_data = {
+                key: run_serializer.validated_data[key] for key in run_payload if key in run_serializer.validated_data
+            }
+
+        if (
+            start_run
+            and validated_data.get("runtime") == tasks_facade.TaskRuntime.PI
+            and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user)
+        ):
+            return _pi_cloud_runtime_disabled_response()
 
         # A create that carries warm-reuse hints can activate an idling sandbox in place, which starts
         # the agent without the client ever calling the run endpoint — so the gates that endpoint puts
@@ -642,18 +699,23 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Scoped to warmable origins, which is what a warm can ever be reused for; the code-access
         # exempt Inbox shapes are not among them, matching how the warm endpoint gates.
         # `origin_product` is optional on the wire; `create_task` defaults it the same way.
-        if (
-            "branch" in serializer.validated_data
-            and serializer.validated_data.get("origin_product", tasks_facade.TaskOriginProduct.USER_CREATED)
-            in WARMABLE_ORIGIN_PRODUCTS
-        ):
-            if access_response := code_access_required_response(request, self.organization):
+        can_activate_warm_run = "branch" in validated_data and origin_product in WARMABLE_ORIGIN_PRODUCTS
+        if start_run or can_activate_warm_run:
+            is_code_access_exempt = (
+                origin_product == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
+                and validated_data.get("signal_report") is not None
+                and relationship not in (None, "implementation")
+            )
+            if not is_code_access_exempt and (
+                access_response := code_access_required_response(request, self.organization)
+            ):
                 return access_response
             if limit_response := usage_limit_response(request.user, self.team_id):
                 return limit_response
 
-        # Read before create_task, which pops the relationship out of the dict it's handed.
-        relationship = serializer.validated_data.get("signal_report_task_relationship")
+        if start_run:
+            validated_data.pop("branch", None)
+
         from products.signals.backend.facade.api import (  # noqa: PLC0415 — keeps the signals stack off this module's import path
             ReportTaskCapExceeded,
         )
@@ -662,7 +724,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task = tasks_facade.create_task(
                 self.team_id,
                 self._user_id(),
-                validated_data=dict(serializer.validated_data),
+                validated_data=validated_data,
                 client_provenance=get_task_client_provenance(request),
             )
         except ComputeBillingLimitExceeded as error:
@@ -670,7 +732,30 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except ReportTaskCapExceeded as error:
             return self._report_task_cap_response(error.detail)
         self._forward_signals_discussion_note(request, task, relationship)
-        return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
+        if not start_run:
+            return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
+
+        try:
+            result = tasks_facade.run_task(
+                task.id,
+                self.team_id,
+                self._user_id(),
+                validated_data=run_data,
+            )
+            run_error = result.run_error if result else "Failed to create task run."
+            if result and result.error:
+                run_error = result.error.detail
+        except ReportTaskCapExceeded as error:
+            result = None
+            run_error = error.detail
+        except Exception:
+            logger.exception("Failed to create first run for task %s", task.id)
+            result = None
+            run_error = "Failed to create task run."
+        response_data = TaskSerializer(result.task if result and result.task else task).data
+        if run_error:
+            response_data["run_error"] = run_error
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
     def _one_shot_analysis_response(self, task_id: str) -> Response | None:
         """Refuse to add runs to a server-created analysis task; see the facade reader."""
@@ -1096,6 +1181,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
+        if request.validated_data.get("run_source") == RunSource.AGENT and (
+            not self._agent_run_enabled(request) or is_sandbox_oauth_request(request)
+        ):
+            return _agent_run_disabled_response()
+
         # Original order: 404 if the task isn't visible, then gate (always cloud) before the run.
         if not tasks_facade.task_visible(pk, self.team_id, self._user_id(), for_control=True):
             raise NotFound()
@@ -1131,6 +1221,28 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if result.error is not None:
             return self._task_error_response(result.error)
         return Response(TaskSerializer(result.task).data)
+
+    def _agent_run_enabled(self, request) -> bool:
+        if not _is_internal_debug_team(self.team_id):
+            return False
+        distinct_id = getattr(request.user, "distinct_id", None) or str(getattr(request.user, "uuid", ""))
+        groups = {
+            "organization": str(self.organization.id),
+            "project": str(self.team.uuid),
+        }
+        try:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    TASKS_MCP_AGENT_RUN_START_FLAG,
+                    distinct_id,
+                    groups=groups,
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception:
+            logger.exception("%s flag check failed; treating as disabled", TASKS_MCP_AGENT_RUN_START_FLAG)
+            return False
 
     def _warm_enabled(self, origin_product: str) -> bool:
         """Person + org level gate for the sandbox-warming feature. Fail-closed on any error.
@@ -1346,7 +1458,11 @@ def is_sandbox_oauth_request(request) -> bool:
     if not isinstance(authenticator, OAuthAccessTokenAuthentication):
         return False
     application = authenticator.access_token.application
-    return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
+    return (
+        application is not None
+        and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
+        and not is_interactive_desktop_grant(request)
+    )
 
 
 def _sandbox_bound_task_id(request) -> UUID | None:

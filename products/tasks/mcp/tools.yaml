@@ -402,9 +402,8 @@ tools:
             Create an agent task in the current project — a unit of work an AI agent picks up and actions, such as
             investigating an inbox report, fixing an error, or opening a pull request. `description` is the prompt
             handed to the agent, so make it specific and actionable. Pass `repository` in `organization/repo` format for
-            code tasks so the agent knows where to work; omit it for investigation-only tasks. This creates the task
-            record only — it does not start the agent. Returns the created task including its URL; open that URL to
-            start the run. Requires the calling token's organization to have Tasks access enabled.
+            code tasks so the agent knows where to work; omit it for investigation-only tasks. Requires the calling
+            token's organization to have Tasks access enabled.
         include_params:
             - title
             - description
@@ -426,6 +425,10 @@ tools:
                 - origin_product
                 - repository
                 - internal
+                - latest_run.id
+                - latest_run.stage
+                - latest_run.status
+                - run_error
                 - created_at
                 - updated_at
     tasks-destroy:
@@ -521,7 +524,30 @@ tools:
                 - latest_run.state.sandbox_url
     tasks-run-create:
         operation: tasks_run_create
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        input_schema: TaskAgentRunCreateSchema
+        enrich_url: '{id}'
+        title: Start task run
+        description: >
+            Start a cloud run for an existing task. Use `pending_user_message` for follow-up work and
+            `resume_from_run_id` to continue a prior run. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress.
+        feature_flag: tasks-mcp-agent-run-start
+        response:
+            include:
+                - id
+                - task_number
+                - title
+                - description
+                - repository
+                - latest_run.id
+                - latest_run.stage
+                - latest_run.status
     tasks-runs-analysis-insight-create:
         operation: tasks_runs_analysis_insight_create
         enabled: false

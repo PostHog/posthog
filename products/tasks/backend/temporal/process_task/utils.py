@@ -74,6 +74,7 @@ class GitHubCredentialSource(StrEnum):
 class RunSource(StrEnum):
     MANUAL = "manual"
     SIGNAL_REPORT = "signal_report"
+    AGENT = "agent"
 
 
 # Origins whose runs are meant to carry a human git identity; everything else is bot-authored.

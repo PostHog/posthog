@@ -10819,7 +10819,7 @@
         }
     },
     "tasks-create": {
-        "description": "Create an agent task in the current project — a unit of work an AI agent picks up and actions, such as investigating an inbox report, fixing an error, or opening a pull request. `description` is the prompt handed to the agent, so make it specific and actionable. Pass `repository` in `organization/repo` format for code tasks so the agent knows where to work; omit it for investigation-only tasks. This creates the task record only — it does not start the agent. Returns the created task including its URL; open that URL to start the run. Requires the calling token's organization to have Tasks access enabled.",
+        "description": "Create an agent task in the current project — a unit of work an AI agent picks up and actions, such as investigating an inbox report, fixing an error, or opening a pull request. `description` is the prompt handed to the agent, so make it specific and actionable. Pass `repository` in `organization/repo` format for code tasks so the agent knows where to work; omit it for investigation-only tasks. Requires the calling token's organization to have Tasks access enabled.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Create task",
@@ -10862,6 +10862,21 @@
             "readOnlyHint": true
         },
         "feature_flag": "tasks"
+    },
+    "tasks-run-create": {
+        "description": "Start a cloud run for an existing task. Use `pending_user_message` for follow-up work and `resume_from_run_id` to continue a prior run. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Start task run",
+        "title": "Start task run",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks-mcp-agent-run-start"
     },
     "tasks-runs-list": {
         "description": "List all runs for a specific task. Returns lightweight run metadata only — call tasks-runs-retrieve for full run detail including state, output, and artifacts.",
