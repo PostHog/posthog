@@ -4437,7 +4437,16 @@ Optimize for the fewest shell round trips.
 - Read multiple files at once.
 - Never rerun a command solely to reproduce output you already have.`;
 
-    const artifactInstructions = `
+    // Withheld when the run can deliver into Slack, because `upload_artifact` writes a run
+    // artifact that only a signed-in PostHog user can reach. Offering both paths makes the
+    // agent choose, and it picks this one, so the Slack reader gets a link they cannot open
+    // instead of the file. The "none" mode keeps it: that run has no Slack delivery at all,
+    // and a run artifact is still the best a person gets.
+    const artifactInstructions =
+      this.slackArtifactDelivery !== null &&
+      this.slackArtifactDelivery !== "none"
+        ? ""
+        : `
 ## Delivering non-code files (artifacts)
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
