@@ -3124,10 +3124,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # or un-clear one a draft deliberately emptied.
             stored_base = self._stored_conversion_base(instance) if self.partial else None
             if stored_base is not None:
-                # Normalize a legacy goal (event object in `filters`) before merging: carried over raw it
-                # would land past the to_internal_value relocation, and skipping it would drop the only
-                # copy of a goal the patch never asked to change.
-                stored_conversion = _relocate_legacy_conversion_event_object(stored_base)
+                # Copy before merging: the compile loop below rewrites each event entry in place, and a
+                # carried-over entry is still the stored object. A staged edit that also touches metadata
+                # saves the live row for that metadata, which would take the recompile with it.
+                #
+                # Normalize a legacy goal (event object in `filters`) too: carried over raw it would land
+                # past the to_internal_value relocation, and skipping it would drop the only copy of a
+                # goal the patch never asked to change.
+                stored_conversion = _relocate_legacy_conversion_event_object(deepcopy(stored_base))
                 for key in ("filters", "events", "window_minutes"):
                     stored = stored_conversion.get(key)
                     if key in conversion or stored is None:

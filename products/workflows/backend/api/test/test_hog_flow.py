@@ -1239,6 +1239,42 @@ class TestHogFlowAPI(APIBaseTest):
         assert flow.conversion["window_minutes"] == 120, flow.conversion
         assert len(flow.conversion["events"]) == 1, flow.conversion
 
+    def test_hog_flow_conversion_staged_patch_leaves_the_live_goal_alone(self):
+        # A staged edit that also renames the workflow saves the live row for the rename. The goal it
+        # carried over must not ride along: it is compiled on the way through, and the live workflow
+        # would start matching on the recompile before anyone published the draft.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["status"] = "active"
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+        flow = HogFlow.objects.get(id=flow_id)
+        # The conversion backfill relocates a goal without compiling it, so a stored goal can carry no
+        # bytecode — the shape where a recompile is visibly different from what is stored.
+        stored_conversion = {
+            "filters": [],
+            "window_minutes": 60,
+            "events": [{"filters": {"events": [{"id": "purchase", "name": "purchase", "type": "events"}]}}],
+        }
+        flow.conversion = stored_conversion
+        flow.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"window_minutes": 120}, "name": "Renamed"},
+            format="json",
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        assert response.status_code == 200, response.json()
+        flow.refresh_from_db()
+        assert flow.name == "Renamed"
+        assert flow.conversion == stored_conversion, flow.conversion
+        assert flow.draft["conversion"]["window_minutes"] == 120, flow.draft["conversion"]
+        assert len(flow.draft["conversion"]["events"]) == 1, flow.draft["conversion"]
+
     def test_hog_flow_conversion_goal_can_still_be_cleared_explicitly(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
