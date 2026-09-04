@@ -224,6 +224,8 @@ export interface DashboardConfiguration {
 
 export type DashboardConfigurationState = 'unsavedChanges' | 'saved'
 
+type DashboardEditSaveScope = 'colors' | 'layout'
+
 function parseDashboardTileId(tileId: string | undefined): DashboardTileIdOrNew {
     const parsedTileId = Number(tileId)
     return Number.isNaN(parsedTileId) ? null : parsedTileId
@@ -753,6 +755,9 @@ export interface dashboardLogicActions {
         configuration: DashboardConfiguration | null
         dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
     }
+    saveDashboardColorChanges: () => {
+        value: true
+    }
     saveDashboardFilters: () => {
         value: true
     }
@@ -768,7 +773,9 @@ export interface dashboardLogicActions {
     saveDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => {
         tileSpacing: DashboardTileSpacing
     }
-    saveEditModeChanges: () => boolean
+    saveEditModeChanges: (scope: DashboardEditSaveScope) => {
+        scope: DashboardEditSaveScope
+    }
     saveEditModeChangesFailure: (
         error: string,
         errorObject?: any
@@ -778,10 +785,14 @@ export interface dashboardLogicActions {
     }
     saveEditModeChangesSuccess: (
         dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
-        payload?: boolean
+        payload?: {
+            scope: DashboardEditSaveScope
+        }
     ) => {
         dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
-        payload?: boolean
+        payload?: {
+            scope: DashboardEditSaveScope
+        }
     }
     saveLayout: () => {
         value: true
@@ -1455,9 +1466,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ) => ({ dashboard, configuration }),
         saveDashboardChangesFailure: (error: string) => ({ error }),
         discardDashboardChanges: true,
+        saveDashboardColorChanges: true,
         saveLayoutChanges: true,
         discardLayoutChanges: true,
-        saveEditModeChanges: () => true,
+        saveEditModeChanges: (scope: DashboardEditSaveScope) => ({ scope }),
         saveDashboardFilters: true,
         saveDashboardFiltersSuccess: (dashboard: DashboardType<QueryBasedInsightModel> | null) => ({ dashboard }),
         saveDashboardFiltersFailure: (error: string) => ({ error }),
@@ -1657,7 +1669,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // Return null - metadata will update the dashboard
                     return null
                 },
-                saveEditModeChanges: async (_, breakpoint) => {
+                saveEditModeChanges: async ({ scope }, breakpoint) => {
                     cache.dashboardChangesPersisted = false
                     try {
                         // Only persist sm layouts; xs layouts are derived on the fly
@@ -1694,21 +1706,36 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             return !equal(originalLayouts || {}, updatedLayouts || {})
                         })
 
-                        if (!breakdownColorsChanged && !themeChanged && !layoutsChanged) {
+                        const colorsChanged = breakdownColorsChanged || themeChanged
+                        const hasChanges = scope === 'colors' ? colorsChanged : layoutsChanged
+                        if (!hasChanges) {
                             return currentDashboard
                         }
 
                         breakpoint()
 
-                        const updatedDashboard: DashboardType<InsightModel> = await api.update(
+                        const payload =
+                            scope === 'colors'
+                                ? {
+                                      breakdown_colors: breakdownColorsToSave,
+                                      data_color_theme_id: values.dataColorThemeId,
+                                  }
+                                : {
+                                      tiles: layoutsToUpdate,
+                                  }
+                        const persistedDashboard: DashboardType<InsightModel> = await api.update(
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
-                            {
-                                breakdown_colors: breakdownColorsToSave,
-                                data_color_theme_id: values.dataColorThemeId,
-                                tiles: layoutsToUpdate,
-                            }
+                            payload
                         )
-                        if (breakdownColorsChanged) {
+                        const updatedDashboard =
+                            scope === 'colors'
+                                ? { ...persistedDashboard, tiles: currentDashboard.tiles }
+                                : {
+                                      ...persistedDashboard,
+                                      breakdown_colors: currentDashboard.breakdown_colors,
+                                      data_color_theme_id: currentDashboard.data_color_theme_id,
+                                  }
+                        if (scope === 'colors' && breakdownColorsChanged) {
                             eventUsageLogic.actions.reportDashboardBreakdownColorsSaved(
                                 values.dashboard,
                                 breakdownColorsToSave.filter((c) => c.source !== 'auto').length,
@@ -1716,7 +1743,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 Array.from(new Set(breakdownColorsToSave.map((c) => String(c.breakdownType))))
                             )
                         }
-                        if (themeChanged) {
+                        if (scope === 'colors' && themeChanged) {
                             eventUsageLogic.actions.reportDashboardColorThemeSet(
                                 values.dashboard,
                                 values.dataColorThemeId
@@ -2031,7 +2058,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 loadDashboardSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
                 loadDashboardMetadataSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
-                saveEditModeChangesSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
+                saveEditModeChangesSuccess: (state, { dashboard, payload }) =>
+                    payload?.scope === 'layout' ? tileLayoutsFromDashboard(dashboard) : state,
                 receiveTileFromStream: (state, { tile }) => ({
                     ...state,
                     [tile.id]: tile.layouts,
@@ -4597,8 +4625,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         saveLayoutChanges: () => {
-            actions.saveEditModeChanges()
+            actions.saveEditModeChanges('layout')
             actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+        },
+        saveDashboardColorChanges: () => {
+            actions.saveEditModeChanges('colors')
         },
         discardLayoutChanges: () => {
             actions.cancelLayoutEdit()
@@ -4694,7 +4725,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         saveLayout: () => {
-            actions.saveEditModeChanges()
+            actions.saveEditModeChanges('layout')
             actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
         },
         saveEditModeChangesSuccess: ({ dashboard }) => {
@@ -4814,11 +4845,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     source === DashboardEventSource.SceneCommonButtons ||
                     source === DashboardEventSource.DashboardInsightColorsModal)
             ) {
-                // save edit mode changes when exiting via Save button, E key/Edit layout button,
-                // or the colors modal's Save button
-                // Pending name/description are included in the saveEditModeChanges PATCH
-                // to avoid a race between two concurrent PATCHes to the same endpoint.
-                actions.saveLayoutChanges()
+                if (source === DashboardEventSource.DashboardInsightColorsModal) {
+                    actions.saveDashboardColorChanges()
+                } else {
+                    actions.saveLayoutChanges()
+                }
             }
 
             if (mode || source) {

@@ -499,7 +499,7 @@ describe('dashboardLogic', () => {
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
+                logic.actions.saveLayoutChanges()
             }).toFinishAllListeners()
 
             expect(api.update).not.toHaveBeenCalled()
@@ -522,12 +522,17 @@ describe('dashboardLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.updateLayouts(modifiedLayouts)
+                logic.actions.setBreakdownColorConfig({
+                    breakdownValue: 'x',
+                    breakdownType: 'event',
+                    colorToken: 'preset-1',
+                })
             }).toFinishAllListeners()
 
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
+                logic.actions.saveLayoutChanges()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledTimes(1)
@@ -537,6 +542,10 @@ describe('dashboardLogic', () => {
                     tiles: expect.any(Array),
                 })
             )
+            const payload = (api.update as jest.Mock).mock.calls.at(-1)[1]
+            expect(payload).not.toHaveProperty('breakdown_colors')
+            expect(payload).not.toHaveProperty('data_color_theme_id')
+            expect(logic.values.hasUnsavedColorChanges).toBe(true)
         })
 
         it('saves filters only when requested', async () => {
@@ -695,7 +704,7 @@ describe('dashboardLogic', () => {
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
+                logic.actions.saveLayoutChanges()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledTimes(1)
@@ -1014,7 +1023,17 @@ describe('dashboardLogic', () => {
         it('saving after breakdown color change calls api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
+            const firstTile = logic.values.dashboard!.tiles[0]
+            const currentLayouts = logic.values.layouts
+            const modifiedLayouts: any = {
+                ...currentLayouts,
+                sm: currentLayouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+
             await expectLogic(logic, () => {
+                logic.actions.updateLayouts(modifiedLayouts)
                 logic.actions.setBreakdownColorConfig({
                     breakdownValue: 'x',
                     breakdownType: 'event',
@@ -1025,7 +1044,7 @@ describe('dashboardLogic', () => {
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
+                logic.actions.saveDashboardColorChanges()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledTimes(1)
@@ -1037,6 +1056,9 @@ describe('dashboardLogic', () => {
                     ]),
                 })
             )
+            const payload = (api.update as jest.Mock).mock.calls.at(-1)[1]
+            expect(payload).not.toHaveProperty('tiles')
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
         })
 
         it('discarding edit mode reverts unsaved color edits', async () => {
@@ -1205,7 +1227,7 @@ describe('dashboardLogic', () => {
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
+                logic.actions.saveDashboardColorChanges()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledWith(
@@ -1271,7 +1293,7 @@ describe('dashboardLogic', () => {
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
+                logic.actions.saveDashboardColorChanges()
             }).toFinishAllListeners()
 
             // the entry survives the save instead of being pruned from the partial tile set
@@ -1295,7 +1317,7 @@ describe('dashboardLogic', () => {
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
+                logic.actions.saveDashboardColorChanges()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledTimes(1)
@@ -1326,7 +1348,7 @@ describe('dashboardLogic', () => {
             const successToast = jest.spyOn(lemonToast, 'success')
 
             await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
+                logic.actions.saveLayoutChanges()
             }).toFinishAllListeners()
 
             expect(successToast).toHaveBeenCalledWith('Dashboard saved')
@@ -1338,7 +1360,7 @@ describe('dashboardLogic', () => {
             const successToast = jest.spyOn(lemonToast, 'success')
 
             await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
+                logic.actions.saveLayoutChanges()
             }).toFinishAllListeners()
 
             expect(successToast).not.toHaveBeenCalled()
@@ -2559,7 +2581,7 @@ describe('dashboardLogic', () => {
                     }
 
                     logic.actions.updateLayouts(modifiedLayouts)
-                    logic.actions.saveEditModeChanges()
+                    logic.actions.saveLayoutChanges()
 
                     // Do not use toFinishAllListeners here: it would wait for refreshDashboardItems too,
                     // while refresh is intentionally blocked on `barrier`.
