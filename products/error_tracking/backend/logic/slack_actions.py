@@ -38,21 +38,23 @@ SlackActionOutcome = Literal["ok", "ok_moved", "already", "not_found", "no_acces
 CLICK_CLAIM_SECONDS = 10
 
 
-def _find_issue(issue_id: UUID, fingerprint: str | None, team_id: int | None) -> tuple[ErrorTrackingIssue | None, bool]:
+def _find_issue(
+    issue_id: UUID, fingerprint: str | None, team_id: int | None, project_id: int
+) -> tuple[ErrorTrackingIssue | None, bool]:
     """The issue a click targets, and whether it had to follow the fingerprint to get there.
 
     The thread belongs to the clicked issue, so that is the target while it exists. Only a
     merge deletes it; the fingerprint then names the survivor in the same environment.
     """
-    # Slack webhook: no team in the request; the issue row is the source of the team, and
-    # _authorized_issue decides whether this workspace and user may touch it.
-    issue = (
-        ErrorTrackingIssue.objects.filter(id=issue_id).select_related("team").first()
-    )  # nosemgrep: idor-lookup-without-team
+    # Slack webhook: no team in the request. The workspace's integration pins the project,
+    # so an issue from any other project does not exist as far as this click is concerned.
+    issue = ErrorTrackingIssue.objects.filter(id=issue_id, team__project_id=project_id).select_related("team").first()
     if issue is not None or not fingerprint or team_id is None:
         return issue, False
     owner = (
-        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, fingerprint=fingerprint)
+        ErrorTrackingIssueFingerprintV2.objects.filter(
+            team_id=team_id, team__project_id=project_id, fingerprint=fingerprint
+        )
         .select_related("issue__team")
         .first()
     )
@@ -62,13 +64,8 @@ def _find_issue(issue_id: UUID, fingerprint: str | None, team_id: int | None) ->
 def _authorized_issue(
     issue_id: UUID, fingerprint: str | None, team_id: int | None, integration: Integration, user: User
 ) -> tuple[ErrorTrackingIssue, bool] | SlackActionOutcome:
-    issue, moved = _find_issue(issue_id, fingerprint, team_id)
+    issue, moved = _find_issue(issue_id, fingerprint, team_id, integration.team.project_id)
     if issue is None:
-        return "not_found"
-    if integration.team.project_id != issue.team.project_id:
-        logger.warning(
-            "error_tracking_slack_action_workspace_mismatch", issue_id=str(issue_id), integration_id=integration.id
-        )
         return "not_found"
     # Mirrors TeamMemberAccessPermission: an org member without membership in a private
     # project must be denied.
