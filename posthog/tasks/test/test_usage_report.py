@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test import SimpleTestCase, TestCase
 from django.utils.timezone import now
 
@@ -2160,6 +2160,8 @@ class TestCaptureReportGroupProperties(ClickhouseDestroyTablesMixin, TestCase, C
             group_type="organization",
             group_key=str(org.id),
             properties={
+                # The column defaults to True, so an org that never answered publishes True.
+                "is_ai_data_processing_approved": True,
                 "member_count": 5,
                 "project_count": 2,
                 "dashboard_count": 3,
@@ -2167,6 +2169,40 @@ class TestCaptureReportGroupProperties(ClickhouseDestroyTablesMixin, TestCase, C
                 "survey_count": 2,
             },
         )
+
+    @parameterized.expand([("declined", False, False), ("null", None, False), ("approved", True, True)])
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    def test_capture_report_republishes_ai_data_processing_consent(
+        self, _name: str, stored: bool | None, published: bool, mock_client: MagicMock
+    ) -> None:
+        from posthog.tasks.usage_report import capture_report
+
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
+
+        org = Organization.objects.create(name="Test Org", is_ai_data_processing_approved=stored)
+
+        capture_report(organization_id=str(org.id), full_report_dict={})
+
+        properties = mock_posthog.group_identify.call_args.kwargs["properties"]
+        assert properties["is_ai_data_processing_approved"] is published
+
+    @patch("posthog.tasks.usage_report.capture_event")
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    def test_a_failed_consent_read_does_not_cost_a_duplicate_usage_report(
+        self, mock_client: MagicMock, mock_capture_event: MagicMock
+    ) -> None:
+        from posthog.tasks.usage_report import capture_report
+
+        mock_client.return_value = MagicMock()
+        org = Organization.objects.create(name="Test Org")
+
+        # capture_report auto-retries on any exception, and the usage report event has already
+        # been sent by this point, so a database error here must not propagate.
+        with patch.object(Organization.objects, "filter", side_effect=OperationalError("boom")):
+            capture_report(organization_id=str(org.id), full_report_dict={})
+
+        assert any(call.kwargs.get("name") == "organization usage report" for call in mock_capture_event.call_args_list)
 
 
 class TestTrimOversizeUsageReportPayload(TestCase):

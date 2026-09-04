@@ -1,3 +1,4 @@
+import contextlib
 from datetime import datetime, timedelta
 
 from posthog.test.base import BaseTest
@@ -5,6 +6,7 @@ from unittest import mock
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.db import transaction
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -671,3 +673,67 @@ class TestOrganizationMembership(BaseTest):
             properties={"new_level": 15, "previous_level": 1, "$set": mock.ANY},
             groups=mock.ANY,
         )
+
+
+class TestOrganizationAiDataProcessingConsentPublishing(BaseTest):
+    # Consent is written from paths no viewset hook can see — a signed BAA opts the
+    # organization out from a Temporal activity, Slack onboarding opts it in, and staff
+    # flip it in Django admin. All of them reach the model, so the receiver lives there.
+    @parameterized.expand(
+        [("approved", False, True, True), ("declined", True, False, False), ("null", True, None, False)]
+    )
+    @patch("posthoganalytics.group_identify")
+    def test_publishes_the_saved_value_collapsing_null(
+        self, _name: str, initial: bool, stored: bool | None, published: bool, mock_group_identify
+    ):
+        organization = Organization.objects.create(name="Test Org", is_ai_data_processing_approved=initial)
+        mock_group_identify.reset_mock()
+
+        organization.is_ai_data_processing_approved = stored
+        with self.captureOnCommitCallbacks(execute=True):
+            organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        mock_group_identify.assert_called_once_with(
+            group_type="organization",
+            group_key=str(organization.id),
+            properties={"is_ai_data_processing_approved": published},
+        )
+
+    @patch("posthoganalytics.group_identify")
+    def test_publishes_on_creation_so_a_new_org_is_never_absent(self, mock_group_identify):
+        with self.captureOnCommitCallbacks(execute=True):
+            organization = Organization.objects.create(name="Test Org")
+
+        mock_group_identify.assert_called_once_with(
+            group_type="organization",
+            group_key=str(organization.id),
+            properties={"is_ai_data_processing_approved": True},
+        )
+
+    @parameterized.expand([("unrelated_field",), ("unchanged_value",)])
+    @patch("posthoganalytics.group_identify")
+    def test_does_not_publish_when_consent_did_not_change(self, case: str, mock_group_identify):
+        organization = Organization.objects.create(name="Test Org", is_ai_data_processing_approved=True)
+        mock_group_identify.reset_mock()
+
+        if case == "unrelated_field":
+            organization.name = "Renamed"
+        else:
+            organization.is_ai_data_processing_approved = True
+
+        with self.captureOnCommitCallbacks(execute=True):
+            organization.save()
+
+        mock_group_identify.assert_not_called()
+
+    @patch("posthoganalytics.group_identify")
+    def test_does_not_publish_when_the_transaction_rolls_back(self, mock_group_identify):
+        organization = Organization.objects.create(name="Test Org")
+        mock_group_identify.reset_mock()
+
+        with contextlib.suppress(RuntimeError), transaction.atomic():
+            organization.is_ai_data_processing_approved = False
+            organization.save(update_fields=["is_ai_data_processing_approved"])
+            raise RuntimeError("rolled back")
+
+        mock_group_identify.assert_not_called()

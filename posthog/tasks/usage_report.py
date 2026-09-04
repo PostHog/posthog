@@ -2725,12 +2725,29 @@ def capture_report(
             properties={"error": str(err)},
         )
 
-    # Update organization group properties so they can be used for email campaigns
+    # Update organization group properties so they can be used for email campaigns.
+    #
+    # The AI consent flag is published on every write by a post_save receiver on
+    # Organization. Republishing it here is what gives the property to organizations
+    # that predate the receiver and never toggle, and it reconciles a write whose
+    # enqueue was dropped. Only an explicit True counts as approved, matching the gate
+    # the flag feeds (`_impersonation_ai_processing_block` in posthog/api/oauth/views.py).
+    #
+    # The read stays inside this try: capture_report auto-retries on any exception
+    # and the usage report event above has already been sent, so a database error
+    # here must not cost a duplicate of it.
     try:
+        ai_data_processing_approved = (
+            Organization.objects.filter(id=organization_id)
+            .values_list("is_ai_data_processing_approved", flat=True)
+            .first()
+            is True
+        )
         pha_client.group_identify(
             group_type="organization",
             group_key=organization_id,
             properties={
+                "is_ai_data_processing_approved": ai_data_processing_approved,
                 "member_count": full_report_dict.get("organization_user_count", 0),
                 "project_count": full_report_dict.get("team_count", 0),
                 "dashboard_count": full_report_dict.get("dashboard_count", 0),

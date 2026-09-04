@@ -16,6 +16,7 @@ from django.utils.translation import gettext_lazy as _
 
 import structlog
 import dateutil.parser
+import posthoganalytics
 from rest_framework import exceptions
 
 from posthog.cloud_utils import is_cloud
@@ -229,6 +230,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
     )
     # Transient flag set by the pre_save signal to communicate active-state changes to post_save.
     _is_active_changed: bool = False
+    # Transient flag set by the pre_save signal to communicate consent changes to post_save.
+    _ai_data_processing_consent_changed: bool = False
 
     # Security / management settings
     session_cookie_age = models.IntegerField(
@@ -632,6 +635,59 @@ def remember_organization_is_active_change(sender, instance: Organization, **kwa
 
     previous_is_active = sender.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
     instance._is_active_changed = previous_is_active != instance.is_active
+
+
+@receiver(models.signals.pre_save, sender=Organization)
+def remember_ai_data_processing_consent_change(sender, instance: Organization, **kwargs):
+    instance._ai_data_processing_consent_changed = False
+    if instance._state.adding:
+        return
+
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "is_ai_data_processing_approved" not in update_fields:
+        return
+
+    previous = sender.objects.filter(pk=instance.pk).values_list("is_ai_data_processing_approved", flat=True).first()
+    instance._ai_data_processing_consent_changed = previous != instance.is_ai_data_processing_approved
+
+
+@receiver(post_save, sender=Organization)
+def publish_ai_data_processing_consent(sender, instance: Organization, created: bool, **kwargs):
+    """Mirror AI-processing consent onto the organization group as soon as it is written.
+
+    Support tooling reads the group to tell an engineer that a consent-gated flow is dead
+    before they start it, rather than at the last step. The daily usage report republishes
+    the same property, but a day is too slow for that, and consent is revoked from paths a
+    viewset hook cannot see - most importantly a signed BAA, which opts the organization
+    out because the BAA does not cover third-party AI subprocessors.
+
+    The property answers "is this one organization approved", not "will the flow succeed":
+    `_impersonation_ai_processing_block` is scoped over every organization the impersonated
+    user belongs to, so a sibling organization can still block it.
+
+    Collapses null to False, matching that gate - only an explicit True is approval.
+    """
+    if not created and not instance._ai_data_processing_consent_changed:
+        return
+
+    organization_id = str(instance.pk)
+    approved = instance.is_ai_data_processing_approved is True
+
+    def _publish():
+        try:
+            posthoganalytics.group_identify(
+                group_type="organization",
+                group_key=organization_id,
+                properties={"is_ai_data_processing_approved": approved},
+            )
+        except Exception as err:
+            logger.exception(
+                "failed_to_publish_ai_data_processing_consent",
+                organization_id=organization_id,
+                error=str(err),
+            )
+
+    transaction.on_commit(_publish)
 
 
 @receiver(post_save, sender=Organization)
