@@ -17,7 +17,9 @@ from products.experiments.backend.models.experiment import Experiment, Experimen
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.enrollment_census_logic import (
     BUILD_CAP_EXCLUSION_BYTES,
+    BUILD_LOAD_EXCLUSION_METRICS,
     EXCLUSION_BUILD_BYTE_CAP,
+    EXCLUSION_BUILD_LOAD_CAP,
     MAX_ENROLLMENTS_PER_RUN,
     EnrollmentCensusReport,
     TeamDirectScanStats,
@@ -71,6 +73,38 @@ class TestEnrollmentCensusCriteria(BaseTest):
         assert report.candidates == ()
         assert len(report.excluded) == 1
         assert report.excluded[0].reason == EXCLUSION_BUILD_BYTE_CAP
+
+    @parameterized.expand(
+        [
+            ("over_cap", BUILD_LOAD_EXCLUSION_METRICS + 1, True),
+            ("at_cap", BUILD_LOAD_EXCLUSION_METRICS, False),
+        ]
+    )
+    def test_build_load_cap_excludes_team_with_too_many_running_metrics(
+        self, _name: str, metric_count: int, expect_excluded: bool
+    ) -> None:
+        Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=FeatureFlag.objects.create(
+                team=self.team, created_by=self.user, key=f"flag-{uuid.uuid4().hex[:8]}"
+            ),
+            name="exp",
+            metrics=[{"kind": "ExperimentMetric"}] * metric_count,
+            start_date=timezone.now() - timedelta(days=3),
+        )
+        stats = _stats(team_id=self.team.id, total_read_bytes=6 * 10**12)
+
+        report = build_census_report([stats], window_days=14)
+
+        if expect_excluded:
+            assert report.candidates == ()
+            assert len(report.excluded) == 1
+            assert report.excluded[0].reason == EXCLUSION_BUILD_LOAD_CAP
+            assert report.excluded[0].running_metrics == metric_count
+        else:
+            assert len(report.candidates) == 1
+            assert report.excluded == ()
 
     def test_candidates_ordered_by_total_bytes_descending(self) -> None:
         small = _stats(team_id=1, total_read_bytes=6 * 10**12)

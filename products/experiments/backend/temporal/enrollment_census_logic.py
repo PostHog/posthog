@@ -43,7 +43,15 @@ HARD_FAILURES_THRESHOLD = 5
 # build window chunking can handle them.
 BUILD_CAP_EXCLUSION_BYTES = int(2.5 * 10**12)
 
+# Enrollment adds one nightly build per running metric. A team past this cap is creating
+# experiments programmatically and not concluding them, so enrollment would spend builds on
+# results nobody reads while its individual reads stay cheap. The criterion re-evaluates
+# every run, unlike a manual disable, so a team that concludes its experiments becomes
+# enrollable again.
+BUILD_LOAD_EXCLUSION_METRICS = 500
+
 EXCLUSION_BUILD_BYTE_CAP = "build_byte_cap"
+EXCLUSION_BUILD_LOAD_CAP = "build_load_cap"
 
 ENROLLMENT_MODE_ENROLL = "enroll"
 
@@ -108,6 +116,8 @@ class EnrollmentCandidate:
 class ExcludedTeam:
     stats: TeamDirectScanStats
     reason: str
+    # Only set for build-load exclusions; byte-cap exclusions happen before load is fetched.
+    running_metrics: int | None = None
 
 
 @frozen
@@ -208,19 +218,30 @@ def build_census_report(stats: list[TeamDirectScanStats], window_days: int) -> E
 
     load = running_experiment_load([team_stats.team_id for team_stats, _ in qualified])
     no_load = TeamRunningLoad(running_experiments=0, running_metrics=0)
-    candidates = tuple(
-        EnrollmentCandidate(
-            stats=team_stats,
-            reasons=reasons,
-            running_experiments=load.get(team_stats.team_id, no_load).running_experiments,
-            running_metrics=load.get(team_stats.team_id, no_load).running_metrics,
+    candidates = []
+    for team_stats, reasons in sorted(qualified, key=lambda pair: -pair[0].total_read_bytes):
+        team_load = load.get(team_stats.team_id, no_load)
+        if team_load.running_metrics > BUILD_LOAD_EXCLUSION_METRICS:
+            excluded.append(
+                ExcludedTeam(
+                    stats=team_stats,
+                    reason=EXCLUSION_BUILD_LOAD_CAP,
+                    running_metrics=team_load.running_metrics,
+                )
+            )
+            continue
+        candidates.append(
+            EnrollmentCandidate(
+                stats=team_stats,
+                reasons=reasons,
+                running_experiments=team_load.running_experiments,
+                running_metrics=team_load.running_metrics,
+            )
         )
-        for team_stats, reasons in sorted(qualified, key=lambda pair: -pair[0].total_read_bytes)
-    )
     return EnrollmentCensusReport(
         window_days=window_days,
         evaluated_teams=len(stats),
-        candidates=candidates,
+        candidates=tuple(candidates),
         excluded=tuple(excluded),
     )
 
@@ -316,6 +337,7 @@ def run_enrollment_census_sync(window_days: int = CENSUS_WINDOW_DAYS) -> Enrollm
             reason=excluded_team.reason,
             max_read_bytes=excluded_team.stats.max_read_bytes,
             total_read_bytes=excluded_team.stats.total_read_bytes,
+            running_metrics=excluded_team.running_metrics,
         )
     enrolled: list[int] = []
     if settings.EXPERIMENT_PRECOMPUTE_ENROLLMENT_MODE == ENROLLMENT_MODE_ENROLL:
