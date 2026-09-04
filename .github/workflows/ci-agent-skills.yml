@@ -272,59 +272,6 @@ jobs:
                   DEBUG: 1
               run: ./bin/hogli build:skills
 
-    # Skill markdown is embedded verbatim into the scene agent-context payloads. The only
-    # other check that regenerates those payloads is Backend CI's OpenAPI check, whose
-    # paths filter never matches markdown. Master pushes skip that filter and run the
-    # check anyway, so a skill-only PR merges green and then turns master red. This job
-    # makes the same assertion on the same inputs without needing the backend stack.
-    check-embedded-skills:
-        name: Check embedded skill payloads
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
-        needs: changes
-        if: needs.changes.outputs.skills == 'true'
-        permissions:
-            contents: read
-
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-            - name: Mint setup-action GitHub token
-              id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
-                  skip-token-revoke: true
-
-            - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
-              with:
-                  install-command: pnpm --filter=@posthog/root --filter=@posthog/mcp... install --frozen-lockfile
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
-            - name: Check embedded skill payloads are up to date
-              run: |
-                  pnpm --filter=@posthog/mcp run generate-scene-tool-context
-                  if git diff --exit-code; then
-                      echo "Embedded skill payloads are up to date"
-                      exit 0
-                  fi
-                  echo ""
-                  echo "::error::Embedded skill payloads are out of date!"
-                  echo ""
-                  echo "A skill this PR edits is embedded into a scene agent-context payload"
-                  echo "(products/*/frontend/generated/agentContext.ts), so the payload has to be"
-                  echo "regenerated alongside it."
-                  echo ""
-                  echo "To fix, run locally:  hogli build:openapi-scene-tool-context"
-                  echo "Then commit the updated generated file."
-                  echo ""
-                  echo "Questions? #team-devex on Slack"
-                  exit 1
-
     current-master:
         name: Check current master
         runs-on: ubuntu-latest

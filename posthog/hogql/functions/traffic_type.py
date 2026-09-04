@@ -16,11 +16,18 @@ The legacy __preview_* names still resolve as deprecated aliases.
 Bot definitions (patterns, categories, names, IP ranges) live in
 products.web_analytics.backend.hogql_queries so that changes to bot data do not require
 a HogQL review.
+
+A project can extend the built-in list with its own rules, which arrive as query modifiers. Each
+rule matches one event property, so the rules are checked as an ordered chain ahead of the
+built-ins rather than merged into the built-in pattern array. A project's own rule wins when both
+match.
 """
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from posthog.hogql import ast
+
+from posthog.dataclasses import frozen
 
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 from products.web_analytics.backend.hogql_queries.bot_ip_definitions import (
@@ -28,6 +35,111 @@ from products.web_analytics.backend.hogql_queries.bot_ip_definitions import (
     bot_ip_prefix_groups_by_definition,
     merged_bot_ip_prefix_groups,
 )
+from products.web_analytics.backend.hogql_queries.custom_bot_definitions import (
+    IP_FIELD,
+    NUMERIC_FIELDS,
+    USER_AGENT_FIELD,
+    CidrGroup,
+    CustomBotGroup,
+    compile_definitions,
+)
+
+if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
+
+
+def _custom_groups(modifiers: Optional["HogQLQueryModifiers"]) -> list[CustomBotGroup]:
+    if modifiers is None:
+        return []
+    return compile_definitions(modifiers.customBotDefinitions)
+
+
+def has_user_agent_rule(modifiers: Optional["HogQLQueryModifiers"]) -> bool:
+    """Whether the project has a rule on the user agent — the only rule kind that makes the one-arg
+    isLikelyBot expansion reference its argument twice (see the resolver's re-entrancy guard)."""
+    if modifiers is None or not modifiers.customBotDefinitions:
+        return False
+    return any(definition.key == USER_AGENT_FIELD for definition in modifiers.customBotDefinitions)
+
+
+def _string_array(values: list[str]) -> ast.Array:
+    return ast.Array(exprs=[ast.Constant(value=value) for value in values])
+
+
+def _matched(index_call: ast.Expr) -> ast.Expr:
+    return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=index_call, right=ast.Constant(value=0))
+
+
+def _property_expr(key: str, args: list[ast.Expr]) -> Optional[ast.Expr]:
+    """The expression a project rule on `key` matches against, or None when this call cannot reach it.
+
+    The user agent and the client IP arrive as arguments. Any other property hangs off the same
+    properties object the user agent was read from, which only works when the caller passed a plain
+    property reference — a hand-written `isLikelyBot(concat(...))` has no properties object to
+    reach into, so rules on those properties are skipped rather than guessed at.
+    """
+    if key == USER_AGENT_FIELD:
+        return args[0]
+    ip_expr = _optional_ip_arg(args)
+    if key == IP_FIELD and ip_expr is not None:
+        return ip_expr
+    user_agent_expr = args[0]
+    # Only a user agent read straight from a properties object (properties.$raw_user_agent) has a
+    # sibling to reach for. Replacing the last segment of any other chain would invent a column, e.g.
+    # getBotName(foo.ua) -> foo.$host, and fail the whole query, so skip the rule instead.
+    if (
+        isinstance(user_agent_expr, ast.Field)
+        and len(user_agent_expr.chain) > 1
+        and user_agent_expr.chain[-1] == USER_AGENT_FIELD
+        and user_agent_expr.chain[-2] == "properties"
+    ):
+        return ast.Field(chain=[*user_agent_expr.chain[:-1], key])
+    return None
+
+
+@frozen
+class CustomRuleBranch:
+    """One group of a project's rules, compiled: whether it matched and which label it reports."""
+
+    matched: ast.Expr
+    label: ast.Expr
+
+
+def _custom_group_branch(group: CustomBotGroup, args: list[ast.Expr], attr: str) -> Optional[CustomRuleBranch]:
+    property_expr = _property_expr(group.key, args)
+    if property_expr is None:
+        return None
+
+    if isinstance(group, CidrGroup):
+        safe_ip = _safe_ip_expr(property_expr)
+        multi_if_args: list[ast.Expr] = []
+        for index, (prefixlen, address) in enumerate(group.networks, start=1):
+            multi_if_args.append(_ip_group_match(safe_ip, prefixlen, (address,)))
+            multi_if_args.append(ast.Constant(value=index))
+        multi_if_args.append(ast.Constant(value=0))
+        index_call: ast.Expr = ast.Call(name="multiIf", args=multi_if_args)
+    else:
+        # A numeric property (screen width/height) reaches multiMatchAllIndices as a string, so
+        # a rule pattern like "800" matches the value 800. String properties skip the cast.
+        matched_property = (
+            ast.Call(name="toString", args=[property_expr]) if group.key in NUMERIC_FIELDS else property_expr
+        )
+        safe_property = ast.Call(name="ifNull", args=[matched_property, ast.Constant(value="")])
+        # arrayMin over ALL matching patterns, not multiMatchAnyIndex: when two of a project's own
+        # rules match the same value, the one listed first wins. multiMatchAnyIndex would report
+        # whichever pattern matches earliest in the string, so a specific rule listed above a broad
+        # one could never take the label. Still a single hyperscan pass; an empty match list
+        # arrayMins to 0, the same no-match sentinel.
+        index_call = ast.Call(
+            name="arrayMin",
+            args=[ast.Call(name="multiMatchAllIndices", args=[safe_property, _string_array(group.patterns)])],
+        )
+
+    labels = _string_array([getattr(definition, attr) for definition in group.definitions])
+    return CustomRuleBranch(
+        matched=_matched(index_call),
+        label=ast.ArrayAccess(array=labels, property=index_call, nullish=False),
+    )
 
 
 def _safe_ip_expr(ip_expr: ast.Expr) -> ast.Expr:
@@ -96,90 +208,122 @@ def _ip_label_lookup(ip_expr: ast.Expr, attr: str, default: str) -> ast.Expr:
 
 
 def _build_bot_array_lookup(
-    user_agent_expr: ast.Expr,
+    args: list[ast.Expr],
     attr: str,  # "name", "operator", "category", or "traffic_type"
     default: str = "",
     empty_ua_value: str = "",
-    ip_expr: Optional[ast.Expr] = None,
+    modifiers: Optional["HogQLQueryModifiers"] = None,
 ) -> ast.Expr:
-    """Build a multiMatchAnyIndex + array lookup expression for efficient bot detection.
+    """Build the expression that resolves one classification label.
 
-    Uses multiMatchAnyIndex which evaluates the user_agent expression once and checks
-    all patterns, then uses array indexing to get the corresponding label.
+    Uses multiMatchAnyIndex, which evaluates the user agent once and checks all patterns, then
+    indexes the matching label out of a parallel array.
 
-    NULL user agents are coalesced to empty string so they match the ^$ pattern
-    and get classified as empty_ua_value instead of falling through to default.
+    NULL user agents are coalesced to empty string so a missing user agent classifies as
+    empty_ua_value instead of falling through to default.
 
-    When ip_expr is given, user agents that match no pattern fall back to the IP-range
-    lookup before defaulting.
+    When the client IP is given, anything the patterns miss falls back to the IP-range lookup
+    before defaulting.
     """
-    # Coalesce NULL to empty string so NULL user agents match the ^$ pattern
+    user_agent_expr = args[0]
+    ip_expr = _optional_ip_arg(args)
+    # Coalesce NULL to empty string so NULL user agents are matchable
     safe_user_agent = ast.Call(name="ifNull", args=[user_agent_expr, ast.Constant(value="")])
-
-    # Build patterns array (all bot patterns + empty UA pattern)
-    patterns = [*BOT_DEFINITIONS.keys(), "^$"]
-    patterns_array = ast.Array(exprs=[ast.Constant(value=p) for p in patterns])
-
-    # Build labels array (corresponding labels + empty UA label)
-    labels = [getattr(bot_def, attr) for bot_def in BOT_DEFINITIONS.values()]
-    labels.append(empty_ua_value)
-    labels_array = ast.Array(exprs=[ast.Constant(value=label) for label in labels])
-
-    # multiMatchAnyIndex(user_agent, patterns) -> returns 0 if no match, else 1-based index
-    index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
-
-    # labels[index] - array access (1-based in ClickHouse)
-    label_lookup = ast.ArrayAccess(array=labels_array, property=index_call, nullish=False)
 
     fallback: ast.Expr = ast.Constant(value=default)
     if ip_expr is not None:
         fallback = _ip_label_lookup(ip_expr, attr, default)
 
-    # if(index = 0, fallback, labels[index])
-    return ast.Call(
-        name="if",
-        args=[
-            ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=index_call, right=ast.Constant(value=0)),
-            fallback,
-            label_lookup,
-        ],
+    builtin_labels = [getattr(bot_def, attr) for bot_def in BOT_DEFINITIONS.values()]
+    groups = _custom_groups(modifiers)
+
+    if not groups:
+        # No project rules: one pass over the built-in patterns plus the empty-user-agent sentinel.
+        patterns_array = _string_array([*BOT_DEFINITIONS.keys(), "^$"])
+        labels_array = _string_array([*builtin_labels, empty_ua_value])
+        index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
+        return ast.Call(
+            name="if",
+            args=[
+                ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=index_call, right=ast.Constant(value=0)),
+                fallback,
+                ast.ArrayAccess(array=labels_array, property=index_call, nullish=False),
+            ],
+        )
+
+    # With project rules the checks become an ordered chain, in this order: the project's own
+    # rules, then the built-ins, then the empty user agent, then the built-in IP ranges. A rule
+    # someone wrote by hand says more about what they want counted than a default we shipped, so
+    # it wins — that also makes the setting predictable, since a rule that matches always names
+    # the event.
+    #
+    # It has to be a branch per group rather than one shared pattern array: multiMatchAnyIndex
+    # reports whichever pattern matches earliest in the string rather than earliest in the array,
+    # so merging the arrays would leave precedence up to the user agent being classified.
+    branches: list[ast.Expr] = []
+    for group in groups:
+        branch = _custom_group_branch(group, args, attr)
+        if branch is not None:
+            branches.extend([branch.matched, branch.label])
+    builtin_index = ast.Call(
+        name="multiMatchAnyIndex", args=[safe_user_agent, _string_array(list(BOT_DEFINITIONS.keys()))]
     )
+    branches.extend(
+        [
+            _matched(builtin_index),
+            ast.ArrayAccess(array=_string_array(builtin_labels), property=builtin_index, nullish=False),
+        ]
+    )
+    branches.extend(
+        [
+            ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=safe_user_agent, right=ast.Constant(value="")),
+            ast.Constant(value=empty_ua_value),
+        ]
+    )
+    branches.append(fallback)
+    return ast.Call(name="multiIf", args=branches)
 
 
 def _optional_ip_arg(args: list[ast.Expr]) -> Optional[ast.Expr]:
     return args[1] if len(args) > 1 else None
 
 
-def get_bot_name(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
+def get_bot_name(node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"] = None) -> ast.Expr:
     """
     HogQL function: getBotName(user_agent[, ip])
 
     Returns bot name: "Googlebot", "ChatGPT", etc. Empty string for regular traffic.
     """
-    return _build_bot_array_lookup(args[0], "name", default="", empty_ua_value="", ip_expr=_optional_ip_arg(args))
+    return _build_bot_array_lookup(args, "name", default="", empty_ua_value="", modifiers=modifiers)
 
 
-def get_bot_operator(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
+def get_bot_operator(
+    node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"] = None
+) -> ast.Expr:
     """
     HogQL function: getBotOperator(user_agent[, ip])
 
     Returns operator/company name: "Google", "OpenAI", "Anthropic", etc. Empty string for regular traffic.
     """
-    return _build_bot_array_lookup(args[0], "operator", default="", empty_ua_value="", ip_expr=_optional_ip_arg(args))
+    return _build_bot_array_lookup(args, "operator", default="", empty_ua_value="", modifiers=modifiers)
 
 
-def get_traffic_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
+def get_traffic_type(
+    node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"] = None
+) -> ast.Expr:
     """
     HogQL function: getTrafficType(user_agent[, ip])
 
     Returns one of: 'AI Agent', 'Bot', 'Automation', 'Regular'
     """
     return _build_bot_array_lookup(
-        args[0], "traffic_type", default="Regular", empty_ua_value="Automation", ip_expr=_optional_ip_arg(args)
+        args, "traffic_type", default="Regular", empty_ua_value="Automation", modifiers=modifiers
     )
 
 
-def get_traffic_category(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
+def get_traffic_category(
+    node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"] = None
+) -> ast.Expr:
     """
     HogQL function: getTrafficCategory(user_agent[, ip])
 
@@ -187,11 +331,11 @@ def get_traffic_category(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     For regular traffic, returns 'regular'.
     """
     return _build_bot_array_lookup(
-        args[0], "category", default="regular", empty_ua_value="no_user_agent", ip_expr=_optional_ip_arg(args)
+        args, "category", default="regular", empty_ua_value="no_user_agent", modifiers=modifiers
     )
 
 
-def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
+def is_bot(node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"] = None) -> ast.Expr:
     """
     HogQL function: isLikelyBot(user_agent[, ip])
 
@@ -202,37 +346,39 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     Uses multiMatchAnyIndex for efficient single-pass matching (same as get_traffic_type etc.);
     the IP check is a handful of hash-set lookups and only evaluates for rows the UA check
     didn't already match (or() short-circuits).
+
+    Unlike the label lookups this only answers yes or no, so a project's rules can be OR'd in
+    rather than ordered against the built-ins — no rule can change the answer another one gave.
     """
     user_agent_expr = args[0]
 
     safe_user_agent = ast.Call(name="ifNull", args=[user_agent_expr, ast.Constant(value="")])
 
-    patterns = [*BOT_DEFINITIONS.keys(), "^$"]
-    patterns_array = ast.Array(exprs=[ast.Constant(value=p) for p in patterns])
-
+    patterns_array = _string_array([*BOT_DEFINITIONS.keys(), "^$"])
     index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
 
-    matched: ast.Expr = ast.CompareOperation(
-        op=ast.CompareOperationOp.NotEq,
-        left=index_call,
-        right=ast.Constant(value=0),
-    )
+    conditions: list[ast.Expr] = [_matched(index_call)]
+    for group in _custom_groups(modifiers):
+        branch = _custom_group_branch(group, args, "name")
+        if branch is not None:
+            conditions.append(branch.matched)
     ip_expr = _optional_ip_arg(args)
     if ip_expr is not None:
-        matched = ast.Or(exprs=[matched, _build_ip_match_expr(ip_expr)])
+        conditions.append(_build_ip_match_expr(ip_expr))
+
+    matched: ast.Expr = conditions[0] if len(conditions) == 1 else ast.Or(exprs=conditions)
 
     # Cast to Bool so results render as true/false (not 0/1) in insights breakdowns.
     return ast.Call(name="toBool", args=[matched])
 
 
-def get_bot_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
+def get_bot_type(node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"] = None) -> ast.Expr:
     """
     HogQL function: getBotType(user_agent[, ip])
 
     Returns the bot category or empty string for regular traffic.
     Categories: 'ai_crawler', 'ai_search', 'ai_assistant', 'search_crawler', 'seo_crawler',
-                'social_crawler', 'monitoring', 'http_client', 'headless_browser', 'no_user_agent', ''
+                'social_crawler', 'monitoring', 'http_client', 'headless_browser', 'no_user_agent',
+                a project's own category, or ''
     """
-    return _build_bot_array_lookup(
-        args[0], "category", default="", empty_ua_value="no_user_agent", ip_expr=_optional_ip_arg(args)
-    )
+    return _build_bot_array_lookup(args, "category", default="", empty_ua_value="no_user_agent", modifiers=modifiers)
