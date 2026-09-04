@@ -741,7 +741,6 @@ def _two_shard_data_cluster() -> ClickhouseCluster:
         ("no_roles", None, {"shard-1-host", "shard-2-host"}),
         ("matching_role", [NodeRole.DATA], {"shard-1-host", "shard-2-host"}),
         ("all_roles", [NodeRole.ALL], {"shard-1-host", "shard-2-host"}),
-        ("other_data_bearing_role", [NodeRole.LOGS], set()),
     ]
 )
 def test_map_one_host_per_shard_filters_by_role(
@@ -761,11 +760,12 @@ def test_map_one_host_per_shard_filters_by_role(
     assert visited == expected
 
 
-def test_map_one_host_per_shard_with_required_missing_role_raises() -> None:
+@parameterized.expand([("without_require_hosts", False), ("with_require_hosts", True)])
+def test_map_one_host_per_shard_rejects_roles_owning_no_shard(_name: str, require_hosts: bool) -> None:
     cluster = _two_shard_data_cluster()
 
-    with pytest.raises(ValueError, match="No hosts found with roles.*LOGS.*in shard 1"):
-        cluster.map_one_host_per_shard(lambda _: (), node_roles=[NodeRole.LOGS], require_hosts=True)
+    with pytest.raises(ValueError, match="No shard is owned by roles.*LOGS"):
+        cluster.map_one_host_per_shard(lambda _: (), node_roles=[NodeRole.LOGS], require_hosts=require_hosts)
 
 
 def test_satellite_dedup_same_physical_host() -> None:

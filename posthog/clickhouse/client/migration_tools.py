@@ -71,6 +71,9 @@ def run_sql_with_exceptions(
     AssertionError
         Raised in certain scenarios when the input arguments conflict with the expected
         configuration, such as when the sharded flag is set for roles other than DATA.
+    ValueError
+        Raised when a sharded ALTER names a role that owns no shard in the migrations cluster,
+        so the statement would reach no host and still be recorded as applied.
     """
 
     if node_roles and not isinstance(node_roles, list):

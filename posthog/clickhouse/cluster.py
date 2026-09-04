@@ -603,9 +603,18 @@ class ClickhouseCluster:
         addressed before. A shard with no matching host is skipped, unless ``require_hosts`` asks
         for a host in every shard. Give no roles to keep any host per shard.
 
+        Roles that own no shard here raise, because every shard would drop out and the caller would
+        get an empty map that looks like a completed dispatch.
+
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
+        if node_roles is not None and NodeRole.ALL not in node_roles and self.__shard_role not in node_roles:
+            raise ValueError(
+                f"No shard is owned by roles {node_roles}; this cluster shards on {self.__shard_role.name}. "
+                "Address the cluster that stores the table with sibling() instead."
+            )
+
         hosts: set[HostInfo] = set()
         for shard_num, shard_hosts in self.__shards.items():
             candidates = shard_hosts if node_roles is None else self.__hosts_by_roles(shard_hosts, node_roles)
