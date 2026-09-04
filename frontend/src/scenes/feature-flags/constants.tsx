@@ -18,5 +18,12 @@ export const MATCHING_ESTIMATE_TOOLTIP = (
             Estimated from persons active in the last 60 days, so people who have not been seen recently are not
             counted.
         </div>
+        <div className="mt-1">
+            Conditions that filter on properties or cohorts count{' '}
+            <Link to="https://posthog.com/docs/data/anonymous-vs-identified-events" target="_blank">
+                identified users
+            </Link>{' '}
+            only. Anonymous visitors can still match this flag, so the actual number may be higher.
+        </div>
     </>
 )
