@@ -241,7 +241,7 @@ def dispatch_harvest(request: HarvestRequest) -> HarvestResult:
 
 def _mark_harvesting(team_id: int, cluster_id: UUID, task_id: UUID) -> None:
     with team_scope(team_id):
-        cluster = ReaperCluster.objects.get(id=cluster_id)
+        cluster = ReaperCluster.objects.get(id=cluster_id, team_id=team_id)
         cluster.task_id = task_id
         cluster.status = ClusterStatus.HARVESTING
         cluster.save(update_fields=["task_id", "status", "updated_at"])
