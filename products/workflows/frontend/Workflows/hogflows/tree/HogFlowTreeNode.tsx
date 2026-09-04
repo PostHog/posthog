@@ -164,6 +164,32 @@ export function HogFlowTreeNode({
                                             showConnector={false}
                                         />
                                     )}
+                                    {joinAction && (
+                                        <div className="flex items-center gap-1 pt-1">
+                                            <Text size="xxs" variant="muted" render={<span />}>
+                                                {node.action.type === 'random_cohort_branch'
+                                                    ? 'End of cohort split · continues to'
+                                                    : 'End of condition · continues to'}
+                                            </Text>
+                                            <Button
+                                                type="button"
+                                                variant="link"
+                                                size="xs"
+                                                className="min-w-0 max-w-56 px-0"
+                                                onClick={() => {
+                                                    setSelectedBranch(null)
+                                                    setSelectedNodeId(joinAction.id)
+                                                    document
+                                                        .getElementById(`workflow-tree-step-${joinAction.id}`)
+                                                        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                                }}
+                                                data-attr="workflow-tree-select-continuation"
+                                            >
+                                                <span className="truncate">{joinAction.name}</span>
+                                                <IconArrowRight className="size-3" />
+                                            </Button>
+                                        </div>
+                                    )}
                                 </div>
                             )
                         })}
@@ -179,42 +205,14 @@ export function HogFlowTreeNode({
                                 {showAllBranches ? 'Show fewer branches' : `Show ${hiddenBranchCount} more branches`}
                             </Button>
                         )}
-                        {joinAction && (
-                            <>
-                                <div className="flex items-center gap-1 ps-3">
-                                    <Text size="xxs" variant="muted" render={<span />}>
-                                        {node.action.type === 'random_cohort_branch'
-                                            ? 'End of cohort split · continues to'
-                                            : 'End of condition · continues to'}
-                                    </Text>
-                                    <Button
-                                        type="button"
-                                        variant="link"
-                                        size="xs"
-                                        className="min-w-0 max-w-56 px-0"
-                                        onClick={() => {
-                                            setSelectedBranch(null)
-                                            setSelectedNodeId(joinAction.id)
-                                            document
-                                                .getElementById(`workflow-tree-step-${joinAction.id}`)
-                                                ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                                        }}
-                                        data-attr="workflow-tree-select-continuation"
-                                    >
-                                        <span className="truncate">{joinAction.name}</span>
-                                        <IconArrowRight className="size-3" />
-                                    </Button>
-                                </div>
-                                {joinEdge && (
-                                    <HogFlowTreeDropzone
-                                        active={activeDropzones}
-                                        draggedActionId={draggedActionId}
-                                        edge={joinEdge}
-                                        isBranchJoin
-                                        showConnector={false}
-                                    />
-                                )}
-                            </>
+                        {joinEdge && (
+                            <HogFlowTreeDropzone
+                                active={activeDropzones}
+                                draggedActionId={draggedActionId}
+                                edge={joinEdge}
+                                isBranchJoin
+                                showConnector={false}
+                            />
                         )}
                     </CollapsibleContent>
                 </Collapsible>
