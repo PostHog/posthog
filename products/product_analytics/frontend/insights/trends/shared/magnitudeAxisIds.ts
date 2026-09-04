@@ -1,14 +1,18 @@
 import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
 
-const MAGNITUDE_GAP = 1
+/** Peak ratio at which a series leaves the group below it. A full order of magnitude is too
+ *  coarse: a 3x spread already flattens the smaller series, and that spread is the usual
+ *  reason to ask for a second axis. */
+const MIN_SPLIT_RATIO = 3
 const MAX_Y_AXES = 4
 
 /** Assign a y-axis id per series so series of similar magnitude share an axis. Series are
- *  clustered on log10 of their max |value|, splitting at the largest gaps of at least
- *  MAGNITUDE_GAP orders, capped at MAX_Y_AXES axes. The first series' group keeps the
- *  default axis id; other groups get stable ids in series order. */
+ *  clustered on their max |value|: a group holds every series within MIN_SPLIT_RATIO of its
+ *  smallest peak, so a chain of small steps cannot stretch one group over a wide range. The
+ *  count is capped at MAX_Y_AXES, keeping the splits with the largest ratio. The first series'
+ *  group keeps the default axis id; other groups get stable ids in series order. */
 export function computeMagnitudeAxisIds(datasets: readonly (readonly number[])[]): string[] {
-    const magnitudes = datasets.map((data) => {
+    const peaks = datasets.map((data) => {
         let max = 0
         for (const value of data) {
             const abs = Math.abs(value)
@@ -16,26 +20,29 @@ export function computeMagnitudeAxisIds(datasets: readonly (readonly number[])[]
                 max = abs
             }
         }
-        return max > 0 ? Math.log10(max) : null
+        return max > 0 ? max : null
     })
 
-    const measured = magnitudes
-        .flatMap((magnitude, seriesIndex) => (magnitude === null ? [] : [{ magnitude, seriesIndex }]))
-        .sort((a, b) => a.magnitude - b.magnitude)
+    const measured = peaks
+        .flatMap((peak, seriesIndex) => (peak === null ? [] : [{ peak, seriesIndex }]))
+        .sort((a, b) => a.peak - b.peak)
 
-    const gaps: { pos: number; gap: number }[] = []
-    let previousMagnitude: number | null = null
-    measured.forEach(({ magnitude }, pos) => {
-        if (previousMagnitude !== null) {
-            gaps.push({ pos, gap: magnitude - previousMagnitude })
+    const splits: { pos: number; ratio: number }[] = []
+    let groupMin: number | null = null
+    let previousPeak = 0
+    measured.forEach(({ peak }, pos) => {
+        if (groupMin === null) {
+            groupMin = peak
+        } else if (peak / groupMin >= MIN_SPLIT_RATIO) {
+            splits.push({ pos, ratio: peak / previousPeak })
+            groupMin = peak
         }
-        previousMagnitude = magnitude
+        previousPeak = peak
     })
 
     const splitPositions = new Set(
-        gaps
-            .filter(({ gap }) => gap >= MAGNITUDE_GAP)
-            .sort((a, b) => b.gap - a.gap)
+        splits
+            .sort((a, b) => b.ratio - a.ratio)
             .slice(0, MAX_Y_AXES - 1)
             .map(({ pos }) => pos)
     )

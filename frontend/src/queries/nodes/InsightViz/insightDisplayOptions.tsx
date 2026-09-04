@@ -66,7 +66,10 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph) &&
         !!interval &&
         (smoothingOptions[interval]?.length ?? 0) > 0
-    const showMultipleYAxesConfig = (isTrends || isStickiness) && !hideContinuousChartOptions
+    // Area fills each scaled to their own axis all reach the top of the plot and cover each
+    // other, so an area chart keeps one shared axis and has nothing to toggle.
+    const isAreaGraph = display === ChartDisplayType.ActionsAreaGraph
+    const showMultipleYAxesConfig = (isTrends || isStickiness) && !hideContinuousChartOptions && !isAreaGraph
     const showAlertThresholdLinesConfig = isTrends && !hideContinuousChartOptions
     const showAnnotationsConfig = (isTrends && !hideContinuousChartOptions) || isTrendsFunnel
     // Stickiness defaults to its line chart when display is unset, same as trends does — but
@@ -265,7 +268,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (showLineStyleConfig && (insightFilter as TrendsFilter | undefined)?.chartStyle?.curve === 'linear' ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.xAxisLabel) ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +
-        (showMultipleYAxes ? 1 : 0) +
+        (showMultipleYAxesConfig && showMultipleYAxes ? 1 : 0) +
         (showAnnotationsConfig && showAnnotations === false ? 1 : 0) +
         (isMetric && trendsFilter?.metricShowChange === false ? 1 : 0) +
         (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0) +
