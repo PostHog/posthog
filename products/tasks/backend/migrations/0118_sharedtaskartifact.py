@@ -9,7 +9,7 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("tasks", "0116_drop_task_session_storage_key_like_index"),
+        ("tasks", "0117_task_set_null_cascade_indexes"),
         ("posthog", "1333_uploaded_media_library_index"),
     ]
 
