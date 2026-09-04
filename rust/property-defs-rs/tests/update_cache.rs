@@ -220,6 +220,40 @@ fn test_contains_key_emits_hit_miss_metrics(#[case] label: &'static str, #[case]
     assert_miss_then_hit(label, update);
 }
 
+// Guards the recency contract of `Cache::contains_key`: a lookup must mark the
+// entry referenced (quick_cache `get`), so a key that was checked survives the
+// next eviction pass by promotion into the protected segment. quick_cache's
+// own `contains_key` skips that marking, which degrades S3-FIFO to FIFO; in
+// production that evicts the working set on a fixed schedule and re-issues a
+// useless Postgres upsert per cycle.
+//
+// The filler prelude matters: a nearly-empty cache admits inserts straight
+// into the protected (hot) segment, where eviction pressure never reaches
+// them and the assertion would pass with or without recency marking. Filling
+// the cache first forces the probe key into the probationary (cold) segment,
+// where only a referenced entry survives.
+#[test]
+fn test_checked_key_survives_eviction_pressure() {
+    let cache = Cache::new(2, 2, 2);
+
+    for i in 0..40 {
+        cache.insert(make_event_def(&format!("recency_fill_{i}")));
+    }
+
+    let probe = make_event_def("recency_probe");
+    cache.insert(probe.clone());
+    assert!(cache.contains_key(&probe), "probe should be resident");
+
+    for i in 0..100 {
+        cache.insert(make_event_def(&format!("recency_flood_{i}")));
+    }
+
+    assert!(
+        cache.contains_key(&probe),
+        "checked key was evicted instead of promoted"
+    );
+}
+
 // quick_cache enforces a minimum of 32 items per shard (`sync.rs` ~134:
 // `while shard_items_cap < 32 && num_shards > 1 { num_shards /= 2; ... }`),
 // so even with `Cache::new(2, 2, 2)` we get a single 32-slot shard per
