@@ -1,6 +1,7 @@
 import type { SignalReport } from "@posthog/shared/types";
+import { useInboxReportActionDraftStore } from "@posthog/ui/features/inbox/stores/inboxReportActionDraftStore";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -50,20 +51,13 @@ const report: SignalReport = {
   updated_at: "2026-08-20T09:00:00Z",
 };
 
-const wrapper = ({ children }: { children: ReactNode }): React.JSX.Element => (
-  <QueryClientProvider
-    client={
-      new QueryClient({
-        defaultOptions: {
-          queries: { retry: false },
-          mutations: { retry: false },
-        },
-      })
-    }
-  >
-    {children}
-  </QueryClientProvider>
-);
+function createWrapper(queryClient = new QueryClient()) {
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+  };
+}
 
 function DismissActionHarness(): React.JSX.Element {
   const { dialog, openDialog } = useInboxReportDismissAction(report);
@@ -77,47 +71,79 @@ function DismissActionHarness(): React.JSX.Element {
   );
 }
 
+async function enterDismissal(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByText("Open dismiss"));
+  await user.click(
+    screen.getByRole("radio", { name: /Agent's analysis is wrong/ }),
+  );
+  await user.type(
+    screen.getByPlaceholderText("Optional: add detail"),
+    "Retain this note",
+  );
+  await user.click(screen.getByText("Dismiss report"));
+}
+
 describe("useInboxReportDismissAction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useInboxReportActionDraftStore.setState({ dismiss: {}, resolve: {} });
   });
 
-  it("keeps the dialog and the typed note when the request fails", async () => {
+  it("reopens a failed dismissal with its typed note", async () => {
     mocks.updateState.mockRejectedValue(new Error("Request failed"));
     const user = userEvent.setup();
-    render(<DismissActionHarness />, { wrapper });
+    render(<DismissActionHarness />, { wrapper: createWrapper() });
 
-    await user.click(screen.getByText("Open dismiss"));
-    await user.click(
-      screen.getByRole("radio", { name: /Agent's analysis is wrong/ }),
-    );
-    await user.type(
-      screen.getByPlaceholderText("Optional: add detail"),
-      "The stack trace is from a different service",
-    );
-    await user.click(screen.getByText("Dismiss report"));
+    await enterDismissal(user);
 
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
     expect(screen.getByPlaceholderText("Optional: add detail")).toHaveValue(
-      "The stack trace is from a different service",
+      "Retain this note",
     );
   });
 
-  it("closes the dialog once the dismissal lands", async () => {
+  it("keeps the dialog closed once the dismissal lands", async () => {
     mocks.updateState.mockResolvedValue({ ...report, status: "suppressed" });
     const user = userEvent.setup();
-    render(<DismissActionHarness />, { wrapper });
+    render(<DismissActionHarness />, { wrapper: createWrapper() });
 
-    await user.click(screen.getByText("Open dismiss"));
-    await user.click(
-      screen.getByRole("radio", { name: /Agent's analysis is wrong/ }),
+    await enterDismissal(user);
+
+    await waitFor(() => expect(mocks.updateState).toHaveBeenCalled());
+    expect(
+      screen.queryByPlaceholderText("Optional: add detail"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("restores retry input after the action screen unmounts", async () => {
+    const user = userEvent.setup();
+    let rejectRequest: ((error: Error) => void) | undefined;
+    mocks.updateState.mockReturnValue(
+      new Promise<SignalReport>((_resolve, reject) => {
+        rejectRequest = reject;
+      }),
     );
-    await user.click(screen.getByText("Dismiss report"));
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    const firstRender = render(<DismissActionHarness />, {
+      wrapper: createWrapper(queryClient),
+    });
 
-    await waitFor(() =>
-      expect(
-        screen.queryByPlaceholderText("Optional: add detail"),
-      ).not.toBeInTheDocument(),
+    await enterDismissal(user);
+    await waitFor(() => expect(mocks.updateState).toHaveBeenCalled());
+    firstRender.unmount();
+    await act(async () => rejectRequest?.(new Error("Request failed")));
+
+    render(<DismissActionHarness />, { wrapper: createWrapper(queryClient) });
+
+    expect(
+      await screen.findByRole("radio", {
+        name: /Agent's analysis is wrong/,
+      }),
+    ).toBeChecked();
+    expect(screen.getByPlaceholderText("Optional: add detail")).toHaveValue(
+      "Retain this note",
     );
   });
 });

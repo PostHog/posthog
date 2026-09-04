@@ -17,7 +17,14 @@ import {
   type DismissReportDialogResult,
 } from "@posthog/ui/features/inbox/components/DismissReportDialog";
 import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
-import { type ReactElement, useCallback, useMemo, useState } from "react";
+import { useInboxReportActionDraftStore } from "@posthog/ui/features/inbox/stores/inboxReportActionDraftStore";
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 /** Dismiss flow used by every inbox detail screen – one report, one button + dialog. */
 export function useInboxReportDismissAction(
@@ -36,6 +43,13 @@ export function useInboxReportDismissAction(
   const [open, setOpen] = useState(false);
   const [initialReason, setInitialReason] =
     useState<DismissalReasonOptionValue>();
+  const [initialNote, setInitialNote] = useState("");
+  const retryDraft = useInboxReportActionDraftStore(
+    (state) => state.dismiss[report.id],
+  );
+  const setRetryDraft = useInboxReportActionDraftStore(
+    (state) => state.setDismiss,
+  );
   const reportsForActions = useMemo(() => [report], [report]);
   const bulkActions = useInboxBulkActions(
     reportsForActions,
@@ -46,19 +60,29 @@ export function useInboxReportDismissAction(
 
   const isPending = bulkActions.isSuppressing || bulkActions.isSnoozing;
 
+  useEffect(() => {
+    if (!retryDraft?.reopen) return;
+    setInitialReason(retryDraft.reason);
+    setInitialNote(retryDraft.note);
+    setOpen(true);
+  }, [retryDraft]);
+
   const dismissWithReason = useCallback(
     async (reason: DismissalReasonOptionValue, note = "") => {
       const result = { reason, note } satisfies DismissReportDialogResult;
       const isSnooze = isDismissalReasonSnooze(reason);
-      // Close only once the action lands. Holding the dialog open keeps the
-      // typed reason and note for a retry, and the quick reasons in the row
-      // menu never open a dialog the reader did not ask for.
+      setRetryDraft(report.id, { reason, note, reopen: false });
+      setOpen(false);
       const ok = isSnooze
         ? await bulkActions.snoozeSelected(result)
         : await bulkActions.suppressSelected(result);
-      if (ok) setOpen(false);
+      if (ok) {
+        setRetryDraft(report.id, undefined);
+      } else {
+        setRetryDraft(report.id, { reason, note, reopen: true });
+      }
     },
-    [bulkActions],
+    [bulkActions, report.id, setRetryDraft],
   );
   const handleConfirm = useCallback(
     (result: DismissReportDialogResult) =>
@@ -91,18 +115,23 @@ export function useInboxReportDismissAction(
     <DismissReportDialog
       open={open}
       onOpenChange={(next) => {
-        if (!isPending) setOpen(next);
+        if (!isPending) {
+          setOpen(next);
+          if (!next) setRetryDraft(report.id, undefined);
+        }
       }}
       report={report}
       isSubmitting={isPending}
       snoozeDisabledReason={bulkActions.snoozeDisabledReason}
       initialReason={initialReason}
+      initialNote={initialNote}
       onConfirm={handleConfirm}
     />
   ) : null;
 
   const openDialog = useCallback((reason?: DismissalReasonOptionValue) => {
     setInitialReason(reason);
+    setInitialNote("");
     setOpen(true);
   }, []);
   return { actionButton, dialog, openDialog, dismissWithReason };

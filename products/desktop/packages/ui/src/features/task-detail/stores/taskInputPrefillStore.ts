@@ -24,7 +24,7 @@ interface TaskInputPrefill {
    * outlives the transient prefill until the prompt is safely in the composer.
    */
   recoveredFromKey?: string;
-  initialCloudRepository?: string;
+  initialCloudRepository?: string | null;
   initialModel?: string;
   initialMode?: string;
   folderRunEnvironment?: "local" | "cloud";

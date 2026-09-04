@@ -11,6 +11,7 @@ import {
   type BrowserTabsClient,
 } from "@posthog/ui/features/browser-tabs/browserTabsClient";
 import { resetCurrentChannel } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { resetInboxReportActionDrafts } from "@posthog/ui/features/inbox/stores/inboxReportActionDraftStore";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { resetSessionService } from "@posthog/ui/features/sessions/sessionServiceHost";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
@@ -39,6 +40,7 @@ export class RendererAuthSideEffects implements IAuthSideEffects {
 
   async onProjectSelected(): Promise<void> {
     clearAuthScopedQueries();
+    resetInboxReportActionDrafts();
     // Before openTaskInput, which files a new task into the scoped channel —
     // a channel id from the project we just left.
     resetCurrentChannel();
@@ -53,6 +55,7 @@ export class RendererAuthSideEffects implements IAuthSideEffects {
     track(ANALYTICS_EVENTS.USER_LOGGED_OUT);
     resetSessionService();
     clearAuthScopedQueries();
+    resetInboxReportActionDrafts();
     if (previousRegion) {
       useAuthUiStateStore.getState().setStaleRegion(previousRegion);
     }

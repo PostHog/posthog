@@ -5,6 +5,7 @@ import type {
 } from "@posthog/shared/types";
 import type {
   InfiniteData,
+  Query,
   QueryClient,
   QueryKey,
 } from "@tanstack/react-query";
@@ -127,17 +128,20 @@ export type InboxReportCacheSnapshot = Array<
   | {
       kind: "detail";
       queryKey: QueryKey;
+      query: Query;
       report: SignalReport;
     }
   | {
       kind: "list";
       queryKey: QueryKey;
+      query: Query;
       reports: PositionedReport[];
       countDelta: number;
     }
   | {
       kind: "infinite-list";
       queryKey: QueryKey;
+      query: Query;
       reports: PositionedInfiniteReport[];
       countDelta: number;
     }
@@ -159,7 +163,11 @@ function commaSeparatedValueIncludes(
   return filter.split(",").some((item) => item.trim() === value);
 }
 
-function queryAcceptsReport(queryKey: QueryKey, report: SignalReport): boolean {
+function queryAcceptsReport(
+  queryKey: QueryKey,
+  report: SignalReport,
+  reviewerMembership: Map<string, Set<string>>,
+): boolean {
   const params = queryParams(queryKey);
   if (!commaSeparatedValueIncludes(params.status, report.status)) return false;
   if (!commaSeparatedValueIncludes(params.priority, report.priority)) {
@@ -187,20 +195,65 @@ function queryAcceptsReport(queryKey: QueryKey, report: SignalReport): boolean {
   if (params.channel_id && params.channel_id !== report.channel_id) {
     return false;
   }
+  if (
+    params.suggested_reviewers &&
+    !reviewerMembership.get(report.id)?.has(params.suggested_reviewers.trim())
+  ) {
+    return false;
+  }
   return true;
+}
+
+function cachedReports(data: unknown): SignalReport[] {
+  if (!data || typeof data !== "object") return [];
+  if ("pages" in data && Array.isArray((data as InfiniteData<unknown>).pages)) {
+    return (data as InfiniteData<SignalReportsResponse>).pages.flatMap(
+      (page) => page.results,
+    );
+  }
+  if (
+    "results" in data &&
+    Array.isArray((data as SignalReportsResponse).results)
+  ) {
+    return (data as SignalReportsResponse).results;
+  }
+  return [];
+}
+
+function buildReviewerMembership(
+  entries: Array<[QueryKey, unknown]>,
+  reportsById: Map<string, SignalReport>,
+): Map<string, Set<string>> {
+  const membership = new Map<string, Set<string>>();
+  for (const [queryKey, data] of entries) {
+    const reviewerScope = queryParams(queryKey).suggested_reviewers?.trim();
+    if (!reviewerScope) continue;
+    for (const report of cachedReports(data)) {
+      if (!reportsById.has(report.id)) continue;
+      const scopes = membership.get(report.id) ?? new Set<string>();
+      scopes.add(reviewerScope);
+      membership.set(report.id, scopes);
+    }
+  }
+  return membership;
 }
 
 function reportCountDelta(
   queryKey: QueryKey,
   reportsById: Map<string, SignalReport>,
   previousReportsById: Map<string, SignalReport>,
+  reviewerMembership: Map<string, Set<string>>,
 ): number {
   let delta = 0;
   for (const [reportId, updatedReport] of reportsById) {
     const previousReport = previousReportsById.get(reportId);
     if (!previousReport) continue;
-    delta += Number(queryAcceptsReport(queryKey, updatedReport));
-    delta -= Number(queryAcceptsReport(queryKey, previousReport));
+    delta += Number(
+      queryAcceptsReport(queryKey, updatedReport, reviewerMembership),
+    );
+    delta -= Number(
+      queryAcceptsReport(queryKey, previousReport, reviewerMembership),
+    );
   }
   return delta;
 }
@@ -210,13 +263,16 @@ function updateReportPage(
   reportsById: Map<string, SignalReport>,
   queryKey: QueryKey,
   countDelta: number,
+  reviewerMembership: Map<string, Set<string>>,
 ): SignalReportsResponse {
   return {
     ...page,
     results: page.results.flatMap((report) => {
       const updated = reportsById.get(report.id);
       if (!updated) return [report];
-      return queryAcceptsReport(queryKey, updated) ? [updated] : [];
+      return queryAcceptsReport(queryKey, updated, reviewerMembership)
+        ? [updated]
+        : [];
     }),
     count: Math.max(0, page.count + countDelta),
   };
@@ -268,8 +324,11 @@ export function updateInboxReportCaches(
   const entries = queryClient.getQueriesData<unknown>({
     queryKey: inboxReportKeys.all,
   });
+  const reviewerMembership = buildReviewerMembership(entries, reportsById);
 
   for (const [queryKey, data] of entries) {
+    const query = queryClient.getQueryCache().find({ queryKey, exact: true });
+    if (!query) continue;
     let updatedData: unknown = data;
     const kind = queryKey[2];
 
@@ -283,6 +342,7 @@ export function updateInboxReportCaches(
       snapshot.push({
         kind: "detail",
         queryKey,
+        query,
         report: data as SignalReport,
       });
     } else if (
@@ -298,12 +358,20 @@ export function updateInboxReportCaches(
         queryKey,
         reportsById,
         previousReportsById,
+        reviewerMembership,
       );
       if (reportsBeforeUpdate.length > 0 || countDelta !== 0) {
-        updatedData = updateReportPage(page, reportsById, queryKey, countDelta);
+        updatedData = updateReportPage(
+          page,
+          reportsById,
+          queryKey,
+          countDelta,
+          reviewerMembership,
+        );
         snapshot.push({
           kind: "list",
           queryKey,
+          query,
           reports: reportsBeforeUpdate,
           countDelta,
         });
@@ -327,17 +395,25 @@ export function updateInboxReportCaches(
         queryKey,
         reportsById,
         previousReportsById,
+        reviewerMembership,
       );
       if (reportsBeforeUpdate.length > 0 || countDelta !== 0) {
         updatedData = {
           ...infiniteData,
           pages: infiniteData.pages.map((page) =>
-            updateReportPage(page, reportsById, queryKey, countDelta),
+            updateReportPage(
+              page,
+              reportsById,
+              queryKey,
+              countDelta,
+              reviewerMembership,
+            ),
           ),
         };
         snapshot.push({
           kind: "infinite-list",
           queryKey,
+          query,
           reports: reportsBeforeUpdate,
           countDelta,
         });
@@ -357,6 +433,10 @@ export function restoreInboxReportCaches(
   snapshot: InboxReportCacheSnapshot,
 ): void {
   for (const entry of snapshot) {
+    const currentQuery = queryClient
+      .getQueryCache()
+      .find({ queryKey: entry.queryKey, exact: true });
+    if (currentQuery !== entry.query) continue;
     if (entry.kind === "detail") {
       queryClient.setQueryData(entry.queryKey, entry.report);
       continue;

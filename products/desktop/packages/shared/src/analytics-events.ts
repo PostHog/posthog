@@ -692,6 +692,7 @@ export type InboxReportActionType =
   | "snooze"
   | "delete"
   | "reingest"
+  | "implement"
   | "create_pr"
   | "open_pr"
   | "open_task"

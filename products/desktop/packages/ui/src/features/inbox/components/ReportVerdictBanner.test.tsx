@@ -17,6 +17,7 @@ const {
   useReportTasks,
   useInboxReportArtefacts,
   openResolveDialog,
+  fireAction,
 } = vi.hoisted(() => ({
   createPrReport: vi.fn(),
   discussReport: vi.fn(),
@@ -29,6 +30,7 @@ const {
   useReportTasks: vi.fn(),
   useInboxReportArtefacts: vi.fn(),
   openResolveDialog: vi.fn(),
+  fireAction: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", async (importOriginal) => {
@@ -85,7 +87,7 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useReportActionTracker", () => ({
-  useReportActionTracker: () => vi.fn(),
+  useReportActionTracker: () => fireAction,
 }));
 
 vi.mock("@posthog/ui/router/useOpenTask", () => ({
@@ -183,6 +185,7 @@ describe("ReportVerdictBanner", () => {
     openTaskInput.mockReset();
     openTask.mockReset();
     openResolveDialog.mockReset();
+    fireAction.mockReset();
     setQueryData.mockReset();
     onDiscussionCreated = undefined;
     useDiscussReport.mockImplementation(
@@ -267,11 +270,13 @@ describe("ReportVerdictBanner", () => {
       expect(openTaskInput).toHaveBeenCalledWith({
         initialPrompt: "Implement the recommended next step in this report.",
         initialCloudRepository: "PostHog/posthog",
+        channelId: "general-channel",
         reportAssociation: {
           reportId: report.id,
           title: report.title,
         },
       });
+      expect(fireAction).toHaveBeenCalledWith("implement");
       expect(createPrReport).not.toHaveBeenCalled();
     },
   );
@@ -308,6 +313,29 @@ describe("ReportVerdictBanner", () => {
     expect(openTaskInput).toHaveBeenCalledWith(
       expect.objectContaining({
         initialCloudRepository: "PostHog/posthog",
+        channelId: "general-channel",
+      }),
+    );
+  });
+
+  it("opens the composer when artefacts are unavailable", async () => {
+    const user = userEvent.setup();
+    useInboxReportArtefacts.mockReturnValue({
+      data: { count: 0, results: [], unavailableReason: "request_failed" },
+      isLoading: false,
+    });
+
+    render(
+      <ReportVerdictBanner
+        report={{ ...report, actionability: "immediately_actionable" }}
+      />,
+    );
+
+    await user.click(screen.getByText("Implement"));
+    expect(openTaskInput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialCloudRepository: null,
+        channelId: "general-channel",
       }),
     );
   });
@@ -331,7 +359,10 @@ describe("ReportVerdictBanner", () => {
     await user.click(screen.getByText("Implement"));
 
     expect(openTaskInput).toHaveBeenCalledWith(
-      expect.objectContaining({ initialCloudRepository: undefined }),
+      expect.objectContaining({
+        initialCloudRepository: null,
+        channelId: "general-channel",
+      }),
     );
   });
 

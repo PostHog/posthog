@@ -233,19 +233,26 @@ export function ReportVerdictBanner({
   }, [createPrReport, fireAction, prFeedback]);
 
   const handleComposeImplementation = useCallback(() => {
-    if (artefactsLoading) return;
-    // The repository prefills the composer, it does not gate it. A report that
-    // stopped at repository selection has no repo_selection artefact, and
-    // picking a repository in the composer is what unblocks it.
+    if (artefactsLoading || awaitingChannel) return;
+    fireAction("implement");
     openTaskInput({
       initialPrompt: "Implement the recommended next step in this report.",
-      initialCloudRepository: cloudRepository ?? undefined,
+      initialCloudRepository: cloudRepository,
+      channelId: taskChannelId ?? undefined,
       reportAssociation: {
         reportId: report.id,
         title: report.title ?? "Untitled report",
       },
     });
-  }, [artefactsLoading, cloudRepository, report.id, report.title]);
+  }, [
+    artefactsLoading,
+    awaitingChannel,
+    cloudRepository,
+    fireAction,
+    report.id,
+    report.title,
+    taskChannelId,
+  ]);
 
   const handleOpenPr = useCallback(() => {
     if (!externalPrUrl) return;
@@ -420,7 +427,7 @@ export function ReportVerdictBanner({
           variant="primary"
           onClick={handleComposeImplementation}
           loading={artefactsLoading}
-          disabled={artefactsLoading}
+          disabled={artefactsLoading || awaitingChannel}
           className={buttonClass}
           data-attr="inbox-report-implement"
         >

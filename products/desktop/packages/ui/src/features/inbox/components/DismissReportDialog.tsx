@@ -38,6 +38,7 @@ export interface DismissReportDialogProps {
   isSubmitting: boolean;
   snoozeDisabledReason: string | null;
   initialReason?: DismissalReasonOptionValue;
+  initialNote?: string;
   onConfirm: (result: DismissReportDialogResult) => void;
 }
 
@@ -49,6 +50,7 @@ export function DismissReportDialog({
   isSubmitting,
   snoozeDisabledReason,
   initialReason,
+  initialNote = "",
   onConfirm,
 }: DismissReportDialogProps): React.JSX.Element {
   return (
@@ -66,6 +68,7 @@ export function DismissReportDialog({
           isSubmitting={isSubmitting}
           snoozeDisabledReason={snoozeDisabledReason}
           initialReason={initialReason}
+          initialNote={initialNote}
           onConfirm={onConfirm}
         />
       </DialogContent>
@@ -79,6 +82,7 @@ function DismissReportDialogBody({
   isSubmitting,
   snoozeDisabledReason,
   initialReason,
+  initialNote = "",
   onConfirm,
 }: Omit<DismissReportDialogProps, "open" | "onOpenChange"> & {
   selectedCount: number;
@@ -86,7 +90,7 @@ function DismissReportDialogBody({
   const [reason, setReason] = useState<DismissalReasonOptionValue | null>(
     initialReason ?? null,
   );
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(initialNote);
   const fieldId = useId();
   const pausesReport = reason != null && isDismissalReasonSnooze(reason);
   const reportNoun = selectedCount > 1 ? "reports" : "report";

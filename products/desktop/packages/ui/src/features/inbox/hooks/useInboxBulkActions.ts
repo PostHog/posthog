@@ -65,6 +65,7 @@ interface BulkActionResult {
 interface ReportStateMutationContext {
   cacheSnapshot: InboxReportCacheSnapshot;
   optimisticReports: SignalReport[];
+  selectedReports: SignalReport[];
 }
 
 async function runBulkAction(
@@ -263,9 +264,10 @@ export function useInboxBulkActions(
     (
       actionType: InboxBulkActionType,
       result: BulkActionResult,
+      sourceReports: SignalReport[],
       dismissal?: DismissReportDialogResult,
     ) => {
-      const byId = new Map(reports.map((report) => [report.id, report]));
+      const byId = new Map(sourceReports.map((report) => [report.id, report]));
       const succeeded = result.succeededIds
         .map((id) => byId.get(id))
         .filter((report): report is SignalReport => report !== undefined);
@@ -308,7 +310,7 @@ export function useInboxBulkActions(
         });
       }
     },
-    [reports, surface, triageId],
+    [surface, triageId],
   );
 
   /**
@@ -385,7 +387,9 @@ export function useInboxBulkActions(
             dismissal_reason:
               variables.dismissal?.reason ?? report.dismissal_reason,
             dismissal_note:
-              variables.dismissal?.note || report.dismissal_note || null,
+              variables.dismissal !== undefined
+                ? variables.dismissal.note || null
+                : report.dismissal_note,
           }),
         );
         return {
@@ -395,6 +399,7 @@ export function useInboxBulkActions(
             selectedReports,
           ),
           optimisticReports,
+          selectedReports,
         };
       },
       onSuccess: (result, variables, context) => {
@@ -408,7 +413,12 @@ export function useInboxBulkActions(
             ),
           );
         }
-        trackBulkAction("dismiss", result, variables.dismissal);
+        trackBulkAction(
+          "dismiss",
+          result,
+          context.selectedReports,
+          variables.dismissal,
+        );
         applyBulkResultToSelection(result);
         void invalidateInboxQueries();
 
@@ -454,7 +464,9 @@ export function useInboxBulkActions(
             dismissal_reason:
               variables.dismissal?.reason ?? report.dismissal_reason,
             dismissal_note:
-              variables.dismissal?.note || report.dismissal_note || null,
+              variables.dismissal !== undefined
+                ? variables.dismissal.note || null
+                : report.dismissal_note,
           }),
         );
         return {
@@ -464,6 +476,7 @@ export function useInboxBulkActions(
             selectedReports,
           ),
           optimisticReports,
+          selectedReports,
         };
       },
       onSuccess: (result, variables, context) => {
@@ -477,7 +490,12 @@ export function useInboxBulkActions(
             ),
           );
         }
-        trackBulkAction("snooze", result, variables.dismissal);
+        trackBulkAction(
+          "snooze",
+          result,
+          context.selectedReports,
+          variables.dismissal,
+        );
         applyBulkResultToSelection(result);
         void invalidateInboxQueries();
 
@@ -502,7 +520,7 @@ export function useInboxBulkActions(
       ),
     {
       onSuccess: async (result) => {
-        trackBulkAction("delete", result);
+        trackBulkAction("delete", result, reports);
         await invalidateInboxQueries();
         applyBulkResultToSelection(result);
 
@@ -526,7 +544,7 @@ export function useInboxBulkActions(
       ),
     {
       onSuccess: async (result) => {
-        trackBulkAction("reingest", result);
+        trackBulkAction("reingest", result, reports);
         await invalidateInboxQueries();
         applyBulkResultToSelection(result);
 
@@ -580,7 +598,7 @@ export function useInboxBulkActions(
       }),
     {
       onSuccess: async (result) => {
-        trackBulkAction("remove_suggested_reviewer", result);
+        trackBulkAction("remove_suggested_reviewer", result, reports);
         // A reviewer-artefact write changes list membership, report detail, and
         // the reviewer artefacts, but not chart results, which are evidence
         // snapshots a reviewer change cannot alter. Skip chart-data queries so
@@ -616,13 +634,15 @@ export function useInboxBulkActions(
         return false;
       }
 
-      const result = await suppressMutation.mutateAsync({
-        reportIds: eligibility.selectedIds,
-        ...(dismissal != null ? { dismissal } : {}),
-      });
-      // Per-report rejections settle into the result, so the promise resolving
-      // does not mean the action landed. Callers keep their dialog open on false.
-      return result.failureCount === 0;
+      try {
+        const result = await suppressMutation.mutateAsync({
+          reportIds: eligibility.selectedIds,
+          ...(dismissal != null ? { dismissal } : {}),
+        });
+        return result.failureCount === 0;
+      } catch {
+        return false;
+      }
     },
     [
       eligibility.suppressDisabledReason,
@@ -637,13 +657,15 @@ export function useInboxBulkActions(
         return false;
       }
 
-      const result = await snoozeMutation.mutateAsync({
-        reportIds: eligibility.selectedIds,
-        ...(dismissal != null ? { dismissal } : {}),
-      });
-      // Per-report rejections settle into the result, so the promise resolving
-      // does not mean the action landed. Callers keep their dialog open on false.
-      return result.failureCount === 0;
+      try {
+        const result = await snoozeMutation.mutateAsync({
+          reportIds: eligibility.selectedIds,
+          ...(dismissal != null ? { dismissal } : {}),
+        });
+        return result.failureCount === 0;
+      } catch {
+        return false;
+      }
     },
     [eligibility.snoozeDisabledReason, eligibility.selectedIds, snoozeMutation],
   );

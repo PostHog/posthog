@@ -92,6 +92,14 @@ describe("openTaskInput channel scoping", () => {
     expect(prefill.initialPrompt).toBeUndefined();
     expect(prefill.requestId).not.toBe(stale);
   });
+
+  it("keeps an explicit empty repository prefill", () => {
+    openTaskInput({ initialCloudRepository: null });
+
+    const { prefill } = useTaskInputPrefillStore.getState();
+    expect(prefill.initialCloudRepository).toBeNull();
+    expect(prefill.requestId).toBeDefined();
+  });
 });
 
 describe("taskInputPrefillStore.consumePrompt", () => {

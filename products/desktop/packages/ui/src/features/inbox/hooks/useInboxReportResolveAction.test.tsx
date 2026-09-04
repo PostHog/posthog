@@ -1,4 +1,5 @@
 import type { SignalReport } from "@posthog/shared/types";
+import { useInboxReportActionDraftStore } from "@posthog/ui/features/inbox/stores/inboxReportActionDraftStore";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -92,6 +93,7 @@ function ResolveActionHarness(): React.JSX.Element {
 describe("useInboxReportResolveAction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useInboxReportActionDraftStore.setState({ dismiss: {}, resolve: {} });
   });
 
   it("tracks triage outcomes and blocks overlapping resolve requests", async () => {
@@ -219,5 +221,46 @@ describe("useInboxReportResolveAction", () => {
         "Optional: link to the fix or explain what changed",
       ),
     ).toHaveValue("Fixed in a separate change");
+  });
+
+  it("restores retry input after the action screen unmounts", async () => {
+    const user = userEvent.setup();
+    let rejectRequest: ((error: Error) => void) | undefined;
+    mocks.updateState.mockReturnValue(
+      new Promise<SignalReport>((_resolve, reject) => {
+        rejectRequest = reject;
+      }),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    const firstRender = render(<ResolveActionHarness />, {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await user.click(screen.getByText("Open resolve"));
+    await user.click(
+      screen.getByRole("radio", { name: "Fixed outside PostHog" }),
+    );
+    await user.type(
+      screen.getByPlaceholderText(
+        "Optional: link to the fix or explain what changed",
+      ),
+      "Retain this note",
+    );
+    await user.click(screen.getByText("Resolve report"));
+    firstRender.unmount();
+    await act(async () => rejectRequest?.(new Error("Request failed")));
+
+    render(<ResolveActionHarness />, { wrapper: createWrapper(queryClient) });
+
+    expect(
+      await screen.findByRole("radio", { name: "Fixed outside PostHog" }),
+    ).toBeChecked();
+    expect(
+      screen.getByPlaceholderText(
+        "Optional: link to the fix or explain what changed",
+      ),
+    ).toHaveValue("Retain this note");
   });
 });
