@@ -30,7 +30,7 @@ export function HogFlowTreeDropzone({
         !!draggedActionId && (edge.to === draggedActionId || (!isBranchJoin && edge.from === draggedActionId))
 
     return (
-        <div className={cn('flex w-full items-center justify-center', compact ? 'h-2' : 'h-7')}>
+        <div className={cn('flex w-full items-center justify-center', compact && !active ? 'h-2' : 'h-7')}>
             {!active || isNoOpTarget ? (
                 showConnector && (
                     <svg
