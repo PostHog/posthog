@@ -646,7 +646,8 @@ class SubscriptionDelivery(UUIDModel):
     exported_asset_ids: ArrayField = ArrayField(models.IntegerField(), default=list)
     content_snapshot = models.JSONField(default=dict)
 
-    context_refs = ArrayField(models.CharField(max_length=64), default=list)
+    # db_default so workers on the previous image can INSERT without naming this column during a rolling deploy.
+    context_refs = ArrayField(models.CharField(max_length=64), default=list, db_default=[])
 
     # AI-generated summary sent in the delivery, when summary_enabled is on for the subscription.
     # None when no summary is attached.

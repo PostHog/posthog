@@ -18,7 +18,7 @@ class Migration(migrations.Migration):
             model_name="subscriptiondelivery",
             name="context_refs",
             field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=64), default=list, size=None
+                base_field=models.CharField(max_length=64), db_default=[], default=list, size=None
             ),
         ),
         migrations.CreateModel(
