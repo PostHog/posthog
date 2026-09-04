@@ -204,38 +204,26 @@
     "traffic_type": "AI Agent"
   },
   {
-    "pattern": "desktop\\.hog\\.dev",
+    "pattern": "desktop.hog.dev",
     "name": "PostHog Desktop",
     "category": "ai_assistant",
     "traffic_type": "AI Agent"
   },
   {
-    "pattern": "mobile\\.hog\\.dev",
+    "pattern": "mobile.hog.dev",
     "name": "PostHog Mobile",
     "category": "ai_assistant",
     "traffic_type": "AI Agent"
   },
   {
-    "pattern": "agent\\.hog\\.dev",
-    "name": "PostHog Code Agent",
+    "pattern": "agent.hog.dev",
+    "name": "PostHog Desktop Agent",
     "category": "ai_assistant",
     "traffic_type": "AI Agent"
   },
   {
-    "pattern": "cloud\\.hog\\.dev",
-    "name": "PostHog Code Cloud",
-    "category": "ai_assistant",
-    "traffic_type": "AI Agent"
-  },
-  {
-    "pattern": "Claude/.*Electron",
-    "name": "Claude Desktop",
-    "category": "ai_assistant",
-    "traffic_type": "AI Agent"
-  },
-  {
-    "pattern": "ChatGPT/.*Electron",
-    "name": "ChatGPT Desktop",
+    "pattern": "cloud.hog.dev",
+    "name": "PostHog Desktop Cloud",
     "category": "ai_assistant",
     "traffic_type": "AI Agent"
   },
@@ -1176,7 +1164,7 @@
     "traffic_type": "Automation"
   },
   {
-    "pattern": "\\) AppleWebKit/537\\.36 Chrome/",
+    "pattern": ") AppleWebKit/537.36 Chrome/",
     "name": "Malformed Chrome UA",
     "category": "headless_browser",
     "traffic_type": "Automation"
@@ -1236,7 +1224,7 @@
     "traffic_type": "Bot"
   },
   {
-    "pattern": "archive\\.org_bot",
+    "pattern": "archive.org_bot",
     "name": "Internet Archive",
     "category": "search_crawler",
     "traffic_type": "Bot"
@@ -1455,6 +1443,540 @@
     "pattern": "Discordbot",
     "name": "Discord",
     "category": "social_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "VioscaleAIBot",
+    "name": "Vioscale AI",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Amzn-SearchBot",
+    "name": "Amazon Search",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "LeapwaveVIP",
+    "name": "Leapwave",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "docs-puller",
+    "name": "docs-puller",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "ToolchestBot",
+    "name": "Toolchest",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "scopy-docs-crawler",
+    "name": "scopy docs crawler",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "llms-txt-sync",
+    "name": "llms-txt-sync",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "PromptingBot",
+    "name": "PromptingBot",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "llm-code-docs-scraper",
+    "name": "LLM code docs scraper",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "whichapi-bot",
+    "name": "WhichAPI",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Codex-YCB2B",
+    "name": "Codex public research",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "PostHog-BusinessKnowledge",
+    "name": "PostHog BusinessKnowledge",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "LlmsTxtBot",
+    "name": "LlmsTxtBot",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "every-api/",
+    "name": "Every API",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "RightAIChoiceBot",
+    "name": "Right AI Choice",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "redCactiBot",
+    "name": "redCactiBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "BelleaireCrawler",
+    "name": "BelleaireCrawler",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "PersimmonDesignResearch",
+    "name": "Persimmon Design Research",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "barkReleasesBot",
+    "name": "barkReleasesBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "prospector/",
+    "name": "Prospector",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "YandexRenderResourcesBot",
+    "name": "Yandex Render Resources",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "YandexAccessibilityBot",
+    "name": "Yandex Accessibility",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "rewebbot",
+    "name": "rewebbot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Querit-SearchBot",
+    "name": "Querit Search",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "ImpactVibeDesignResearch",
+    "name": "ImpactVibe Design Research",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "crawl-engine",
+    "name": "crawl-engine",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "CompanyFeedServer",
+    "name": "CompanyFeedServer",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "BranchenbuchBot",
+    "name": "BranchenbuchBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "ReachBot",
+    "name": "ReachBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "IbouBot",
+    "name": "IbouBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Hypeline",
+    "name": "Hypeline",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "OldSchoolBot",
+    "name": "OldSchoolBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "TutusooBot",
+    "name": "TutusooBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "HiringRadarBot",
+    "name": "HiringRadar",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "slopsearch-linux-crawler",
+    "name": "slopsearch",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "ForgeYourPathAiJobCrawler",
+    "name": "ForgeYourPath Job Crawler",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "OkaraBot",
+    "name": "OkaraBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "DesignMD-Extract-Bot",
+    "name": "DesignMD Extract",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "LyonlBot",
+    "name": "LyonlBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Sokjan Crawler",
+    "name": "Sokjan Crawler",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "ScryBot",
+    "name": "ScryBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Heexybot",
+    "name": "Heexybot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "bne.es_bot",
+    "name": "Biblioteca Nacional de Espa\u00f1a",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Zetlyn",
+    "name": "Zetlyn",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "algorand-platform-newspaper",
+    "name": "Algorand platform newspaper",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "VendiditBot",
+    "name": "Vendidit",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Zee Company Intelligence",
+    "name": "Zee Company Intelligence",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "NicheStuffBot",
+    "name": "NicheStuff",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Axiom-DocBot",
+    "name": "Axiom DocBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "RealPressBot",
+    "name": "RealPressBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "StraddleLibraryBot",
+    "name": "Straddle Library",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "LurantaBot",
+    "name": "Luranta",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "UnstenciledBot",
+    "name": "Unstenciled",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "InloraBot",
+    "name": "Inlora",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "EfficientRustCrawler",
+    "name": "Efficient Rust Crawler",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "DatalenkCreatorResearch",
+    "name": "Datalenk Creator Research",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Wrzutka-Bot",
+    "name": "Wrzutka",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Polon/",
+    "name": "Polon",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Babel42Bot",
+    "name": "Babel42",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "jscrawler",
+    "name": "jscrawler",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "PolycoreSupabaseDetector",
+    "name": "Polycore Supabase Detector",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "UnboundCompute-PublicSnapshot",
+    "name": "UnboundCompute Public Snapshot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "swissAItalentBot",
+    "name": "swissAItalentBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "LaunchReadyCodeBot",
+    "name": "LaunchReadyCodeBot",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "PricingArchiveBot",
+    "name": "PricingArchiveBot",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SEOMasterBot",
+    "name": "SEOMasterBot",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "CanICancelIt-LinkCheck",
+    "name": "CanICancelIt LinkCheck",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "serpstatbot",
+    "name": "Serpstat",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "StackPick",
+    "name": "StackPick",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "UXXRAYBot",
+    "name": "UXXRAY",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "NoFluffGraderBot",
+    "name": "NoFluff Grader",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "PagePilot-SiteAudit",
+    "name": "PagePilot Site Audit",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "double-ats-customer-discoverer",
+    "name": "Double ATS Customer Discoverer",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "BenchRankBot",
+    "name": "BenchRank",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "PagePeeker",
+    "name": "PagePeeker",
+    "category": "social_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Synapse (bot",
+    "name": "Synapse",
+    "category": "social_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Unfurlist",
+    "name": "Unfurlist",
+    "category": "social_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "heap.page source monitor",
+    "name": "heap.page",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "PulseWatch-Prober",
+    "name": "PulseWatch",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Scryer/",
+    "name": "Scryer",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "UnusualAgentAudit",
+    "name": "UnusualAgentAudit",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "VersionWatchBot",
+    "name": "VersionWatch",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "a14y/",
+    "name": "a14y",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "UptimeLensBot",
+    "name": "UptimeLens",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "InterruptIndexBot",
+    "name": "InterruptIndex",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "CurbCutScanner",
+    "name": "CurbCut Scanner",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "VantageBot",
+    "name": "VantageBot",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "NimbusBlocklistSync",
+    "name": "Nimbus Blocklist Sync",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "MrAnandPortfolio",
+    "name": "MrAnandPortfolio",
+    "category": "http_client",
     "traffic_type": "Bot"
   }
 ]
