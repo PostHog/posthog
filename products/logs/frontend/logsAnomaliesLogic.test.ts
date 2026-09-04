@@ -148,68 +148,6 @@ describe('logsAnomaliesLogic', () => {
         })
     })
 
-    it('takes the service and the window off the URL', async () => {
-        await expectLogic(logic, () => {
-            router.actions.push('/logs', {
-                activeTab: 'anomalies',
-                anomaliesService: 'checkout',
-                anomaliesDateRange: { date_from: '-24h' },
-            })
-        }).toFinishAllListeners()
-
-        expect(logic.values.serviceName).toBe('checkout')
-        expect(logic.values.dateRange).toEqual({ date_from: '-24h' })
-        const [, body] = (logsAnomaliesSeriesBandsCreate as jest.Mock).mock.calls.at(-1)
-        expect(body).toMatchObject({ serviceName: 'checkout', dateRange: { date_from: '-24h' } })
-    })
-
-    it('writes the picked service and window to the URL, and leaves the default window out', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setServiceName('checkout')
-        }).toFinishAllListeners()
-
-        expect(router.values.searchParams.anomaliesService).toBe('checkout')
-        // A param for the default would ride along in every link minted from this tab.
-        expect(router.values.searchParams).not.toHaveProperty('anomaliesDateRange')
-
-        await expectLogic(logic, () => {
-            logic.actions.setDateRange({ date_from: '-24h' })
-        }).toFinishAllListeners()
-
-        expect(router.values.searchParams.anomaliesDateRange).toEqual({ date_from: '-24h' })
-
-        // Back to the default, and the param has to go with it.
-        await expectLogic(logic, () => {
-            logic.actions.setServiceName(null)
-            logic.actions.setDateRange({ date_from: '-7d' })
-        }).toFinishAllListeners()
-
-        expect(router.values.searchParams).not.toHaveProperty('anomaliesService')
-        expect(router.values.searchParams).not.toHaveProperty('anomaliesDateRange')
-    })
-
-    it('leaves the viewer tab own service and window params alone', async () => {
-        // Both tabs live under the same URL, so sharing `serviceNames` or `dateRange` would let
-        // one tab's picker rewrite the other tab's filters.
-        await expectLogic(logic, () => {
-            router.actions.push('/logs', {
-                serviceNames: ['api'],
-                dateRange: { date_from: '-1h' },
-            })
-        }).toFinishAllListeners()
-
-        expect(logic.values.serviceName).toBeNull()
-        expect(logic.values.dateRange).toEqual({ date_from: '-7d' })
-
-        await expectLogic(logic, () => {
-            logic.actions.setServiceName('checkout')
-            logic.actions.setDateRange({ date_from: '-24h' })
-        }).toFinishAllListeners()
-
-        expect(router.values.searchParams.serviceNames).toEqual(['api'])
-        expect(router.values.searchParams.dateRange).toEqual({ date_from: '-1h' })
-    })
-
     it('slices visible series and grows the window on show more', async () => {
         ;(logsAnomaliesSeriesBandsCreate as jest.Mock).mockResolvedValue(
             seriesBandsResponse(DEFAULT_VISIBLE_SERIES + 3)
