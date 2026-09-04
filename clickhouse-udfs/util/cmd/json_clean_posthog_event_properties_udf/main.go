@@ -36,8 +36,8 @@ type pathRule struct {
 var eventPropertyRules = makeEventPropertyRules()
 
 const (
-	// Leave headroom below ClickHouse's 1024-level JSON parser ceiling so destination casts cannot poison a Kafka block.
-	maxJSONDepth             = 1000
+	// Match fastjson's parser ceiling so every stored document remains readable by the blob-cleanup UDF.
+	maxJSONDepth             = 300
 	unparseablePropertiesKey = "$unparseable_properties"
 )
 
