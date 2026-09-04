@@ -113,14 +113,13 @@ class WizardSessionSerializer(DataclassSerializer):
         extra_kwargs = {
             "created_by": {
                 "help_text": (
-                    "The user who initiated this wizard run (null for runs created before "
-                    "attribution existed). Lets the UI name whose run it is."
+                    "The user who initiated this wizard run (null for runs created before attribution existed)."
                 ),
             },
             "handoff_text": {
                 "help_text": (
                     "Markdown handoff doc the wizard produced for this run (its setup report), "
-                    "or null while the run hasn't written one. Sticky once set."
+                    "or null while the run hasn't written one."
                 ),
             },
         }
