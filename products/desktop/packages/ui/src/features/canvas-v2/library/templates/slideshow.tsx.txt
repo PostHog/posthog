@@ -1,13 +1,13 @@
-// A frame that shows the fragments inside it one at a time. Drag fragments
-// onto it, or add a slide with the button, and each one fills the frame. The
-// slide number is shared, so everybody on the board looks at the same slide.
-// The left and right arrow keys move through the slides.
+// A frame that shows the fragments on it one at a time. A slideshow has slots.
+// Add slide makes an empty slot, and you drag a fragment onto the frame to
+// fill it. Remove slide puts the fragment of the slot back on the board beside
+// the frame, so the slot is free again and nothing is lost. The slide in view
+// is shared, and the left and right arrow keys move through the slides.
 import { useSharedText, useSlideshow } from "@posthog/canvas-sdk";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
 
 const PADDING = 14;
 const HEADER = 38;
-const NEW_SLIDE = "notes";
 
 export default function Slideshow({ fragmentId }) {
   const title = useSharedText("frame:" + fragmentId + ":title");
@@ -15,7 +15,6 @@ export default function Slideshow({ fragmentId }) {
     padding: PADDING,
     header: HEADER,
   });
-  const slide = show.current;
 
   return (
     <div className="flex h-full w-full flex-col rounded-xl border border-border border-dashed bg-muted/20">
@@ -31,51 +30,53 @@ export default function Slideshow({ fragmentId }) {
           className="min-w-0 flex-1 border-0 bg-transparent p-0 font-medium text-[13px] outline-none placeholder:text-foreground/30"
           onChange={(event) => title.setText(event.target.value, null)}
         />
-        {show.count === 0 ? null : (
-          <>
-            <span className="min-w-0 shrink truncate text-[11px] text-muted-foreground">
-              {slide && slide.title ? slide.title : ""}
-            </span>
-            <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-card p-0.5">
-              <button
-                type="button"
-                aria-label="Previous slide"
-                className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                onClick={show.previous}
-              >
-                <ChevronLeft size={12} />
-              </button>
-              <span className="px-1 text-[11px] text-muted-foreground tabular-nums">
-                {show.index + 1} of {show.count}
-              </span>
-              <button
-                type="button"
-                aria-label="Next slide"
-                className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                onClick={show.next}
-              >
-                <ChevronRight size={12} />
-              </button>
-            </div>
-          </>
-        )}
+        <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-card p-0.5">
+          <button
+            type="button"
+            aria-label="Previous slide"
+            className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onClick={show.previous}
+          >
+            <ChevronLeft size={12} />
+          </button>
+          <span className="px-1 text-[11px] text-muted-foreground tabular-nums">
+            {show.index + 1} of {show.count}
+          </span>
+          <button
+            type="button"
+            aria-label="Next slide"
+            className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onClick={show.next}
+          >
+            <ChevronRight size={12} />
+          </button>
+        </div>
         <button
           type="button"
           aria-label="Add slide"
           className="flex shrink-0 items-center gap-1 rounded-full border border-border bg-card px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          onClick={() => show.addSlide(NEW_SLIDE)}
+          onClick={show.addSlide}
         >
           <Plus size={11} />
           Add slide
         </button>
+        <button
+          type="button"
+          aria-label="Remove this slide"
+          title="Put this slide back on the board"
+          className="shrink-0 rounded-full border border-border bg-card p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          onClick={show.removeSlide}
+        >
+          <X size={11} />
+        </button>
       </div>
 
-      {show.count === 0 ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 px-4 text-center text-[12px] text-muted-foreground">
-          <p>Add a slide, or drag fragments onto this frame.</p>
-          <p className="text-[11px]">
-            Select the frame and use the arrow keys to move through the slides.
-          </p>
+      {show.empty ? (
+        <div
+          className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-border border-dashed text-center text-[12px] text-muted-foreground"
+          style={{ margin: PADDING, marginTop: 0 }}
+        >
+          Drag a fragment onto this frame to fill the slide.
         </div>
       ) : null}
     </div>

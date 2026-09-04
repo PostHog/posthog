@@ -33,7 +33,6 @@ export const CANVAS_V2_DATA_METHODS = [
   "actionInvoke",
   "agentRequest",
   "arrangeFragments",
-  "addFragment",
 ] as const;
 export type CanvasV2DataMethod = (typeof CANVAS_V2_DATA_METHODS)[number];
 

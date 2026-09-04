@@ -8,13 +8,13 @@ import {
   boardFrameToHostMessageSchema,
   CANVAS_V2_CHANNEL,
   CANVAS_V2_STATE_KEY_MAX_CHARS,
-  type CanvasV2Fragment,
   type CanvasV2FrameCaret,
   type CanvasV2Op,
   type CanvasV2PresenceCaret,
   type CanvasV2Snapshot,
   type CanvasV2Theme,
   type CanvasV2Viewport,
+  fragmentsEqual,
   type HostToBoardFrameMessage,
   isField,
   isReservedStateKey,
@@ -427,19 +427,6 @@ function frameState(state: Record<string, unknown>): Record<string, unknown> {
     out[key] = fieldMessageValue(value);
   }
   return out;
-}
-
-function fragmentsEqual(a: CanvasV2Fragment, b: CanvasV2Fragment): boolean {
-  return (
-    a.title === b.title &&
-    a.x === b.x &&
-    a.y === b.y &&
-    a.w === b.w &&
-    a.h === b.h &&
-    a.z === b.z &&
-    a.codeVersion === b.codeVersion &&
-    a.code === b.code
-  );
 }
 
 function stableJson(value: unknown): string {

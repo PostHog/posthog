@@ -165,7 +165,11 @@ export function diffSnapshots(
   return ops;
 }
 
-function fragmentsEqual(a: CanvasV2Fragment, b: CanvasV2Fragment): boolean {
+/** True when two fragments draw the same thing in the same place. */
+export function fragmentsEqual(
+  a: CanvasV2Fragment,
+  b: CanvasV2Fragment,
+): boolean {
   return (
     a.title === b.title &&
     a.x === b.x &&

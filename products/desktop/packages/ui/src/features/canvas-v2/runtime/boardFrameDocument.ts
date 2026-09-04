@@ -694,6 +694,16 @@ export function useBoardSelection() {
   return ids;
 }
 
+// The fragment the board shows full page, or null.
+export function useBoardFocus() {
+  const [id, setId] = useState(() => globalThis.ph.board.focused());
+  useEffect(() => {
+    setId(globalThis.ph.board.focused());
+    return globalThis.ph.board.subscribeFocus(setId);
+  }, []);
+  return id;
+}
+
 // True while somebody drags or resizes on the board. A container waits for the
 // gesture to end, so it never pulls a fragment out of the pointer.
 export function useBoardBusy() {
@@ -830,103 +840,102 @@ export function useContainer(fragmentId, options) {
 }
 
 /**
- * A frame that shows the fragments inside it one at a time. Every slide fills
- * the frame, the rest are hidden, and the slide number is shared, so everybody
- * on the board looks at the same slide. A slide that leaves the frame becomes
- * visible again.
+ * A frame that shows the fragments inside it one at a time. A slideshow has a
+ * number of slots. A slot holds one fragment, or nothing at all, and an empty
+ * slot waits for a fragment to be dragged onto the frame. The slot order and
+ * the slot in view are shared, so everybody looks at the same slide.
  */
 export function useSlideshow(fragmentId, options) {
   const opts = options || {};
-  const [stored, setStored] = useSharedState("slide:" + fragmentId, 0);
-  const index = Number(stored) || 0;
+  const [index, setIndex] = useSharedState("slide:" + fragmentId, 0);
+  const [plan, setPlan] = useSharedState("slides:" + fragmentId, null);
 
+  // The layout runs inside useContainer, which has not given the children yet
+  // on the first pass, so the slide in view is read through a box.
+  const [visibleId, setVisibleId] = useState(null);
+  const visible = useRef(null);
+  visible.current = visibleId;
   const layout = useCallback(
-    (contents, box) => {
-      const count = contents.length;
-      const at = count === 0 ? 0 : ((index % count) + count) % count;
-      return contents.map((child, position) => ({
+    (contents, box) =>
+      contents.map((child) => ({
         id: child.id,
         x: box.x,
         y: box.y,
         w: box.w,
         h: box.h,
-        hidden: position !== at,
-      }));
-    },
-    [index],
+        hidden: child.id !== visible.current,
+      })),
+    [visibleId],
   );
 
-  const { children, inner, busy } = useContainer(fragmentId, {
+  const { self, children, inner, busy } = useContainer(fragmentId, {
     padding: opts.padding,
     header: opts.header,
     layout,
   });
-  const count = children.length;
-  const at = count === 0 ? 0 : ((index % count) + count) % count;
 
-  // Every fragment this frame hid, so one that leaves comes back into view.
-  const held = useRef([]);
-  const release = (ids) => {
-    if (ids.length === 0) return;
-    globalThis.ph.board
-      .arrange(ids.map((id) => ({ id, hidden: false })))
-      .catch(() => {});
-  };
+  const stored = plan && typeof plan === "object" ? plan : {};
+  const storedOrder = Array.isArray(stored.order) ? stored.order : [];
+  const ids = children.map((child) => child.id);
+  const kept = storedOrder.filter((id) => ids.indexOf(id) !== -1);
+  const order = kept.concat(ids.filter((id) => kept.indexOf(id) === -1));
+  const count = Math.max(1, Number(stored.count) || 0, order.length);
+  const at = Math.min(Math.max(Number(index) || 0, 0), count - 1);
+  const currentId = at < order.length ? order[at] : null;
+  const current = children.find((child) => child.id === currentId) || null;
+
   useEffect(() => {
-    const ids = children.map((child) => child.id);
-    const gone = held.current.filter((id) => ids.indexOf(id) === -1);
-    held.current = ids;
-    release(gone);
-  }, [children]);
-  useEffect(() => () => release(held.current), []);
+    if (currentId !== visibleId) setVisibleId(currentId);
+  }, [currentId, visibleId]);
+
+  const signature = order.join("|") + ":" + count;
+  const storedSignature = storedOrder.join("|") + ":" + (Number(stored.count) || 0);
+  useEffect(() => {
+    if (signature === storedSignature) return;
+    setPlan({ order, count });
+  }, [signature, storedSignature]);
 
   const show = useCallback(
-    (next) => setStored(count === 0 ? 0 : ((next % count) + count) % count),
-    [setStored, count],
+    (next) => setIndex(count === 0 ? 0 : ((next % count) + count) % count),
+    [setIndex, count],
   );
 
-  // A new slide is made from a library entry and lands in the frame, so the
-  // frame takes it in. The board answers with its id, and the frame moves to
-  // that slide as soon as it arrives.
-  const waiting = useRef(null);
-  const addSlide = useCallback(
-    (name) =>
+  // A new slide is an empty slot. Drag a fragment onto the frame to fill it.
+  const addSlide = useCallback(() => {
+    setPlan({ order, count: count + 1 });
+    setIndex(count);
+  }, [order, count, setPlan, setIndex]);
+
+  // Taking a slide out puts its fragment back on the board beside the frame,
+  // so nothing is lost and the slot is free for another fragment.
+  const removeSlide = useCallback(() => {
+    const id = order[at];
+    if (id && self) {
       globalThis.ph.board
-        .add({
-          name: name || "notes",
-          title: "Slide " + (count + 1),
-          x: inner.x,
-          y: inner.y,
-          w: inner.w,
-          h: inner.h,
-        })
-        .then((made) => {
-          waiting.current = made && made.id ? made.id : null;
-        })
-        .catch(() => {}),
-    [inner.x, inner.y, inner.w, inner.h, count],
-  );
+        .arrange([{ id, x: self.x + self.w + 24, y: self.y, hidden: false }])
+        .catch(() => {});
+    }
+    const nextCount = Math.max(1, count - 1);
+    setPlan({
+      order: order.filter((_, position) => position !== at),
+      count: nextCount,
+    });
+    setIndex(Math.min(at, nextCount - 1));
+  }, [order, at, count, self, setPlan, setIndex]);
 
-  useEffect(() => {
-    if (!waiting.current) return;
-    const position = children.findIndex(
-      (child) => child.id === waiting.current,
-    );
-    if (position === -1) return;
-    waiting.current = null;
-    setStored(position);
-  }, [children, setStored]);
-
-  // The arrow keys move through the slides while the frame or one of its
-  // slides is selected, and never while somebody writes in a field.
+  // The arrow keys move through the slides while the frame is selected or
+  // shown full page, and never while somebody writes in a field.
   const selection = useBoardSelection();
+  const focused = useBoardFocus();
+  const presented = focused === fragmentId;
   const selected =
+    presented ||
     selection.indexOf(fragmentId) !== -1 ||
     children.some((child) => selection.indexOf(child.id) !== -1);
   const step = useRef(null);
   step.current = show;
   useEffect(() => {
-    if (!selected || count === 0) return;
+    if (!selected || count < 2) return;
     const onKey = (event) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const active = document.activeElement;
@@ -950,9 +959,12 @@ export function useSlideshow(fragmentId, options) {
     count,
     index: at,
     selected,
-    current: count === 0 ? null : children[at],
+    presented,
+    current,
+    empty: current === null,
     show,
     addSlide,
+    removeSlide,
     next: () => show(at + 1),
     previous: () => show(at - 1),
   };
@@ -1205,6 +1217,14 @@ export function buildBoardFrameDocument(options: BoardFrameOptions): string {
     let selectedIds = [];
     const boardSubs = new Set();
     const selectionSubs = new Set();
+    const focusSubs = new Set();
+    const notifyFocus = () => {
+      for (const cb of Array.from(focusSubs)) {
+        try {
+          cb(focusedId);
+        } catch {}
+      }
+    };
     const busySubs = new Set();
     let boardNotifyQueued = false;
     const notifyBoard = () => {
@@ -1280,13 +1300,17 @@ export function buildBoardFrameDocument(options: BoardFrameOptions): string {
           busySubs.add(cb);
           return () => busySubs.delete(cb);
         },
+        focused: () => focusedId,
+        subscribeFocus: (cb) => {
+          focusSubs.add(cb);
+          return () => focusSubs.delete(cb);
+        },
         selection: () => selectedIds.slice(),
         subscribeSelection: (cb) => {
           selectionSubs.add(cb);
           return () => selectionSubs.delete(cb);
         },
         arrange: (items) => call("arrangeFragments", { items }),
-        add: (options) => call("addFragment", options || {}),
       },
       actions: { invoke: unavailable("actions.invoke") },
       agent: { request: unavailable("agent.request") },
@@ -1341,6 +1365,10 @@ export function buildBoardFrameDocument(options: BoardFrameOptions): string {
     let lastViewport = null;
     const applyViewport = (viewport) => {
       if (!viewport) return;
+      if (framedBox !== null) {
+        lastViewport = viewport;
+        return;
+      }
       if (
         !lastViewport ||
         lastViewport.x !== viewport.x ||
@@ -1691,8 +1719,14 @@ export function buildBoardFrameDocument(options: BoardFrameOptions): string {
       };
       notifyBoard();
       applyGeometry(entry.el, fragment);
+      if (before && before.hidden === true && fragment.hidden !== true) {
+        entry.el.classList.remove("entering");
+        void entry.el.offsetWidth;
+        entry.el.classList.add("entering");
+      }
       entry.el.classList.toggle("fragment-plain", fragment.surface === "plain");
       entry.el.classList.toggle("focused", fragment.id === focusedId);
+      if (focusedId !== null) applyFocus();
       if (entry.codeVersion === fragment.codeVersion && entry.code === fragment.code) return;
       entry.codeVersion = fragment.codeVersion;
       entry.code = fragment.code;
@@ -1719,18 +1753,60 @@ export function buildBoardFrameDocument(options: BoardFrameOptions): string {
       for (const fragment of list) upsert(fragment);
     };
     let focusedId = null;
+    let framedBox = null;
+    const boxHolds = (box, item) => {
+      const cx = item.x + item.w / 2;
+      const cy = item.y + item.h / 2;
+      return cx > box.x && cx < box.x + box.w && cy > box.y && cy < box.y + box.h;
+    };
+    // A frame goes full page with the fragments it holds, so a slideshow can
+    // be presented. Everything else is left out of the picture.
+    const fitWorldTo = (box) => {
+      const scale = Math.min(
+        window.innerWidth / box.w,
+        window.innerHeight / box.h,
+      );
+      const left = (window.innerWidth - box.w * scale) / 2 - box.x * scale;
+      const top = (window.innerHeight - box.h * scale) / 2 - box.y * scale;
+      world.style.transform =
+        "translate(" + left + "px, " + top + "px) scale(" + scale + ")";
+    };
     const applyFocus = () => {
-      document.body.classList.toggle("ph-focus", focusedId !== null);
+      const target = focusedId === null ? null : fragments.get(focusedId);
+      const box = target && target.fragment ? target.fragment : null;
+      let held = 0;
+      for (const [fragmentId, entry] of fragments) {
+        const inside =
+          box !== null &&
+          fragmentId !== focusedId &&
+          entry.fragment !== null &&
+          boxHolds(box, entry.fragment);
+        if (inside) held += 1;
+        entry.el.classList.toggle("focused", fragmentId === focusedId);
+        entry.el.classList.toggle("in-frame", inside);
+      }
+      framedBox = held > 0 ? box : null;
+      document.body.classList.toggle(
+        "ph-focus",
+        focusedId !== null && framedBox === null,
+      );
+      document.body.classList.toggle("ph-focus-frame", framedBox !== null);
+      if (framedBox !== null) {
+        document.body.style.backgroundImage = "none";
+        fitWorldTo(framedBox);
+        return;
+      }
       if (focusedId !== null) document.body.style.backgroundImage = "none";
       else applyViewport(lastViewport);
-      for (const [fragmentId, entry] of fragments) {
-        entry.el.classList.toggle("focused", fragmentId === focusedId);
-      }
     };
     const setFocus = (id) => {
       focusedId = typeof id === "string" ? id : null;
       applyFocus();
+      notifyFocus();
     };
+    window.addEventListener("resize", () => {
+      if (framedBox !== null) fitWorldTo(framedBox);
+    });
     const setSelection = (ids) => {
       selectedIds = Array.isArray(ids) ? ids.slice() : [];
       const selected = new Set(selectedIds);
@@ -1829,6 +1905,14 @@ ${FREEFORM_QUILL_CSS_URLS.map(
   body.ph-focus { background-image: none; }
   body.ph-focus #world { transform: none !important; will-change: auto !important; }
   body.ph-focus .fragment { display: none; }
+  body.ph-focus-frame { background-image: none; }
+  body.ph-focus-frame .fragment { display: none; }
+  body.ph-focus-frame .fragment.focused,
+  body.ph-focus-frame .fragment.in-frame { display: block; }
+  body.ph-focus-frame .fragment.focused { border-color: transparent; box-shadow: none; }
+  @keyframes ph-slide-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .fragment.entering { animation: ph-slide-in 220ms cubic-bezier(0.32, 0.72, 0, 1); }
+  @media (prefers-reduced-motion: reduce) { .fragment.entering { animation: none; } }
   body.ph-focus .fragment.focused { display: block; position: fixed !important; left: 0 !important; top: 0 !important; right: 0 !important; bottom: 0 !important; width: auto !important; height: auto !important; border: 0; border-radius: 0; background: var(--card, var(--background, #fff)); box-shadow: none; overflow: auto; }
   .fragment.selected { box-shadow: var(--ph-card-shadow-hover); }
   .fragment-error { display: flex; height: 100%; flex-direction: column; gap: 8px; overflow: auto; padding: 16px; font-size: 12px; }

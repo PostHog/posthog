@@ -16,7 +16,6 @@ import {
   type CanvasV2DataMethod,
   type CanvasV2Field,
   type CanvasV2FieldKind,
-  type CanvasV2Fragment,
   type CanvasV2FragmentPatch,
   type CanvasV2Op,
   type CanvasV2PresenceCaret,
@@ -26,15 +25,12 @@ import {
   emptyField,
   estimateJsonBytes,
   fieldOrder,
-  findFreeSpot,
   isField,
   isReservedStateKey,
   keyBetween,
   materializeList,
   materializeText,
-  maxZ,
   newEntryId,
-  nextFragmentId,
 } from "@posthog/shared";
 import { handleFreeformDataRequest } from "@posthog/ui/features/canvas/freeform/freeformDataBridge";
 import {
@@ -45,7 +41,6 @@ import {
   SHARED_TEXT_CHANGES_FULL,
   SHARED_TEXT_FULL,
 } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
-import { libraryEntry } from "@posthog/ui/features/canvas-v2/library/registry";
 import { fieldPlainValue } from "@posthog/ui/features/canvas-v2/runtime/canvasV2FieldMessages";
 import type { QueryClient } from "@tanstack/react-query";
 
@@ -143,8 +138,6 @@ export async function handleCanvasV2DataRequest(
       return editList(payload, ctx);
     case "arrangeFragments":
       return arrangeFragments(payload, ctx);
-    case "addFragment":
-      return addFragment(payload, ctx);
     default:
       throw new Error(`ph.${method} is not available on Canvases v2 yet`);
   }
@@ -211,48 +204,6 @@ function arrangeFragments(
   spendWrite(ctx);
   ctx.applyLocal(ops);
   return { moved: ops.length };
-}
-
-/**
- * A container fragment adds a fragment inside itself. The code always comes
- * from the library, never from the caller, so a fragment cannot write code
- * onto the board.
- */
-function addFragment(
-  payload: unknown,
-  ctx: CanvasV2DataBridgeContext,
-): { id: string } {
-  const input = (payload ?? {}) as {
-    name?: unknown;
-    title?: unknown;
-    x?: unknown;
-    y?: unknown;
-    w?: unknown;
-    h?: unknown;
-  };
-  const entry =
-    typeof input.name === "string" ? libraryEntry(input.name) : undefined;
-  if (!entry) {
-    throw new Error("ph.board.add(options) needs the name of a library entry");
-  }
-  const snapshot = ctx.getSnapshot();
-  const size = entry.defaultSize;
-  const spot = findFreeSpot(snapshot, size.w, size.h);
-  const fragment: CanvasV2Fragment = {
-    id: nextFragmentId(entry.name, snapshot.fragments),
-    title: typeof input.title === "string" ? input.title : entry.label,
-    x: round(input.x, spot.x),
-    y: round(input.y, spot.y),
-    w: clamp(input.w, size.w, FRAGMENT_MIN_WIDTH),
-    h: clamp(input.h, size.h, FRAGMENT_MIN_HEIGHT),
-    z: maxZ(snapshot) + 1,
-    code: entry.code,
-    codeVersion: 1,
-    ...(entry.surface ? { surface: entry.surface } : {}),
-  };
-  spendWrite(ctx);
-  ctx.applyLocal([{ type: "add_fragment", fragment }]);
-  return { id: fragment.id };
 }
 
 function round(value: unknown, fallback: number): number {
