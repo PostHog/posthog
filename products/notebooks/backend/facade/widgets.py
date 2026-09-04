@@ -1,4 +1,9 @@
-from products.notebooks.backend.widget_models import DEFAULT_WIDGET_MODEL, WIDGET_MODEL_CHOICES
+from products.notebooks.backend.widget_models import (
+    DEFAULT_WIDGET_MODEL,
+    MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
+    MAX_WIDGET_PROMPT_LENGTH,
+    WIDGET_MODEL_CHOICES,
+)
 from products.notebooks.backend.widgets import (
     WidgetConflictError,
     WidgetError,
@@ -17,6 +22,8 @@ from products.notebooks.backend.widgets import (
 
 __all__ = [
     "DEFAULT_WIDGET_MODEL",
+    "MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH",
+    "MAX_WIDGET_PROMPT_LENGTH",
     "WIDGET_MODEL_CHOICES",
     "WidgetConflictError",
     "WidgetError",

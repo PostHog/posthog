@@ -3,7 +3,6 @@ import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 import { delay } from 'msw'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -22,7 +21,6 @@ const meta: Meta = {
     title: 'Replay/Overview Tab/Experiments',
     component: PlayerSidebarExperimentsSection,
     parameters: {
-        featureFlags: [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT],
         testOptions: {
             waitForLoadersToDisappear: true,
         },

@@ -139,6 +139,9 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
 
     return (
         <div
+            // Frozen selector. Playwright specs use it to detect the setup screen, because a
+            // scene behind this gate does not render until the product has data.
+            data-attr="product-empty-state"
             // Fill the scene: viewport minus the app chrome and the product header above us.
             className="grid w-full flex-1 grid-cols-1 items-stretch gap-10 md:grid-cols-[minmax(0,1fr)_40%] min-h-[calc(100vh-var(--breadcrumbs-height-full,0px)-var(--scene-padding,1rem)-4rem)]"
             style={

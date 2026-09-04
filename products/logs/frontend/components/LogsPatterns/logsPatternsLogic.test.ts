@@ -321,6 +321,40 @@ describe('logsPatternsLogic', () => {
         )
     })
 
+    it('re-mines when the refresh button runs the query', async () => {
+        // The refresh button dispatches `bumpFacetRefresh` on the shared filters logic. Without
+        // wiring, Patterns kept the earlier mine while the logs table below it re-ran.
+        const configLogic = logsViewerConfigLogic({ id: ID })
+        configLogic.mount()
+        configLogic.actions.setViewMode('patterns')
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+        mockCreate.mockClear()
+
+        await expectLogic(logic, () => {
+            filtersLogic.actions.bumpFacetRefresh()
+        }).toDispatchActions(['loadPatterns', 'loadPatternsSuccess'])
+
+        expect(mockCreate).toHaveBeenCalledTimes(1)
+    })
+
+    it('ignores the refresh button while Patterns is not the active lens', async () => {
+        // The logic can stay mounted after a lens switch; a refresh from the Logs table must not
+        // fire a stray mine.
+        const configLogic = logsViewerConfigLogic({ id: ID })
+        configLogic.mount()
+        configLogic.actions.setViewMode('patterns')
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+        configLogic.actions.setViewMode('logs')
+        mockCreate.mockClear()
+
+        filtersLogic.actions.bumpFacetRefresh()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockCreate).not.toHaveBeenCalled()
+    })
+
     // The label format flips on a >= 24h window threshold (time-of-day vs date-prefixed) and
     // early-returns on empty buckets — none of the above tests read `sparklineLabels`, so a
     // flipped threshold or a broken dayjs format would otherwise go undetected.

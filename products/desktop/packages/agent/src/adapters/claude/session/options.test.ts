@@ -538,6 +538,7 @@ describe("buildSessionOptions", () => {
       }).env;
 
       expect(env?.CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL).toBe("true");
+      expect(env?.CLAUDE_CODE_ENABLE_TODO_TOOLS).toBe("1");
       expect(env?.ENABLE_TOOL_SEARCH).toBe("auto:0");
       expect(env?.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS).toBe("1");
     });

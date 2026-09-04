@@ -8,8 +8,9 @@ on:
     pull_request:
         # Draft PRs skip E2E entirely — the broad path filter below matches nearly
         # every code PR, and a full stack boot per draft push is the
-        # remaining big per-PR cost. The ready-for-review full run is the merge
-        # gate; use workflow_dispatch to force a run on a draft.
+        # remaining big per-PR cost. Ready PRs run the specs the diff can affect
+        # (see select-specs); the merge queue's trunk-merge/** run is the full suite
+        # that gates master. Use workflow_dispatch to force a run on a draft.
         types: [opened, synchronize, reopened, ready_for_review]
     workflow_dispatch:
         inputs:
@@ -64,6 +65,9 @@ env:
     # matches the Node plugins container's non-prod default, so Django<->Node internal calls authenticate.
     INTERNAL_API_SECRET: posthog123
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+    # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -345,17 +349,18 @@ jobs:
     select-specs:
         name: Select affected E2E specs
         needs: [changes]
-        # Narrow the suite only on incremental `synchronize` pushes to a ready
-        # (non-draft) internal PR. Every other trigger — opened, reopened,
-        # ready_for_review, workflow_dispatch, and push to master — skips
-        # this job, leaving empty outputs so the playwright job runs the FULL suite.
-        # The merge gate (ready_for_review run) and the post-merge master run always
-        # run everything, so a selection miss is caught there. Fail-open is FULL,
-        # never skip: over-selection would silently drop coverage.
+        # Narrow the suite on any event of a ready (non-draft) internal PR: opened,
+        # reopened, synchronize, and ready_for_review all diff the same head against
+        # the same base, so they all select the same specs. workflow_dispatch and
+        # push to master skip this job, leaving empty outputs so the playwright job
+        # runs the FULL suite.
+        # `draft != true` also keeps the merge queue on the full suite: its
+        # trunk-merge/** PRs open as drafts, and that run is the gate for master, so
+        # a selection miss is caught there. The post-merge master run is full too.
+        # Fail-open is FULL, never skip: over-selection would silently drop coverage.
         if: |
             needs.changes.outputs.shouldRun == 'true'
             && github.event_name == 'pull_request'
-            && github.event.action == 'synchronize'
             && github.event.pull_request.draft != true
             && github.event.pull_request.head.repo.full_name == github.repository
         runs-on: ubuntu-latest
@@ -964,9 +969,19 @@ jobs:
 
             # Visual Review: create run + upload snapshots directly from the test job.
             # Completion happens in handle-screenshots so the baseline lands in the same commit as PNGs.
+            # Shares the entry ci-storybook.yml writes, keyed on the same lockfile. A miss
+            # only means the install downloads the tree, which is what it does today.
+            - name: Restore VR CLI npm cache
+              if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ~/.npm
+                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
+                  restore-keys: npm-vr-cli-${{ runner.os }}-
+
             - name: Install VR CLI
               if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
-              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd products/visual_review/cli && npm ci --no-audit --no-fund && npm run build && npm link
 
             - name: Create VR run
               id: vr-create
@@ -1181,8 +1196,8 @@ jobs:
             # fallback-rate insights live. Emitted whenever the heavy job actually ran, so
             # full runs (this event's `mode=full`, `selection_eligible=false`) provide the
             # test-time baseline that selective runs are measured against. `selection_eligible`
-            # is true only on synchronize pushes where select-specs ran — the fallback-rate
-            # denominator. Telemetry never reds CI (continue-on-error).
+            # is true on the ready internal-PR events where select-specs ran — the
+            # fallback-rate denominator. Telemetry never reds CI (continue-on-error).
             - name: Capture spec selection to DevEx PostHog
               if: github.run_attempt == '1' && (needs.playwright.result == 'success' || needs.playwright.result == 'failure')
               continue-on-error: true
@@ -1253,8 +1268,16 @@ jobs:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
+            # Shares the entry ci-storybook.yml writes, keyed on the same lockfile.
+            - name: Restore VR CLI npm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ~/.npm
+                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
+                  restore-keys: npm-vr-cli-${{ runner.os }}-
+
             - name: Install VR CLI
-              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd products/visual_review/cli && npm ci --no-audit --no-fund && npm run build && npm link
 
             - name: Complete Visual Review run
               # On master pushes the run was created with --purpose observe (tracking-only), but

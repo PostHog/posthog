@@ -531,6 +531,7 @@ export function CustomPropertyModal(): JSX.Element {
         selectedSourceColumns,
         savedQueriesLoading,
         definitionsLoading,
+        editingHasWorkflowReference,
         editingReferences,
         newWorkflowUrlLoading,
         targetTypeLocked,
@@ -556,7 +557,7 @@ export function CustomPropertyModal(): JSX.Element {
 
     // While a workflow references the property it stays workflow-sourced no matter what is picked
     // here, so the other options are locked until it's removed from the workflow(s).
-    const lockedToWorkflow = editingReferences.length > 0 && !hasExistingSource
+    const lockedToWorkflow = editingHasWorkflowReference && !hasExistingSource
     const sourceModeOptions = SOURCE_MODE_OPTIONS.map((option) =>
         option.value !== 'workflow' && lockedToWorkflow
             ? {
@@ -577,7 +578,7 @@ export function CustomPropertyModal(): JSX.Element {
             : (profileMappingDisabledReason ??
               (targetType === 'account' && sourceMode === 'data_warehouse' && noViews
                   ? 'No materialized views are available'
-                  : targetType === 'account' && sourceMode === 'workflow' && editingReferences.length === 0
+                  : targetType === 'account' && sourceMode === 'workflow' && !editingHasWorkflowReference
                     ? 'Create a workflow that updates this property first'
                     : undefined))
 
@@ -769,19 +770,19 @@ export function CustomPropertyModal(): JSX.Element {
                                     </LemonField>
                                 </>
                             ))}
-                        {sourceMode === 'workflow' && (
-                            <div className="flex flex-col gap-2">
-                                <div className="flex items-center justify-between">
-                                    <span className="font-semibold">Workflows updating this property</span>
-                                    <LemonButton
-                                        size="small"
-                                        icon={<IconRefresh />}
-                                        tooltip="Refresh"
-                                        onClick={loadDefinitions}
-                                        loading={definitionsLoading}
-                                    />
-                                </div>
-                                {editingReferences.length > 0 ? (
+                        {sourceMode === 'workflow' &&
+                            (editingReferences.length > 0 ? (
+                                <div className="flex flex-col gap-2">
+                                    <div className="flex items-center justify-between">
+                                        <span className="font-semibold">Workflows updating this property</span>
+                                        <LemonButton
+                                            size="small"
+                                            icon={<IconRefresh />}
+                                            tooltip="Refresh"
+                                            onClick={loadDefinitions}
+                                            loading={definitionsLoading}
+                                        />
+                                    </div>
                                     <div className="flex flex-col gap-1">
                                         {editingReferences.map((reference) => (
                                             <div
@@ -799,24 +800,25 @@ export function CustomPropertyModal(): JSX.Element {
                                             </div>
                                         ))}
                                     </div>
-                                ) : (
-                                    <div className="border rounded p-4 flex flex-col items-center gap-2 text-center">
-                                        <span className="text-secondary">
-                                            No workflows update this property yet. Create one with an "Update account
-                                            property" action that sets this property — the editor opens in a new tab.
-                                            Once you save the workflow there, refresh this list.
-                                        </span>
-                                        <LemonButton
-                                            type="primary"
-                                            onClick={createWorkflowForProperty}
-                                            loading={newWorkflowUrlLoading}
-                                        >
-                                            Create workflow
-                                        </LemonButton>
-                                    </div>
-                                )}
-                            </div>
-                        )}
+                                </div>
+                            ) : editingHasWorkflowReference ? (
+                                <LemonBanner type="warning">You don't have access to view the workflow.</LemonBanner>
+                            ) : (
+                                <div className="border rounded p-4 flex flex-col items-center gap-2 text-center">
+                                    <span className="text-secondary">
+                                        No workflows update this property yet. Create one with an "Update account
+                                        property" action that sets this property — the editor opens in a new tab. Once
+                                        you save the workflow there, refresh this list.
+                                    </span>
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={createWorkflowForProperty}
+                                        loading={newWorkflowUrlLoading}
+                                    >
+                                        Create workflow
+                                    </LemonButton>
+                                </div>
+                            ))}
                     </>
                 )}
             </Form>

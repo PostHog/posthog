@@ -1242,6 +1242,19 @@ export interface LogsAnomalyScanErrorApi {
     error: string
 }
 
+export interface _SeriesBandsDateRangeApi {
+    /**
+     * Start of the window. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1wStart, etc.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * End of the window. Same format as date_from. Omit or null for "now".
+     * @nullable
+     */
+    date_to?: string | null
+}
+
 /**
  * * `60` - 60
  */
@@ -1254,6 +1267,8 @@ export const IntervalMinutesEnumApi = {
 export interface LogsSeriesBandsRequestApi {
     /** Service whose per-series volume to chart (the log record's service_name). */
     serviceName: string
+    /** Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches. */
+    dateRange?: _SeriesBandsDateRangeApi
     /** Display grain in minutes for buckets and bands. Only hourly is supported today.
      *
      * * `60` - 60 */
@@ -2444,6 +2459,7 @@ export interface _LogsValuesResponseApi {
  * * `source` - source
  * * `trace_id` - trace_id
  * * `span_id` - span_id
+ * * `pattern` - pattern
  * * `message` - message
  * * `custom` - custom
  */
@@ -2455,6 +2471,7 @@ export const LogsViewColumnTypeEnumApi = {
     Source: 'source',
     TraceId: 'trace_id',
     SpanId: 'span_id',
+    Pattern: 'pattern',
     Message: 'message',
     Custom: 'custom',
 } as const
@@ -2462,13 +2479,14 @@ export const LogsViewColumnTypeEnumApi = {
 export interface LogsViewColumnApi {
     /** Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server. */
     id: string
-    /** Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.
+    /** Column type. Most built-in types resolve client-side from log row fields; `pattern` and `custom` columns are computed server-side, the latter from `expression`.
      *
      * * `timestamp` - timestamp
      * * `level` - level
      * * `source` - source
      * * `trace_id` - trace_id
      * * `span_id` - span_id
+     * * `pattern` - pattern
      * * `message` - message
      * * `custom` - custom */
     type: LogsViewColumnTypeEnumApi

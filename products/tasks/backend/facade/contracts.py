@@ -374,6 +374,7 @@ class TaskCommentDetailDTO:
 class TaskLatestRunSummaryDTO:
     """The latest-run status/environment pair nested in a task summary response."""
 
+    id: UUID
     status: str | None
     environment: str | None
 
@@ -389,6 +390,7 @@ class TaskSummaryDTO:
     id: UUID
     title: str
     repository: str | None
+    created_by_id: int | None
     created_at: datetime
     updated_at: datetime
     origin_product: str = ""
@@ -664,6 +666,14 @@ class WorkflowTaskDTO:
     task_id: UUID
     run_id: UUID | None
     created: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class WorkflowTaskRateLimits:
+    """Optional per-project overrides for workflow-created AI task daily limits."""
+
+    per_workflow: int | None = Field(default=None, ge=0)
+    per_team: int | None = Field(default=None, ge=0)
 
 
 @dataclass(frozen=True, kw_only=True)

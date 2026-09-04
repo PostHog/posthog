@@ -15,6 +15,7 @@ export type {
   AgentToolCallLocation,
   AgentToolCallStatus,
   AgentToolKind,
+  AgentTurnUsage,
 } from "./agent-conversation";
 export * from "./agent-runtime";
 export * from "./analytics-events";
@@ -120,6 +121,7 @@ export {
   isSkillBundleArtifactMetadata,
   isTerminalStatus,
   type PendingFollowupMessage,
+  type StoreSkillStub,
   type Task,
   type TaskRun,
   type TaskRunArtifact,
@@ -142,6 +144,7 @@ export {
   isNotAuthenticatedError,
   isRateLimitError,
   isTransientUpstreamError,
+  isTurnEndedWithoutResponseError,
   NotAuthenticatedError,
   type PromptFailure,
   type PromptFailureKind,

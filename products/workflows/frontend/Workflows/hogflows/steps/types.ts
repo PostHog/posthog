@@ -104,6 +104,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'task_repository',
         'task_mcp_installations',
         'signals_scout',
+        'task_skills',
     ]),
     key: z.string(),
     label: z.string(),
