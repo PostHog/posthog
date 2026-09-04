@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import {
+    demoteValueShortcutGroups,
     isSkeletonItem,
     propertyTaxonomicGroupProps,
     redistributeTopMatches,
@@ -1674,6 +1675,61 @@ describe('redistributeTopMatches', () => {
         },
     ])('$description', ({ items, activeGroupCount, expected, groupTypeOrder }) => {
         expect(redistributeTopMatches(items, activeGroupCount, groupTypeOrder)).toEqual(expected)
+    })
+})
+
+describe('demoteValueShortcutGroups', () => {
+    it('moves value shortcut groups below the name matching groups', () => {
+        expect(
+            demoteValueShortcutGroups([
+                TaxonomicFilterGroupType.PageviewUrls,
+                TaxonomicFilterGroupType.EmailAddresses,
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.PersonProperties,
+            ])
+        ).toEqual([
+            TaxonomicFilterGroupType.Events,
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+            TaxonomicFilterGroupType.PageviewUrls,
+            TaxonomicFilterGroupType.EmailAddresses,
+        ])
+    })
+
+    it('keeps the relative order inside each set', () => {
+        expect(
+            demoteValueShortcutGroups([
+                TaxonomicFilterGroupType.EmailAddresses,
+                TaxonomicFilterGroupType.PageviewUrls,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.Events,
+            ])
+        ).toEqual([
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.Events,
+            TaxonomicFilterGroupType.EmailAddresses,
+            TaxonomicFilterGroupType.PageviewUrls,
+        ])
+    })
+
+    it('ranks pageview URL rows below property name rows in the cross-category list', () => {
+        const makeItem = (name: string, group: TaxonomicFilterGroupType): any => ({ name, group })
+        const groupTypes = [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.EventProperties]
+
+        expect(
+            redistributeTopMatches(
+                [
+                    makeItem('https://posthog.com/a/very/long/url', TaxonomicFilterGroupType.PageviewUrls),
+                    makeItem('$host', TaxonomicFilterGroupType.EventProperties),
+                ],
+                groupTypes.length,
+                demoteValueShortcutGroups(groupTypes)
+            )
+        ).toEqual([
+            expect.objectContaining({ name: '$host' }),
+            expect.objectContaining({ name: 'https://posthog.com/a/very/long/url' }),
+        ])
     })
 })
 

@@ -247,6 +247,17 @@ export function redistributeTopMatches(
     return result
 }
 
+// The shortcut groups match on the *value* someone typed, so their rows are whole URLs,
+// screen names or email addresses. In the cross-category list that put long URLs above the
+// property names people usually search for, so they rank last there. The tab order keeps them
+// up front.
+export function demoteValueShortcutGroups(groupTypes: TaxonomicFilterGroupType[]): TaxonomicFilterGroupType[] {
+    return [
+        ...groupTypes.filter((groupType) => !SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES.has(groupType)),
+        ...groupTypes.filter((groupType) => SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES.has(groupType)),
+    ]
+}
+
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
         if (CORE_FILTER_DEFINITIONS_BY_GROUP.events[eventDefinition.name]) {
@@ -2332,7 +2343,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 metaGroupTypes: Set<string>
             ): TopMatchItem[] => {
                 const nonMetaGroups = taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t))
-                return redistributeTopMatches(topMatchItems, nonMetaGroups.length, nonMetaGroups)
+                return redistributeTopMatches(
+                    topMatchItems,
+                    nonMetaGroups.length,
+                    demoteValueShortcutGroups(nonMetaGroups)
+                )
             },
         ],
         topMatchItemsWithSkeletons: [
