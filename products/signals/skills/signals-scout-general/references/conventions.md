@@ -14,7 +14,7 @@ before you author a report (the harness prompt carries the report-channel contra
 2. **Material update on an existing report** — a report already covers the topic
    (one you authored last run, or a pipeline report), but you have new evidence: a
    different source corroborating, a fresh deploy correlation, contradicting data, a
-   meaningful escalation in scope. → **`edit-report` it** — `append_note` with the
+   meaningful escalation in scope. → **`edit-report` it** — `append_evidence` with the
    fresh evidence, or rewrite `title`/`summary` on a report you authored. Don't mint
    a near-duplicate.
 
