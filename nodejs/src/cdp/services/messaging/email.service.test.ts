@@ -1011,6 +1011,22 @@ describe('EmailService', () => {
             expect(headerNames).toContain('X-PostHog-Tracking-Code')
         })
 
+        it.each(['transactional', 'marketing'])(
+            'marks a %s send as auto-generated so autoresponders do not answer it',
+            async (categoryType) => {
+                // Without this an autoresponder answers the workflow, and when the address it
+                // answers is a support inbox the reply re-enters the same workflow as a new ticket.
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                invocation.hogFunction.metadata = { message_category_type: categoryType }
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.Content.Simple.Headers).toEqual(
+                    expect.arrayContaining([{ Name: 'Auto-Submitted', Value: 'auto-generated' }])
+                )
+            }
+        )
+
         it('attaches the X-PostHog-Tracking-Code header carrying the full signed code', async () => {
             // The header is the authoritative tracking-code carrier (the EmailTag is the
             // bounded backwards-compat fallback). It rides on every outbound message,
