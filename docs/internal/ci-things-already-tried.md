@@ -284,6 +284,35 @@ Run the trial for several days. A short window cannot separate the jobs whose ti
 
 _Also asked as:_ change CI provider, Blacksmith, cheaper runners, are the Depot runners slow
 
+### Put the setup actions in a `parallel:` block
+
+**Verdict: reverted** · Sep 2026 · added by [#76651](https://github.com/PostHog/posthog/pull/76651)
+
+`pnpm-install`, `setup-python-cached`, and `dtolnay/rust-toolchain` each write `$GITHUB_PATH`.
+Depot documents that a parallel branch may write it, and merges the branches at the end of the block.
+The implementation is not thread-safe. Two branches that write at the same time crash the runner.
+
+The crash gives one of three messages. None of them names a step:
+
+```text
+##[error]Collection was modified; enumeration operation may not execute.
+##[error]The given key '<guid>' was not present in the dictionary.
+SyntaxError: Unexpected end of JSON input   # setup-node parsing GITHUB_EVENT_PATH
+```
+
+The runner then fails the step that it was running, and the whole job.
+The tool itself succeeds. One failing job logs `1.91.1-x86_64-unknown-linux-gnu installed` inside the step that the runner reports as failed.
+The crash lands in whichever branch loses the race, so the same bug shows up as `Install Rust`, `Install pnpm dependencies`, or `Set up Python`.
+
+Four product test jobs died this way between 09:05 and 11:52 on 4 Sep 2026.
+The same crash is in the runs of 3 Sep 2026, so it is not a single bad day.
+The three setup steps take 151s, 4s, and 12s in the product test job, so the block saves about 16s of a 12-minute job.
+
+The steps are sequential today. Keep an action that writes `$GITHUB_PATH` or `$GITHUB_ENV` out of a `parallel:` block.
+A block of `run:` steps is safe, and `ci-python.yml`, `ci-frontend.yml`, and `ci-nodejs.yml` still use one.
+
+_Also asked as:_ parallel steps, run the setup steps at the same time, Collection was modified, key was not present in the dictionary, Install Rust fails in setup
+
 ### Use sparse-checkout on the large CI workflows
 
 **Verdict: abandoned** · Oct 2025 · [#39239](https://github.com/PostHog/posthog/pull/39239)
