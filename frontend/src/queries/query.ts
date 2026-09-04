@@ -248,10 +248,10 @@ async function executeQuery<N extends DataNode>(
      */
     acceptStaleCache = false,
     /**
-     * Filled in when a blocking request was dropped by the ingress or a gateway while the server
-     * kept running the query. The server records the outcome under the client query ID, so this
-     * call polls that ID and returns the result instead of the gateway error. Absent for poll-only
-     * callers, which cannot send queries.
+     * Filled in when the gateway gave up on a blocking request while the server kept running the
+     * query. The server records the outcome under the client query ID, so this call polls that ID
+     * and returns the result instead of the gateway error. Absent for poll-only callers, which
+     * cannot send queries.
      */
     recovery?: QueryRecoveryOutcome
 ): Promise<NonNullable<N['response']>> {
