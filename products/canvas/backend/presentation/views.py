@@ -1303,6 +1303,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         if isinstance(resolved, Response):
             return resolved
         source, build = resolved
+        via_share_token = "share_token" in payload.validated_data
         channel_id = tasks_facade.ensure_personal_channel_id(self.team_id, user.id)
         try:
             fork = build_service.fork_canvas(
@@ -1312,6 +1313,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 channel_id=channel_id,
                 created_by=user,
                 was_impersonated=is_impersonated(request),
+                # The shared page never showed the author's background notes, and they keep
+                # changing after the link captured its build, so a copy made through a link
+                # does not carry them.
+                copy_context=not via_share_token,
             )
         except build_service.CanvasNotPublished:
             return Response(
@@ -1331,7 +1336,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             source_canvas_id=str(source.id),
             source_version_id=str(fork.version.id),
             cross_team=source.team_id != self.team_id,
-            via_share_token="share_token" in payload.validated_data,
+            via_share_token=via_share_token,
         )
         return Response(CanvasSerializer(fork.canvas).data, status=status.HTTP_201_CREATED)
 
