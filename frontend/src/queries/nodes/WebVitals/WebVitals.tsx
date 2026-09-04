@@ -7,6 +7,7 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { InsightErrorStateProps } from 'scenes/insights/EmptyStates'
 import { urls } from 'scenes/urls'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
@@ -48,7 +49,18 @@ export function WebVitals(props: {
 
     const { webVitalsPercentile, webVitalsTab, webVitalsMetricQuery } = useValues(webAnalyticsLogic)
     const { setWebVitalsTab } = useActions(webAnalyticsLogic)
-    const { response, responseLoading } = useValues(logic)
+    const { response, responseLoading, responseError, responseErrorObject } = useValues(logic)
+    const { loadData } = useActions(logic)
+
+    const errorState: InsightErrorStateProps | null = responseError
+        ? {
+              title: responseError,
+              titleStatus: responseErrorObject?.status,
+              query: props.query,
+              queryId: responseErrorObject?.queryId,
+              onRetry: () => loadData('force_blocking'),
+          }
+        : null
 
     // Manually handle loading state when loading to avoid showing stale data while refreshing
     const webVitalsQueryResponse = responseLoading ? undefined : (response as WebVitalsQueryResponse | undefined)
@@ -80,6 +92,7 @@ export function WebVitals(props: {
                         isActive={webVitalsTab === 'INP'}
                         setTab={() => setWebVitalsTab('INP')}
                         isLoading={responseLoading}
+                        errorMessage={responseError}
                     />
                     <WebVitalsTab
                         metric="LCP"
@@ -87,6 +100,7 @@ export function WebVitals(props: {
                         isActive={webVitalsTab === 'LCP'}
                         setTab={() => setWebVitalsTab('LCP')}
                         isLoading={responseLoading}
+                        errorMessage={responseError}
                     />
                     <WebVitalsTab
                         metric="FCP"
@@ -94,6 +108,7 @@ export function WebVitals(props: {
                         isActive={webVitalsTab === 'FCP'}
                         setTab={() => setWebVitalsTab('FCP')}
                         isLoading={responseLoading}
+                        errorMessage={responseError}
                     />
                     <WebVitalsTab
                         metric="CLS"
@@ -101,6 +116,7 @@ export function WebVitals(props: {
                         isActive={webVitalsTab === 'CLS'}
                         setTab={() => setWebVitalsTab('CLS')}
                         isLoading={responseLoading}
+                        errorMessage={responseError}
                     />
                 </div>
                 <span className="text-xs text-text-tertiary self-center sm:self-end">
@@ -112,7 +128,11 @@ export function WebVitals(props: {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2">
-                <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} isLoading={responseLoading} />
+                <WebVitalsContent
+                    webVitalsQueryResponse={webVitalsQueryResponse}
+                    isLoading={responseLoading}
+                    error={errorState}
+                />
                 <div className="flex flex-col flex-1 bg-surface-primary rounded border p-4">
                     <Query
                         key={webVitalsTab}

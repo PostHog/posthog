@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { IconInfo } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
+import { InsightErrorState, InsightErrorStateProps } from 'scenes/insights/EmptyStates'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { WebVitalsQueryResponse } from '~/queries/schema/schema-general'
@@ -23,12 +24,15 @@ import {
     getThresholdColor,
 } from './definitions'
 
+const PANEL_CLASSES = 'w-full p-4 sm:w-[30%] flex flex-col gap-2 bg-surface-primary rounded border'
+
 type WebVitalsContentProps = {
     webVitalsQueryResponse?: WebVitalsQueryResponse
     isLoading: boolean
+    error?: InsightErrorStateProps | null
 }
 
-export const WebVitalsContent = ({ webVitalsQueryResponse, isLoading }: WebVitalsContentProps): JSX.Element => {
+export const WebVitalsContent = ({ webVitalsQueryResponse, isLoading, error }: WebVitalsContentProps): JSX.Element => {
     const { webVitalsTab, webVitalsPercentile } = useValues(webAnalyticsLogic)
 
     const value = useMemo(
@@ -47,10 +51,19 @@ export const WebVitalsContent = ({ webVitalsQueryResponse, isLoading }: WebVital
         return <LemonSkeleton fade className="w-full h-full rounded sm:w-[30%]" />
     }
 
+    // A failed query nulls the response, so check the error before treating a missing value as no data
+    if (error) {
+        return (
+            <div className={`${PANEL_CLASSES} items-center justify-center`}>
+                <InsightErrorState {...error} />
+            </div>
+        )
+    }
+
     // Show no data message when not loading and value is undefined
     if (value === undefined || band === 'none') {
         return (
-            <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 bg-surface-primary rounded border items-center justify-center">
+            <div className={`${PANEL_CLASSES} items-center justify-center`}>
                 <span className="text-sm text-text-tertiary">No data for the selected date range</span>
             </div>
         )
@@ -69,7 +82,7 @@ export const WebVitalsContent = ({ webVitalsQueryResponse, isLoading }: WebVital
     const unit = webVitalsTab === 'CLS' ? '' : 'ms'
 
     return (
-        <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 bg-surface-primary rounded border">
+        <div className={PANEL_CLASSES}>
             <span className="text-lg">
                 <strong>{LONG_METRIC_NAME[webVitalsTab]}</strong>
             </span>
