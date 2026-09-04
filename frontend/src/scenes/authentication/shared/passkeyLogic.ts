@@ -1,11 +1,13 @@
 import {
-    browserSupportsWebAuthnAutofill,
     type PublicKeyCredentialDescriptorJSON,
+    WebAuthnAbortService,
+    browserSupportsWebAuthnAutofill,
     startAuthentication,
 } from '@simplewebauthn/browser'
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -28,6 +30,61 @@ export interface BeginPasskeyLoginParams {
     next?: string
     email?: string
     reauth?: 'true' | 'false'
+}
+
+// The WebAuthn ceremony can stay pending forever: the operating system dialog is dismissed in a
+// way the browser does not report, the security key is never touched, or one of the two API calls
+// never answers. Without this limit the login button spins and the account is unreachable. The
+// value is above the server challenge timeout, so it only applies when nothing else settles first.
+export const PASSKEY_LOGIN_TIMEOUT_MS = 90_000
+
+// Shown when the ceremony never settles, so the user knows the password box below still works.
+const PASSKEY_TIMEOUT_MESSAGE = "Your passkey didn't respond. Try again, or log in with your password."
+
+// Time given to the cancelled attempt to settle before a repeat request starts a new one.
+const PASSKEY_RETRY_DELAY_MS = 300
+
+type PasskeyLoginMethod = 'prompt' | 'autofill'
+
+class PasskeyTimeoutError extends Error {
+    constructor() {
+        super('Passkey login timed out')
+        this.name = 'PasskeyTimeoutError'
+    }
+}
+
+class PasskeyCancelledError extends Error {
+    constructor() {
+        super('Passkey login was cancelled')
+        this.name = 'PasskeyCancelledError'
+    }
+}
+
+function passkeyErrorProperties(e: unknown): Record<string, unknown> {
+    return { error_name: (e as { name?: string })?.name, error_code: (e as { code?: string })?.code }
+}
+
+function capturePasskeyLoginEvent(
+    event: string,
+    method: PasskeyLoginMethod,
+    properties: Record<string, unknown> = {}
+): void {
+    posthog.capture(event, { method, ...properties })
+}
+
+async function runPasskeyLogin(allowCredentials: PublicKeyCredentialDescriptorJSON[]): Promise<void> {
+    const beginResponse = await api.create<PasskeyLoginBeginResponse>('api/webauthn/login/begin/')
+    const assertion = await startAuthentication({
+        optionsJSON: {
+            challenge: beginResponse.challenge,
+            timeout: beginResponse.timeout,
+            rpId: beginResponse.rpId,
+            // Credentials from the precheck when we have them, otherwise the ones the server offers.
+            allowCredentials: allowCredentials.length > 0 ? allowCredentials : beginResponse.allowCredentials,
+            userVerification: beginResponse.userVerification as UserVerificationRequirement,
+        },
+    })
+    await api.create('api/webauthn/login/complete/', assertion)
 }
 
 // A login on an unverified account fails with code `verify_email_pending` and the user
@@ -75,6 +132,9 @@ export interface passkeyLogicActions {
     ) => {
         allowCredentials: PublicKeyCredentialDescriptorJSON[] | undefined
         params: BeginPasskeyLoginParams | undefined
+    }
+    cancelPasskeyLogin: () => {
+        value: true
     }
     passkeyAuthenticationCancelled: () => {
         value: true
@@ -129,6 +189,7 @@ export const passkeyLogic = kea<passkeyLogicType>([
         ) => ({ allowCredentials, params }),
         startPasskeyAuthentication: true,
         startConditionalPasskeyLogin: true,
+        cancelPasskeyLogin: true,
         passkeyAuthenticationCancelled: true,
         reset: true,
     }),
@@ -170,42 +231,61 @@ export const passkeyLogic = kea<passkeyLogicType>([
             },
         ],
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, cache }) => ({
         loginWithPasskey: [
             null as null,
             {
                 startPasskeyAuthentication: async () => {
+                    const eventProperties = { is_reauth: values.isReauth }
+                    capturePasskeyLoginEvent('passkey login attempted', 'prompt', eventProperties)
                     try {
-                        // Step 1: Get authentication options from server
-                        const beginResponse = await api.create<PasskeyLoginBeginResponse>('api/webauthn/login/begin/')
-
-                        // Step 2: Use SimpleWebAuthn to get assertion from authenticator
-                        // Use provided allowCredentials if available (from precheck), otherwise use server response
-                        const precheckCredentials = values.allowCredentialsFromPrecheck ?? []
-                        const credentialsToUse =
-                            precheckCredentials.length > 0 ? precheckCredentials : beginResponse.allowCredentials
-
-                        const assertion = await startAuthentication({
-                            optionsJSON: {
-                                challenge: beginResponse.challenge,
-                                timeout: beginResponse.timeout,
-                                rpId: beginResponse.rpId,
-                                allowCredentials: credentialsToUse,
-                                userVerification: beginResponse.userVerification as UserVerificationRequirement,
-                            },
+                        const timeout = new Promise<never>((_, reject) => {
+                            cache.disposables.add(
+                                () => {
+                                    const timer = window.setTimeout(() => {
+                                        // Also close the browser dialog, so the next attempt starts clean.
+                                        WebAuthnAbortService.cancelCeremony()
+                                        reject(new PasskeyTimeoutError())
+                                    }, PASSKEY_LOGIN_TIMEOUT_MS)
+                                    return () => clearTimeout(timer)
+                                },
+                                'passkeyLoginTimeout',
+                                { pauseOnPageHidden: false }
+                            )
                         })
-
-                        // Step 3: Send assertion to server to complete login
-                        await api.create('api/webauthn/login/complete/', assertion)
-
+                        // The race also carries the cancellation, because an abort of the ceremony does
+                        // not release a request to the two API calls that frame it.
+                        const cancellation = new Promise<never>((_, reject) => {
+                            cache.cancelPasskeyLogin = () => {
+                                WebAuthnAbortService.cancelCeremony()
+                                reject(new PasskeyCancelledError())
+                            }
+                        })
+                        await Promise.race([
+                            runPasskeyLogin(values.allowCredentialsFromPrecheck ?? []),
+                            timeout,
+                            cancellation,
+                        ])
+                        capturePasskeyLoginEvent('passkey login completed', 'prompt', eventProperties)
                         return null
                     } catch (e: unknown) {
-                        if (isWebAuthnCancellation(e)) {
+                        if (e instanceof PasskeyTimeoutError) {
+                            capturePasskeyLoginEvent('passkey login timed out', 'prompt', eventProperties)
+                            actions.setGeneralError('passkey_error', PASSKEY_TIMEOUT_MESSAGE)
+                            // Throw so the failure listener resets the state and the button stops spinning.
+                            throw e
+                        }
+                        if (e instanceof PasskeyCancelledError || isWebAuthnCancellation(e)) {
                             // Expected user cancellation — fully swallow so it
                             // doesn't surface in the UI or in error tracking.
+                            capturePasskeyLoginEvent('passkey login cancelled', 'prompt', eventProperties)
                             actions.passkeyAuthenticationCancelled()
                             return null
                         }
+                        capturePasskeyLoginEvent('passkey login failed', 'prompt', {
+                            ...eventProperties,
+                            ...passkeyErrorProperties(e),
+                        })
                         if (routeToEmailVerification(e)) {
                             // Throw so the failure listener resets the passkey state. The user
                             // continues on the verification page, not with a login error.
@@ -213,20 +293,34 @@ export const passkeyLogic = kea<passkeyLogicType>([
                         }
                         actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
                         throw e
+                    } finally {
+                        cache.disposables.dispose('passkeyLoginTimeout')
+                        cache.cancelPasskeyLogin = undefined
                     }
                 },
             },
         ],
     })),
     listeners(({ actions, values, cache }) => ({
-        beginPasskeyLogin: () => {
-            // Don't start a second passkey sign-in while one is already in flight (e.g. a
-            // double-clicked passkey button) — concurrent WebAuthn requests hang WebKit.
+        beginPasskeyLogin: async ({ allowCredentials, params }, breakpoint) => {
             if (values.loginWithPasskeyLoading) {
+                // A repeat request is a retry of an attempt that did not answer, so cancel that
+                // attempt before a new one starts, because concurrent WebAuthn requests hang WebKit.
+                actions.cancelPasskeyLogin()
+                await breakpoint(PASSKEY_RETRY_DELAY_MS)
+                if (values.loginWithPasskeyLoading) {
+                    // The attempt holds on. The timeout clears it, so do not stack a second request.
+                    return
+                }
+                // The cancelled attempt reset the logic, so apply this request's values again.
+                actions.beginPasskeyLogin(allowCredentials, params)
                 return
             }
             // After setting credentials in reducer, start the authentication
             actions.startPasskeyAuthentication()
+        },
+        cancelPasskeyLogin: () => {
+            cache.cancelPasskeyLogin?.()
         },
         startConditionalPasskeyLogin: async () => {
             // WebKit-only. Safari/iOS freeze on the auto-modal, so there we offer passkeys via the
@@ -242,6 +336,7 @@ export const passkeyLogic = kea<passkeyLogicType>([
             if (!(await browserSupportsWebAuthnAutofill())) {
                 return
             }
+            capturePasskeyLoginEvent('passkey login attempted', 'autofill')
             try {
                 const beginResponse = await api.create<PasskeyLoginBeginResponse>('api/webauthn/login/begin/')
                 const assertion = await startAuthentication({
@@ -257,12 +352,18 @@ export const passkeyLogic = kea<passkeyLogicType>([
                     useBrowserAutofill: true,
                 })
                 await api.create('api/webauthn/login/complete/', assertion)
+                capturePasskeyLoginEvent('passkey login completed', 'autofill')
                 handleLoginRedirect()
                 window.location.reload()
             } catch (e: unknown) {
                 // The autofill passkey prompt is routinely dismissed — the user types a password
                 // instead, or navigates away. Swallow those; surface anything genuinely wrong.
-                if (!isWebAuthnCancellation(e) && !routeToEmailVerification(e)) {
+                if (isWebAuthnCancellation(e)) {
+                    capturePasskeyLoginEvent('passkey login cancelled', 'autofill')
+                    return
+                }
+                capturePasskeyLoginEvent('passkey login failed', 'autofill', passkeyErrorProperties(e))
+                if (!routeToEmailVerification(e)) {
                     actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
                 }
             }
