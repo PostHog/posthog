@@ -233,39 +233,15 @@ class TestFormatModelId:
 
 
 class TestAvailableModelChoices:
-    def test_drops_providers_we_cannot_route(self):
-        """The gateway serves models under providers the tasks product has no runtime
-        for; offering one would produce a run the gateway rejects."""
-        from products.tasks.backend.facade.model_catalogue import GatewayModel
-
-        gateway = (
-            GatewayModel(id="claude-fable-5", owned_by="anthropic", context_window=200000),
-            GatewayModel(id="titan-express", owned_by="bedrock", context_window=8000),
-        )
+    def test_reads_the_catalog_rather_than_the_gateway(self):
+        """Slack asks only what the catalog answers, so a gateway outage must not leave a
+        mention with nothing to match its model against."""
         with patch(
             "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
-            return_value=gateway,
-        ):
-            assert [c.model for c in available_model_choices()] == ["claude-fable-5"]
-
-    def test_keeps_vendor_served_models_the_catalog_routes(self):
-        """The gateway owns these under the party serving them, not the harness that drives
-        them, so routing on the owner alone dropped every one from the web picker while the
-        desktop offered them."""
-        from products.tasks.backend.facade.model_catalogue import GatewayModel
-
-        gateway = (
-            GatewayModel(id="deepseek-ai/deepseek-v4-flash-0731", owned_by="baseten", context_window=128000),
-            GatewayModel(id="zai-org/glm-5.3-flash", owned_by="cloudflare", context_window=128000),
-            GatewayModel(id="moonshotai/kimi-k3", owned_by="moonshotai", context_window=128000),
-        )
-        with patch(
-            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
-            return_value=gateway,
+            return_value=(),
         ):
             choices = available_model_choices()
 
-        assert [c.model for c in choices] == [m.id for m in gateway]
-        assert {c.runtime_adapter for c in choices} == {"claude"}
-        # All three are vendor-qualified ids the derivation names wrong, so each takes the catalog label.
-        assert [c.label for c in choices] == ["DeepSeek V4 Flash", "GLM-5.3 Flash", "Kimi K3"]
+        models = {c.model for c in choices}
+        assert {"claude-sonnet-5", "gpt-5.6-sol", "zai-org/glm-5.3"} <= models
+        assert all(c.label and c.runtime_adapter for c in choices)

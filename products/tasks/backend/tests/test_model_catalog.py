@@ -4,10 +4,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from unittest.mock import patch
 
 from syrupy.extensions.json import JSONSnapshotExtension
 
 from products.tasks.backend import model_catalog
+from products.tasks.backend.facade.model_catalogue import GatewayModel, available_model_choices
 from products.tasks.backend.temporal.process_task.utils import ReasoningEffort, RuntimeAdapter
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -136,3 +138,37 @@ def test_labels_are_set_only_where_the_derived_name_is_wrong() -> None:
         assert entry.label != format_model_id(entry.id), (
             f"'{entry.id}' pins the label the formatter already derives; drop the pin"
         )
+
+
+class TestAvailableModelChoices:
+    """The gateway-backed list the `/tasks/models` endpoint serves. Slack and the web read
+    the catalog directly, so this path is the only one still asking what is served now."""
+
+    def test_drops_providers_we_cannot_route(self) -> None:
+        gateway = (
+            GatewayModel(id="claude-fable-5", owned_by="anthropic", context_window=200000),
+            GatewayModel(id="titan-express", owned_by="bedrock", context_window=8000),
+        )
+        with patch(
+            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
+            return_value=gateway,
+        ):
+            assert [c.model for c in available_model_choices("posthog_code")] == ["claude-fable-5"]
+
+    def test_keeps_vendor_served_models_the_catalog_routes(self) -> None:
+        # The gateway owns these under the party serving them, not the harness that drives
+        # them, so routing on the owner alone dropped every one from the web picker.
+        gateway = (
+            GatewayModel(id="deepseek-ai/deepseek-v4-flash-0731", owned_by="baseten", context_window=128000),
+            GatewayModel(id="zai-org/glm-5.3-flash", owned_by="cloudflare", context_window=128000),
+            GatewayModel(id="moonshotai/kimi-k3", owned_by="moonshotai", context_window=128000),
+        )
+        with patch(
+            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
+            return_value=gateway,
+        ):
+            choices = available_model_choices("posthog_code")
+
+        assert [c.model for c in choices] == [m.id for m in gateway]
+        assert {c.runtime_adapter for c in choices} == {"claude"}
+        assert [c.label for c in choices] == ["DeepSeek V4 Flash", "GLM-5.3 Flash", "Kimi K3"]
