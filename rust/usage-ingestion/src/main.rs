@@ -71,7 +71,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .register("kafka_producer".to_string(), Duration::from_secs(30))
         .await;
     let producer = create_kafka_producer(&kafka_config, producer_liveness).await?;
-    let counters = (!config.redis_url.is_empty()).then(|| Arc::new(CounterAccumulator::default()));
+    let redis_counter_config = config.redis_counter_config();
+    let counters = (!config.redis_url.is_empty()).then(|| {
+        Arc::new(CounterAccumulator::new(
+            redis_counter_config.max_series_per_bucket,
+        ))
+    });
     let service = UsageIngestionService::new(
         producer,
         resolver,
@@ -97,6 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             accumulator,
             config.redis_url,
             Duration::from_secs(config.redis_flush_interval_seconds),
+            redis_counter_config,
         );
     }
     let metrics_address = config.metrics_address.clone();

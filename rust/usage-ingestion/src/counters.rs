@@ -16,9 +16,9 @@ use crate::record::KafkaBillingUsageRecord;
 
 const HOURLY_TTL_SECONDS: u64 = 25 * 60 * 60;
 const DAILY_TTL_SECONDS: u64 = 31 * 24 * 60 * 60;
-const CONNECTIONS: usize = 16;
-const FLUSH_CONCURRENCY: usize = 16;
-const MAX_SERIES_PER_BUCKET: usize = 16;
+const DEFAULT_CONNECTIONS: usize = 16;
+const DEFAULT_FLUSH_CONCURRENCY: usize = 16;
+const DEFAULT_MAX_SERIES_PER_BUCKET: usize = 16;
 const MAX_PAST_TIMESTAMP: ChronoDuration = ChronoDuration::days(7);
 const MAX_FUTURE_TIMESTAMP: ChronoDuration = ChronoDuration::hours(24);
 const INCREMENT_COUNTER: &str = r#"
@@ -30,6 +30,23 @@ redis.call('HINCRBY', KEYS[1], ARGV[1], ARGV[2])
 redis.call('EXPIRE', KEYS[1], ARGV[3], 'NX')
 return 1
 "#;
+
+#[derive(Clone, Copy, Debug)]
+pub struct CounterConfig {
+    pub connections: usize,
+    pub flush_concurrency: usize,
+    pub max_series_per_bucket: usize,
+}
+
+impl Default for CounterConfig {
+    fn default() -> Self {
+        Self {
+            connections: DEFAULT_CONNECTIONS,
+            flush_concurrency: DEFAULT_FLUSH_CONCURRENCY,
+            max_series_per_bucket: DEFAULT_MAX_SERIES_PER_BUCKET,
+        }
+    }
+}
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum CounterScope {
@@ -103,12 +120,25 @@ pub struct ScopeCounters {
 }
 
 /// A process-local, lossy aggregation of Kafka-confirmed usage records.
-#[derive(Default)]
 pub struct CounterAccumulator {
     pending: Mutex<HashMap<CounterScope, HashMap<CounterEntry, i64>>>,
+    max_series_per_bucket: usize,
+}
+
+impl Default for CounterAccumulator {
+    fn default() -> Self {
+        Self::new(DEFAULT_MAX_SERIES_PER_BUCKET)
+    }
 }
 
 impl CounterAccumulator {
+    pub fn new(max_series_per_bucket: usize) -> Self {
+        Self {
+            pending: Mutex::default(),
+            max_series_per_bucket,
+        }
+    }
+
     pub fn add_record(&self, record: &KafkaBillingUsageRecord) -> Result<(), CounterAddError> {
         // TODO: Pass trusted capture time from event-derived producers into `usage_timestamp`.
         // Batch-flush time rebuckets lagged records into wrong quota windows; customer event timestamps must not be used.
@@ -146,9 +176,13 @@ impl CounterAccumulator {
         for scope in scopes {
             // An organization aggregates the series of every team below it, so it saturates
             // first. Rejecting per scope keeps the team projection alive when it does.
-            if let Err(error) =
-                add_to_scope(pending.entry(scope).or_default(), buckets, &field, quantity)
-            {
+            if let Err(error) = add_to_scope(
+                pending.entry(scope).or_default(),
+                buckets,
+                &field,
+                quantity,
+                self.max_series_per_bucket,
+            ) {
                 rejection = Some(error);
             }
         }
@@ -202,16 +236,20 @@ pub trait CounterStore: Send + Sync {
 /// Cluster-aware store. Each scope is one transaction, and every key in it has the same hash tag.
 pub struct RedisCounterStore {
     connections: Vec<AsyncMutex<ClusterConnection>>,
+    max_series_per_bucket: usize,
 }
 
 impl RedisCounterStore {
-    pub async fn connect(url: &str) -> Result<Self, redis::RedisError> {
+    pub async fn connect(url: &str, config: CounterConfig) -> Result<Self, redis::RedisError> {
         let client = ClusterClient::new([url])?;
-        let mut connections = Vec::with_capacity(CONNECTIONS);
-        for _ in 0..CONNECTIONS {
+        let mut connections = Vec::with_capacity(config.connections);
+        for _ in 0..config.connections {
             connections.push(AsyncMutex::new(client.get_async_connection().await?));
         }
-        Ok(Self { connections })
+        Ok(Self {
+            connections,
+            max_series_per_bucket: config.max_series_per_bucket,
+        })
     }
 
     fn connection(&self, scope: &CounterScope) -> &AsyncMutex<ClusterConnection> {
@@ -237,7 +275,7 @@ impl CounterStore for RedisCounterStore {
                 .arg(&entry.field)
                 .arg(quantity)
                 .arg(entry.bucket.ttl_seconds())
-                .arg(MAX_SERIES_PER_BUCKET);
+                .arg(self.max_series_per_bucket);
         }
         let mut connection = self.connection(&counters.scope).lock().await;
         let accepted = pipeline.query_async::<Vec<i64>>(&mut *connection).await?;
@@ -267,6 +305,7 @@ fn add_to_scope(
     buckets: [Bucket; 2],
     field: &str,
     quantity: i64,
+    max_series_per_bucket: usize,
 ) -> Result<(), CounterAddError> {
     let mut totals = [0_i64; 2];
     for (bucket, total) in buckets.into_iter().zip(&mut totals) {
@@ -283,7 +322,7 @@ fn add_to_scope(
                     .keys()
                     .filter(|existing| existing.bucket == bucket)
                     .count()
-                    >= MAX_SERIES_PER_BUCKET
+                    >= max_series_per_bucket
                 {
                     return Err(CounterAddError::TooManySeries);
                 }
@@ -309,6 +348,14 @@ fn usage_field(usage_key: &str, unit: &str) -> String {
 }
 
 pub async fn flush(store: Arc<dyn CounterStore>, counters: Vec<ScopeCounters>) -> FlushOutcome {
+    flush_with_concurrency(store, counters, DEFAULT_FLUSH_CONCURRENCY).await
+}
+
+async fn flush_with_concurrency(
+    store: Arc<dyn CounterStore>,
+    counters: Vec<ScopeCounters>,
+    flush_concurrency: usize,
+) -> FlushOutcome {
     let results = stream::iter(counters)
         .map(|counters| {
             let store = Arc::clone(&store);
@@ -331,7 +378,7 @@ pub async fn flush(store: Arc<dyn CounterStore>, counters: Vec<ScopeCounters>) -
                 }
             }
         })
-        .buffer_unordered(FLUSH_CONCURRENCY)
+        .buffer_unordered(flush_concurrency)
         .collect::<Vec<_>>()
         .await;
     results
@@ -348,6 +395,7 @@ pub fn spawn_flush_task(
     accumulator: Arc<CounterAccumulator>,
     redis_url: String,
     interval: Duration,
+    config: CounterConfig,
 ) {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(interval);
@@ -356,7 +404,7 @@ pub fn spawn_flush_task(
             ticker.tick().await;
             let started = Instant::now();
             if store.is_none() {
-                match RedisCounterStore::connect(&redis_url).await {
+                match RedisCounterStore::connect(&redis_url, config).await {
                     Ok(redis_store) => {
                         store = Some(Arc::new(redis_store));
                         metrics::gauge!("usage_ingestion_redis_counter_connected").set(1.0);
@@ -380,7 +428,12 @@ pub fn spawn_flush_task(
             let counters = accumulator.drain();
             metrics::gauge!("usage_ingestion_redis_counter_accumulator_scopes")
                 .set(counters.len() as f64);
-            let outcome = flush(Arc::clone(store.as_ref().unwrap()), counters).await;
+            let outcome = flush_with_concurrency(
+                Arc::clone(store.as_ref().unwrap()),
+                counters,
+                config.flush_concurrency,
+            )
+            .await;
             metrics::histogram!("usage_ingestion_redis_counter_flush_seconds")
                 .record(started.elapsed().as_secs_f64());
             metrics::counter!("usage_ingestion_redis_counter_commands_flushed_total")
@@ -465,7 +518,7 @@ mod tests {
             ),
             Err(CounterAddError::TimestampOutOfRange)
         );
-        for index in 0..MAX_SERIES_PER_BUCKET {
+        for index in 0..DEFAULT_MAX_SERIES_PER_BUCKET {
             accumulator
                 .add(
                     42,
@@ -497,7 +550,7 @@ mod tests {
         let organization_id = Uuid::nil();
         let accumulator = CounterAccumulator::default();
         let now = Utc::now();
-        for index in 0..MAX_SERIES_PER_BUCKET {
+        for index in 0..DEFAULT_MAX_SERIES_PER_BUCKET {
             accumulator
                 .add(
                     index as i64 + 1,

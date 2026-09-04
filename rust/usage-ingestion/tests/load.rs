@@ -108,7 +108,7 @@ async fn sustains_thousands_of_concurrent_requests() {
     let organization_id = Uuid::new_v4();
     let accumulator = Arc::new(CounterAccumulator::default());
     let store: Arc<dyn CounterStore> = Arc::new(
-        RedisCounterStore::connect(&redis_url())
+        RedisCounterStore::connect(&redis_url(), Default::default())
             .await
             .expect("failed to connect to Valkey Cluster"),
     );

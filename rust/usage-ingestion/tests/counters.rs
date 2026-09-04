@@ -42,7 +42,7 @@ async fn counters_are_atomic_per_scope_and_do_not_cross_slots() {
     }
 
     let store: Arc<dyn CounterStore> = Arc::new(
-        RedisCounterStore::connect(&redis_url())
+        RedisCounterStore::connect(&redis_url(), Default::default())
             .await
             .expect("failed to connect to Valkey Cluster"),
     );
