@@ -73,7 +73,8 @@ class TestErrorTrackingInteractivity(TestCase):
             response = self._post(self._payload(action_id, self._value()))
 
         assert response.status_code == 200
-        facade.assert_called_once_with(self.issue_id, integration=self.integration, user=self.user)
+        # Celery runs eagerly in tests, so the deferred task has already reported back.
+        facade.assert_called_once_with(self.issue_id, fingerprint=None, integration=self.integration, user=self.user)
         body = mock_post.call_args.kwargs["json"]
         assert body["response_type"] == "ephemeral"
         assert body["text"].startswith(expected_text)

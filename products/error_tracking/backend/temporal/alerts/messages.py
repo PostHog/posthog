@@ -42,9 +42,14 @@ class SlackActions:
 
     integration_id: int
     issue_id: str
+    # Lets a click on a root whose issue was merged away land on the surviving issue.
+    fingerprint: str | None = None
 
     def value(self) -> str:
-        return json.dumps({"integration_id": self.integration_id, "issue_id": self.issue_id})
+        payload: dict[str, object] = {"integration_id": self.integration_id, "issue_id": self.issue_id}
+        if self.fingerprint:
+            payload["fingerprint"] = self.fingerprint
+        return json.dumps(payload)
 
 
 def escape_slack_text(text: str) -> str:

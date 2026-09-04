@@ -7,7 +7,11 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.error_tracking.backend.facade.issues import assign_issue_to_user_from_slack, resolve_issue_from_slack
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueAssignment
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueFingerprintV2,
+)
 
 
 class TestSlackIssueActions(BaseTest):
@@ -47,5 +51,31 @@ class TestSlackIssueActions(BaseTest):
         OrganizationMembership.objects.create(user=outsider, organization=outsider_org)
 
         assert resolve_issue_from_slack(self.issue.id, integration=self.integration, user=outsider) == "no_access"
+        self.issue.refresh_from_db()
+        assert self.issue.status == ErrorTrackingIssue.Status.ACTIVE
+
+    def test_fingerprint_lands_on_the_surviving_issue_after_a_merge(self):
+        # The Slack root outlives a merged-away source issue; its buttons carry the fingerprint.
+        survivor = ErrorTrackingIssue.objects.create(team=self.team, name="Survivor")
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=survivor, fingerprint="fp-1")
+        gone_issue_id = self.issue.id
+        self.issue.delete()
+
+        outcome = resolve_issue_from_slack(
+            gone_issue_id, fingerprint="fp-1", integration=self.integration, user=self.user
+        )
+
+        assert outcome == "ok"
+        survivor.refresh_from_db()
+        assert survivor.status == ErrorTrackingIssue.Status.RESOLVED
+
+    def test_member_without_error_tracking_editor_access_is_refused(self):
+        with patch(
+            "products.error_tracking.backend.logic.slack_actions.UserAccessControl.check_access_level_for_resource",
+            return_value=False,
+        ):
+            outcome = resolve_issue_from_slack(self.issue.id, integration=self.integration, user=self.user)
+
+        assert outcome == "no_access"
         self.issue.refresh_from_db()
         assert self.issue.status == ErrorTrackingIssue.Status.ACTIVE
