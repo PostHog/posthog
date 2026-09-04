@@ -5645,11 +5645,6 @@ export enum SlackIntegrationScope {
 
 export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 
-// Scopes the Slack app manifest marks optional. A workspace can approve the install without
-// granting them, so a missing one degrades a single feature instead of breaking the integration,
-// and must not put the install into the "needs attention" state.
-export const SLACK_INTEGRATION_OPTIONAL_SCOPES: SlackIntegrationScope[] = [SlackIntegrationScope.CHAT_WRITE_CUSTOMIZE]
-
 // Nothing is pending Slack app-directory review right now, so there is no in-review list.
 // To stage a scope that Slack hasn't approved yet, reintroduce a `SlackIntegrationScopeInReview`
 // enum here holding only the pending entries, re-export it from schema-general.ts, and have

@@ -11,45 +11,27 @@ export const template: HogFunctionTemplate = {
     category: ['Customer Success'],
     code_language: 'hog',
     code: `
-fun buildBody(withAppearance) {
-  let body := {
-    'channel': inputs.channel,
-    'blocks': inputs.blocks,
-    'text': inputs.text
-  };
+let body := {
+  'channel': inputs.channel,
+  'icon_emoji': inputs.icon_emoji,
+  'username': inputs.username,
+  'blocks': inputs.blocks,
+  'text': inputs.text
+};
 
-  // Slack rejects an empty thread_ts, so only send it when there is one to reply under.
-  if (not empty(inputs.thread_ts)) {
-    body['thread_ts'] := inputs.thread_ts;
+// Slack rejects an empty thread_ts, so only send it when there is one to reply under.
+if (not empty(inputs.thread_ts)) {
+  body['thread_ts'] := inputs.thread_ts;
+}
+
+let res := fetch('https://slack.com/api/chat.postMessage', {
+  'body': body,
+  'method': 'POST',
+  'headers': {
+    'Authorization': f'Bearer {inputs.slack_workspace.access_token}',
+    'Content-Type': 'application/json'
   }
-
-  if (withAppearance) {
-    body['icon_emoji'] := inputs.icon_emoji;
-    body['username'] := inputs.username;
-  }
-
-  return body;
-}
-
-fun postMessage(body) {
-  return fetch('https://slack.com/api/chat.postMessage', {
-    'body': body,
-    'method': 'POST',
-    'headers': {
-      'Authorization': f'Bearer {inputs.slack_workspace.access_token}',
-      'Content-Type': 'application/json'
-    }
-  });
-}
-
-let res := postMessage(buildBody(true));
-
-// icon_emoji and username need chat:write.customize. That scope is optional, so a workspace can
-// install PostHog without it, and Slack then refuses the whole message. Send the message again
-// under the app's own name and icon rather than failing the destination.
-if (res.status == 200 and res.body.error == 'missing_scope') {
-  res := postMessage(buildBody(false));
-}
+});
 
 if (res.status != 200 or res.body.ok == false) {
   throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');
@@ -61,7 +43,7 @@ if (res.status != 200 or res.body.ok == false) {
             type: 'integration',
             integration: 'slack',
             label: 'Slack workspace',
-            requiredScopes: 'channels:read groups:read chat:write',
+            requiredScopes: 'channels:read groups:read chat:write chat:write.customize',
             secret: false,
             hidden: false,
             required: true,

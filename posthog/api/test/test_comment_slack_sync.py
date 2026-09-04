@@ -12,6 +12,7 @@ from rest_framework import status
 from slack_sdk.errors import SlackApiError
 
 from posthog.api.comments import _slack_thread_url
+from posthog.helpers.slack_scopes import can_customize_message_appearance
 from posthog.helpers.slack_thread_mirror import (
     _discussion_card_blocks,
     escape_slack_mrkdwn,
@@ -94,6 +95,29 @@ class TestSlackAppearanceFields(SimpleTestCase):
         first, second = client.chat_postMessage.call_args_list
         assert first.kwargs["username"] == "Ann"
         assert "username" not in second.kwargs
+
+
+class TestCanCustomizeMessageAppearance(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("granted", "chat:write,chat:write.customize", True),
+            # chat:write is a prefix of chat:write.customize, so a substring match would read
+            # this install as having granted the scope and keep sending fields Slack refuses.
+            ("only_the_prefix_scope", "channels:read,chat:write", False),
+            # Installs recorded before scopes were stored have nothing to check against.
+            ("no_recorded_scopes", "", True),
+        ]
+    )
+    def test_reads_the_granted_scope_list(self, _name, scope, expected):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"scope": scope},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+
+        assert can_customize_message_appearance(integration) is expected
 
 
 class TestSendCommentToSlack(APIBaseTest):
