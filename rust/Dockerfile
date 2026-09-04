@@ -124,10 +124,8 @@ RUN apt-get update && \
     mkdir -p /app/share && \
     mv ./share/GeoLite2-City.mmdb /app/share/ && \
     rm -rf ./share && \
-    curl -sS -o /tmp/rds-combined-ca-bundle.pem \
+    curl -sS -o /usr/local/share/ca-certificates/rds-combined-ca-bundle.pem \
         "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem" && \
-    echo "e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3  /tmp/rds-combined-ca-bundle.pem" | sha256sum -c - && \
-    mv /tmp/rds-combined-ca-bundle.pem /usr/local/share/ca-certificates/rds-combined-ca-bundle.pem && \
     update-ca-certificates
 
 ARG BIN
