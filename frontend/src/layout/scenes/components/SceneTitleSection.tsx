@@ -500,7 +500,6 @@ export function SceneName({
 
     const [isEditing, setIsEditing] = useState(forceEdit)
     const containerRef = useRef<HTMLDivElement>(null)
-    const nameInputRef = useRef<HTMLTextAreaElement>(null)
 
     const textClasses =
         'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
@@ -545,38 +544,14 @@ export function SceneName({
         }
     }
 
-    // The field is narrower and shorter than the row that holds it, so a press can land on the
-    // padding beside it. Nothing there is a selection anchor either, so claim the press for the
-    // page rather than leaving it for the browser.
-    //
-    // In edit mode this also puts the caret in the field. In view mode there is no field yet,
-    // and the claim is the whole job: the row spans the scene header, so a press on the empty
-    // space beside the title must not open the editor.
-    //
-    // A read-only name has no press to claim, so leave its text selectable.
-    const claimStrayPress = (e: React.MouseEvent): void => {
-        if (isSecondaryPress(e)) {
-            return
-        }
-        if (!onChange || !canEdit) {
-            return
-        }
-        if ((e.target as HTMLElement).closest('button, a, input, textarea, [role="button"]')) {
-            return
-        }
-        e.preventDefault()
-        nameInputRef.current?.focus()
-    }
-
     // If onBlur is provided, we want to show a button that allows the user to edit the name
     // Otherwise, we want to show the name as a text
     const Element =
         onChange && canEdit ? (
             <>
                 {isEditing ? (
-                    <div ref={containerRef} className="flex items-center gap-1 w-full" data-attr="scene-name-edit-row">
+                    <div ref={containerRef} className="flex items-center gap-1 w-full">
                         <TextareaPrimitive
-                            ref={nameInputRef}
                             variant="default"
                             name="name"
                             value={name || ''}
@@ -695,7 +670,6 @@ export function SceneName({
                 'scene-name flex items-center flex-1 min-w-0 max-w-full',
                 !isEditing && onChange && canEdit && 'truncate'
             )}
-            onMouseDown={claimStrayPress}
         >
             {Element}
             {!isEditing && suffix}
