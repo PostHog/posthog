@@ -607,7 +607,7 @@ def test_open_issue_refuses_to_choose_between_two_digest_issues(monkeypatch: pyt
             True,
             (7, ""),
             "updated #7 and notified owners",
-            ["issue edit", "issue comment"],
+            ["issue comment", "issue edit"],
             "would update #7 and notify owners\n\n{body}\n\n--- comment ---\n{comment}",
         ),
     ],
@@ -634,6 +634,23 @@ def test_preview_and_apply_agree_on_the_tracking_issue(
     )
     assert report.apply(built, existing, "PostHog/posthog") == expected_action
     assert calls == expected_subcommands
+
+
+def test_a_failed_comment_does_not_advance_the_state_marker(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    def fake_gh(*args: str, repo: str, stdin: str | None = None) -> str:
+        calls.append(args[1])
+        if args[1] == "comment":
+            raise RuntimeError("502 from GitHub")
+        return ""
+
+    monkeypatch.setattr(report, "_gh", fake_gh)
+    entry = make_entry(id="lapsed", added=TODAY - timedelta(days=20), expires=TODAY - timedelta(days=2))
+    built = report.build_report(report.collect([entry], TODAY), {}, core.DEFAULT_GRACE_DAYS)
+    with pytest.raises(RuntimeError):
+        report.apply(built, (7, ""), "PostHog/posthog")
+    assert calls == ["comment"]
 
 
 def test_dry_run_previews_what_a_real_run_would_post(monkeypatch: pytest.MonkeyPatch) -> None:

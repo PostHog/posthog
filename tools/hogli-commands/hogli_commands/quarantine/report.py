@@ -274,10 +274,14 @@ def apply(report: Report, existing: tuple[int, str] | None, repo: str) -> str:
         return f"opened {url}"
 
     number = existing[0]
-    _gh("issue", "edit", str(number), "--body-file", "-", repo=repo, stdin=report.body)
     if report.comment is None:
+        _gh("issue", "edit", str(number), "--body-file", "-", repo=repo, stdin=report.body)
         return f"updated #{number}"
+    # The comment goes first because the body carries the state marker. A
+    # failure between the two calls then leaves the marker on the previous
+    # state, so the next run reports the slip again instead of dropping it.
     _gh("issue", "comment", str(number), "--body-file", "-", repo=repo, stdin=report.comment)
+    _gh("issue", "edit", str(number), "--body-file", "-", repo=repo, stdin=report.body)
     return f"updated #{number} and notified owners"
 
 
