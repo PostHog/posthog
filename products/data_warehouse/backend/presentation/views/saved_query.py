@@ -1355,7 +1355,10 @@ class SavedQueryResumeSchedulesRequestSerializer(serializers.Serializer):
     view_ids = serializers.ListField(
         child=serializers.UUIDField(),
         allow_empty=False,
-        help_text="Ids of the saved queries to resume. Ids that are not in this project are ignored.",
+        help_text=(
+            "Ids of the saved queries to resume. An id is ignored when it is not in this project, "
+            "has been deleted, or you cannot edit it."
+        ),
     )
 
 
@@ -1912,11 +1915,18 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         serializer = SavedQueryResumeSchedulesRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        saved_queries = DataWarehouseSavedQuery.objects.filter(
-            id__in=serializer.validated_data["view_ids"], team_id=self.team_id
+        # Skip rather than refuse, so one id the caller cannot edit does not cost them the rest of
+        # the batch. Every skipped id looks the same from outside, whether it is absent, in another
+        # project, deleted, or denied - the response would otherwise confirm that a model exists.
+        candidates = list(
+            DataWarehouseSavedQuery.objects.filter(
+                id__in=serializer.validated_data["view_ids"], team_id=self.team_id
+            ).exclude(deleted=True)
         )
-        for saved_query in saved_queries:
-            resume_saved_query(saved_query)
+        self.user_access_control.preload_object_access_controls(cast(list[Model], candidates))
+        for saved_query in candidates:
+            if self.user_access_control.check_access_level_for_object(saved_query, "editor"):
+                resume_saved_query(saved_query)
         return response.Response(status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(request=SavedQueryLineageRequestSerializer, responses={200: SavedQueryAncestorsSerializer})

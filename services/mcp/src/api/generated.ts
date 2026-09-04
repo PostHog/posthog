@@ -76555,7 +76555,7 @@ export namespace Schemas {
      * Body of the `resume_schedules` action.
      */
     export interface SavedQueryResumeSchedulesRequest {
-      /** Ids of the saved queries to resume. Ids that are not in this project are ignored. */
+      /** Ids of the saved queries to resume. An id is ignored when it is not in this project, has been deleted, or you cannot edit it. */
       view_ids: string[];
     }
 

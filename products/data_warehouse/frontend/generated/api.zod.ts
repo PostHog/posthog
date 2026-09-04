@@ -1054,7 +1054,9 @@ export const WarehouseSavedQueriesResumeSchedulesCreateBody = /* @__PURE__ */ zo
     .object({
         view_ids: zod
             .array(zod.uuid())
-            .describe('Ids of the saved queries to resume. Ids that are not in this project are ignored.'),
+            .describe(
+                'Ids of the saved queries to resume. An id is ignored when it is not in this project, has been deleted, or you cannot edit it.'
+            ),
     })
     .describe('Body of the `resume_schedules` action.')
 

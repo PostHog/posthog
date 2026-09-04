@@ -2257,6 +2257,33 @@ class TestSavedQuery(APIBaseTest):
             node.refresh_from_db()
             self.assertEqual(suspension_state(node), {})
 
+    def test_resume_schedules_skips_a_deleted_view(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="bulk_deleted",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            created_by=self.user,
+            deleted=True,
+        )
+        node = Node.objects.create(
+            team=self.team,
+            dag=DAG.objects.create(team=self.team, name="bulk_deleted_dag"),
+            saved_query=saved_query,
+            type=NodeType.MAT_VIEW,
+        )
+        mark_node_suspended(node, engine="clickhouse", reason="boom", job_id=str(uuid.uuid4()))
+        node.save()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/resume_schedules/",
+            {"view_ids": [str(saved_query.id)]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        node.refresh_from_db()
+        self.assertNotEqual(suspension_state(node), {})
+
     def test_resume_schedules_rejects_a_malformed_view_id(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/resume_schedules/",
