@@ -9,7 +9,7 @@ from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
     LiteLLMMessagesToCompletionTransformationHandler,
 )
 
-from llm_gateway.anthropic_request import convert_enabled_thinking_to_adaptive
+from llm_gateway.anthropic_request import convert_enabled_thinking_to_adaptive, force_stream_usage
 from llm_gateway.anthropic_stream import observe_anthropic_stream
 from llm_gateway.config import Settings
 
@@ -62,10 +62,7 @@ def _inject_baseten_params(kwargs: dict[str, Any], api_base: str, api_key: str) 
     kwargs["extra_headers"] = {"Authorization": f"Bearer {api_key}"}
     kwargs["model"] = f"openai/{BASETEN_MODELS[model]}"
     kwargs.setdefault("drop_params", True)
-    if kwargs.get("stream"):
-        stream_options = dict(kwargs.get("stream_options") or {})
-        stream_options.update(include_usage=True, continuous_usage_stats=True)
-        kwargs["stream_options"] = stream_options
+    force_stream_usage(kwargs, continuous_usage_stats=True)
 
 
 def make_baseten_anthropic_call(api_base: str, api_key: str) -> Callable[..., Awaitable[Any]]:
