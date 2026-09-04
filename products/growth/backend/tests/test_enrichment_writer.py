@@ -3,7 +3,11 @@ from unittest.mock import MagicMock
 
 from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.fit_score import IcpFitResult
-from products.growth.backend.enrichment.writer import record_signup_work_email, write_organization_enrichment
+from products.growth.backend.enrichment.writer import (
+    record_signup_work_email,
+    write_harmonic_enrichment_status,
+    write_organization_enrichment,
+)
 from products.growth.backend.models import OrganizationEnrichment
 
 
@@ -248,6 +252,39 @@ class TestEnrichmentWriter(BaseTest):
         record_signup_work_email(organization_id=str(self.organization.id), work_email=True, signup_role="  ")
         record.refresh_from_db()
         assert record.data["signup_role"] == "founder"  # blank role never clobbers a recorded one
+
+    def test_write_harmonic_enrichment_status_merges_without_clobbering_and_returns_the_previous_status(self):
+        OrganizationEnrichment.objects.create(
+            organization=self.organization,
+            data={"company_type_deterministic": "yc", "harmonic_enrichment_status": "QUEUED"},
+        )
+        pha_client = MagicMock()
+
+        previous = write_harmonic_enrichment_status(
+            str(self.organization.id),
+            status="COMPLETE",
+            observed_at="2026-09-01T00:00:00+00:00",
+            urn="urn:harmonic:enrichment:abc",
+            pha_client=pha_client,
+        )
+
+        assert previous == "QUEUED"
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data == {
+            "company_type_deterministic": "yc",
+            "harmonic_enrichment_status": "COMPLETE",
+            "harmonic_enrichment_status_at": "2026-09-01T00:00:00+00:00",
+            "harmonic_enrichment_urn": "urn:harmonic:enrichment:abc",
+        }
+        pha_client.group_identify.assert_called_once_with(
+            "organization",
+            str(self.organization.id),
+            properties={
+                "harmonic_enrichment_status": "COMPLETE",
+                "harmonic_enrichment_status_at": "2026-09-01T00:00:00+00:00",
+                "harmonic_enrichment_urn": "urn:harmonic:enrichment:abc",
+            },
+        )
 
     def test_no_op_when_no_fields_and_no_scores(self):
         pha_client = MagicMock()
