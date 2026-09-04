@@ -558,6 +558,7 @@ def record_blocking_query_failure(team_id: int, query_id: str, error: Exception)
         error=True,
         end_time=datetime.datetime.now(datetime.UTC),
         error_message=_user_safe_error_message(error),
+        error_code=_user_safe_error_code(error),
     )
     _record_blocking_query_status(team_id, query_id, query_status, cache_key=None)
 
@@ -587,6 +588,15 @@ def _user_safe_error_message(error: Exception) -> Optional[str]:
     if isinstance(error, ExposedHogQLError | ExposedCHQueryError | UserAccessControlError):
         return str(error)
     return None
+
+
+def _user_safe_error_code(error: Exception) -> Optional[str]:
+    # As in the async path: only a scalar code means anything to the frontend, which matches on
+    # specific code strings. A compound validation error returns a list or a dict instead.
+    if not isinstance(error, APIException):
+        return None
+    codes = error.get_codes()
+    return codes if isinstance(codes, str) else None
 
 
 def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> str:

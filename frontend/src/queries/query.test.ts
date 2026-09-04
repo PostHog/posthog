@@ -286,6 +286,12 @@ describe('query', () => {
     describe('dropped blocking request recovery', () => {
         const query = { kind: NodeKind.EventsQuery, select: ['*'] } as EventsQuery
         const gatewayTimeout = (): ApiError => new ApiError('upstream request timeout', 504)
+        /** A drop, which by definition happens after the request has run long enough to be worth
+         * recovering. Anything faster has no record waiting for it. */
+        const dropAfterRunningLong = async (): Promise<never> => {
+            now += 5 * 60 * 1000
+            throw gatewayTimeout()
+        }
         const notRecordedYet = (): ApiError =>
             new ApiError('Query not found', 404, undefined, { detail: 'Query not found' })
         let now: number
@@ -308,7 +314,7 @@ describe('query', () => {
         })
 
         it('returns the recorded result once the server finishes a dropped request', async () => {
-            const querySpy = jest.spyOn(api, 'query').mockRejectedValueOnce(gatewayTimeout())
+            const querySpy = jest.spyOn(api, 'query').mockImplementationOnce(dropAfterRunningLong)
             const statusSpy = jest
                 .spyOn(api.queryStatus, 'get')
                 .mockImplementationOnce(async () => {
@@ -328,7 +334,7 @@ describe('query', () => {
         })
 
         it('surfaces the recorded error of a dropped request without waiting', async () => {
-            jest.spyOn(api, 'query').mockRejectedValueOnce(gatewayTimeout())
+            jest.spyOn(api, 'query').mockImplementationOnce(dropAfterRunningLong)
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(
                 new ApiError('failed', 400, undefined, {
                     query_status: { error_message: 'Try changing the time range', error_code: 'too_wide' },
@@ -343,7 +349,7 @@ describe('query', () => {
         })
 
         it('gives up with the original error when nothing is recorded by the deadline', async () => {
-            jest.spyOn(api, 'query').mockRejectedValueOnce(gatewayTimeout())
+            jest.spyOn(api, 'query').mockImplementationOnce(dropAfterRunningLong)
             const statusSpy = jest.spyOn(api.queryStatus, 'get').mockImplementation(async () => {
                 now += 10 * 60 * 1000
                 throw notRecordedYet()
@@ -376,7 +382,7 @@ describe('query', () => {
         })
 
         it('recovers a dropped force_cache request, which the endpoint runs when the cache is stale', async () => {
-            jest.spyOn(api, 'query').mockRejectedValueOnce(gatewayTimeout())
+            jest.spyOn(api, 'query').mockImplementationOnce(dropAfterRunningLong)
             const statusSpy = jest
                 .spyOn(api.queryStatus, 'get')
                 .mockResolvedValueOnce({ query_status: { complete: true, results: { results: ['late'] } } } as any)
@@ -396,6 +402,17 @@ describe('query', () => {
                     detail: 'Query has hit the max execution time before completing.',
                 })
             )
+            const statusSpy = jest.spyOn(api.queryStatus, 'get')
+
+            await expect(performQuery(query, undefined, 'blocking')).rejects.toMatchObject({ status: 504 })
+
+            expect(statusSpy).not.toHaveBeenCalled()
+        })
+
+        it('does not follow up on a 504 that arrived too fast to have left a record', async () => {
+            // The server records a blocking outcome only after the request has run a while, so a
+            // 504 that arrives at once has nothing to wait for however it was produced.
+            jest.spyOn(api, 'query').mockRejectedValueOnce(gatewayTimeout())
             const statusSpy = jest.spyOn(api.queryStatus, 'get')
 
             await expect(performQuery(query, undefined, 'blocking')).rejects.toMatchObject({ status: 504 })

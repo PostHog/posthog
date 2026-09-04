@@ -72,6 +72,9 @@ export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 // record, which itself lives for fifteen (BLOCKING_QUERY_STATUS_TTL_SECONDS).
 const DROPPED_REQUEST_RECOVERY_DEADLINE_MS = 10 * 60 * 1000
 const DROPPED_REQUEST_RECOVERY_POLL_INTERVAL_MS = 5_000
+// The server records a blocking outcome only once the request has run this long
+// (BLOCKING_QUERY_RECORD_AFTER_SECONDS), so a faster failure has no record to wait for.
+const DROPPED_REQUEST_MIN_REQUEST_MS = 60 * 1000
 
 /** What the dropped-request recovery did for one request, reported on the query telemetry events. */
 export interface QueryRecoveryOutcome {
@@ -87,11 +90,16 @@ export interface QueryRecoveryOutcome {
  *
  * 504 is also an answer the app gives: a ClickHouse timeout carries it, and the failure breaker
  * replays that answer in milliseconds. Those come with the API's error body and describe a query
- * that has already stopped, so only a 504 without one is a request the gateway dropped.
+ * that has already stopped, so only a 504 without one is a request the gateway dropped. The elapsed
+ * time is the second half of the test, and it holds whatever the body looks like: below the server's
+ * recording threshold there is no record to wait for, so waiting can only end in the same error.
  */
-function isDroppedRequest(error: unknown): boolean {
+function isDroppedRequest(error: unknown, elapsedMs: number): boolean {
     const failure = error as { status?: number; detail?: unknown; data?: { detail?: unknown } } | null
-    return failure?.status === 504 && (failure.data?.detail ?? failure.detail) == null
+    if (failure?.status !== 504 || elapsedMs < DROPPED_REQUEST_MIN_REQUEST_MS) {
+        return false
+    }
+    return (failure.data?.detail ?? failure.detail) == null
 }
 
 /**
@@ -267,6 +275,7 @@ async function executeQuery<N extends DataNode>(
      */
     recovery?: QueryRecoveryOutcome
 ): Promise<NonNullable<N['response']>> {
+    const requestStartedAtMs = Date.now()
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
         // Every blocking request carries an ID the server records its outcome under, so a
@@ -286,10 +295,11 @@ async function executeQuery<N extends DataNode>(
                 limitContext,
             })
         } catch (e: any) {
-            if (!recovery || !queryId || !blocksOnServer(refreshParam) || !isDroppedRequest(e)) {
+            const droppedAtMs = Date.now()
+            const elapsedMs = droppedAtMs - requestStartedAtMs
+            if (!recovery || !queryId || !blocksOnServer(refreshParam) || !isDroppedRequest(e, elapsedMs)) {
                 throw e
             }
-            const droppedAtMs = Date.now()
             recovery.attempted = true
             const recorded = await waitForRecordedResult(queryId, methodOptions, droppedAtMs)
             if (!recorded) {
