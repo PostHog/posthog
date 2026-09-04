@@ -477,12 +477,17 @@ describe('API helper', () => {
         it('leaves a throw that is not a fetch failure as an unclassified ApiError', async () => {
             // A real fault in the request path must not be relabelled as connectivity, or
             // `dropUnactionableNetworkExceptions` would filter it out of error tracking.
-            fakeFetch.mockRejectedValue(new Error('the fetcher itself broke'))
+            const cause = new Error('the fetcher itself broke')
+            fakeFetch.mockRejectedValue(cause)
 
             const error = await api.get('api/environments/2/insights').catch((e) => e)
 
             expect(error).toBeInstanceOf(ApiError)
             expect(error).not.toBeInstanceOf(NetworkError)
+            // A stable message groups the residue into one issue; the browser's per-variant message
+            // is kept on `cause` for debugging instead of splintering error tracking.
+            expect(error.message).toBe('API request failed before the server responded')
+            expect(error.cause).toBe(cause)
         })
     })
 

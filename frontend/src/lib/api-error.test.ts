@@ -1,4 +1,20 @@
-import { ApiError, isTransientServerError, shouldReportApiFailure } from './api-error'
+import type { CaptureResult, Properties } from 'posthog-js'
+
+import {
+    ApiError,
+    dropUnactionableNetworkExceptions,
+    isTransientServerError,
+    NETWORK_ERROR_MESSAGES,
+    shouldReportApiFailure,
+} from './api-error'
+
+function captureResult(event: string, properties: Properties): CaptureResult {
+    return { uuid: 'test-uuid', event, properties }
+}
+
+function exceptionEvent(exceptions: { type: string; value: string }[]): CaptureResult {
+    return captureResult('$exception', { $exception_list: exceptions })
+}
 
 describe('api-error', () => {
     describe('ApiError.fromResponse', () => {
@@ -79,6 +95,45 @@ describe('api-error', () => {
             ['a bare object shaped like an error', { status: 503 }],
         ])('does not classify %s as transient', (_, error) => {
             expect(isTransientServerError(error)).toBe(false)
+        })
+    })
+
+    describe('dropUnactionableNetworkExceptions', () => {
+        it.each([
+            // Dropped: the client state, not a fault the app can fix.
+            [
+                'the offline exception',
+                exceptionEvent([{ type: 'NetworkError', value: NETWORK_ERROR_MESSAGES.offline }]),
+                true,
+            ],
+            [
+                'the page-closing exception',
+                exceptionEvent([{ type: 'NetworkError', value: NETWORK_ERROR_MESSAGES.navigating }]),
+                true,
+            ],
+            // Kept: a real connectivity failure worth looking at (ad blocker, proxy, DNS, our edge).
+            [
+                'the residual network exception',
+                exceptionEvent([{ type: 'NetworkError', value: NETWORK_ERROR_MESSAGES.network }]),
+                false,
+            ],
+            // Kept: the message alone must not drop a non-NetworkError exception.
+            [
+                'a same-message exception of another type',
+                exceptionEvent([{ type: 'TypeError', value: NETWORK_ERROR_MESSAGES.offline }]),
+                false,
+            ],
+            // Kept: an unrelated crash.
+            ['an unrelated exception', exceptionEvent([{ type: 'Error', value: 'boom' }]), false],
+        ])('drops %s: %s', (_, event, dropped) => {
+            expect(dropUnactionableNetworkExceptions(event)).toBe(dropped ? null : event)
+        })
+
+        it.each([
+            ['a non-exception event', captureResult('$pageview', {})],
+            ['an exception event without a list', captureResult('$exception', {})],
+        ])('leaves %s untouched', (_, event) => {
+            expect(dropUnactionableNetworkExceptions(event)).toBe(event)
         })
     })
 

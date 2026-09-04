@@ -1,3 +1,5 @@
+import type { BeforeSendFn } from 'posthog-js'
+
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
@@ -178,6 +180,38 @@ export const UNACTIONABLE_NETWORK_ERROR_MESSAGES: ReadonlySet<string> = new Set(
     NETWORK_ERROR_MESSAGES.offline,
     NETWORK_ERROR_MESSAGES.navigating,
 ])
+
+/**
+ * Drop the offline and page-closing network exceptions before they leave the browser. Both
+ * describe the state of the client, not a fault the app can fix, so filing them as error tracking
+ * issues only buries real crashes. posthog-js autocaptures the unhandled `NetworkError` rejection
+ * with no custom properties, so the reason travels only in `type` and `value` (see
+ * `NETWORK_ERROR_MESSAGES`). This is a `before_send` filter — return `null` to drop the event.
+ */
+export const dropUnactionableNetworkExceptions: BeforeSendFn = (event) => {
+    if (!event || event.event !== '$exception') {
+        return event
+    }
+    const exceptions = event.properties?.$exception_list
+    if (!Array.isArray(exceptions)) {
+        return event
+    }
+    const isUnactionable = exceptions.some(
+        (exception) =>
+            exception?.type === 'NetworkError' &&
+            typeof exception?.value === 'string' &&
+            UNACTIONABLE_NETWORK_ERROR_MESSAGES.has(exception.value)
+    )
+    return isUnactionable ? null : event
+}
+
+/**
+ * The stable message for a request that failed before the server responded and is not a classified
+ * connectivity failure. The browser stringifies each such fault differently ("TypeError: Failed to
+ * fetch" and its variants), and grouping keys on this file's single stack, so a per-variant message
+ * opens a new issue for each. A fixed message groups the residue into one.
+ */
+export const UNEXPECTED_REQUEST_FAILURE_MESSAGE = 'API request failed before the server responded'
 
 /**
  * A request the browser never completed, so there is no HTTP status to react to. `status` is left
