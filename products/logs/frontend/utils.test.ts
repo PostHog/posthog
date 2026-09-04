@@ -5,6 +5,7 @@ import { DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS } from 'products/logs/frontend/l
 import {
     buildLogsSessionFilters,
     formatFilterGroupValues,
+    getDistinctIdWithKey,
     getFiltersSummaryLines,
     getSessionIdFromLogAttributes,
     isDistinctIdKey,
@@ -54,6 +55,31 @@ describe('logs utils', () => {
         it('keeps matching the built-in conventions alongside configured keys', () => {
             expect(isDistinctIdKey('posthogDistinctId', ['user.id'])).toBe(true)
             expect(isDistinctIdKey('unrelated', ['user.id'])).toBe(false)
+        })
+    })
+
+    describe('getDistinctIdWithKey', () => {
+        it('prefers a configured key over a convention, and attributes over resource_attributes', () => {
+            expect(
+                getDistinctIdWithKey({ distinct_id: 'convention', 'user.id': 'configured' }, undefined, ['user.id'])
+            ).toEqual({ key: 'user.id', value: 'configured', source: 'attribute' })
+            expect(getDistinctIdWithKey({}, { 'user.id': 'configured' }, ['user.id'])).toEqual({
+                key: 'user.id',
+                value: 'configured',
+                source: 'resource_attribute',
+            })
+        })
+
+        it('falls back to the built-in conventions when no configured key carries a value', () => {
+            expect(getDistinctIdWithKey({ posthogDistinctId: 'abc' }, undefined, ['user.id'])).toEqual({
+                key: 'posthogDistinctId',
+                value: 'abc',
+                source: 'attribute',
+            })
+        })
+
+        it('returns null when the log carries no distinct id', () => {
+            expect(getDistinctIdWithKey({ unrelated: 'x' }, { 'service.name': 'api' }, ['user.id'])).toBeNull()
         })
     })
 

@@ -162,17 +162,18 @@ export function isSessionIdKey(key: string, configuredKeys?: string[]): boolean 
     return (configuredKeys ?? []).includes(key) || matchesKey(key, SESSION_ID_KEYS)
 }
 
-export interface SessionIdMatch {
+export interface LogIdentityMatch {
     key: string
     value: string
     source: 'attribute' | 'resource_attribute'
 }
 
-export function getSessionIdWithKey(
+function getIdentityMatch(
     attributes: Record<string, unknown> | undefined,
     resourceAttributes: Record<string, unknown> | undefined,
-    configuredKeys?: string[]
-): SessionIdMatch | null {
+    configuredKeys: string[] | undefined,
+    isConventionKey: (key: string) => boolean
+): LogIdentityMatch | null {
     // Configured keys win over the built-in conventions, in list order: for each key,
     // attributes are checked before resource_attributes, and the first value found wins.
     for (const key of configuredKeys ?? []) {
@@ -185,19 +186,36 @@ export function getSessionIdWithKey(
             return { key, value: String(resourceAttributeValue), source: 'resource_attribute' }
         }
     }
-    // Built-in convention fallback only — the configured-key pass already ran above,
-    // so isSessionIdKey is deliberately called without configuredKeys here.
+    // Built-in convention fallback only — the configured-key pass already ran above, so
+    // isConventionKey is deliberately called without the configured keys here.
     for (const [key, value] of Object.entries(attributes || {})) {
-        if (isSessionIdKey(key) && value) {
+        if (isConventionKey(key) && value) {
             return { key, value: String(value), source: 'attribute' }
         }
     }
     for (const [key, value] of Object.entries(resourceAttributes || {})) {
-        if (isSessionIdKey(key) && value) {
+        if (isConventionKey(key) && value) {
             return { key, value: String(value), source: 'resource_attribute' }
         }
     }
     return null
+}
+
+export function getSessionIdWithKey(
+    attributes: Record<string, unknown> | undefined,
+    resourceAttributes: Record<string, unknown> | undefined,
+    configuredKeys?: string[]
+): LogIdentityMatch | null {
+    return getIdentityMatch(attributes, resourceAttributes, configuredKeys, (key) => isSessionIdKey(key))
+}
+
+/** The distinct-id counterpart of `getSessionIdWithKey`, resolved the same way. */
+export function getDistinctIdWithKey(
+    attributes: Record<string, unknown> | undefined,
+    resourceAttributes: Record<string, unknown> | undefined,
+    configuredKeys?: string[]
+): LogIdentityMatch | null {
+    return getIdentityMatch(attributes, resourceAttributes, configuredKeys, (key) => isDistinctIdKey(key))
 }
 
 export function getSessionIdFromLogAttributes(
