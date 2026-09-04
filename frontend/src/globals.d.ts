@@ -41,6 +41,8 @@ declare global {
         ESBUILD_LOAD_SCRIPT: (name) => void
         ESBUILD_LOAD_CHUNKS: (name) => void
         ESBUILD_LOADED_CHUNKS: Set<string>
+        /** Set by the HTML loader script: resolves when the boot stylesheet has loaded (true) or failed (false). */
+        ESBUILD_CSS_READY?: Promise<boolean>
         POSTHOG_EXPORTED_DATA: ExportedData
         POSTHOG_USER_IDENTITY_WITH_FLAGS?: {
             distinctID: string
