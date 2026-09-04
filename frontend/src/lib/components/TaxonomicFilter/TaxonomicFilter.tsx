@@ -225,7 +225,12 @@ export const TaxonomicFilterSearchInput = forwardRef<
 
     const categoriesAreInDropdown = categoryDropdownVariant !== 'control'
     const categoryDropdown = categoriesAreInDropdown ? (
-        <CategoryDropdown variant={categoryDropdownVariant} eventName={eventName} onAfterChange={focusInput} />
+        <CategoryDropdown
+            variant={categoryDropdownVariant}
+            eventName={eventName}
+            onAfterChange={focusInput}
+            joinedToInput
+        />
     ) : null
 
     return (
