@@ -123,7 +123,8 @@ Additional requirements:
 
 ## Other filter boundaries
 
-- `setExternalFilters` supplies embedded context, currently for group dashboards.
+- `setExternalFilters` supplies embedded context from the surface that hosts the dashboard. It is not limited to one placement. `DashboardPlacement.Group` and `DashboardPlacement.Builtin` both use it today.
+- Search for every caller of `setExternalFilters` before you change its contract.
 - Embedded context must not enter the user draft, change count, change list, or save payload.
 - `tile.filters_overrides` remains a separate persisted tile action.
 - Shared-token requests ignore URL filter and variable overrides.
