@@ -54,7 +54,8 @@ export function FeaturePreviews(): JSX.Element {
     // fires too early — defer the scroll + highlight until the cards exist.
     useAnchor(rawEarlyAccessFeaturesLoading ? '' : window.location.hash)
 
-    const betaFeatures = filteredEarlyAccessFeatures.filter((f) => f.stage === 'beta')
+    // Alpha and beta previews both enroll with one toggle, so they share the same list.
+    const optInFeatures = filteredEarlyAccessFeatures.filter((f) => f.stage === 'beta' || f.stage === 'alpha')
     const shouldShowEmptyState =
         filteredEarlyAccessFeatures.length === 0 && !rawEarlyAccessFeaturesLoading && !searchTerm
     const failedToLoadFeaturePreviews = shouldShowEmptyState && hasPosthogJsFailedToLoadFeaturePreviews()
@@ -62,7 +63,7 @@ export function FeaturePreviews(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            {!flagsHonored && betaFeatures.length > 0 && (
+            {!flagsHonored && optInFeatures.length > 0 && (
                 <LemonBanner type="info" className="mb-2">
                     Feature previews on this instance are controlled by the PERSISTED_FEATURE_FLAGS environment
                     variable, not the toggles below.
@@ -99,10 +100,10 @@ export function FeaturePreviews(): JSX.Element {
                             allowClear
                         />
                     )}
-                    {betaFeatures.length === 0 && searchTerm.trim() ? (
+                    {optInFeatures.length === 0 && searchTerm.trim() ? (
                         <p className="text-secondary text-center mt-4">No matching feature previews</p>
                     ) : (
-                        betaFeatures.map((feature) => (
+                        optInFeatures.map((feature) => (
                             <div key={feature.flagKey}>
                                 <FeaturePreview
                                     feature={feature}
