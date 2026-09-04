@@ -1,4 +1,5 @@
 from posthog.temporal.data_modeling.activities import (
+    check_duckgres_shadow_eligibility_activity,
     check_duckgres_shadow_enabled_activity,
     clear_cdp_staging_activity,
     create_data_modeling_job_activity,
@@ -30,6 +31,7 @@ WORKFLOWS = [MaterializeViewWorkflow, ExecuteDAGWorkflow]
 SEMANTIC_ENRICHMENT_WORKFLOWS = [EnrichViewSemanticsWorkflow]
 SEMANTIC_ENRICHMENT_ACTIVITIES = [enrich_view_semantics_activity]
 ACTIVITIES = [
+    check_duckgres_shadow_eligibility_activity,
     check_duckgres_shadow_enabled_activity,
     clear_cdp_staging_activity,
     create_data_modeling_job_activity,

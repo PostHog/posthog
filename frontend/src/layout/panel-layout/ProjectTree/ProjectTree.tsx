@@ -7,7 +7,6 @@ import { IconCheckbox, IconChevronRight, IconEllipsis, IconFolderPlus, IconPlusS
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import {
@@ -53,6 +52,11 @@ export interface ProjectTreeProps {
     checkedItemsOverride?: Record<string, boolean>
     /** Override the onItemChecked handler from the internal logic */
     onItemCheckedOverride?: (id: string, checked: boolean) => void
+    /**
+     * Runs in addition to the tree's own click handling, not instead of it. A caller that renders
+     * the tree inside a larger surface uses this to report the click in that surface's own terms.
+     */
+    onItemClicked?: (item: TreeDataItem | undefined) => void
     /** True while this tree's nav panel is active — refocuses search on panel re-activation. */
     isActiveInPanel?: boolean
 }
@@ -101,6 +105,7 @@ export function ProjectTree({
     selectModeOverride,
     checkedItemsOverride,
     onItemCheckedOverride,
+    onItemClicked,
     isActiveInPanel,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
@@ -155,8 +160,6 @@ export function ProjectTree({
 
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
-
-    const isStarredReorderEnabled = useFeatureFlag('STARRED_REORDER')
 
     let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
 
@@ -248,6 +251,8 @@ export function ProjectTree({
                     name: item?.name ?? null,
                 })
 
+                onItemClicked?.(item)
+
                 if (item?.record?.href) {
                     router.actions.push(
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
@@ -303,7 +308,6 @@ export function ProjectTree({
                 // Sibling reorder within the Starred (shortcuts://) list. All the index/position
                 // math lives in the kea logic so the component can stay focused on rendering.
                 if (
-                    isStarredReorderEnabled &&
                     typeof oldId === 'string' &&
                     typeof newId === 'string' &&
                     shortcutEntryIdMap.has(oldId) &&
@@ -343,7 +347,7 @@ export function ProjectTree({
             }}
             isItemDraggable={(item) => {
                 if (shortcutEntryIdMap.has(item.id)) {
-                    return isStarredReorderEnabled
+                    return true
                 }
                 return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
             }}
@@ -353,7 +357,7 @@ export function ProjectTree({
 
                 // Allow dropping onto other top-level starred items to reorder them.
                 if (shortcutEntryIdMap.has(item.id)) {
-                    return isStarredReorderEnabled
+                    return true
                 }
 
                 // disable dropping for these IDS
