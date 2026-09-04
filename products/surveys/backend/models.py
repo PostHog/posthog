@@ -49,6 +49,14 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class Meta:
         db_table = "posthog_survey"
         constraints = [models.UniqueConstraint(fields=["team", "name"], name="unique survey name for team")]
+        indexes = [
+            models.Index(fields=["team", "-created_at"], name="survey_team_created_idx"),
+            models.Index(
+                fields=["team", "start_date", "created_at", "id"],
+                name="survey_running_payload_idx",
+                condition=models.Q(archived=False, end_date__isnull=True),
+            ),
+        ]
 
     team = models.ForeignKey(
         "posthog.Team",
