@@ -17,8 +17,15 @@ from posthog.dags.common.staged_dictionary import (
     load_and_verify_on_every_cluster,
 )
 from posthog.dataclasses import frozen
-from posthog.models.deletion_targets import EVENTS_JSON, EVENTS_TARGETS, placement_for, sweep_clusters
+from posthog.models.deletion_targets import (
+    EVENTS_JSON,
+    FLAG_EVALUATIONS,
+    PERSONAL_DATA_TARGETS,
+    placement_for,
+    sweep_clusters,
+)
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 
@@ -27,7 +34,7 @@ def _squash_clusters(cluster: ClickhouseCluster) -> list[ClickhouseCluster]:
 
     The rewrite joins the snapshot dictionary, so the dictionary has to exist on each of them.
     """
-    return sweep_clusters(cluster, EVENTS_TARGETS)
+    return sweep_clusters(cluster, PERSONAL_DATA_TARGETS)
 
 
 @dataclass
@@ -39,13 +46,11 @@ class PersonOverridesSnapshotTable(OverridesSnapshotTable):
         return f"person_distinct_id_overrides_snapshot_{self.id.hex}"
 
     def create(self, client: Client) -> None:
-        client.execute(
-            f"""
+        client.execute(f"""
             CREATE TABLE IF NOT EXISTS {self.qualified_name} (team_id Int64, distinct_id String, person_id UUID, version Int64)
             ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/{self.qualified_name}', '{{replica}}-{{shard}}', version)
             ORDER BY (team_id, distinct_id)
-            """
-        )
+            """)
 
     def populate(self, client: Client, timestamp: str, limit: int | None = None) -> None:
         # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
@@ -122,12 +127,10 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
         )
 
     def get_checksum(self, client: Client):
-        results = client.execute(
-            f"""
+        results = client.execute(f"""
              SELECT groupBitXor(row_checksum) AS table_checksum
              FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, distinct_id)
-             """
-        )
+             """)
         [[checksum]] = results
         return checksum
 
@@ -147,6 +150,16 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
         rewritten or person_id diverges between them while they coexist."""
         return AlterTableMutationRunner(
             table=EVENTS_JSON_DATA_TABLE,
+            commands=self.update_commands,
+            parameters={"name": self.qualified_name},
+        )
+
+    @property
+    def flag_evaluations_update_mutation_runner(self) -> AlterTableMutationRunner:
+        """The same person_id squash applied to the flag_evaluations table — both tables must be
+        rewritten or person_id diverges between them while they coexist."""
+        return AlterTableMutationRunner(
+            table=FLAG_EVALUATIONS_DATA_TABLE,
             commands=self.update_commands,
             parameters={"name": self.qualified_name},
         )
@@ -297,6 +310,11 @@ def run_person_id_update_mutations(
     placement = placement_for(cluster, EVENTS_JSON)
     if placement is not None:
         dictionary.events_json_update_mutation_runner.run_on_shards(placement.cluster)
+
+    flag_evaluations_placement = placement_for(cluster, FLAG_EVALUATIONS)
+    if flag_evaluations_placement is not None:
+        dictionary.flag_evaluations_update_mutation_runner.run_on_shards(flag_evaluations_placement.cluster)
+
     return dictionary
 
 
