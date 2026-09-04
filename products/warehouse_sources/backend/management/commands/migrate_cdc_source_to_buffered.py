@@ -146,12 +146,17 @@ class Command(BaseCommand):
         The collision stops the batcher stamping the engine position, and capture hard-errors on it
         (CDCReservedColumnError) — catching it here keeps the source out of a flip-then-break loop.
 
-        The buffered lane writes its own `_ph_cdc_seq` into the warehouse table, so the column alone
-        proves nothing once a source is already buffered — capture would have hard-errored on a real
-        collision before any file existed. On a source still on legacy, the column can only be the
-        source's own.
+        The buffered lane writes its own `_ph_cdc_seq` into the warehouse table, so the column
+        proves nothing once a source has been buffered — capture would have hard-errored on a real
+        collision before any file existed, and a rollback leaves the column behind. Only on a
+        source that has never been buffered can the column be the source's own, and only there is
+        this check able to tell the two apart.
         """
-        if eligible and parse_ingest_mode(eligible[0].source.job_inputs) == "buffered":
+        if not eligible:
+            return
+        job_inputs = eligible[0].source.job_inputs or {}
+        # Stored through `job_inputs`, which stringifies, so "False" is not a value this ever writes.
+        if parse_ingest_mode(job_inputs) == "buffered" or job_inputs.get("cdc_buffered_before"):
             return
         conflicted = [s.name for s in eligible if s.table is not None and CDC_SEQ_COLUMN in (s.table.columns or {})]
         if conflicted:
@@ -235,7 +240,13 @@ class Command(BaseCommand):
         self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
 
         self.stdout.write("6/7 setting cdc_ingest_mode=buffered")
-        source.job_inputs = {**(source.job_inputs or {}), "cdc_ingest_mode": "buffered"}
+        source.job_inputs = {
+            **(source.job_inputs or {}),
+            "cdc_ingest_mode": "buffered",
+            # Kept across a rollback: it is what tells a later flip that a `_ph_cdc_seq` column on
+            # the warehouse table may be one this lane wrote, not one the source owns.
+            "cdc_buffered_before": True,
+        }
         source.save(update_fields=["job_inputs"])
 
         self.stdout.write("7/7 unpausing schedules")
@@ -286,7 +297,14 @@ class Command(BaseCommand):
         self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
 
         self.stdout.write("5/6 setting cdc_ingest_mode=legacy")
-        source.job_inputs = {**(source.job_inputs or {}), "cdc_ingest_mode": "legacy"}
+        source.job_inputs = {
+            **(source.job_inputs or {}),
+            "cdc_ingest_mode": "legacy",
+            # Set here as well as on the flip, so a source flipped before this marker existed still
+            # carries it once it rolls back — which is the population that would otherwise be
+            # refused a second flip over a `_ph_cdc_seq` column the buffered lane wrote itself.
+            "cdc_buffered_before": True,
+        }
         source.save(update_fields=["job_inputs"])
 
         # Leftover fully-applied files stay: the position guard no-ops a replay, the S3 TTL clears them.

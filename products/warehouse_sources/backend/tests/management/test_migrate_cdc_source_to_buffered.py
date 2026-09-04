@@ -193,6 +193,52 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         source.refresh_from_db()
         assert source.job_inputs["cdc_ingest_mode"] == ("buffered" if blocks else "legacy")
 
+    def test_a_rollback_records_that_the_source_has_been_buffered(self):
+        # A source flipped before this marker existed only gains it here, and that is exactly the
+        # source that would otherwise be refused its next flip.
+        source = self._source(ingest_mode="buffered")
+        self._schema(source, "users")
+
+        with _mocked_side_effects():
+            self._run(source, rollback=True)
+
+        source.refresh_from_db()
+        assert source.job_inputs["cdc_ingest_mode"] == "legacy"
+        assert source.job_inputs["cdc_buffered_before"]
+
+    def test_a_flip_after_a_rollback_is_not_refused_for_our_own_column(self):
+        # Rollback leaves `_ph_cdc_seq` in the warehouse table and puts the source back on legacy,
+        # so the column looks exactly like a source-owned one. Refusing here would strand the
+        # source for good, telling the operator to rename a column the source does not have.
+        source = self._source(ingest_mode="legacy")
+        source.job_inputs = {**source.job_inputs, "cdc_buffered_before": True}
+        source.save(update_fields=["job_inputs"])
+        table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="users",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="https://bucket/users/*",
+            external_data_source=source,
+            columns={"id": {"hogql": "IntegerDatabaseField"}, CDC_SEQ_COLUMN: {"hogql": "IntegerDatabaseField"}},
+        )
+        self._schema(source, "users", table=table)
+
+        with _mocked_side_effects():
+            self._run(source)
+
+        source.refresh_from_db()
+        assert source.job_inputs["cdc_ingest_mode"] == "buffered"
+
+    def test_a_first_flip_records_that_the_source_has_been_buffered(self):
+        source = self._source(ingest_mode="legacy")
+        self._schema(source, "users")
+
+        with _mocked_side_effects():
+            self._run(source)
+
+        source.refresh_from_db()
+        assert source.job_inputs["cdc_buffered_before"]
+
     def test_a_reflip_is_allowed_once_the_reserved_column_is_ours(self):
         # The buffered lane writes `_ph_cdc_seq` into the warehouse table, so on a source already
         # buffered the column is there for our own reasons — capture would have hard-errored on a
