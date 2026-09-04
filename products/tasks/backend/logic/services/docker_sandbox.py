@@ -81,9 +81,10 @@ _AGENT_VERSION_LABEL = "com.posthog.sandbox.agent-version"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
 
 # posthog-code workspace packages staged into a local sandbox image build. @posthog/agent
-# needs shared, git and enricher; git needs shared. Both the path check and the copy read
-# this tuple, so a package named here but absent from the checkout fails the build outright.
-_LOCAL_SANDBOX_PACKAGES = ("agent", "shared", "git", "enricher")
+# needs harness, shared, git and enricher (its tsup build copies harness dist assets); git
+# needs shared. Both the path check and the copy read this tuple, so a package named here
+# but absent from the checkout fails the build outright.
+_LOCAL_SANDBOX_PACKAGES = ("agent", "harness", "shared", "git", "enricher")
 # Streamlit sandboxes expose their auth proxy (not the agent-server) on this port; the
 # host-published port maps to it so connect_info can reach the app across processes.
 
