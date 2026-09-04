@@ -768,6 +768,89 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('hasEncryptedPayloadBeenSaved', () => {
+        // featureFlagsLogic stays unmounted here, so a row that expects `true` also proves the
+        // gate reads the server baseline instead of the flag list cache.
+        it.each([
+            ['stays false while encryption is ticked but nothing is saved yet', true, false, false],
+            ['is true once the server holds an encrypted payload', true, true, true],
+            ['returns to false while a reset is pending', false, true, false],
+        ])('%s', async (_, working, baseline, expected) => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag({
+                    ...logic.values.featureFlag,
+                    is_remote_configuration: true,
+                    has_encrypted_payloads: working,
+                    filters: { ...logic.values.featureFlag.filters, payloads: { true: '{"a":1}' } },
+                })
+                logic.actions.setOriginalFeatureFlag({
+                    ...logic.values.featureFlag,
+                    is_remote_configuration: true,
+                    has_encrypted_payloads: baseline,
+                })
+            }).toMatchValues({ hasEncryptedPayloadBeenSaved: expected })
+        })
+
+        it('stays false after a reset when encryption is re-enabled before typing', async () => {
+            // A saved encrypted flag: working copy and baseline both hold the redacted ciphertext.
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag({
+                    ...logic.values.featureFlag,
+                    is_remote_configuration: true,
+                    has_encrypted_payloads: true,
+                    filters: { ...logic.values.featureFlag.filters, payloads: { true: '"********* (encrypted)"' } },
+                })
+                logic.actions.setOriginalFeatureFlag({
+                    ...logic.values.featureFlag,
+                    is_remote_configuration: true,
+                    has_encrypted_payloads: true,
+                })
+            }).toMatchValues({ hasEncryptedPayloadBeenSaved: true })
+
+            // Reset clears the working payload and disables encryption, unlocking the editor.
+            await expectLogic(logic, () => {
+                logic.actions.resetEncryptedPayload()
+            }).toMatchValues({ hasEncryptedPayloadBeenSaved: false })
+
+            // Re-enabling encryption before typing must not re-lock: the empty working payload no
+            // longer matches the baseline ciphertext, so a replacement can still be entered.
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag({
+                    ...logic.values.featureFlag,
+                    has_encrypted_payloads: true,
+                })
+            }).toMatchValues({ hasEncryptedPayloadBeenSaved: false })
+        })
+
+        it('stays false for a duplicated encrypted flag, which has no server row yet', async () => {
+            // A duplicate opens as a new flag but keeps the source's encryption and redacted payload,
+            // so both selector inputs look "saved" — only the 'new' route id marks it as unsaved.
+            router.actions.push('/')
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+            await expectLogic(newLogic).toFinishAllListeners()
+
+            await expectLogic(newLogic, () => {
+                newLogic.actions.setFeatureFlag({
+                    ...newLogic.values.featureFlag,
+                    is_remote_configuration: true,
+                    has_encrypted_payloads: true,
+                    filters: {
+                        ...newLogic.values.featureFlag.filters,
+                        payloads: { true: '"********* (encrypted)"' },
+                    },
+                })
+                newLogic.actions.setOriginalFeatureFlag({
+                    ...newLogic.values.featureFlag,
+                    is_remote_configuration: true,
+                    has_encrypted_payloads: true,
+                })
+            }).toMatchValues({ hasEncryptedPayloadBeenSaved: false })
+
+            newLogic.unmount()
+        })
+    })
+
     describe('setFeatureFlagFilters', () => {
         it.each([
             ['an empty payload snapshot', {}],

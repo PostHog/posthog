@@ -899,7 +899,7 @@ export interface featureFlagLogicValues {
         | 'Release toggle (boolean)'
         | 'Remote configuration (single payload)'
     hasEarlyAccessFeatures: boolean
-    hasEncryptedPayloadBeenSaved: boolean | undefined
+    hasEncryptedPayloadBeenSaved: boolean
     hasExperiment: boolean | null
     hasSurveys: boolean | null
     hasUnsavedChanges: boolean
@@ -1964,7 +1964,10 @@ export interface featureFlagLogicMeta {
         featureFlagKey: (featureFlag: FeatureFlagType) => string
         canCreateEarlyAccessFeature: (featureFlag: FeatureFlagType, variants: MultivariateFlagVariant[]) => boolean
         hasSurveys: (featureFlag: FeatureFlagType) => boolean | null
-        hasEncryptedPayloadBeenSaved: (featureFlag: FeatureFlagType, props: any) => boolean | undefined
+        hasEncryptedPayloadBeenSaved: (
+            featureFlag: FeatureFlagType,
+            originalFeatureFlag: FeatureFlagType | null
+        ) => boolean
         hasExperiment: (featureFlag: FeatureFlagType) => boolean | null
         showStaleFlagBanner: (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null) => boolean
         isDraftExperiment: (experiment: any) => boolean
@@ -4510,15 +4513,32 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         hasEncryptedPayloadBeenSaved: [
-            (s) => [s.featureFlag, s.props],
-            (featureFlag: FeatureFlagType, props) => {
+            (s) => [s.featureFlag, s.originalFeatureFlag, (_, props: FeatureFlagLogicProps) => props.id],
+            (
+                featureFlag: FeatureFlagType,
+                originalFeatureFlag: FeatureFlagType | null,
+                id: FeatureFlagLogicProps['id']
+            ): boolean => {
+                // A pending reset clears the working copy, which must unlock the payload again.
                 if (!featureFlag.has_encrypted_payloads) {
                     return false
                 }
-                const savedFlag = featureFlagsLogic
-                    .findMounted()
-                    ?.values.featureFlags.results.find((flag) => flag.id === props.id)
-                return savedFlag?.has_encrypted_payloads
+                // Only a saved flag can hold a server-encrypted payload. A duplicate opens as a new
+                // flag ('new') but keeps the source's has_encrypted_payloads and redacted payload, so
+                // it must stay editable until it is saved as its own flag.
+                if (typeof id !== 'number') {
+                    return false
+                }
+                // The server baseline, not the flag list cache: a flag opened straight from its URL
+                // mounts no list logic, so a cache lookup reads as "never saved" even when the
+                // server already holds the payload encrypted.
+                if (originalFeatureFlag?.has_encrypted_payloads !== true) {
+                    return false
+                }
+                // Lock only while the working copy still shows the stored ciphertext. A reset clears
+                // the payload, so re-enabling encryption to enter a replacement diverges it from the
+                // redacted baseline: keep that editable until the replacement is saved.
+                return featureFlag.filters?.payloads?.['true'] === originalFeatureFlag.filters?.payloads?.['true']
             },
         ],
         hasExperiment: [

@@ -1014,10 +1014,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             <Group name={['filters', 'payloads']}>
                                                 <LemonField name="true" className="grow min-w-0">
                                                     <JSONEditorInput
-                                                        readOnly={
-                                                            featureFlag.has_encrypted_payloads &&
-                                                            Boolean(featureFlag.filters?.payloads?.['true'])
-                                                        }
+                                                        readOnly={hasEncryptedPayloadBeenSaved}
                                                         placeholder='Examples: "A string", 2500, {"key": "value"}'
                                                     />
                                                 </LemonField>

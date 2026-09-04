@@ -227,3 +227,20 @@ export const NewRemoteConfigFlagPayloadError: Story = {
         await waitForErrorText(canvasElement, 'Payload is required')
     },
 }
+
+export const NewRemoteConfigFlagWithEncryptionTicked: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag('new'),
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    play: async () => {
+        const logic = await waitForMountedFeatureFlagLogic()
+
+        logic.actions.setFeatureFlagValue('key', 'demo-remote-config-flag')
+        logic.actions.setFeatureFlagValue('is_remote_configuration', true)
+        logic.actions.setFeatureFlagValue(['filters', 'payloads', 'true'], '{"color":"blue"}')
+        // Nothing is saved yet, so the payload stays editable and the encryption checkbox stays
+        // available. Only a payload the server already holds encrypted locks this section down.
+        logic.actions.setFeatureFlagValue('has_encrypted_payloads', true)
+    },
+}
