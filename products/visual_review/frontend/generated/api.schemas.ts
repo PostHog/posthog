@@ -665,7 +665,7 @@ export type VisualReviewRunsListParams = {
 
 export type VisualReviewRunsSnapshotHistoryListParams = {
     /**
-     * Snapshot identifier
+     * Identifier of the snapshot to look up, for example a Storybook story id plus theme. Read it from the `identifier` field of a snapshot in the run. It is a name rather than a UUID, and it is required in addition to the run id in the path.
      */
     identifier: string
     /**
@@ -695,7 +695,7 @@ export type VisualReviewRunsSnapshotsListParams = {
 
 export type VisualReviewRunsToleratedHashesListParams = {
     /**
-     * Snapshot identifier
+     * Identifier of the snapshot to look up, for example a Storybook story id plus theme. Read it from the `identifier` field of a snapshot in the run. It is a name rather than a UUID, and it is required in addition to the run id in the path.
      */
     identifier: string
     /**

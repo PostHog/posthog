@@ -12567,7 +12567,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-snapshot-history-list": {
-        "description": "List recent change history for a snapshot `identifier` across previous runs in the same repo. Useful for diagnosing flaky snapshots — if the same identifier flips between changed and clean across runs, it is a candidate for tolerated hashes or quarantine. Requires `identifier` query parameter.",
+        "description": "List recent change history for one snapshot across previous runs in the same repo. Useful for diagnosing flaky snapshots — if the same identifier flips between changed and clean across runs, it is a candidate for tolerated hashes or quarantine. Both parameters are required, and one snapshot from `visual-review-runs-snapshots-list` gives you both: pass its `run_id` as `id`, and its `identifier` as `identifier`. Passing the snapshot's own `id` as `id` does not work, and neither parameter can be left out.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Snapshot change history",
@@ -12612,7 +12612,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-tolerated-hashes-list": {
-        "description": "List known tolerated alternate hashes for a snapshot `identifier` in the run's repo. Tolerated hashes catalog acceptable rendering variants (e.g. anti-aliasing noise) so future runs don't flag them as changes. Requires `identifier` query parameter.",
+        "description": "List known tolerated alternate hashes for one snapshot in the run's repo. Tolerated hashes catalog acceptable rendering variants (e.g. anti-aliasing noise) so future runs don't flag them as changes. This covers a single snapshot, not the whole run or repo. Both parameters are required, and one snapshot from `visual-review-runs-snapshots-list` gives you both: pass its `run_id` as `id`, and its `identifier` as `identifier`.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List tolerated hashes",
