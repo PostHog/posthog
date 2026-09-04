@@ -19,14 +19,14 @@ import type { GatedScene, ProductEmptyStateConfig, ProductEmptyStateMode, SceneP
 /**
  * Search param that puts the setup screen on a scene that already has data, so anyone can
  * review an empty state without emptying a project. `?empty_state=1` shows the `needs-setup`
- * screen, `?empty_state=waiting-for-data` shows the other mode, and dropping the param
- * returns the real scene.
+ * screen, `?empty_state=waiting-for-data` and `?empty_state=no-events` show the other modes,
+ * and dropping the param returns the real scene.
  */
 export const EMPTY_STATE_PARAM = 'empty_state'
 
 function forcedModeFromParam(value: unknown): ProductEmptyStateMode | null {
-    if (value === 'waiting-for-data') {
-        return 'waiting-for-data'
+    if (value === 'waiting-for-data' || value === 'no-events') {
+        return value
     }
     // kea-router parses search params before we see them, so `?empty_state=1` arrives as the
     // number 1 and a bare `?empty_state` as null. Match those forms exactly rather than any
@@ -58,7 +58,7 @@ export interface ProductEmptyStateGateProps {
 /**
  * Gates scene content on the product's setup status:
  * - `loading` → hold a spinner (never flash the real scene before we know)
- * - `needs-setup` / `waiting-for-data` → the ProductEmptyState setup screen
+ * - `needs-setup` / `no-events` / `waiting-for-data` → the ProductEmptyState setup screen
  * - `has-data` / `unknown` (or the user skipped) → the scene, untouched
  *
  * Mounts the product's detection logic, which pushes its normalized status into
@@ -116,7 +116,7 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
     if (skipHonored) {
         // Skip bypasses the screen, not detection: render the scene, plus a "Set up" reminder
         // until data lands, so there's always a way back to setup.
-        const needsSetup = status === 'needs-setup' || status === 'waiting-for-data'
+        const needsSetup = status === 'needs-setup' || status === 'no-events' || status === 'waiting-for-data'
         const reminder = needsSetup ? (
             <LemonBanner
                 type="info"
@@ -154,7 +154,7 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
             </ProductSceneFrame>
         )
     }
-    if (!skipHonored && (status === 'needs-setup' || status === 'waiting-for-data')) {
+    if (!skipHonored && (status === 'needs-setup' || status === 'no-events' || status === 'waiting-for-data')) {
         return (
             <ProductSceneFrame config={config}>
                 <ProductEmptyState config={config} mode={mode} />

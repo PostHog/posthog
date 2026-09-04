@@ -13,23 +13,32 @@ import type { TeamType } from '~/types'
 import { sessionReplaySetupLogic } from './sessionReplaySetupLogic'
 
 describe('sessionReplaySetupLogic', () => {
-    // Guards the three-state mapping the scene gate hangs off: recordings must
-    // outrank the toggle (turning recording off keeps old recordings, and this
-    // scene is the only place to watch them), and opt-in without recordings must
-    // read as waiting, not as "install".
+    // Guards the state mapping the scene gate hangs off: recordings must outrank
+    // the toggle (turning recording off keeps old recordings, and this scene is the
+    // only place to watch them), opt-in without recordings must read as waiting, not
+    // as "install", and a project that never ingested an event must read as
+    // no-events, because waiting for a session it cannot receive is a dead end.
     it.each([
-        [true, false, 'has-data'],
-        [true, true, 'has-data'],
-        [false, true, 'waiting-for-data'],
-        [false, false, 'needs-setup'],
-    ])('recordings=%s, optIn=%s maps to %s', async (hasRecordings, optIn, expected) => {
-        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, session_recording_opt_in: optIn } as TeamType)
-        jest.spyOn(api.recordings, 'list').mockResolvedValue({
-            results: hasRecordings ? [recordingMetaJson] : [],
-            has_next: false,
-        })
-        sessionReplaySetupLogic.mount()
-        await expectLogic(sessionReplaySetupLogic).toFinishAllListeners()
-        expect(productSetupStatusLogic({ productKey: ProductKey.SESSION_REPLAY }).values.status).toBe(expected)
-    })
+        [true, false, true, 'has-data'],
+        [true, true, false, 'has-data'],
+        [false, true, true, 'waiting-for-data'],
+        [false, true, false, 'no-events'],
+        [false, false, false, 'needs-setup'],
+    ])(
+        'recordings=%s, optIn=%s, ingestedEvent=%s maps to %s',
+        async (hasRecordings, optIn, ingestedEvent, expected) => {
+            initKeaTests(true, {
+                ...MOCK_DEFAULT_TEAM,
+                session_recording_opt_in: optIn,
+                ingested_event: ingestedEvent,
+            } as TeamType)
+            jest.spyOn(api.recordings, 'list').mockResolvedValue({
+                results: hasRecordings ? [recordingMetaJson] : [],
+                has_next: false,
+            })
+            sessionReplaySetupLogic.mount()
+            await expectLogic(sessionReplaySetupLogic).toFinishAllListeners()
+            expect(productSetupStatusLogic({ productKey: ProductKey.SESSION_REPLAY }).values.status).toBe(expected)
+        }
+    )
 })

@@ -333,6 +333,12 @@ export const SessionReplayWaitingForData: ProductEmptyStateStory = productEmptyS
     { mocks: sessionReplayMocks }
 )
 
+export const SessionReplayNoEvents: ProductEmptyStateStory = productEmptyStateStory(
+    sessionReplayEmptyState,
+    'no-events',
+    { mocks: sessionReplayMocks }
+)
+
 // Web vitals detection asks event definitions on mount - answer "none yet".
 const webVitalsMocks = {
     get: { '/api/projects/:team_id/event_definitions/': [200, { results: [] }] },

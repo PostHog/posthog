@@ -2,6 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { ProductKey } from '~/queries/schema/schema-general'
+import { OnboardingStepKey } from '~/types'
+
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
@@ -10,6 +16,11 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
     const { setHideViewedRecordings } = useActions(playerSettingsLogic)
     const { hiddenRecordingsCount, totalFiltersCount, isScopedByCaller } = useValues(sessionRecordingsPlaylistLogic)
     const { setShowSettings, setFilters, resetFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { currentTeam } = useValues(teamLogic)
+
+    // Only an explicit `false` counts: the flag is absent from some team payloads, and
+    // reading that as "no events" would tell a working project its SDK is broken.
+    const hasNoEvents = currentTeam?.ingested_event === false
 
     const recordingsAreHidden = hideViewedRecordings !== false
     const hasFilters = totalFiltersCount > 0
@@ -66,6 +77,22 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
                         </LemonButton>
                     </li>
                     <LemonDivider dashed={true} />
+                    {hasNoEvents && (
+                        <>
+                            <li>
+                                <Link
+                                    to={urls.onboarding({
+                                        productKey: ProductKey.SESSION_REPLAY,
+                                        stepKey: OnboardingStepKey.INSTALL,
+                                    })}
+                                    data-attr="replay-empty-state-troubleshooting-no-events"
+                                >
+                                    This project has no events yet. Check your installation
+                                </Link>
+                            </li>
+                            <LemonDivider dashed={true} />
+                        </>
+                    )}
                     <li>
                         <Link to="https://posthog.com/docs/session-replay/data-retention" target="_blank">
                             Recordings might be outside the retention period

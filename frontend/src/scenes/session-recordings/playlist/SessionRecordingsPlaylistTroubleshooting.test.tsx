@@ -1,10 +1,15 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
+import { teamLogic } from 'scenes/teamLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { TeamType } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import {
@@ -95,6 +100,19 @@ describe('SessionRecordingsPlaylistTroubleshooting', () => {
         expect(screen.queryByTestId('replay-empty-state-troubleshooting-clear-filters')).not.toBeInTheDocument()
 
         scopedLogic.unmount()
+    })
+
+    // The list used to name only filters, retention, and ad blockers, so a project
+    // sending nothing at all was left hunting for a cause that was never listed.
+    it.each([
+        [false, true],
+        [true, false],
+    ])('ingested_event=%s shows the no-events cause: %s', (ingestedEvent, expected) => {
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: ingestedEvent } as TeamType)
+
+        renderTroubleshooting()
+
+        expect(!!screen.queryByTestId('replay-empty-state-troubleshooting-no-events')).toBe(expected)
     })
 
     it('offers to show hidden recordings when the setting is on, even with a zero client count', () => {

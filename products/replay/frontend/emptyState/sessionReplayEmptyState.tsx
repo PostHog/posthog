@@ -6,8 +6,10 @@ import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/ty
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
+import { OnboardingStepKey } from '~/types'
 
 import { SessionReplayPreview } from './SessionReplayPreview'
 import { sessionReplaySetupLogic } from './sessionReplaySetupLogic'
@@ -29,12 +31,17 @@ export const sessionReplayEmptyState: SceneProductEmptyState = {
                 lead: 'Record sessions and replay every click, scroll, and console log. See where users get stuck, reproduce bugs exactly as they happened, and jump from any event or error to the moment it occurred.',
                 hint: 'Already sending events with posthog-js? One click and recording starts:',
             },
+            'no-events': {
+                headline: 'Recording is on, but no events have arrived',
+                lead: 'This project has never received an event, so nothing is reaching PostHog yet. Check that your project API key and host are correct, and that PostHog runs in your app. Recordings show up here once events arrive.',
+                hint: 'Start with the install guide:',
+            },
             'waiting-for-data': {
                 headline: 'Recording is on. Waiting for the first session',
                 lead: 'New sessions start recording as users visit your site. The first replays usually show up here a few minutes after a visit.',
             },
         },
-        // Recording is already on in `waiting-for-data`, so the opt-in only belongs on the setup screen.
+        // Recording is already on in the other modes, so the opt-in only belongs on the setup screen.
         primaryAction: {
             'needs-setup': {
                 label: 'Enable session recording',
@@ -46,6 +53,13 @@ export const sessionReplayEmptyState: SceneProductEmptyState = {
                     scope: RestrictionScope.Project,
                     minimumAccessLevel: TeamMembershipLevel.Admin,
                 },
+            },
+            'no-events': {
+                label: 'Check your installation',
+                to: urls.onboarding({
+                    productKey: ProductKey.SESSION_REPLAY,
+                    stepKey: OnboardingStepKey.INSTALL,
+                }),
             },
         },
         docsUrl: 'https://posthog.com/docs/session-replay',
