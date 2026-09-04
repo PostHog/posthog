@@ -1602,6 +1602,8 @@ export interface _LogsFacetSearchBodyApi {
     filterGroup?: _LogPropertyFilterApi[]
     /** Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
     personId?: string
+    /** Scope counts to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsFacetSearchRequestApi {

@@ -5888,6 +5888,12 @@ export const LogsFacetSearchCreateBody = () => zod.object({
                 .describe(
                     "Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
                 ),
+            sessionId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope counts to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
+                ),
         })
         .describe('The facet value search to execute.'),
 })

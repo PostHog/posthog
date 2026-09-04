@@ -565,13 +565,8 @@ class _LogsFacetSearchBodySerializer(serializers.Serializer):
         help_text="Property filters for the query. The searched facet's own filter is excluded, so typing in "
         "one facet doesn't narrow it to the value already selected there.",
     )
-    personId = serializers.CharField(
-        required=False,
-        help_text=(
-            "Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's "
-            "distinct IDs and matched against the team's configured distinct-id log attribute keys."
-        ),
-    )
+    personId = _person_scope_field("counts")
+    sessionId = _session_scope_field("counts")
 
 
 class _LogsFacetSearchRequestSerializer(serializers.Serializer):
