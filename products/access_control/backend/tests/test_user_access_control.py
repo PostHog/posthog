@@ -130,6 +130,21 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         assert self.user_access_control._user_role_ids == [self.role_a.id]
         assert self.user_access_control.get_user_access_level(self.team) == expected_level
 
+    def test_role_membership_linked_to_another_organization_is_ignored(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self._create_access_control(resource_id=str(self.team.id), access_level="none")
+        other_organization = Organization.objects.create(name="Other organization")
+        other_membership = OrganizationMembership.objects.create(
+            organization=other_organization, user=self.user, level=OrganizationMembership.Level.MEMBER
+        )
+        RoleMembership.objects.create(role=self.role_b, user=self.user, organization_member=other_membership)
+        self._create_access_control(resource_id=str(self.team.id), access_level="admin", role=self.role_b)
+
+        self._clear_uac_caches()
+        assert self.user_access_control._user_role_ids == [self.role_a.id]
+        assert self.user_access_control.get_user_access_level(self.team) == "none"
+
     @parameterized.expand(
         [
             ("denial", "none", "member", "member"),
