@@ -486,6 +486,86 @@ describe('API helper', () => {
         })
     })
 
+    describe('uploads reporting progress', () => {
+        class FakeXMLHttpRequest {
+            static last: FakeXMLHttpRequest
+            upload: { onprogress?: (event: { loaded: number; total: number; lengthComputable: boolean }) => void } = {}
+            onload?: () => void
+            onerror?: () => void
+            onabort?: () => void
+            status = 200
+            statusText = 'OK'
+            responseText = '{"upload_id":"abc"}'
+
+            constructor() {
+                FakeXMLHttpRequest.last = this
+            }
+            open(): void {}
+            setRequestHeader(): void {}
+            getAllResponseHeaders(): string {
+                return 'content-type: application/json'
+            }
+            send(): void {}
+            abort(): void {}
+        }
+
+        const realXMLHttpRequest = window.XMLHttpRequest
+
+        beforeEach(() => {
+            window.XMLHttpRequest = FakeXMLHttpRequest as unknown as typeof XMLHttpRequest
+        })
+
+        afterEach(() => {
+            window.XMLHttpRequest = realXMLHttpRequest
+        })
+
+        it('reports how much of the body has been sent and resolves with the parsed response', async () => {
+            const onUploadProgress = jest.fn()
+            const result = api.dataWarehouseTables.uploadFile(new FormData(), { onUploadProgress })
+
+            const xhr = FakeXMLHttpRequest.last
+            xhr.upload.onprogress?.({ loaded: 512, total: 1024, lengthComputable: true })
+            xhr.onload?.()
+
+            await expect(result).resolves.toEqual({ upload_id: 'abc' })
+            expect(onUploadProgress).toHaveBeenCalledWith({ loaded: 512, total: 1024 })
+        })
+
+        it('reports an unmeasurable body as a null total', async () => {
+            const onUploadProgress = jest.fn()
+            const result = api.dataWarehouseTables.uploadFile(new FormData(), { onUploadProgress })
+
+            const xhr = FakeXMLHttpRequest.last
+            xhr.upload.onprogress?.({ loaded: 512, total: 0, lengthComputable: false })
+            xhr.onload?.()
+            await result
+
+            expect(onUploadProgress).toHaveBeenCalledWith({ loaded: 512, total: null })
+        })
+
+        it('raises the server message on a rejected upload instead of resolving', async () => {
+            const result = api.dataWarehouseTables.uploadFile(new FormData())
+
+            const xhr = FakeXMLHttpRequest.last
+            xhr.status = 400
+            xhr.statusText = 'Bad Request'
+            xhr.responseText = '{"message":"File is too large"}'
+            xhr.onload?.()
+
+            const error = await result.catch((e) => e)
+            expect(error).toBeInstanceOf(ApiError)
+            expect(error.data.message).toBe('File is too large')
+        })
+
+        it('classifies a request that never reached the server as a network failure', async () => {
+            const result = api.dataWarehouseTables.uploadFile(new FormData())
+
+            FakeXMLHttpRequest.last.onerror?.()
+
+            await expect(result).rejects.toBeInstanceOf(NetworkError)
+        })
+    })
+
     describe('organizationFeatureFlags', () => {
         it('builds correct URL for organization feature flags', () => {
             const apiRequest = new ApiRequest()
